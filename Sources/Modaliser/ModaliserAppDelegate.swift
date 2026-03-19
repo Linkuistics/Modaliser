@@ -3,10 +3,13 @@ import AppKit
 final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var keyboardCapture: KeyboardCapture?
+    private var schemeEngine: SchemeEngine?
+    private var keyEventDispatcher: KeyEventDispatcher?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         setupStatusBarItem()
+        loadSchemeConfig()
         startKeyboardCapture()
         NSLog("Modaliser launched")
     }
@@ -31,25 +34,67 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+    // MARK: - Scheme config
+
+    private func loadSchemeConfig() {
+        do {
+            let engine = try SchemeEngine()
+            schemeEngine = engine
+
+            // Load config.scm from the app bundle directory
+            let configPath = findConfigPath()
+            if let path = configPath {
+                try engine.evaluateFile(path)
+                NSLog("Config loaded from: %@", path)
+            } else {
+                NSLog("No config.scm found")
+            }
+
+            // Create the dispatcher that bridges keyboard events to the state machine
+            let executor = CommandExecutor(engine: engine)
+            keyEventDispatcher = KeyEventDispatcher(
+                registry: engine.registry,
+                executor: executor
+            )
+        } catch {
+            NSLog("Failed to load Scheme config: %@", "\(error)")
+        }
+    }
+
+    private func findConfigPath() -> String? {
+        // Look for config.scm in these locations (first found wins):
+        // 1. ~/.config/modaliser/config.scm
+        // 2. Adjacent to the executable (for development)
+        let homeConfig = NSHomeDirectory() + "/.config/modaliser/config.scm"
+        if FileManager.default.fileExists(atPath: homeConfig) {
+            return homeConfig
+        }
+
+        // Development: config.scm in the project root
+        let devConfig = FileManager.default.currentDirectoryPath + "/config.scm"
+        if FileManager.default.fileExists(atPath: devConfig) {
+            return devConfig
+        }
+
+        return nil
+    }
+
     // MARK: - Keyboard capture
 
     private func startKeyboardCapture() {
+        guard let dispatcher = keyEventDispatcher else {
+            NSLog("Cannot start keyboard capture: dispatcher not initialized")
+            return
+        }
+
         keyboardCapture = KeyboardCapture { event in
-            guard event.isKeyDown else { return }
-            switch event.keyCode {
-            case KeyCode.f18:
-                NSLog("F18 pressed — global leader")
-            case KeyCode.f17:
-                NSLog("F17 pressed — local leader")
-            default:
-                break
-            }
+            dispatcher.handleKeyEvent(event)
         }
 
         do {
             try keyboardCapture?.start()
         } catch {
-            NSLog("Failed to start keyboard capture: \(error)")
+            NSLog("Failed to start keyboard capture: %@", "\(error)")
             showAccessibilityPermissionAlert()
         }
     }

@@ -4,11 +4,11 @@ import CoreGraphics
 /// Captures global keyboard events via a CGEvent tap.
 /// Requires Accessibility permissions to function.
 final class KeyboardCapture {
-    private let onKeyEvent: (CapturedKeyEvent) -> Void
+    private let onKeyEvent: (CapturedKeyEvent) -> KeyEventHandlingResult
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
-    init(onKeyEvent: @escaping (CapturedKeyEvent) -> Void) {
+    init(onKeyEvent: @escaping (CapturedKeyEvent) -> KeyEventHandlingResult) {
         self.onKeyEvent = onKeyEvent
     }
 
@@ -73,11 +73,14 @@ final class KeyboardCapture {
             modifiers: event.flags
         )
 
-        onKeyEvent(captured)
+        let result = onKeyEvent(captured)
 
-        // Pass the event through (don't suppress). Suppression logic will be
-        // added in Session 3 when the modal state machine is implemented.
-        return Unmanaged.passUnretained(event)
+        switch result {
+        case .suppress:
+            return nil
+        case .passThrough:
+            return Unmanaged.passUnretained(event)
+        }
     }
 
     deinit {

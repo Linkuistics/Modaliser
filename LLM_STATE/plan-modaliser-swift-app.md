@@ -141,14 +141,17 @@ Key context:
   - [x] Check Scheme↔Swift data marshalling
   - [x] Update plan with findings
 
-- [ ] **Session 3: Modal state machine**
-  - [ ] Implement modal state: enter/exit leader, current node tracking, path breadcrumb
-  - [ ] Key dispatch: look up child in current group, descend or execute
-  - [ ] Command execution: call Scheme lambdas from Swift
-  - [ ] Group navigation: descend into subgroups, step back on delete
-  - [ ] Exit on escape, leader key re-press, or command execution
-  - [ ] Guard: block leader key when chooser is open
-  - [ ] Test: F18 → key sequences execute Scheme actions (launch apps, etc.)
+- [x] **Session 3: Modal state machine**
+  - [x] Implement modal state: enter/exit leader, current node tracking, path breadcrumb
+  - [x] Key dispatch: look up child in current group, descend or execute
+  - [x] Command execution: call Scheme lambdas from Swift
+  - [x] Group navigation: descend into subgroups, step back on delete
+  - [x] Exit on escape, leader key re-press, or command execution
+  - [ ] Guard: block leader key when chooser is open — deferred to Session 5 (when chooser exists)
+  - [x] Test: F18 → key sequences execute Scheme actions
+  - [x] Event suppression: modal keys suppressed when active, pass through when idle
+  - [x] KeyCodeMapping: CGKeyCode → character for all letters, digits, punctuation
+  - [x] Wired KeyEventDispatcher → ModalStateMachine → CommandExecutor in AppDelegate
   - [ ] Commit and stop
 
 - [ ] **Code Review 3**
@@ -292,3 +295,14 @@ Source directory: `~/.config/hammerspoon/modal-chooser/Sources/`
 - **Plan example config updated**: Replaced `#:keyword` syntax with actual `'symbol value` syntax. Corrected `selector`-inside-`key` nesting to show selectors as direct children of groups.
 - **TODO for Session 5**: `actions` and `fileRoots` parsing in `convertAlistToCommandNode` is marked with TODO, deferred to Session 5 when chooser UI is built.
 - **Thread safety note**: `CommandTreeRegistry` is not thread-safe. Fine for now (single-threaded access), but needs attention in Session 8 (config reload) when concurrent reads/writes may occur.
+
+### Session 3
+- **Architecture: result-returning state machine**: `ModalStateMachine` returns `KeyDispatchResult` (navigated/executed/openSelector/noBinding) rather than performing side effects. This keeps it pure and testable. The `CommandExecutor` handles actual Scheme lambda invocation separately.
+- **Three-layer dispatch**: `KeyboardCapture` → `KeyEventDispatcher` → `ModalStateMachine`. Each has a single concern: raw events, key code translation + special keys, and tree navigation logic respectively.
+- **Event suppression**: Changed `KeyboardCapture` callback from `(CapturedKeyEvent) -> Void` to `(CapturedKeyEvent) -> KeyEventHandlingResult`. Returns `nil` from CGEvent callback to suppress events during modal navigation. This prevents modal keys from reaching the focused app.
+- **KeyCodeMapping**: Static lookup table mapping CGKeyCode → character string. Covers all 26 letters, 10 digits, 11 punctuation keys, and space. Based on US ANSI HID key codes. F-keys, escape, delete, return do not map (handled as special keys by the dispatcher).
+- **LispKit `machine.apply`**: To call a Scheme lambda from Swift, use `machine.apply(proc, to: .null)` (two args, no `in:` parameter). The `.null` argument is the empty argument list for zero-arg procedures.
+- **Modifier key passthrough**: Keys pressed with Cmd modifier pass through even during modal (lets system shortcuts like Cmd+Tab work). This matches the Hammerspoon behavior where only unmodified keys are modal.
+- **Chooser guard deferred**: The "block leader when chooser is open" guard requires the chooser to exist (Session 5). Added as a note in the dispatcher where the check will go.
+- **File layout**: 17 source files, 13 test files. New: `ModalStateMachine.swift` (106 lines), `KeyEventDispatcher.swift` (104 lines), `KeyDispatchResult.swift` (28 lines), `CommandExecutor.swift` (39 lines), `KeyCodeMapping.swift` (34 lines).
+- **103 tests total**, 13 test suites. All pass in ~3.8s. Up from 51 tests in Session 2.
