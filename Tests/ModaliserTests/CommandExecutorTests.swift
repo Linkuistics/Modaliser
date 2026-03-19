@@ -84,4 +84,35 @@ struct CommandExecutorTests {
             _ = try executor.execute(action: lambda)
         }
     }
+
+    // MARK: - Execute with argument (for selector callbacks)
+
+    @Test func executeWithArgumentPassesValueToLambda() throws {
+        let engine = try makeEngine()
+        let lambda = try engine.evaluate("(lambda (x) (+ x 10))")
+        let executor = CommandExecutor(engine: engine)
+        let result = try executor.execute(action: lambda, argument: .fixnum(5))
+        #expect(result == .fixnum(15))
+    }
+
+    @Test func executeWithAlistArgumentExtractsField() throws {
+        let engine = try makeEngine()
+        let lambda = try engine.evaluate("""
+            (lambda (choice) (cdr (assoc 'text choice)))
+            """)
+        let alist = try engine.evaluate("""
+            (list (cons 'text "Safari") (cons 'icon "com.apple.Safari"))
+            """)
+        let executor = CommandExecutor(engine: engine)
+        let result = try executor.execute(action: lambda, argument: alist)
+        #expect(result == .makeString("Safari"))
+    }
+
+    @Test func executeWithArgumentNonProcedureThrows() throws {
+        let engine = try makeEngine()
+        let executor = CommandExecutor(engine: engine)
+        #expect(throws: (any Error).self) {
+            _ = try executor.execute(action: .fixnum(42), argument: .null)
+        }
+    }
 }

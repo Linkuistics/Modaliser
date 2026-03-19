@@ -253,4 +253,71 @@ struct KeyEventDispatcherTests {
         _ = dispatcher.handleKeyEvent(keyDown(1))
         #expect(!dispatcher.isModalActive)
     }
+
+    // MARK: - Chooser integration
+
+    private func makeSetupWithChooser() throws -> (KeyEventDispatcher, MockChooserPresenter, SchemeEngine) {
+        let engine = try SchemeEngine()
+        _ = try engine.evaluate("""
+            (set-leader! 'global F18)
+            (define call-log '())
+            (define-tree 'global
+              (key "s" "Safari" (lambda () (set! call-log (cons 's call-log))))
+              (group "f" "Find"
+                (selector "a" "Find Apps"
+                  'prompt "Find app…"
+                  'source (lambda () (list (list (cons 'text "Safari"))))
+                  'on-select (lambda (c) (set! call-log (cons 'selected call-log))))))
+            """)
+        let chooserPresenter = MockChooserPresenter()
+        let chooserCoordinator = ChooserCoordinator(
+            presenter: chooserPresenter,
+            sourceInvoker: SelectorSourceInvoker(engine: engine),
+            executor: CommandExecutor(engine: engine),
+            theme: .default
+        )
+        let dispatcher = KeyEventDispatcher(
+            registry: engine.registry,
+            executor: CommandExecutor(engine: engine),
+            chooserCoordinator: chooserCoordinator
+        )
+        return (dispatcher, chooserPresenter, engine)
+    }
+
+    @Test func selectorKeyOpensChooser() throws {
+        let (dispatcher, chooserPresenter, _) = try makeSetupWithChooser()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18)) // enter
+        _ = dispatcher.handleKeyEvent(keyDown(3))            // "f" = Find
+        _ = dispatcher.handleKeyEvent(keyDown(0))            // "a" = selector
+        #expect(chooserPresenter.showCallCount == 1)
+        #expect(chooserPresenter.lastPrompt == "Find app…")
+        #expect(chooserPresenter.lastChoices.count == 1)
+        #expect(!dispatcher.isModalActive) // modal exits when selector opens
+    }
+
+    @Test func leaderKeySuppressedWhenChooserIsOpen() throws {
+        let (dispatcher, chooserPresenter, _) = try makeSetupWithChooser()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18)) // enter
+        _ = dispatcher.handleKeyEvent(keyDown(3))            // "f" = Find
+        _ = dispatcher.handleKeyEvent(keyDown(0))            // "a" = selector opens
+        #expect(chooserPresenter.isChooserVisible)
+
+        // Leader key should be suppressed, not re-enter modal
+        let result = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        #expect(result == .suppress)
+        #expect(!dispatcher.isModalActive)
+    }
+
+    @Test func chooserSelectionCallsOnSelect() throws {
+        let (dispatcher, chooserPresenter, engine) = try makeSetupWithChooser()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        _ = dispatcher.handleKeyEvent(keyDown(3)) // "f"
+        _ = dispatcher.handleKeyEvent(keyDown(0)) // "a" = selector
+
+        let choice = chooserPresenter.lastChoices[0]
+        chooserPresenter.simulateResult(.selected(choice, query: ""))
+
+        let length = try engine.evaluate("(length call-log)")
+        #expect(length == .fixnum(1))
+    }
 }

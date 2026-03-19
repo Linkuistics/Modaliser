@@ -7,6 +7,8 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
     private var keyEventDispatcher: KeyEventDispatcher?
     private var overlayPanel: OverlayPanel?
     private var overlayCoordinator: OverlayCoordinator?
+    private var chooserWindowController: ChooserWindowController?
+    private var chooserCoordinator: ChooserCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -61,10 +63,22 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
             overlayCoordinator = coordinator
 
             let executor = CommandExecutor(engine: engine)
+
+            let chooserController = ChooserWindowController(theme: theme)
+            chooserWindowController = chooserController
+            let chooser = ChooserCoordinator(
+                presenter: chooserController,
+                sourceInvoker: SelectorSourceInvoker(engine: engine),
+                executor: executor,
+                theme: theme
+            )
+            chooserCoordinator = chooser
+
             keyEventDispatcher = KeyEventDispatcher(
                 registry: engine.registry,
                 executor: executor,
-                overlayCoordinator: coordinator
+                overlayCoordinator: coordinator,
+                chooserCoordinator: chooser
             )
         } catch {
             NSLog("Failed to load Scheme config: %@", "\(error)")
@@ -87,24 +101,7 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
             try keyboardCapture?.start()
         } catch {
             NSLog("Failed to start keyboard capture: %@", "\(error)")
-            showAccessibilityPermissionAlert()
+            AccessibilityPermissionAlert.showAndTerminate()
         }
-    }
-
-    private func showAccessibilityPermissionAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Accessibility Permission Required"
-        alert.informativeText = "Modaliser needs Accessibility access to capture global keyboard events. Please grant access in System Settings > Privacy & Security > Accessibility, then relaunch."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Quit")
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                NSWorkspace.shared.open(url)
-            }
-        }
-        NSApp.terminate(nil)
     }
 }

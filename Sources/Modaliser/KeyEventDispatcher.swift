@@ -17,6 +17,7 @@ final class KeyEventDispatcher {
     private let registry: CommandTreeRegistry
     private let executor: CommandExecutor
     private let overlayNotifier: OverlayNotifier?
+    private let chooserCoordinator: ChooserCoordinator?
 
     /// Whether modal navigation is currently active.
     var isModalActive: Bool { stateMachine.isActive }
@@ -24,18 +25,28 @@ final class KeyEventDispatcher {
     /// The label of the current node in the navigation tree, or nil if idle.
     var currentNodeLabel: String? { stateMachine.currentNode?.label }
 
-    init(registry: CommandTreeRegistry, executor: CommandExecutor, overlayCoordinator: OverlayCoordinator? = nil) {
+    init(
+        registry: CommandTreeRegistry,
+        executor: CommandExecutor,
+        overlayCoordinator: OverlayCoordinator? = nil,
+        chooserCoordinator: ChooserCoordinator? = nil
+    ) {
         self.registry = registry
         self.executor = executor
         self.stateMachine = ModalStateMachine(registry: registry)
         self.overlayNotifier = overlayCoordinator.map { OverlayNotifier(coordinator: $0) }
+        self.chooserCoordinator = chooserCoordinator
     }
 
     /// Handle a captured key event. Returns whether the event should be suppressed.
     func handleKeyEvent(_ event: CapturedKeyEvent) -> KeyEventHandlingResult {
         guard event.isKeyDown else { return .passThrough }
 
+        // Block leader key when chooser is open — prevents re-entering modal while searching
         if let mode = leaderMode(for: event.keyCode) {
+            if chooserCoordinator?.isChooserOpen == true {
+                return .suppress
+            }
             return handleLeaderKey(mode: mode)
         }
 
@@ -92,10 +103,9 @@ final class KeyEventDispatcher {
                 NSLog("Command execution error: %@", "\(error)")
             }
 
-        case .openSelector:
+        case .openSelector(let selectorDef):
             overlayNotifier?.deactivated()
-            // TODO: Session 5 — wire selector to chooser window
-            NSLog("Selector opened (not yet implemented)")
+            chooserCoordinator?.openSelector(selectorDef)
 
         case .navigated:
             overlayNotifier?.navigated(machine: stateMachine)

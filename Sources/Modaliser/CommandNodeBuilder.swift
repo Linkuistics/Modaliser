@@ -31,21 +31,64 @@ struct CommandNodeBuilder {
             return .group(GroupDefinition(key: key, label: label, children: children))
 
         case "selector":
-            // TODO: Parse 'actions' list and 'file-roots' when chooser UI is built (Session 5)
             let config = SelectorConfig(
                 prompt: try? lookupRequired(expr, key: "prompt").asString(),
                 source: lookupOptional(expr, key: "source"),
                 onSelect: lookupOptional(expr, key: "on-select"),
                 remember: try? lookupRequired(expr, key: "remember").asString(),
                 idField: try? lookupRequired(expr, key: "id-field").asString(),
-                actions: [],
-                fileRoots: nil
+                actions: parseActions(from: lookupOptional(expr, key: "actions")),
+                fileRoots: parseFileRoots(from: lookupOptional(expr, key: "file-roots"))
             )
             return .selector(SelectorDefinition(key: key, label: label, config: config))
 
         default:
             throw RuntimeError.type(kind, expected: [.symbolType])
         }
+    }
+
+    /// Parse a Scheme list of action alists into [ActionConfig].
+    private func parseActions(from expr: Expr?) -> [ActionConfig] {
+        guard let expr = expr else { return [] }
+        var actions: [ActionConfig] = []
+        var current = expr
+        while case .pair(let head, let tail) = current {
+            if let action = parseOneAction(from: head) {
+                actions.append(action)
+            }
+            current = tail
+        }
+        return actions
+    }
+
+    private func parseOneAction(from alist: Expr) -> ActionConfig? {
+        guard let name = try? lookupRequired(alist, key: "name").asString() else { return nil }
+        let run = lookupOptional(alist, key: "run") ?? .null
+        let trigger = parseActionTrigger(from: lookupOptional(alist, key: "key"))
+        return ActionConfig(name: name, trigger: trigger, run: run)
+    }
+
+    private func parseActionTrigger(from expr: Expr?) -> ActionTrigger? {
+        guard case .symbol(let sym) = expr else { return nil }
+        switch sym.identifier {
+        case "primary": return .primary
+        case "secondary": return .secondary
+        default: return nil
+        }
+    }
+
+    /// Parse a Scheme list of strings into [String] for file-roots.
+    private func parseFileRoots(from expr: Expr?) -> [String]? {
+        guard let expr = expr else { return nil }
+        var roots: [String] = []
+        var current = expr
+        while case .pair(let head, let tail) = current {
+            if let s = try? head.asString() {
+                roots.append(s)
+            }
+            current = tail
+        }
+        return roots.isEmpty ? nil : roots
     }
 
     /// Look up a required key in a Scheme alist. Throws a descriptive error if not found.

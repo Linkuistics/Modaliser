@@ -147,7 +147,7 @@ Key context:
   - [x] Command execution: call Scheme lambdas from Swift
   - [x] Group navigation: descend into subgroups, step back on delete
   - [x] Exit on escape, leader key re-press, or command execution
-  - [ ] Guard: block leader key when chooser is open — deferred to Session 5 (when chooser exists)
+  - [x] Guard: block leader key when chooser is open — implemented in Session 5
   - [x] Test: F18 → key sequences execute Scheme actions
   - [x] Event suppression: modal keys suppressed when active, pass through when idle
   - [x] KeyCodeMapping: CGKeyCode → character for all letters, digits, punctuation
@@ -170,22 +170,22 @@ Key context:
   - [x] Test: F18 → overlay appears after delay, updates on navigation, hides on exit
   - [x] Commit and stop
 
-- [ ] **Code Review 4**
-  - [ ] Review overlay rendering, positioning, focus behavior
-  - [ ] Compare visual output with existing Hammerspoon version
-  - [ ] Update plan with findings
+- [x] **Code Review 4**
+  - [x] Review overlay rendering, positioning, focus behavior
+  - [x] Compare visual output with existing Hammerspoon version
+  - [x] Update plan with findings
 
-- [ ] **Session 5: Chooser window + selectors**
-  - [ ] Port ChooserWindow.swift (search field, table view, keyboard handling)
-  - [ ] Port ActionPanel.swift (⌘K, digit shortcuts, del back, esc cancel)
-  - [ ] Port IconLoader.swift (app icon loading + caching)
-  - [ ] Wire selectors from Scheme config to chooser presentation
-  - [ ] Selector source functions called in Scheme, results marshalled to Swift Choice objects
-  - [ ] Choice round-tripping: retain Scheme objects, resolve on selection
-  - [ ] Action callbacks: dispatch to Scheme lambdas
-  - [ ] ⌘1-⌘9 item selection, ⌘↵ secondary action
-  - [ ] Focus management: cancel on focus loss, deactivate on dismiss
-  - [ ] Test: F18→f→a opens app chooser, selection launches app, actions work
+- [x] **Session 5: Chooser window + selectors**
+  - [x] Port ChooserWindow.swift (search field, table view, keyboard handling)
+  - [x] Port ActionPanel.swift (⌘K, digit shortcuts, del back, esc cancel)
+  - [x] Port IconLoader.swift (app icon loading + caching)
+  - [x] Wire selectors from Scheme config to chooser presentation
+  - [x] Selector source functions called in Scheme, results marshalled to Swift Choice objects
+  - [x] Choice round-tripping: retain Scheme objects, resolve on selection
+  - [x] Action callbacks: dispatch to Scheme lambdas
+  - [x] ⌘1-⌘9 item selection, ⌘↵ secondary action
+  - [x] Focus management: cancel on focus loss, deactivate on dismiss
+  - [x] Test: F18→f→a opens app chooser, selection launches app, actions work
   - [ ] Commit and stop
 
 - [ ] **Code Review 5**
@@ -331,3 +331,28 @@ Source directory: `~/.config/hammerspoon/modal-chooser/Sources/`
 - **OverlayPanel focus behavior**: `styleMask: [.borderless, .nonactivatingPanel]` prevents the overlay from stealing keyboard focus. `hidesOnDeactivate = false` keeps it visible even when the app deactivates. `orderFront(nil)` shows without activating.
 - **File layout**: 31 source files (+13), 16 test files (+3). **145 tests total** (up from 104), 16 suites (up from 13). All passing, zero warnings.
 - **Deferred**: `set-theme!` from Session 2 is now implemented. Session 2's deferred item can be marked done.
+
+### Code Review 4
+- **Overlay port is faithful**: Every NSPanel flag, layout constant, rendering detail, and coordinate calculation matches the Hammerspoon reference exactly. Panel creation (`borderless`, `nonactivatingPanel`, `floating`, `hasShadow`, `hidesOnDeactivate`), container styling (`cornerRadius: 10`, `borderWidth: 2`, `masksToBounds`), positioning (`midX - width/2`, `maxY - height*0.2 - totalH`), entry rendering (space→␣, padded keys, blue accent, grey arrows, orange groups with "…"), header (grey 0.50 white, optional app icon), and footer (tab-stop right-alignment, accent keys, grey descriptions) — all identical.
+- **Extracted `MockOverlayPresenter`**: Was defined inline in `OverlayCoordinatorTests.swift` but used by `KeyEventDispatcherTests.swift` — implicit cross-file dependency. Now in its own `MockOverlayPresenter.swift` test file (19 lines).
+- **Extracted `AccessibilityPermissionAlert`**: 15-line permission alert method extracted from `ModaliserAppDelegate` (110→93 lines) into `AccessibilityPermissionAlert.swift` (23 lines). Enum with static `showAndTerminate()` method.
+- **Added `OverlayNotifierTests`**: 6 new tests directly covering `OverlayNotifier` — activated/idle/navigated/deactivated/afterStepBack paths. Previously tested only indirectly through `KeyEventDispatcherTests`.
+- **`OverlayFooterRenderer` vs reference `styledFooter`**: The reference's `styledFooter` has `cmdFont` support for ⌘/⏎ symbols (shared with chooser footer). The Modaliser overlay footer only uses "del"/"esc" text, so cmdFont is unnecessary now. Session 5 will need to add symbol font switching when implementing the chooser footer.
+- **Files over 100 lines**: `ModaliserDSLLibrary` (181, addressed in CR2), `KeyEventDispatcher` (115, overlay one-liners), `ModalStateMachine` (108), `KeyboardCapture` (106), `OverlayPanel` (105). All are cohesive single-concern files with no clean extraction opportunities.
+- **`showOverlay` recreates the panel each call**: Both the reference and Modaliser dismiss+recreate the NSPanel on every show/update. This works but could cause subtle flicker during rapid navigation. Future optimization: update content in-place via `setContentView` or subview replacement.
+- **File layout**: 32 source files (+1 `AccessibilityPermissionAlert`), 18 test files (+2 `MockOverlayPresenter`, `OverlayNotifierTests`). **151 tests total** (up from 145), 17 suites (up from 16). All passing, zero warnings.
+
+### Session 5
+- **Architecture: layered chooser system**: Six-layer separation following the overlay pattern: `ChooserWindowController` (core state + selection), `ChooserWindowBuilder` (window construction + layout), `ChooserKeyboardHandler` (key dispatch), `ChooserRowRenderer` (table data source + row rendering), `ChooserFooterRenderer` (footer text), `ChooserSearchHandler` (search + filtering), `ChooserActionPanelHandler` (action panel management). Plus independent: `ChooserCoordinator` (lifecycle), `ChooserActionPanel` (action state), `SelectorSourceInvoker` (Scheme bridge), `IconLoader` (icon caching).
+- **Scheme round-tripping via `schemeValue`**: `ChooserChoice` retains the original Scheme alist (`schemeValue: Expr`) alongside extracted Swift display fields. When the user selects a choice, the original Scheme value is passed to `onSelect`/action `run` lambdas. This avoids lossy Swift→Scheme conversion and means source functions can include arbitrary fields the UI doesn't know about.
+- **`CommandExecutor` extended with argument support**: Added `execute(action:argument:)` for one-arg Scheme lambdas. Both zero-arg and one-arg variants delegate to a private `execute(action:arguments:)` that takes a proper Scheme argument list (`.pair(arg, .null)` for one arg, `.null` for zero args).
+- **Action parsing in CommandNodeBuilder**: The `actions` field in selector DSL alists is a Scheme list of action alists. Each action alist has `name`, optional `key` (primary/secondary symbol), and `run` (procedure). `file-roots` is a simple list of strings. Both use tolerant parsing — missing or malformed entries are silently skipped rather than throwing.
+- **Leader key guard**: When the chooser is open (`chooserCoordinator.isChooserOpen`), leader key presses are suppressed. This prevents the user from accidentally re-entering modal mode while the search field is active. The guard is in `KeyEventDispatcher.handleKeyEvent` before the leader key handler.
+- **Chooser steals focus (intentionally)**: Unlike the overlay (which uses `.nonactivatingPanel` and `orderFront`), the chooser uses `NSApp.activate(ignoringOtherApps:)` + `makeKeyAndOrderFront` + `makeFirstResponder(searchField)` so the search field receives keystrokes. On dismiss, `NSApp.deactivate()` returns focus to the previous app.
+- **Deactivation observer for focus loss**: The chooser registers for `NSApplication.didResignActiveNotification` and cancels on focus loss (user clicked elsewhere). The observer is removed on dismiss to prevent stale callbacks.
+- **Debounced search with generation counter**: Search uses a serial `DispatchQueue` with 30ms debounce. A `searchGeneration` counter invalidates stale results — if the user types faster than search completes, only the latest generation's results are applied. This is the same pattern as the reference.
+- **Simple substring matching (Session 6 placeholder)**: For now, search uses case-insensitive substring matching with position-based scoring. Session 6 will replace this with the DP-based fuzzy matcher from the reference, which handles camelCase boundaries, gap penalties, and consecutive bonuses.
+- **ChooserPresenting protocol**: Mirrors `OverlayPresenting` but adds `onResult` callback. The coordinator passes a closure to the presenter; the presenter calls it when the user interacts. This avoids the presenter needing to know about Scheme or the coordinator.
+- **cmdFont for ⌘/⏎ symbols in footer**: The chooser footer uses the same `styledFooter` pattern as the reference — segments containing only `⌘` or `↩` get `NSFont.systemFont` (which renders the symbols correctly), while other keys use the monospace theme font.
+- **Files over 100 lines**: `ChooserRowRenderer` (194), `ModaliserDSLLibrary` (181), `ChooserWindowBuilder` (168), `ChooserWindowController` (164), `KeyEventDispatcher` (125), `ChooserKeyboardHandler` (124), `CommandNodeBuilder` (123). The chooser UI files are inherently larger due to AppKit view construction verbosity — each `NSTextField` requires 5-7 lines of configuration. All remain single-concern despite size.
+- **File layout**: 48 source files (+16), 23 test files (+5). **187 tests total** (up from 151), 21 suites (up from 17). All passing, zero warnings.
