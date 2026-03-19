@@ -160,4 +160,97 @@ struct KeyEventDispatcherTests {
         let result = dispatcher.handleKeyEvent(keyDown(0, modifiers: .maskCommand))
         #expect(result == .passThrough)
     }
+
+    // MARK: - Overlay notifications
+
+    private func makeSetupWithOverlay() throws -> (KeyEventDispatcher, MockOverlayPresenter) {
+        let engine = try SchemeEngine()
+        _ = try engine.evaluate("""
+            (set-leader! 'global F18)
+            (set-leader! 'local F17)
+            (define-tree 'global
+              (key "s" "Safari" (lambda () #t))
+              (group "f" "Find"
+                (key "a" "Apps" (lambda () #t))))
+            """)
+        let presenter = MockOverlayPresenter()
+        let coordinator = OverlayCoordinator(presenter: presenter, showDelay: 0)
+        let dispatcher = KeyEventDispatcher(
+            registry: engine.registry,
+            executor: CommandExecutor(engine: engine),
+            overlayCoordinator: coordinator
+        )
+        return (dispatcher, presenter)
+    }
+
+    @Test func leaderKeyActivatesOverlay() throws {
+        let (dispatcher, presenter) = try makeSetupWithOverlay()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        #expect(presenter.showCallCount == 1)
+        #expect(presenter.lastShownContent?.header == "Global")
+    }
+
+    @Test func overlayShowsCorrectEntriesAtRoot() throws {
+        let (dispatcher, presenter) = try makeSetupWithOverlay()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        let entries = presenter.lastShownContent?.entries ?? []
+        #expect(entries.count == 2)
+        #expect(entries[0].key == "f")
+        #expect(entries[0].style == .group)
+        #expect(entries[1].key == "s")
+        #expect(entries[1].style == .command)
+    }
+
+    @Test func navigateIntoGroupUpdatesOverlay() throws {
+        let (dispatcher, presenter) = try makeSetupWithOverlay()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        _ = dispatcher.handleKeyEvent(keyDown(3)) // "f" = Find
+        #expect(presenter.showCallCount == 2)
+        #expect(presenter.lastShownContent?.header == "Global \u{203A} Find")
+    }
+
+    @Test func escapeDeactivatesOverlay() throws {
+        let (dispatcher, presenter) = try makeSetupWithOverlay()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.escape))
+        #expect(presenter.dismissCallCount == 1)
+    }
+
+    @Test func commandExecutionDeactivatesOverlay() throws {
+        let (dispatcher, presenter) = try makeSetupWithOverlay()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        _ = dispatcher.handleKeyEvent(keyDown(1)) // "s" = Safari
+        #expect(presenter.dismissCallCount == 1)
+    }
+
+    @Test func leaderRePressDuringModalDeactivatesOverlay() throws {
+        let (dispatcher, presenter) = try makeSetupWithOverlay()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        #expect(presenter.dismissCallCount == 1)
+    }
+
+    @Test func deleteStepBackUpdatesOverlay() throws {
+        let (dispatcher, presenter) = try makeSetupWithOverlay()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        _ = dispatcher.handleKeyEvent(keyDown(3)) // "f" = Find
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.delete))
+        #expect(presenter.showCallCount == 3) // activate + navigate + step back
+        #expect(presenter.lastShownContent?.header == "Global")
+    }
+
+    @Test func deleteAtRootDeactivatesOverlay() throws {
+        let (dispatcher, presenter) = try makeSetupWithOverlay()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.delete))
+        #expect(presenter.dismissCallCount == 1)
+    }
+
+    @Test func noOverlayNotificationWhenCoordinatorIsNil() throws {
+        // Original setup without overlay — should not crash
+        let (dispatcher, _) = try makeSetup()
+        _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
+        _ = dispatcher.handleKeyEvent(keyDown(1))
+        #expect(!dispatcher.isModalActive)
+    }
 }

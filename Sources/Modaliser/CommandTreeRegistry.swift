@@ -14,11 +14,12 @@ enum LeaderMode: Hashable {
     case local
 }
 
-/// Stores registered command trees and leader key configuration.
-/// Populated by evaluating the Scheme config, read by the modal state machine.
+/// Stores registered command trees, leader key configuration, and theme.
+/// Populated by evaluating the Scheme config, read by the modal state machine and overlay.
 final class CommandTreeRegistry {
     private var trees: [TreeScope: CommandNode] = [:]
     private var leaderKeys: [LeaderMode: CGKeyCode] = [:]
+    var theme: OverlayTheme?
 
     func registerTree(for scope: TreeScope, root: CommandNode) {
         trees[scope] = root

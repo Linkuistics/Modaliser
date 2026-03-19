@@ -164,4 +164,49 @@ struct DSLLibraryTests {
         #expect(try engine.evaluate("F19") == .fixnum(Int64(KeyCode.f19)))
         #expect(try engine.evaluate("F20") == .fixnum(Int64(KeyCode.f20)))
     }
+
+    // MARK: - set-theme!
+
+    @Test func setThemeRegistersCustomTheme() throws {
+        let engine = try makeEngine()
+        _ = try engine.evaluate("""
+            (set-theme!
+              'font "Monaco"
+              'font-size 14
+              'overlay-width 400)
+            """)
+        let theme = engine.registry.theme
+        #expect(theme != nil)
+        #expect(theme?.fontSize == 14)
+        #expect(theme?.overlayWidth == 400)
+    }
+
+    @Test func setThemeWithColorsRegistersTheme() throws {
+        let engine = try makeEngine()
+        _ = try engine.evaluate("""
+            (set-theme!
+              'bg '(0.1 0.1 0.1)
+              'accent '(1.0 0.0 0.0))
+            """)
+        let theme = engine.registry.theme
+        #expect(theme != nil)
+    }
+
+    @Test func setThemeWithShowDelayRegistersTheme() throws {
+        let engine = try makeEngine()
+        _ = try engine.evaluate("""
+            (set-theme!
+              'show-delay 0.5)
+            """)
+        let theme = engine.registry.theme
+        #expect(theme?.showDelay == 0.5)
+    }
+
+    @Test func setThemeWithoutArgsUsesDefaults() throws {
+        let engine = try makeEngine()
+        _ = try engine.evaluate("(set-theme!)")
+        let theme = engine.registry.theme
+        #expect(theme != nil)
+        #expect(theme?.fontSize == OverlayTheme.default.fontSize)
+    }
 }

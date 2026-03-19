@@ -16,6 +16,7 @@ final class KeyEventDispatcher {
     private let stateMachine: ModalStateMachine
     private let registry: CommandTreeRegistry
     private let executor: CommandExecutor
+    private let overlayNotifier: OverlayNotifier?
 
     /// Whether modal navigation is currently active.
     var isModalActive: Bool { stateMachine.isActive }
@@ -23,38 +24,36 @@ final class KeyEventDispatcher {
     /// The label of the current node in the navigation tree, or nil if idle.
     var currentNodeLabel: String? { stateMachine.currentNode?.label }
 
-    init(registry: CommandTreeRegistry, executor: CommandExecutor) {
+    init(registry: CommandTreeRegistry, executor: CommandExecutor, overlayCoordinator: OverlayCoordinator? = nil) {
         self.registry = registry
         self.executor = executor
         self.stateMachine = ModalStateMachine(registry: registry)
+        self.overlayNotifier = overlayCoordinator.map { OverlayNotifier(coordinator: $0) }
     }
 
     /// Handle a captured key event. Returns whether the event should be suppressed.
     func handleKeyEvent(_ event: CapturedKeyEvent) -> KeyEventHandlingResult {
-        // Only process key-down events
         guard event.isKeyDown else { return .passThrough }
 
-        // Check if this is a leader key
         if let mode = leaderMode(for: event.keyCode) {
             return handleLeaderKey(mode: mode)
         }
 
-        // If modal is not active, pass through
         guard stateMachine.isActive else { return .passThrough }
 
-        // Ignore events with command modifier (let system shortcuts through)
         if event.modifiers.contains(.maskCommand) {
             return .passThrough
         }
 
-        // Handle special keys
         switch event.keyCode {
         case KeyCode.escape:
             stateMachine.exitLeader()
+            overlayNotifier?.deactivated()
             return .suppress
 
         case KeyCode.delete:
             stateMachine.stepBack()
+            overlayNotifier?.afterStepBack(machine: stateMachine)
             return .suppress
 
         default:
@@ -67,16 +66,18 @@ final class KeyEventDispatcher {
     private func handleLeaderKey(mode: LeaderMode) -> KeyEventHandlingResult {
         if stateMachine.isActive {
             stateMachine.exitLeader()
+            overlayNotifier?.deactivated()
         } else {
             stateMachine.enterLeader(mode: mode)
+            overlayNotifier?.activated(machine: stateMachine)
         }
         return .suppress
     }
 
     private func handleModalKey(_ keyCode: CGKeyCode) -> KeyEventHandlingResult {
         guard let character = KeyCodeMapping.character(for: keyCode) else {
-            // Unmapped key — exit modal
             stateMachine.exitLeader()
+            overlayNotifier?.deactivated()
             return .suppress
         }
 
@@ -84,6 +85,7 @@ final class KeyEventDispatcher {
 
         switch result {
         case .executed(let action):
+            overlayNotifier?.deactivated()
             do {
                 try executor.execute(action: action)
             } catch {
@@ -91,17 +93,20 @@ final class KeyEventDispatcher {
             }
 
         case .openSelector:
-            // Selector handling will be implemented in Session 5
+            overlayNotifier?.deactivated()
+            // TODO: Session 5 — wire selector to chooser window
             NSLog("Selector opened (not yet implemented)")
 
-        case .navigated, .noBinding:
-            break
+        case .navigated:
+            overlayNotifier?.navigated(machine: stateMachine)
+
+        case .noBinding:
+            overlayNotifier?.deactivated()
         }
 
         return .suppress
     }
 
-    /// Check if a key code corresponds to a configured leader key.
     private func leaderMode(for keyCode: CGKeyCode) -> LeaderMode? {
         if registry.leaderKey(for: .global) == keyCode { return .global }
         if registry.leaderKey(for: .local) == keyCode { return .local }

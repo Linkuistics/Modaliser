@@ -132,7 +132,7 @@ Key context:
   - [x] Load and evaluate config.scm, build internal command tree representation
   - [x] Write sample config.scm with a few commands
   - [x] Test: config loads, command tree is traversable from Swift
-  - [ ] `set-theme!` — deferred to Session 4 (when overlay UI is built)
+  - [x] `set-theme!` — implemented in Session 4
   - [ ] Commit and stop
 
 - [x] **Code Review 2**
@@ -160,15 +160,15 @@ Key context:
   - [x] Verify Scheme lambda execution is robust (error handling)
   - [x] Update plan with findings
 
-- [ ] **Session 4: Which-key overlay**
-  - [ ] Port OverlayWindow.swift from modal-chooser (passive floating NSPanel)
-  - [ ] Port ChooserTheme.swift (read theme from Scheme config)
-  - [ ] Wire overlay show/hide to modal state machine (with configurable delay)
-  - [ ] Render: header breadcrumb (with app icon for local mode), sorted entries, footer
-  - [ ] Styling: blue keys, orange groups with "…", grey arrows, esc/del footer
-  - [ ] Ensure overlay never steals keyboard focus
-  - [ ] Test: F18 → overlay appears after delay, updates on navigation, hides on exit
-  - [ ] Commit and stop
+- [x] **Session 4: Which-key overlay**
+  - [x] Port OverlayWindow.swift from modal-chooser (passive floating NSPanel)
+  - [x] Port ChooserTheme.swift (read theme from Scheme config)
+  - [x] Wire overlay show/hide to modal state machine (with configurable delay)
+  - [x] Render: header breadcrumb (with app icon for local mode), sorted entries, footer
+  - [x] Styling: blue keys, orange groups with "…", grey arrows, esc/del footer
+  - [x] Ensure overlay never steals keyboard focus
+  - [x] Test: F18 → overlay appears after delay, updates on navigation, hides on exit
+  - [x] Commit and stop
 
 - [ ] **Code Review 4**
   - [ ] Review overlay rendering, positioning, focus behavior
@@ -318,3 +318,16 @@ Source directory: `~/.config/hammerspoon/modal-chooser/Sources/`
 - **KeyCodeMapping documentation**: Added note about international keyboard support — HID key codes are physical positions, not characters, so AZERTY/Dvorak users press the same physical key for the same shortcut. This is intentional for a modal shortcut system.
 - **Fixed compiler warnings**: Removed unused `let log` variables in `KeyEventDispatcherTests` and `CommandExecutorTests`.
 - **File layout**: 18 source files (+1 `ConfigPathResolver`), 13 test files. **104 tests total**, all passing, zero warnings.
+
+### Session 4
+- **Architecture: layered overlay system**: Five-layer separation: `OverlayContentBuilder` (pure data transform), `OverlayCoordinator` (timing/lifecycle), `OverlayNotifier` (state machine → coordinator bridge), `OverlayPanel` (NSPanel rendering), and three renderers (header/entry/footer). Each is independently testable.
+- **Protocol-based panel testing**: `OverlayPresenting` protocol abstracts the NSPanel. Tests inject `MockOverlayPresenter` to verify coordinator timing behavior without creating real windows. This is the only mock in the test suite — everything else uses real objects.
+- **Timer testing challenge**: `Timer.scheduledTimer` fires on the creating thread's RunLoop. Swift Testing runs on a cooperative thread pool, not the main thread. Solution: coordinator accepts `showDelay: 0` for synchronous behavior in tests. Tests verify state transition logic; Timer is trusted as framework infrastructure.
+- **NSFont fontName vs familyName**: `NSFont(name: "Menlo", size: 15)` resolves to fontName `"Menlo-Regular"`, not `"Menlo"`. Tests should assert on `familyName` for user-specified fonts.
+- **set-theme! DSL function**: Accepts alternating `'symbol value` pairs: `(set-theme! 'font "Monaco" 'font-size 14 'bg '(0.1 0.1 0.1))`. Colors are Scheme lists of 3 flonums. All properties are optional, defaulting to the warm beige theme from the Hammerspoon version.
+- **ThemeConfigParser extraction**: Parsing Scheme `'symbol value` pairs into an `OverlayTheme` was extracted from `ModaliserDSLLibrary` into `ThemeConfigParser` (57 lines). DSL library dropped from 238 to 181 lines.
+- **OverlayNotifier extraction**: Overlay notification logic extracted from `KeyEventDispatcher` into `OverlayNotifier` (44 lines). Dispatcher dropped from 159 to 115 lines.
+- **Breadcrumb header**: Uses `treeLabel + " › " + currentGroupLabel`. The path stores keys (["f"]) not labels (["Find"]), so full breadcrumb reconstruction for deep nesting would need `pathLabels` on the state machine. Current approach works for typical 2-3 level trees.
+- **OverlayPanel focus behavior**: `styleMask: [.borderless, .nonactivatingPanel]` prevents the overlay from stealing keyboard focus. `hidesOnDeactivate = false` keeps it visible even when the app deactivates. `orderFront(nil)` shows without activating.
+- **File layout**: 31 source files (+13), 16 test files (+3). **145 tests total** (up from 104), 16 suites (up from 13). All passing, zero warnings.
+- **Deferred**: `set-theme!` from Session 2 is now implemented. Session 2's deferred item can be marked done.

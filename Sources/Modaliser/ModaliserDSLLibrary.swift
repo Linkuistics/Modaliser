@@ -37,6 +37,7 @@ final class ModaliserDSLLibrary: NativeLibrary {
         self.define(Procedure("action", self.actionFunction))
         self.define(Procedure("define-tree", self.defineTreeFunction))
         self.define(Procedure("set-leader!", self.setLeaderFunction))
+        self.define(Procedure("set-theme!", self.setThemeFunction))
         // Key code constants
         self.define("F17", as: .fixnum(Int64(KeyCode.f17)))
         self.define("F18", as: .fixnum(Int64(KeyCode.f18)))
@@ -137,6 +138,17 @@ final class ModaliserDSLLibrary: NativeLibrary {
         let code = try keyCode.asInt64()
         let leaderMode: LeaderMode = modeSym.identifier == "global" ? .global : .local
         registry.setLeaderKey(for: leaderMode, keyCode: CGKeyCode(code))
+        return .void
+    }
+
+    /// (set-theme! 'font "Monaco" 'font-size 14 'bg '(0.1 0.1 0.1) ...) → void
+    private func setThemeFunction(_ rest: Arguments) throws -> Expr {
+        guard let registry else {
+            throw RuntimeError.custom("eval", "DSL library not initialized (no registry)", [])
+        }
+        var props: [(String, Expr)] = []
+        parsePropertyArguments(from: rest, into: &props)
+        registry.theme = ThemeConfigParser().parseTheme(from: props)
         return .void
     }
 

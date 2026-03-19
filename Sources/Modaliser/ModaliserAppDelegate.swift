@@ -5,6 +5,8 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
     private var keyboardCapture: KeyboardCapture?
     private var schemeEngine: SchemeEngine?
     private var keyEventDispatcher: KeyEventDispatcher?
+    private var overlayPanel: OverlayPanel?
+    private var overlayCoordinator: OverlayCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -48,10 +50,21 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
                 NSLog("No config.scm found")
             }
 
+            let theme = engine.registry.theme ?? .default
+            let panel = OverlayPanel()
+            overlayPanel = panel
+            let coordinator = OverlayCoordinator(
+                presenter: panel,
+                showDelay: theme.showDelay,
+                theme: theme
+            )
+            overlayCoordinator = coordinator
+
             let executor = CommandExecutor(engine: engine)
             keyEventDispatcher = KeyEventDispatcher(
                 registry: engine.registry,
-                executor: executor
+                executor: executor,
+                overlayCoordinator: coordinator
             )
         } catch {
             NSLog("Failed to load Scheme config: %@", "\(error)")
