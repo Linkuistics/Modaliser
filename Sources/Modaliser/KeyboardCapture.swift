@@ -4,32 +4,6 @@ import CoreGraphics
 /// Captures global keyboard events via a CGEvent tap.
 /// Requires Accessibility permissions to function.
 final class KeyboardCapture {
-    /// Represents a captured keyboard event with parsed fields.
-    struct CapturedKeyEvent {
-        let keyCode: CGKeyCode
-        let isKeyDown: Bool
-        let modifiers: CGEventFlags
-
-        var isKeyUp: Bool { !isKeyDown }
-    }
-
-    enum CaptureError: Error, CustomStringConvertible {
-        case accessibilityNotTrusted
-        case eventTapCreationFailed
-        case runLoopSourceCreationFailed
-
-        var description: String {
-            switch self {
-            case .accessibilityNotTrusted:
-                "Accessibility permission not granted"
-            case .eventTapCreationFailed:
-                "Failed to create CGEvent tap"
-            case .runLoopSourceCreationFailed:
-                "Failed to create run loop source from event tap"
-            }
-        }
-    }
-
     private let onKeyEvent: (CapturedKeyEvent) -> Void
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -41,7 +15,7 @@ final class KeyboardCapture {
     /// Start capturing keyboard events. Throws if Accessibility is not granted.
     func start() throws {
         guard AccessibilityPermission.isTrusted() else {
-            throw CaptureError.accessibilityNotTrusted
+            throw KeyboardCaptureError.accessibilityNotTrusted
         }
 
         let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
@@ -57,11 +31,11 @@ final class KeyboardCapture {
             callback: keyboardEventCallback,
             userInfo: selfPointer
         ) else {
-            throw CaptureError.eventTapCreationFailed
+            throw KeyboardCaptureError.eventTapCreationFailed
         }
 
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-            throw CaptureError.runLoopSourceCreationFailed
+            throw KeyboardCaptureError.runLoopSourceCreationFailed
         }
 
         eventTap = tap

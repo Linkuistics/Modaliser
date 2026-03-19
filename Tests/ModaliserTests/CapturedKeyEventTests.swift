@@ -5,7 +5,7 @@ import CoreGraphics
 @Suite("CapturedKeyEvent")
 struct CapturedKeyEventTests {
     @Test func keyDownEventReportsIsKeyDown() {
-        let event = KeyboardCapture.CapturedKeyEvent(
+        let event = CapturedKeyEvent(
             keyCode: KeyCode.f18,
             isKeyDown: true,
             modifiers: CGEventFlags()
@@ -15,7 +15,7 @@ struct CapturedKeyEventTests {
     }
 
     @Test func keyUpEventReportsIsKeyUp() {
-        let event = KeyboardCapture.CapturedKeyEvent(
+        let event = CapturedKeyEvent(
             keyCode: KeyCode.f18,
             isKeyDown: false,
             modifiers: CGEventFlags()
@@ -25,7 +25,7 @@ struct CapturedKeyEventTests {
     }
 
     @Test func capturedKeyEventPreservesKeyCode() {
-        let event = KeyboardCapture.CapturedKeyEvent(
+        let event = CapturedKeyEvent(
             keyCode: KeyCode.escape,
             isKeyDown: true,
             modifiers: CGEventFlags()
@@ -35,7 +35,7 @@ struct CapturedKeyEventTests {
 
     @Test func capturedKeyEventPreservesModifiers() {
         let modifiers: CGEventFlags = [.maskCommand, .maskShift]
-        let event = KeyboardCapture.CapturedKeyEvent(
+        let event = CapturedKeyEvent(
             keyCode: 0,
             isKeyDown: true,
             modifiers: modifiers

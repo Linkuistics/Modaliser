@@ -26,4 +26,16 @@ struct KeyCodeTests {
     @Test func spaceHasCorrectValue() {
         #expect(KeyCode.space == 49)
     }
+
+    @Test func tabHasCorrectValue() {
+        #expect(KeyCode.tab == 48)
+    }
+
+    @Test func f19HasCorrectValue() {
+        #expect(KeyCode.f19 == 80)
+    }
+
+    @Test func f20HasCorrectValue() {
+        #expect(KeyCode.f20 == 90)
+    }
 }

@@ -63,59 +63,47 @@ Key context:
 ## Example Config (config.scm)
 
 ```scheme
-(import (modaliser dsl))
-(import (modaliser app))
+;; DSL functions are auto-imported by SchemeEngine at startup.
+;; No explicit (import ...) needed.
 
-;; Theme
-(set-theme!
-  (make-theme
-    #:font "Menlo"
-    #:font-size 15
-    #:bg-color '(0.99 0.97 0.93)
-    #:accent-color '(0.13 0.38 0.73)
-    #:label-color '(0.22 0.22 0.22)))
-
-;; Leader keys
-(set-leader! 'global "F18")
-(set-leader! 'local "F17")
+;; Leader keys (named constants: F17, F18, F19, F20)
+(set-leader! 'global F18)
+(set-leader! 'local F17)
 
 ;; Global command tree
 (define-tree 'global
   (key "s" "Safari"
     (lambda () (launch-app "Safari")))
   (group "f" "Find"
-    (key "a" "Find Apps"
-      (selector
-        #:prompt "Find app…"
-        #:source find-installed-apps
-        #:on-select activate-app
-        #:remember "apps"
-        #:id-field "bundleId"
-        #:actions
-          (list
-            (action "Open" #:key 'primary #:run activate-app)
-            (action "Show in Finder" #:key 'secondary #:run reveal-in-finder)
-            (action "Copy Path" #:run (lambda (c) (set-clipboard! (assoc-ref c 'path))))
-            (action "Copy Bundle ID" #:run (lambda (c) (set-clipboard! (assoc-ref c 'bundleId)))))))
-    (key "f" "Find File"
-      (selector
-        #:prompt "Find file…"
-        #:file-roots '("~")
-        #:on-select open-file
-        #:actions
-          (list
-            (action "Open" #:key 'primary #:run open-file)
-            (action "Show in Finder" #:key 'secondary #:run reveal-in-finder)
-            (action "Copy Path" #:run (lambda (c) (set-clipboard! (assoc-ref c 'path))))
-            (action "Open in Zed" #:run (lambda (c) (open-with "Zed" (assoc-ref c 'path))))))))
+    (selector "a" "Find Apps"
+      'prompt "Find app…"
+      'source find-installed-apps
+      'on-select activate-app
+      'remember "apps"
+      'id-field "bundleId"
+      'actions
+        (list
+          (action "Open" 'key 'primary 'run activate-app)
+          (action "Show in Finder" 'key 'secondary 'run reveal-in-finder)
+          (action "Copy Path" 'run (lambda (c) (set-clipboard! (cdr (assoc 'path c)))))
+          (action "Copy Bundle ID" 'run (lambda (c) (set-clipboard! (cdr (assoc 'bundleId c)))))))
+    (selector "f" "Find File"
+      'prompt "Find file…"
+      'file-roots '("~")
+      'on-select open-file
+      'actions
+        (list
+          (action "Open" 'key 'primary 'run open-file)
+          (action "Show in Finder" 'key 'secondary 'run reveal-in-finder)
+          (action "Copy Path" 'run (lambda (c) (set-clipboard! (cdr (assoc 'path c)))))
+          (action "Open in Zed" 'run (lambda (c) (open-with "Zed" (cdr (assoc 'path c))))))))
   (group "w" "Windows"
     (key "c" "Center" (lambda () (center-window)))
     (key "m" "Maximize" (lambda () (maximize-window)))
-    (key "s" "Switch Window"
-      (selector
-        #:prompt "Select window…"
-        #:source list-windows
-        #:on-select focus-window))))
+    (selector "s" "Switch Window"
+      'prompt "Select window…"
+      'source list-windows
+      'on-select focus-window)))
 ```
 
 ## Progress
@@ -128,29 +116,30 @@ Key context:
   - [x] CGEvent tap for global hotkey capture (F17/F18)
   - [x] Verify Accessibility permission flow
   - [x] Test: pressing F18 prints to console
+  - [x] Commit and stop
+
+- [x] **Code Review 1**
+  - [x] Review project structure, CGEvent tap implementation
+  - [x] Verify clean separation of concerns
+  - [x] Check error handling for permission denial
+  - [x] Update plan with findings
+
+- [x] **Session 2: LispKit integration + Scheme DSL**
+  - [x] Set up LispKit context with custom environment
+  - [x] Design DSL functions: `key`, `group`, `selector`, `action`, `define-tree`, `set-leader!`
+  - [x] Implement `(modaliser dsl)` Scheme library
+  - [ ] Implement `(modaliser app)` native library (launch-app, open-file, set-clipboard!, shell basics) — deferred to Session 7
+  - [x] Load and evaluate config.scm, build internal command tree representation
+  - [x] Write sample config.scm with a few commands
+  - [x] Test: config loads, command tree is traversable from Swift
+  - [ ] `set-theme!` — deferred to Session 4 (when overlay UI is built)
   - [ ] Commit and stop
 
-- [ ] **Code Review 1**
-  - [ ] Review project structure, CGEvent tap implementation
-  - [ ] Verify clean separation of concerns
-  - [ ] Check error handling for permission denial
-  - [ ] Update plan with findings
-
-- [ ] **Session 2: LispKit integration + Scheme DSL**
-  - [ ] Set up LispKit context with custom environment
-  - [ ] Design DSL macros: `key`, `group`, `selector`, `action`, `define-tree`, `set-leader!`, `set-theme!`
-  - [ ] Implement `(modaliser dsl)` Scheme library
-  - [ ] Implement `(modaliser app)` native library (launch-app, open-file, set-clipboard!, shell basics)
-  - [ ] Load and evaluate config.scm, build internal command tree representation
-  - [ ] Write sample config.scm with a few commands
-  - [ ] Test: config loads, command tree is traversable from Swift
-  - [ ] Commit and stop
-
-- [ ] **Code Review 2**
-  - [ ] Review LispKit integration pattern
-  - [ ] Review DSL ergonomics — is the config pleasant to write?
-  - [ ] Check Scheme↔Swift data marshalling
-  - [ ] Update plan with findings
+- [x] **Code Review 2**
+  - [x] Review LispKit integration pattern
+  - [x] Review DSL ergonomics — is the config pleasant to write?
+  - [x] Check Scheme↔Swift data marshalling
+  - [x] Update plan with findings
 
 - [ ] **Session 3: Modal state machine**
   - [ ] Implement modal state: enter/exit leader, current node tracking, path breadcrumb
@@ -277,3 +266,29 @@ Source directory: `~/.config/hammerspoon/modal-chooser/Sources/`
 - **CGEvent tap callback**: Must be a free function (not a closure or method) due to C interop. We bridge to the Swift instance via `Unmanaged<KeyboardCapture>` passed through the `userInfo` pointer.
 - **Tap auto-disable**: macOS will disable an event tap if the callback takes too long. We handle `.tapDisabledByTimeout` by re-enabling. This is important for later when Scheme lambdas are called from the callback.
 - **File layout**: 5 source files, 3 test files. Each file < 100 lines, single concern. `main.swift` (4 lines), `ModaliserAppDelegate` (lifecycle+wiring), `KeyboardCapture` (event tap), `AccessibilityPermission` (permission check), `KeyCode` (constants).
+
+### Code Review 1
+- **Extracted nested types**: `CapturedKeyEvent` and `CaptureError` were nested inside `KeyboardCapture`, making it 129 lines (over the 100-line guideline). Extracted to `CapturedKeyEvent.swift` and `KeyboardCaptureError.swift` as top-level types. `KeyboardCapture.swift` is now 97 lines.
+- **Renamed `CaptureError` → `KeyboardCaptureError`**: As a top-level type, the original name was too generic. The new name is self-documenting without needing the namespace prefix.
+- **Added missing tests**: `KeyCode.tab`, `KeyCode.f19`, `KeyCode.f20` were defined but untested. Now all key codes have tests (16 total, up from 13).
+- **`AccessibilityPermission.requestIfNeeded()` is unused**: The delegate uses a custom alert instead of the system prompt. Kept for now — may be useful for a streamlined permission flow in Session 8.
+- **File count**: Now 7 source files, 3 test files. All source files under 100 lines.
+
+### Session 2
+- **LispKit `bootstrap()` vs `import(BaseLibrary.name)`**: `bootstrap()` sets up error handlers and imports `(lispkit dynamic)`, but the bindings for `define`, `+`, `lambda` etc. come from `(lispkit base)`. Using `environment.import(BaseLibrary.name)` directly is sufficient and matches LispKit's own test patterns. Can add `bootstrap()` later if dynamic features are needed.
+- **No `#:keyword` syntax in LispKit**: LispKit is R7RS-based, not Racket. There is no `Expr.keyword` type. DSL uses alternating `'symbol value` pairs instead: `(selector "a" "Apps" 'prompt "Find app…" 'remember "apps")`. Works well and is standard Scheme.
+- **NativeLibrary injection**: LispKit's `required init(in:)` prevents constructor injection. Solution: register library, then `lookup()` the instance and set properties. A static injection pattern causes race conditions in concurrent tests.
+- **Hybrid alist approach works**: DSL functions (`key`, `group`, `selector`, `action`) return pure Scheme alists. `define-tree` walks the alists and converts to Swift `CommandNode` objects. This keeps the DSL debuggable in Scheme while giving Swift typed access.
+- **Procedure init overloads**: LispKit selects the implementation style via Swift overload resolution: `native3` (3 fixed args), `native2R` (2 fixed + rest), `native1R` (1 fixed + rest), etc. `Arguments` is `ArraySlice<Expr>`.
+- **File layout**: 12 source files, 8 test files. New: `CommandNode.swift` (95 lines), `CommandTreeRegistry.swift` (38 lines), `SchemeEngine.swift` (67 lines), `ModaliserDSLLibrary.swift` (158 lines), `CommandNodeBuilder.swift` (79 lines).
+- **51 tests total**, 8 test suites. All pass in ~2s.
+- **Deferred items**: `set-theme!` deferred to Session 4 (overlay UI), `(modaliser app)` native library deferred to Session 7 (system integration). These are the right sessions for those features.
+
+### Code Review 2
+- **Extracted `CommandNodeBuilder`**: Alist-to-CommandNode conversion logic extracted from `ModaliserDSLLibrary` into `CommandNodeBuilder.swift` (79 lines). DSL library dropped from 220 to 158 lines.
+- **Registry guard**: Changed `registry` from force-unwrapped `!` to optional `?` with `guard let` in `defineTreeFunction` and `setLeaderFunction`. Crash on misconfiguration → descriptive error.
+- **Descriptive alist errors**: `alistLookup` now throws `RuntimeError.custom("eval", "required key 'X' not found in DSL alist", ...)` instead of a misleading type error. Added `lookupOptional` for optional fields in selectors.
+- **Key code constants**: DSL library now exports `F17`, `F18`, `F19`, `F20` as Scheme variables. Config uses `(set-leader! 'global F18)` instead of magic number `79`.
+- **Plan example config updated**: Replaced `#:keyword` syntax with actual `'symbol value` syntax. Corrected `selector`-inside-`key` nesting to show selectors as direct children of groups.
+- **TODO for Session 5**: `actions` and `fileRoots` parsing in `convertAlistToCommandNode` is marked with TODO, deferred to Session 5 when chooser UI is built.
+- **Thread safety note**: `CommandTreeRegistry` is not thread-safe. Fine for now (single-threaded access), but needs attention in Session 8 (config reload) when concurrent reads/writes may occur.
