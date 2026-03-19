@@ -122,12 +122,12 @@ Key context:
 
 ### Phase 1: Swift host + Scheme config/actions
 
-- [ ] **Session 1: Project scaffold + keyboard capture**
-  - [ ] Create SPM executable project with LispKit dependency
-  - [ ] NSApplication setup (accessory app, no dock icon)
-  - [ ] CGEvent tap for global hotkey capture (F17/F18)
-  - [ ] Verify Accessibility permission flow
-  - [ ] Test: pressing F18 prints to console
+- [x] **Session 1: Project scaffold + keyboard capture**
+  - [x] Create SPM executable project with LispKit dependency
+  - [x] NSApplication setup (accessory app, no dock icon)
+  - [x] CGEvent tap for global hotkey capture (F17/F18)
+  - [x] Verify Accessibility permission flow
+  - [x] Test: pressing F18 prints to console
   - [ ] Commit and stop
 
 - [ ] **Code Review 1**
@@ -270,4 +270,10 @@ Source directory: `~/.config/hammerspoon/modal-chooser/Sources/`
 
 ## Learnings
 
-(To be filled during implementation)
+### Session 1
+- **LispKit dependency resolution**: LispKit 2.6.0 depends on `swift-dynamicjson` via `branch: "main"` (an unstable reference). SPM won't allow a version-pinned package to depend on unstable packages. Fix: use `branch: "master"` for swift-lispkit itself.
+- **SPM entry point**: Only `main.swift` can contain top-level statements in an SPM executable target. Other filenames cause "expressions are not allowed at the top level" errors.
+- **Test target linking**: SPM test targets can `@testable import` an executable target — the `main.swift` entry point doesn't interfere with test compilation, which was a concern. Works fine with Swift 6.2.
+- **CGEvent tap callback**: Must be a free function (not a closure or method) due to C interop. We bridge to the Swift instance via `Unmanaged<KeyboardCapture>` passed through the `userInfo` pointer.
+- **Tap auto-disable**: macOS will disable an event tap if the callback takes too long. We handle `.tapDisabledByTimeout` by re-enabling. This is important for later when Scheme lambdas are called from the callback.
+- **File layout**: 5 source files, 3 test files. Each file < 100 lines, single concern. `main.swift` (4 lines), `ModaliserAppDelegate` (lifecycle+wiring), `KeyboardCapture` (event tap), `AccessibilityPermission` (permission check), `KeyCode` (constants).
