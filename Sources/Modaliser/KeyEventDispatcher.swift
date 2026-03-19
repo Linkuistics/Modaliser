@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 /// Result of handling a key event — tells the caller whether to suppress or pass through.
-enum KeyEventHandlingResult {
+enum KeyEventHandlingResult: Equatable {
     /// Suppress the event (don't let it reach other apps).
     case suppress
     /// Pass the event through to the system.
@@ -13,9 +13,15 @@ enum KeyEventHandlingResult {
 /// Handles leader key toggle, escape, delete, and regular key dispatch.
 /// Sits between KeyboardCapture and ModalStateMachine.
 final class KeyEventDispatcher {
-    let stateMachine: ModalStateMachine
+    private let stateMachine: ModalStateMachine
     private let registry: CommandTreeRegistry
     private let executor: CommandExecutor
+
+    /// Whether modal navigation is currently active.
+    var isModalActive: Bool { stateMachine.isActive }
+
+    /// The label of the current node in the navigation tree, or nil if idle.
+    var currentNodeLabel: String? { stateMachine.currentNode?.label }
 
     init(registry: CommandTreeRegistry, executor: CommandExecutor) {
         self.registry = registry

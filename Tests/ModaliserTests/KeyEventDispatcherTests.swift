@@ -44,7 +44,7 @@ struct KeyEventDispatcherTests {
         let (dispatcher, _) = try makeSetup()
         let result = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
         #expect(result == .suppress)
-        #expect(dispatcher.stateMachine.isActive)
+        #expect(dispatcher.isModalActive)
     }
 
     @Test func leaderKeyRePressDuringModalExits() throws {
@@ -52,7 +52,7 @@ struct KeyEventDispatcherTests {
         _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
         let result = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
         #expect(result == .suppress)
-        #expect(dispatcher.stateMachine.isIdle)
+        #expect(!dispatcher.isModalActive)
     }
 
     // MARK: - Key up passthrough
@@ -69,10 +69,9 @@ struct KeyEventDispatcherTests {
         let (dispatcher, engine) = try makeSetup()
         _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18)) // enter
         _ = dispatcher.handleKeyEvent(keyDown(1))            // "s" = Safari
-        let log = try engine.evaluate("call-log")
         let length = try engine.evaluate("(length call-log)")
         #expect(length == .fixnum(1))
-        #expect(dispatcher.stateMachine.isIdle)
+        #expect(!dispatcher.isModalActive)
     }
 
     // MARK: - Group navigation
@@ -81,8 +80,8 @@ struct KeyEventDispatcherTests {
         let (dispatcher, _) = try makeSetup()
         _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18)) // enter
         _ = dispatcher.handleKeyEvent(keyDown(3))            // "f" = Find group
-        #expect(dispatcher.stateMachine.isActive)
-        #expect(dispatcher.stateMachine.currentNode?.label == "Find")
+        #expect(dispatcher.isModalActive)
+        #expect(dispatcher.currentNodeLabel == "Find")
     }
 
     @Test func commandInGroupExecutes() throws {
@@ -92,7 +91,7 @@ struct KeyEventDispatcherTests {
         _ = dispatcher.handleKeyEvent(keyDown(0))            // "a" = Apps
         let length = try engine.evaluate("(length call-log)")
         #expect(length == .fixnum(1))
-        #expect(dispatcher.stateMachine.isIdle)
+        #expect(!dispatcher.isModalActive)
     }
 
     // MARK: - Escape exits
@@ -102,7 +101,7 @@ struct KeyEventDispatcherTests {
         _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18)) // enter
         let result = dispatcher.handleKeyEvent(keyDown(KeyCode.escape))
         #expect(result == .suppress)
-        #expect(dispatcher.stateMachine.isIdle)
+        #expect(!dispatcher.isModalActive)
     }
 
     // MARK: - Delete steps back
@@ -111,18 +110,18 @@ struct KeyEventDispatcherTests {
         let (dispatcher, _) = try makeSetup()
         _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18)) // enter
         _ = dispatcher.handleKeyEvent(keyDown(3))            // "f" = Find
-        #expect(dispatcher.stateMachine.currentNode?.label == "Find")
+        #expect(dispatcher.currentNodeLabel == "Find")
         let result = dispatcher.handleKeyEvent(keyDown(KeyCode.delete))
         #expect(result == .suppress)
-        #expect(dispatcher.stateMachine.currentNode?.label == "Global")
-        #expect(dispatcher.stateMachine.isActive)
+        #expect(dispatcher.currentNodeLabel == "Global")
+        #expect(dispatcher.isModalActive)
     }
 
     @Test func deleteAtRootExitsModal() throws {
         let (dispatcher, _) = try makeSetup()
         _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18)) // enter
         _ = dispatcher.handleKeyEvent(keyDown(KeyCode.delete))
-        #expect(dispatcher.stateMachine.isIdle)
+        #expect(!dispatcher.isModalActive)
     }
 
     // MARK: - Unknown key exits
@@ -132,7 +131,7 @@ struct KeyEventDispatcherTests {
         _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18)) // enter
         let result = dispatcher.handleKeyEvent(keyDown(KeyCode.tab)) // tab is not mapped as modal key
         #expect(result == .suppress)
-        #expect(dispatcher.stateMachine.isIdle)
+        #expect(!dispatcher.isModalActive)
     }
 
     // MARK: - Non-modal keys pass through when idle

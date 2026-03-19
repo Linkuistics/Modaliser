@@ -34,6 +34,8 @@ final class ModalStateMachine {
     /// Enter modal mode for the given leader mode (global or local).
     /// Looks up the corresponding tree in the registry.
     func enterLeader(mode: LeaderMode) {
+        // TODO: Session 8 — Local mode needs the focused app's bundle ID from NSWorkspace.
+        // Currently uses empty string which will never match a real app-local tree.
         let scope: TreeScope = (mode == .global) ? .global : .appLocal("")
         guard let tree = registry.tree(for: scope) else { return }
         rootNode = tree

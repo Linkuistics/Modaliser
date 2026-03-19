@@ -41,16 +41,13 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
             let engine = try SchemeEngine()
             schemeEngine = engine
 
-            // Load config.scm from the app bundle directory
-            let configPath = findConfigPath()
-            if let path = configPath {
+            if let path = ConfigPathResolver().resolve() {
                 try engine.evaluateFile(path)
                 NSLog("Config loaded from: %@", path)
             } else {
                 NSLog("No config.scm found")
             }
 
-            // Create the dispatcher that bridges keyboard events to the state machine
             let executor = CommandExecutor(engine: engine)
             keyEventDispatcher = KeyEventDispatcher(
                 registry: engine.registry,
@@ -59,24 +56,6 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             NSLog("Failed to load Scheme config: %@", "\(error)")
         }
-    }
-
-    private func findConfigPath() -> String? {
-        // Look for config.scm in these locations (first found wins):
-        // 1. ~/.config/modaliser/config.scm
-        // 2. Adjacent to the executable (for development)
-        let homeConfig = NSHomeDirectory() + "/.config/modaliser/config.scm"
-        if FileManager.default.fileExists(atPath: homeConfig) {
-            return homeConfig
-        }
-
-        // Development: config.scm in the project root
-        let devConfig = FileManager.default.currentDirectoryPath + "/config.scm"
-        if FileManager.default.fileExists(atPath: devConfig) {
-            return devConfig
-        }
-
-        return nil
     }
 
     // MARK: - Keyboard capture

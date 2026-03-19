@@ -61,7 +61,6 @@ struct CommandExecutorTests {
         let executor = CommandExecutor(engine: engine)
         _ = try executor.execute(action: lambdaA)
         _ = try executor.execute(action: lambdaB)
-        let log = try engine.evaluate("call-log")
         // Should be (b a) — most recent first
         let length = try engine.evaluate("(length call-log)")
         #expect(length == .fixnum(2))

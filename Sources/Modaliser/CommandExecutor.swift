@@ -1,3 +1,4 @@
+import Foundation
 import LispKit
 
 /// Executes Scheme lambdas (command actions) through the LispKit evaluator.
@@ -27,10 +28,10 @@ final class CommandExecutor {
 }
 
 /// Errors from command execution.
-enum CommandExecutorError: Error, CustomStringConvertible {
+enum CommandExecutorError: Error, LocalizedError {
     case notAProcedure(Expr)
 
-    var description: String {
+    var errorDescription: String? {
         switch self {
         case .notAProcedure(let expr):
             return "Expected a Scheme procedure to execute, got: \(expr)"

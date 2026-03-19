@@ -48,7 +48,8 @@ struct EndToEndModalTests {
         let (dispatcher, engine) = try makeDispatcherFromConfig()
         _ = dispatcher.handleKeyEvent(keyDown(KeyCode.f18))
         _ = dispatcher.handleKeyEvent(keyDown(1)) // "s"
-        let log = try engine.evaluate("execution-log")
+        let length = try engine.evaluate("(length execution-log)")
+        #expect(length == .fixnum(1))
         let first = try engine.evaluate("(car execution-log)")
         #expect(first == .makeString("safari"))
     }
@@ -109,7 +110,7 @@ struct EndToEndModalTests {
         _ = dispatcher.handleKeyEvent(keyDown(6)) // "z" — no binding
         let log = try engine.evaluate("execution-log")
         #expect(log == .null)
-        #expect(dispatcher.stateMachine.isIdle)
+        #expect(!dispatcher.isModalActive)
     }
 
     @Test func keysWhenIdlePassThrough() throws {

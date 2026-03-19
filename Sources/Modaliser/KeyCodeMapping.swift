@@ -3,6 +3,9 @@ import CoreGraphics
 /// Maps CGKeyCode values to their character representations.
 /// Used by the key event dispatcher to convert raw key codes into modal key lookups.
 /// Based on the US ANSI keyboard layout (macOS HID key codes).
+/// HID key codes are physical positions, not characters — so key code 0 is the "A" position
+/// regardless of layout (AZERTY, Dvorak, etc.). This is intentional: modal shortcuts bind to
+/// physical key positions, matching the labels shown in the overlay.
 enum KeyCodeMapping {
 
     /// Convert a CGKeyCode to its character string, or nil if not a modal key.

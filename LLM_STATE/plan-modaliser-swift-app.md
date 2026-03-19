@@ -154,11 +154,11 @@ Key context:
   - [x] Wired KeyEventDispatcher → ModalStateMachine → CommandExecutor in AppDelegate
   - [ ] Commit and stop
 
-- [ ] **Code Review 3**
-  - [ ] Review state machine correctness
-  - [ ] Check edge cases (rapid key presses, re-entry, focus loss)
-  - [ ] Verify Scheme lambda execution is robust (error handling)
-  - [ ] Update plan with findings
+- [x] **Code Review 3**
+  - [x] Review state machine correctness
+  - [x] Check edge cases (rapid key presses, re-entry, focus loss)
+  - [x] Verify Scheme lambda execution is robust (error handling)
+  - [x] Update plan with findings
 
 - [ ] **Session 4: Which-key overlay**
   - [ ] Port OverlayWindow.swift from modal-chooser (passive floating NSPanel)
@@ -306,3 +306,15 @@ Source directory: `~/.config/hammerspoon/modal-chooser/Sources/`
 - **Chooser guard deferred**: The "block leader when chooser is open" guard requires the chooser to exist (Session 5). Added as a note in the dispatcher where the check will go.
 - **File layout**: 17 source files, 13 test files. New: `ModalStateMachine.swift` (106 lines), `KeyEventDispatcher.swift` (104 lines), `KeyDispatchResult.swift` (28 lines), `CommandExecutor.swift` (39 lines), `KeyCodeMapping.swift` (34 lines).
 - **103 tests total**, 13 test suites. All pass in ~3.8s. Up from 51 tests in Session 2.
+
+### Code Review 3
+- **Encapsulated state machine access**: Made `KeyEventDispatcher.stateMachine` private, exposed `isModalActive` and `currentNodeLabel` as read-only forwarding properties. Tests now use these instead of reaching through to the state machine directly. Prevents external code from calling `enterLeader`/`exitLeader`/`handleKey` on the state machine, bypassing the dispatcher's orchestration.
+- **Local mode TODO**: `ModalStateMachine.enterLeader(mode:)` uses `appLocal("")` for local mode — will never match a real app-local tree. Added TODO comment for Session 8, which will inject the focused app's bundle ID via NSWorkspace observation.
+- **Extracted `ConfigPathResolver`**: Config path finding logic extracted from `ModaliserAppDelegate` (which was 118 lines, over the 100-line guideline) into a small injectable struct. AppDelegate now 97 lines. `ConfigPathResolver` takes `FileManager` and `homeDirectory` for testability.
+- **`CommandExecutorError` → `LocalizedError`**: Changed from `CustomStringConvertible` to `LocalizedError` with `errorDescription` so that `error.localizedDescription` shows the actual error message. Required adding `import Foundation`.
+- **Explicit `Equatable` on `KeyEventHandlingResult`**: Swift auto-synthesizes it for enums without associated values, but explicit conformance documents intent and protects against silent breakage if associated values are added later.
+- **Added missing test**: `handleKeyWhenIdleReturnsNoBinding` directly tests the idle guard clause in `ModalStateMachine.handleKey`. Previously only tested indirectly through the dispatcher.
+- **Test precision**: Added log length assertions to end-to-end tests that were checking execution results without verifying exactly-once execution. Catches hypothetical double-execution bugs.
+- **KeyCodeMapping documentation**: Added note about international keyboard support — HID key codes are physical positions, not characters, so AZERTY/Dvorak users press the same physical key for the same shortcut. This is intentional for a modal shortcut system.
+- **Fixed compiler warnings**: Removed unused `let log` variables in `KeyEventDispatcherTests` and `CommandExecutorTests`.
+- **File layout**: 18 source files (+1 `ConfigPathResolver`), 13 test files. **104 tests total**, all passing, zero warnings.

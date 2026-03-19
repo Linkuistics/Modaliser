@@ -236,4 +236,14 @@ struct ModalStateMachineTests {
         let machine = ModalStateMachine(registry: registry)
         #expect(machine.availableChildren.isEmpty)
     }
+
+    // MARK: - Handle key when idle
+
+    @Test func handleKeyWhenIdleReturnsNoBinding() {
+        let registry = makeRegistryWithGlobalTree()
+        let machine = ModalStateMachine(registry: registry)
+        let result = machine.handleKey("s")
+        #expect(result == .noBinding("s"))
+        #expect(machine.isIdle)
+    }
 }
