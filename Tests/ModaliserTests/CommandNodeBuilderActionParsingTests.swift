@@ -98,6 +98,28 @@ struct CommandNodeBuilderActionParsingTests {
         }
     }
 
+    @Test func actionDescriptionParsedFromAlist() throws {
+        let engine = try makeEngine()
+        _ = try engine.evaluate("""
+            (define-tree 'global
+              (group "f" "Find"
+                (selector "a" "Apps"
+                  'prompt "Find…"
+                  'actions
+                    (list
+                      (action "Open" 'description "Launch the app" 'key 'primary 'run (lambda (c) c))
+                      (action "Copy" 'run (lambda (c) c))))))
+            """)
+        let tree = engine.registry.tree(for: .global)
+        let find = tree?.child(forKey: "f")
+        guard case .selector(let def) = find?.child(forKey: "a") else {
+            #expect(Bool(false), "Expected selector node")
+            return
+        }
+        #expect(def.config.actions[0].description == "Launch the app")
+        #expect(def.config.actions[1].description == nil)
+    }
+
     // MARK: - File roots parsing
 
     @Test func selectorWithFileRootsParsesPaths() throws {

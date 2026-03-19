@@ -1,8 +1,7 @@
 import AppKit
 
 /// Search field delegation and choice filtering for the chooser.
-/// Note: The DP-based fuzzy matcher is deferred to Session 6.
-/// For now, uses simple case-insensitive substring matching.
+/// Uses FuzzyMatcher for DP-based fuzzy matching with word boundary bonuses.
 extension ChooserWindowController: NSTextFieldDelegate {
 
     func controlTextDidChange(_ obj: Notification) {
@@ -13,9 +12,10 @@ extension ChooserWindowController: NSTextFieldDelegate {
 
     func filterChoices(query: String) {
         if query.isEmpty {
-            filteredChoices = choices
-            filteredTextMatches = Array(repeating: [], count: choices.count)
-            filteredSubMatches = Array(repeating: [], count: choices.count)
+            filteredChoices = searchMode == .showAll ? choices : []
+            let matchCount = filteredChoices.count
+            filteredTextMatches = Array(repeating: [], count: matchCount)
+            filteredSubMatches = Array(repeating: [], count: matchCount)
             selectedIndex = 0
             resizeTableArea()
             tableView?.reloadData()
@@ -34,23 +34,35 @@ extension ChooserWindowController: NSTextFieldDelegate {
         }
     }
 
-    /// Runs search on the background queue, dispatches results to main thread.
-    /// Uses simple substring matching for now — Session 6 adds DP fuzzy matching.
+    /// Runs fuzzy matching on the background search queue, dispatches results to main thread.
+    /// Path-aware: "/" in query enables subText matching with tail proximity bonus.
     private func performSearch(query: String, choices: [ChooserChoice], generation: Int) {
-        let q = query.lowercased()
+        let queryHasSlash = query.contains("/")
         var scored: [(index: Int, score: Int, textMatches: Set<Int>, subMatches: Set<Int>)] = []
 
         for (idx, choice) in choices.enumerated() {
-            let textMatch = substringMatch(query: q, target: choice.text)
-            let subMatch = choice.subText.flatMap { substringMatch(query: q, target: $0) }
+            let textMatch = FuzzyMatcher.match(query: query, target: choice.text)
+
+            let subMatch: FuzzyMatcher.MatchResult?
+            if queryHasSlash, let sub = choice.subText {
+                subMatch = FuzzyMatcher.match(query: query, target: sub)
+            } else {
+                subMatch = nil
+            }
 
             let textScore = textMatch?.score ?? 0
-            let subScore = subMatch?.score ?? 0
+            var subScore = subMatch?.score ?? 0
+
+            // Tail proximity bonus for path matches: prefer matches near end of path
+            if subScore > 0, let sub = choice.subText, let sm = subMatch {
+                let charsAfterMatch = sub.count - sm.lastMatchIndex - 1
+                subScore += max(0, 30 - charsAfterMatch)
+            }
 
             if textScore > 0 && textScore >= subScore {
-                scored.append((idx, textScore, textMatch!.indices, []))
+                scored.append((idx, textScore, textMatch!.matchedIndices, []))
             } else if subScore > 0 {
-                scored.append((idx, subScore, [], subMatch!.indices))
+                scored.append((idx, subScore, [], subMatch!.matchedIndices))
             }
         }
         scored.sort { $0.score > $1.score }
@@ -69,17 +81,5 @@ extension ChooserWindowController: NSTextFieldDelegate {
             self.tableView?.reloadData()
             self.scrollToSelected()
         }
-    }
-
-    /// Simple case-insensitive substring match. Returns match score and indices.
-    /// Placeholder until Session 6's DP fuzzy matcher.
-    private func substringMatch(query: String, target: String) -> (score: Int, indices: Set<Int>)? {
-        let tLow = target.lowercased()
-        guard let range = tLow.range(of: query) else { return nil }
-        let startIdx = tLow.distance(from: tLow.startIndex, to: range.lowerBound)
-        let indices = Set(startIdx..<(startIdx + query.count))
-        // Score: prefer matches at the start
-        let positionBonus = startIdx == 0 ? 100 : 50
-        return (positionBonus + query.count * 10, indices)
     }
 }

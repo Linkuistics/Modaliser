@@ -28,8 +28,8 @@ struct ChooserCoordinatorTests {
                 remember: nil,
                 idField: nil,
                 actions: [
-                    ActionConfig(name: "Open", trigger: .primary, run: onSelect),
-                    ActionConfig(name: "Reveal", trigger: .secondary, run: actionRun),
+                    ActionConfig(name: "Open", description: nil, trigger: .primary, run: onSelect),
+                    ActionConfig(name: "Reveal", description: nil, trigger: .secondary, run: actionRun),
                 ],
                 fileRoots: nil
             )
@@ -139,7 +139,7 @@ struct ChooserCoordinatorTests {
             config: SelectorConfig(
                 prompt: "Find…", source: source, onSelect: nil,
                 remember: nil, idField: nil,
-                actions: [ActionConfig(name: "Reveal", trigger: nil, run: actionRun)],
+                actions: [ActionConfig(name: "Reveal", description: nil, trigger: nil, run: actionRun)],
                 fileRoots: nil
             )
         )
@@ -203,6 +203,106 @@ struct ChooserCoordinatorTests {
         )
         coordinator.openSelector(selector)
         #expect(coordinator.isChooserOpen)
+    }
+
+    // MARK: - Search mode
+
+    @Test func openSelectorWithoutFileRootsUsesShowAll() throws {
+        let engine = try makeEngine()
+        let presenter = MockChooserPresenter()
+        let coordinator = ChooserCoordinator(
+            presenter: presenter,
+            sourceInvoker: SelectorSourceInvoker(engine: engine),
+            executor: CommandExecutor(engine: engine),
+            theme: .default
+        )
+        let source = try engine.evaluate("(lambda () '())")
+        let selector = SelectorDefinition(
+            key: "a", label: "Apps",
+            config: SelectorConfig(
+                prompt: "Find…", source: source, onSelect: nil,
+                remember: nil, idField: nil, actions: [], fileRoots: nil
+            )
+        )
+
+        coordinator.openSelector(selector)
+
+        #expect(presenter.lastSearchMode == .showAll)
+    }
+
+    @Test func openSelectorWithFileRootsUsesRequireQuery() throws {
+        let engine = try makeEngine()
+        let presenter = MockChooserPresenter()
+        let coordinator = ChooserCoordinator(
+            presenter: presenter,
+            sourceInvoker: SelectorSourceInvoker(engine: engine),
+            executor: CommandExecutor(engine: engine),
+            theme: .default
+        )
+        let source = try engine.evaluate("(lambda () '())")
+        let selector = SelectorDefinition(
+            key: "f", label: "Files",
+            config: SelectorConfig(
+                prompt: "Find file…", source: source, onSelect: nil,
+                remember: nil, idField: nil, actions: [], fileRoots: ["~"]
+            )
+        )
+
+        coordinator.openSelector(selector)
+
+        #expect(presenter.lastSearchMode == .requireQuery)
+    }
+
+    @Test func openFileSelectorStartsWithEmptyChoices() throws {
+        let engine = try makeEngine()
+        let presenter = MockChooserPresenter()
+        let coordinator = ChooserCoordinator(
+            presenter: presenter,
+            sourceInvoker: SelectorSourceInvoker(engine: engine),
+            executor: CommandExecutor(engine: engine),
+            theme: .default
+        )
+        let selector = SelectorDefinition(
+            key: "f", label: "Files",
+            config: SelectorConfig(
+                prompt: "Find file…", source: nil, onSelect: nil,
+                remember: nil, idField: nil, actions: [], fileRoots: ["~"]
+            )
+        )
+
+        coordinator.openSelector(selector)
+
+        // File selectors start empty (requireQuery mode), data loads asynchronously
+        #expect(presenter.showCallCount == 1)
+        #expect(presenter.lastChoices.isEmpty)
+    }
+
+    @Test func openStandardSelectorDoesNotCallSourceForFileRoots() throws {
+        let engine = try makeEngine()
+        let presenter = MockChooserPresenter()
+        let coordinator = ChooserCoordinator(
+            presenter: presenter,
+            sourceInvoker: SelectorSourceInvoker(engine: engine),
+            executor: CommandExecutor(engine: engine),
+            theme: .default
+        )
+        // Standard selector (no fileRoots) with a source that returns data
+        let source = try engine.evaluate("""
+            (lambda () (list (list (cons 'text "Safari"))))
+            """)
+        let selector = SelectorDefinition(
+            key: "a", label: "Apps",
+            config: SelectorConfig(
+                prompt: "Find…", source: source, onSelect: nil,
+                remember: nil, idField: nil, actions: [], fileRoots: nil
+            )
+        )
+
+        coordinator.openSelector(selector)
+
+        #expect(presenter.showCallCount == 1)
+        #expect(presenter.lastChoices.count == 1)
+        #expect(presenter.lastSearchMode == .showAll)
     }
 
     // MARK: - Source error

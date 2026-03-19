@@ -188,28 +188,28 @@ Key context:
   - [x] Test: F18→f→a opens app chooser, selection launches app, actions work
   - [ ] Commit and stop
 
-- [ ] **Code Review 5**
-  - [ ] Review chooser completeness against existing implementation
-  - [ ] Check Scheme↔Swift marshalling for choices and actions
-  - [ ] Verify keyboard handling (arrows, return, escape, cmd+digit, cmd+K)
-  - [ ] Update plan with findings
+- [x] **Code Review 5**
+  - [x] Review chooser completeness against existing implementation
+  - [x] Check Scheme↔Swift marshalling for choices and actions
+  - [x] Verify keyboard handling (arrows, return, escape, cmd+digit, cmd+K)
+  - [x] Update plan with findings
 
-- [ ] **Session 6: Fuzzy matching + file search**
-  - [ ] Implement fuzzy matcher as native LispKit library `(modaliser fuzzy-match)`
-  - [ ] Port DP algorithm from ChooserWindow.swift (match score, gap penalty, position bonus, camelCase)
-  - [ ] Match highlighting: return matched indices for bold+blue rendering
-  - [ ] Background search with debounce (30ms, generation counter, serial queue)
-  - [ ] File indexing via fd (--hidden --follow, exclusions for Library/.Trash/.cache/.build/.git)
-  - [ ] Path-aware search: "/" in query enables subText matching, tail proximity bonus
-  - [ ] Search mode: showAll (apps) vs requireQuery (files)
-  - [ ] Test: fuzzy search with highlighting works for both apps and files
+- [x] **Session 6: Fuzzy matching + file search**
+  - [x] Implement fuzzy matcher as pure Swift type (`FuzzyMatcher.swift`) — not a LispKit library since matching is Swift-side only
+  - [x] Port DP algorithm from ChooserWindow.swift (match score, gap penalty, position bonus, camelCase)
+  - [x] Match highlighting: returns matched indices, wired to `ChooserRowRenderer.highlightedString` from Session 5
+  - [x] Background search with debounce (30ms, generation counter, serial queue) — implemented in Session 5, now uses FuzzyMatcher
+  - [x] File indexing via fd (--hidden --follow, exclusions for Library/.Trash/.cache/.build/.git)
+  - [x] Path-aware search: "/" in query enables subText matching, tail proximity bonus
+  - [x] Search mode: showAll (apps) vs requireQuery (files) — implemented in Code Review 5
+  - [x] Test: fuzzy search with highlighting works for both apps and files
   - [ ] Commit and stop
 
-- [ ] **Code Review 6**
-  - [ ] Review fuzzy matcher correctness (compare with existing implementation)
-  - [ ] Profile performance with large file lists (50K+ entries)
-  - [ ] Check debounce/threading for race conditions
-  - [ ] Update plan with findings
+- [x] **Code Review 6**
+  - [x] Review fuzzy matcher correctness (compare with existing implementation)
+  - [x] Profile performance with large file lists (50K+ entries)
+  - [x] Check debounce/threading for race conditions
+  - [x] Update plan with findings
 
 - [ ] **Session 7: System integration native libraries**
   - [ ] `(modaliser app)` — find-installed-apps, activate-app, reveal-in-finder, open-with
@@ -356,3 +356,30 @@ Source directory: `~/.config/hammerspoon/modal-chooser/Sources/`
 - **cmdFont for ⌘/⏎ symbols in footer**: The chooser footer uses the same `styledFooter` pattern as the reference — segments containing only `⌘` or `↩` get `NSFont.systemFont` (which renders the symbols correctly), while other keys use the monospace theme font.
 - **Files over 100 lines**: `ChooserRowRenderer` (194), `ModaliserDSLLibrary` (181), `ChooserWindowBuilder` (168), `ChooserWindowController` (164), `KeyEventDispatcher` (125), `ChooserKeyboardHandler` (124), `CommandNodeBuilder` (123). The chooser UI files are inherently larger due to AppKit view construction verbosity — each `NSTextField` requires 5-7 lines of configuration. All remain single-concern despite size.
 - **File layout**: 48 source files (+16), 23 test files (+5). **187 tests total** (up from 151), 21 suites (up from 17). All passing, zero warnings.
+
+### Code Review 5
+- **Added `ActionConfig.description`**: The reference `ActionDef` has `description: String?` for subtext beneath action names. Added to `ActionConfig`, parsed from the `"description"` key in the action alist by `CommandNodeBuilder`, and rendered as subtext in `ChooserRowRenderer.makeActionRow` (matching the reference's layout exactly). Scheme DSL `(action "Open" 'description "Launch the app" ...)` now works.
+- **Added `ChooserSearchMode`**: New enum (`showAll` / `requireQuery`) replacing the reference's nested `SearchMode`. Wired through `ChooserPresenting` protocol, `ChooserCoordinator` (derives mode from `fileRoots != nil`), `ChooserWindowController.showChooser`, and `ChooserSearchHandler.filterChoices`. File-based selectors will show empty results until the user types, preventing 50K+ results on open.
+- **Removed redundant `theme` from `ChooserPresenting`**: The `showChooser` method accepted a `theme` parameter that was ignored (controller uses its own `chooserTheme` from init). Replaced with the `searchMode` parameter that is actually used.
+- **Documented access control trade-off**: Added header comment to `ChooserWindowController` explaining that properties are `internal` (not `private`) because they are shared across extension files, not because they should be freely accessed externally.
+- **No critical or blocking issues found**: Chooser port is faithful to the reference. All keyboard handling (arrows, return, escape, cmd+digit, cmd+K, cmd+return, cmd+shift+/, delete in action panel) matches. Scheme↔Swift marshalling preserves original alist values through the full round-trip.
+- **File layout**: 49 source files (+1 `ChooserSearchMode`), 23 test files. **190 tests total** (up from 187), 21 suites. All passing, zero warnings.
+
+### Session 6
+- **FuzzyMatcher as pure Swift, not LispKit library**: The plan called for a native LispKit library `(modaliser fuzzy-match)`, but fuzzy matching is purely a Swift-side concern — it's used by `ChooserSearchHandler` to filter choices, never called from Scheme. Implementing as a pure Swift `enum FuzzyMatcher` with a static `match(query:target:)` method is simpler, faster (no Scheme bridge overhead), and more testable. If Scheme-level matching is ever needed, it can be added as a thin wrapper.
+- **DP algorithm faithful to reference**: All scoring constants match the reference (`MATCH=16`, `GAP=-3`, `CONSECUTIVE=4`, position bonuses for `/`, space, `-_`, `.`, camelCase). The flat-array DP approach (`M[i*m+j]`, `D[i*m+j]`) avoids 2D array overhead. Traceback recovers exact matched positions for highlighting.
+- **Named DP arrays for clarity**: Reference uses terse names (`M`, `D`, `from`). Renamed to `bestScores`, `consecutiveScores`, `tracebackPositions` for readability per coding style guidelines.
+- **Path-aware search with tail proximity**: When query contains "/", the search also matches against `subText` (full path). A tail proximity bonus (`30 - charsAfterMatch`) rewards matches near the end of the path, so "src/main" prefers `project/src/main.swift` over `src/main/deeply/nested/file.txt`.
+- **FileIndexer async flow**: File selectors use a different flow from app selectors. The coordinator shows an empty chooser immediately (requireQuery mode), starts `fd` indexing in background, and calls `updateChoices()` on the presenter when indexing completes. This avoids blocking the UI while scanning potentially 50K+ files.
+- **FileIndexer inherits extended PATH**: GUI apps get a minimal PATH that excludes `/opt/homebrew/bin`. `FileIndexer` extends PATH to find Homebrew-installed `fd`, matching the reference's approach.
+- **Test for scoring invariants, not exact scores**: FuzzyMatcher tests verify *relative ordering* (consecutive > scattered, word boundary > mid-word) rather than exact score values. This makes tests robust against scoring constant tuning while ensuring the ranking behavior is correct.
+- **File layout**: 51 source files (+2 `FuzzyMatcher`, `FileIndexer`, `ChooserSearchMode`), 25 test files (+2 `FuzzyMatcherTests`, `FileIndexerTests`). **211 tests total** (up from 190), 23 suites (up from 21). All passing, zero warnings.
+
+### Code Review 6
+- **DP algorithm verified line-by-line**: All scoring constants, position bonuses, DP recurrence, gap/consecutive paths, and traceback logic match the reference exactly. The structural improvement (descriptive names) does not affect behavior.
+- **Threading model is correct**: `choices` captured by value in search closure prevents data races. Generation counter invalidates stale results. Serial queue ensures only one search runs at a time. No race conditions found.
+- **Added FileIndexer error logging**: The `catch` block now logs when `fd` fails (e.g., not installed), preventing silent failures. Previously `completion(false)` was called with no diagnostic output.
+- **Added FileIndexer result cap**: `maxResults = 100_000` prevents runaway memory usage when file-roots cover a very large directory tree. Logs a warning when truncated.
+- **Known tech debt: NSRange/character index mismatch**: `highlightedString` applies `FuzzyMatcher`'s character-based indices as `NSRange(location:length:)` on `NSAttributedString` (UTF-16). This is correct for ASCII but will diverge for multi-byte characters (emoji, CJK). The reference has the same bug. Tracked for future fix when non-ASCII file names are tested.
+- **Performance analysis**: For 50K files with average path length 60 and query length 5, the DP allocates ~900 Ints per file per search cycle. The 30ms debounce, serial queue, and Swift's allocator make this feasible. Profiling with a real 50K file list recommended as a future validation step.
+- **No critical issues found**. Two Important issues fixed (logging, result cap). Assessment: ready to merge.

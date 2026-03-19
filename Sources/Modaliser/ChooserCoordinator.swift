@@ -7,6 +7,7 @@ final class ChooserCoordinator {
     private let sourceInvoker: SelectorSourceInvoker
     private let executor: CommandExecutor
     private let theme: OverlayTheme
+    private let fileIndexer = FileIndexer()
     private var activeSelector: SelectorDefinition?
 
     var isChooserOpen: Bool { presenter.isChooserVisible }
@@ -24,19 +25,37 @@ final class ChooserCoordinator {
     }
 
     /// Open the chooser for a selector definition.
-    /// Calls the source lambda, marshals choices, and presents the UI.
+    /// For standard selectors: calls the source lambda synchronously, shows results.
+    /// For file selectors (fileRoots set): shows empty chooser, indexes in background.
     func openSelector(_ selector: SelectorDefinition) {
         activeSelector = selector
-        let choices = loadChoices(from: selector)
         let prompt = selector.config.prompt ?? selector.label
 
-        presenter.showChooser(
-            choices: choices,
-            actions: selector.config.actions,
-            prompt: prompt,
-            theme: theme
-        ) { [weak self] result in
-            self?.handleResult(result)
+        if let fileRoots = selector.config.fileRoots {
+            // File selector: show empty chooser, index in background
+            presenter.showChooser(
+                choices: [],
+                actions: selector.config.actions,
+                prompt: prompt,
+                searchMode: .requireQuery
+            ) { [weak self] result in
+                self?.handleResult(result)
+            }
+            fileIndexer.index(roots: fileRoots) { [weak self] _ in
+                guard let self = self, self.activeSelector != nil else { return }
+                self.presenter.updateChoices(self.fileIndexer.choices)
+            }
+        } else {
+            // Standard selector: load choices synchronously
+            let choices = loadChoices(from: selector)
+            presenter.showChooser(
+                choices: choices,
+                actions: selector.config.actions,
+                prompt: prompt,
+                searchMode: .showAll
+            ) { [weak self] result in
+                self?.handleResult(result)
+            }
         }
     }
 

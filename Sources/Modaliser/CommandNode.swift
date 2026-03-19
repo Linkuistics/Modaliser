@@ -82,6 +82,7 @@ struct SelectorConfig {
 /// An action available in a selector's action panel.
 struct ActionConfig {
     let name: String
+    let description: String?
     let trigger: ActionTrigger?
     let run: Expr
 }

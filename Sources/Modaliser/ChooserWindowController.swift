@@ -3,6 +3,11 @@ import LispKit
 
 /// Controls the chooser window: search, selection, actions, and keyboard handling.
 /// Implements ChooserPresenting so the coordinator can show/dismiss it.
+///
+/// Note: Many properties are `internal` rather than `private` because they are
+/// accessed by extensions in separate files (Builder, Keyboard, Row, Footer,
+/// Search, ActionPanel handler). They are not intended for use outside the
+/// chooser subsystem.
 final class ChooserWindowController: NSObject, ChooserPresenting {
     let chooserTheme: OverlayTheme
     private(set) var choices: [ChooserChoice] = []
@@ -14,6 +19,7 @@ final class ChooserWindowController: NSObject, ChooserPresenting {
     var helpExpanded: Bool = false
     let actionPanel = ChooserActionPanel()
     var savedPrompt: String = ""
+    var searchMode: ChooserSearchMode = .showAll
     var onResult: ((ChooserResult) -> Void)?
 
     var panel: KeyablePanel?
@@ -54,14 +60,16 @@ final class ChooserWindowController: NSObject, ChooserPresenting {
         choices: [ChooserChoice],
         actions: [ActionConfig],
         prompt: String,
-        theme: OverlayTheme,
+        searchMode: ChooserSearchMode,
         onResult: @escaping (ChooserResult) -> Void
     ) {
         self.choices = choices
         self.selectorActions = actions
-        self.filteredChoices = choices
-        self.filteredTextMatches = Array(repeating: [], count: choices.count)
-        self.filteredSubMatches = Array(repeating: [], count: choices.count)
+        self.searchMode = searchMode
+        self.filteredChoices = searchMode == .showAll ? choices : []
+        let matchCount = filteredChoices.count
+        self.filteredTextMatches = Array(repeating: [], count: matchCount)
+        self.filteredSubMatches = Array(repeating: [], count: matchCount)
         self.selectedIndex = 0
         self.helpExpanded = false
         self.savedPrompt = prompt
@@ -85,6 +93,24 @@ final class ChooserWindowController: NSObject, ChooserPresenting {
 
     func dismissChooser() {
         dismiss()
+    }
+
+    func updateChoices(_ newChoices: [ChooserChoice]) {
+        self.choices = newChoices
+        // If search field has a query, re-run the search with new data
+        if let query = searchField?.stringValue, !query.isEmpty {
+            filterChoices(query: query)
+        }
+        // If showAll mode and no query, update display immediately
+        else if searchMode == .showAll {
+            filteredChoices = newChoices
+            filteredTextMatches = Array(repeating: [], count: newChoices.count)
+            filteredSubMatches = Array(repeating: [], count: newChoices.count)
+            selectedIndex = 0
+            resizeTableArea()
+            tableView?.reloadData()
+        }
+        // requireQuery with empty query: no display update needed — user must type first
     }
 
     // MARK: - Selection management

@@ -98,10 +98,12 @@ struct CommandNodeTests {
     @Test func actionConfigStoresNameAndTrigger() {
         let action = ActionConfig(
             name: "Open",
+            description: "Launch the app",
             trigger: .primary,
             run: .void
         )
         #expect(action.name == "Open")
+        #expect(action.description == "Launch the app")
         #expect(action.trigger == .primary)
     }
 }

@@ -152,6 +152,23 @@ extension ChooserWindowController: NSTableViewDataSource, NSTableViewDelegate {
         nameLabel.cell?.truncatesLastVisibleLine = true
         cellView.addSubview(nameLabel)
 
+        // Action description as subtext
+        if let desc = action.description, !desc.isEmpty {
+            let subFont = NSFont(name: chooserTheme.font.fontName, size: chooserTheme.fontSize - 2)
+                ?? NSFont.monospacedSystemFont(ofSize: chooserTheme.fontSize - 2, weight: .regular)
+            let subLabel = NSTextField(frame: NSRect(x: nameX, y: 4, width: windowWidth - nameX - 12, height: 16))
+            subLabel.stringValue = desc
+            subLabel.isBezeled = false
+            subLabel.drawsBackground = false
+            subLabel.isEditable = false
+            subLabel.isSelectable = false
+            subLabel.font = subFont
+            subLabel.textColor = chooserTheme.subtextColor
+            subLabel.lineBreakMode = .byTruncatingTail
+            subLabel.cell?.truncatesLastVisibleLine = true
+            cellView.addSubview(subLabel)
+        }
+
         return cellView
     }
 

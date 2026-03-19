@@ -63,9 +63,10 @@ struct CommandNodeBuilder {
 
     private func parseOneAction(from alist: Expr) -> ActionConfig? {
         guard let name = try? lookupRequired(alist, key: "name").asString() else { return nil }
+        let description = try? lookupRequired(alist, key: "description").asString()
         let run = lookupOptional(alist, key: "run") ?? .null
         let trigger = parseActionTrigger(from: lookupOptional(alist, key: "key"))
-        return ActionConfig(name: name, trigger: trigger, run: run)
+        return ActionConfig(name: name, description: description, trigger: trigger, run: run)
     }
 
     private func parseActionTrigger(from expr: Expr?) -> ActionTrigger? {

@@ -11,9 +11,9 @@ struct ChooserActionPanelTests {
 
     private func makeDummyActions() -> [ActionConfig] {
         [
-            ActionConfig(name: "Open", trigger: .primary, run: .null),
-            ActionConfig(name: "Show in Finder", trigger: .secondary, run: .null),
-            ActionConfig(name: "Copy Path", trigger: nil, run: .null),
+            ActionConfig(name: "Open", description: nil, trigger: .primary, run: .null),
+            ActionConfig(name: "Show in Finder", description: nil, trigger: .secondary, run: .null),
+            ActionConfig(name: "Copy Path", description: nil, trigger: nil, run: .null),
         ]
     }
 

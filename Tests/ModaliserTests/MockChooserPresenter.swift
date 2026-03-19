@@ -8,6 +8,7 @@ final class MockChooserPresenter: ChooserPresenting {
     var lastChoices: [ChooserChoice] = []
     var lastActions: [ActionConfig] = []
     var lastPrompt: String?
+    var lastSearchMode: ChooserSearchMode?
     private(set) var isChooserVisible = false
     private var resultCallback: ((ChooserResult) -> Void)?
 
@@ -15,15 +16,20 @@ final class MockChooserPresenter: ChooserPresenting {
         choices: [ChooserChoice],
         actions: [ActionConfig],
         prompt: String,
-        theme: OverlayTheme,
+        searchMode: ChooserSearchMode,
         onResult: @escaping (ChooserResult) -> Void
     ) {
         showCallCount += 1
         lastChoices = choices
         lastActions = actions
         lastPrompt = prompt
+        lastSearchMode = searchMode
         isChooserVisible = true
         resultCallback = onResult
+    }
+
+    func updateChoices(_ choices: [ChooserChoice]) {
+        lastChoices = choices
     }
 
     func dismissChooser() {
