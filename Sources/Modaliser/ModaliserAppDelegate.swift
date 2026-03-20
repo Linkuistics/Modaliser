@@ -14,6 +14,7 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
         NSLog("Modaliser starting (pid=%d, bundle=%@)", ProcessInfo.processInfo.processIdentifier, Bundle.main.bundlePath)
         NSApp.setActivationPolicy(.accessory)
         ConfigSetup.ensureConfigExists()
+        requestScreenRecordingPermission()
         setupStatusBarItem()
         loadSchemeConfig()
         NSLog("Modaliser: config loaded, dispatcher=%@", keyEventDispatcher != nil ? "yes" : "nil")
@@ -137,6 +138,18 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             NSLog("Failed to load Scheme config: %@", "\(error)")
             ConfigErrorAlert.show(error: error)
+        }
+    }
+
+    // MARK: - Permissions
+
+    private func requestScreenRecordingPermission() {
+        // CGPreflightScreenCaptureAccess checks without prompting.
+        // CGRequestScreenCaptureAccess triggers the system prompt if not yet granted.
+        // Needed for CGWindowListCopyWindowInfo to return window titles.
+        if !CGPreflightScreenCaptureAccess() {
+            CGRequestScreenCaptureAccess()
+            NSLog("Screen Recording permission requested")
         }
     }
 
