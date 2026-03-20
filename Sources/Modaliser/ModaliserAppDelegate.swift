@@ -152,9 +152,22 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
 
         do {
             try keyboardCapture?.start()
-        } catch {
-            NSLog("Failed to start keyboard capture: %@", "\(error)")
+        } catch KeyboardCaptureError.accessibilityNotTrusted {
+            NSLog("Accessibility permission not granted")
             AccessibilityPermissionAlert.showAndTerminate()
+        } catch {
+            // Tap creation can fail transiently (e.g., after rebuild, TCC propagation delay).
+            // Retry once after a short delay before giving up.
+            NSLog("Event tap creation failed, retrying: %@", "\(error)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                do {
+                    try self?.keyboardCapture?.start()
+                    NSLog("Event tap created on retry")
+                } catch {
+                    NSLog("Event tap retry failed: %@", "\(error)")
+                    AccessibilityPermissionAlert.showAndTerminate()
+                }
+            }
         }
     }
 }
