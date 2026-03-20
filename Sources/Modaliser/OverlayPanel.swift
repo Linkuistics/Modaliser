@@ -1,15 +1,39 @@
 import AppKit
+import QuartzCore
 
 /// Renders the which-key overlay as a floating, non-activating NSPanel.
-/// Ported from modal-chooser's OverlayWindowController.
-/// Never steals keyboard focus — uses borderless + nonactivatingPanel style.
+/// Reuses the panel across navigations and updates content in-place
+/// to avoid flicker. Uses CATransaction to batch subview changes.
 final class OverlayPanel: OverlayPresenting {
-    private var panel: NSPanel?
+    private(set) var panel: NSPanel?
+    private var containerView: NSView?
 
     func showOverlay(content: OverlayContent, theme: OverlayTheme) {
-        dismiss()
-
         let layout = OverlayLayout(entryCount: content.entries.count, theme: theme)
+
+        if let existingPanel = panel, let existingContainer = containerView {
+            updateInPlace(
+                panel: existingPanel,
+                container: existingContainer,
+                content: content,
+                theme: theme,
+                layout: layout
+            )
+        } else {
+            createAndShow(content: content, theme: theme, layout: layout)
+        }
+    }
+
+    func dismissOverlay() {
+        panel?.orderOut(nil)
+        panel?.close()
+        panel = nil
+        containerView = nil
+    }
+
+    // MARK: - Private
+
+    private func createAndShow(content: OverlayContent, theme: OverlayTheme, layout: OverlayLayout) {
         let p = createPanel(size: NSSize(width: layout.width, height: layout.totalHeight))
         let container = createContainer(frame: NSRect(origin: .zero, size: p.frame.size), theme: theme)
         p.contentView = container
@@ -19,18 +43,30 @@ final class OverlayPanel: OverlayPresenting {
 
         p.orderFront(nil)
         panel = p
+        containerView = container
     }
 
-    func dismissOverlay() {
-        dismiss()
-    }
+    private func updateInPlace(
+        panel: NSPanel,
+        container: NSView,
+        content: OverlayContent,
+        theme: OverlayTheme,
+        layout: OverlayLayout
+    ) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
 
-    // MARK: - Private
+        container.subviews.forEach { $0.removeFromSuperview() }
 
-    private func dismiss() {
-        panel?.orderOut(nil)
-        panel?.close()
-        panel = nil
+        let newSize = NSSize(width: layout.width, height: layout.totalHeight)
+        container.frame = NSRect(origin: .zero, size: newSize)
+
+        renderContent(in: container, content: content, theme: theme, layout: layout)
+
+        panel.setContentSize(newSize)
+        positionOnScreen(panel: panel, layout: layout)
+
+        CATransaction.commit()
     }
 
     private func createPanel(size: NSSize) -> NSPanel {

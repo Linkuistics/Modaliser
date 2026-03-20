@@ -36,6 +36,12 @@ final class SchemeEngine {
         try context.environment.import(WindowLibrary.name)
         try context.libraries.register(libraryType: InputLibrary.self)
         try context.environment.import(InputLibrary.name)
+        try context.libraries.register(libraryType: QuicklinksLibrary.self)
+        try context.environment.import(QuicklinksLibrary.name)
+        try context.libraries.register(libraryType: SnippetsLibrary.self)
+        try context.environment.import(SnippetsLibrary.name)
+        try context.libraries.register(libraryType: ClipboardHistoryLibrary.self)
+        try context.environment.import(ClipboardHistoryLibrary.name)
     }
 
     /// Evaluate a string of Scheme code and return the result.

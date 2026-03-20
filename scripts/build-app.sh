@@ -14,8 +14,33 @@ swift build -c release
 
 echo "Creating ${APP_NAME}.app..."
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
+mkdir -p "${APP_BUNDLE}/Contents/Resources"
 cp "${BUILD_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp Info.plist "${APP_BUNDLE}/Contents/Info.plist"
+
+# Generate .icns from source PNG
+ICON_SOURCE="Resources/AppIcon.png"
+ICONSET_DIR="${BUILD_DIR}/AppIcon.iconset"
+ICNS_FILE="${APP_BUNDLE}/Contents/Resources/AppIcon.icns"
+
+if [ -f "$ICON_SOURCE" ]; then
+    echo "Generating AppIcon.icns..."
+    rm -rf "$ICONSET_DIR"
+    mkdir -p "$ICONSET_DIR"
+
+    declare -a SIZES=(16 32 128 256 512)
+    for size in "${SIZES[@]}"; do
+        sips -z "$size" "$size" "$ICON_SOURCE" --out "${ICONSET_DIR}/icon_${size}x${size}.png" > /dev/null
+        retina=$((size * 2))
+        sips -z "$retina" "$retina" "$ICON_SOURCE" --out "${ICONSET_DIR}/icon_${size}x${size}@2x.png" > /dev/null
+    done
+
+    iconutil --convert icns --output "$ICNS_FILE" "$ICONSET_DIR"
+    rm -rf "$ICONSET_DIR"
+    echo "Generated ${ICNS_FILE}"
+else
+    echo "Warning: ${ICON_SOURCE} not found, skipping icon generation."
+fi
 
 echo "Signing ${APP_NAME}.app..."
 # Use "Modaliser Dev" certificate for stable identity across rebuilds.
