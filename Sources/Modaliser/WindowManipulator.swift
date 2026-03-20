@@ -7,7 +7,7 @@ enum WindowManipulator {
     /// Focus a window by its owner PID and window title.
     static func focusWindow(ownerPID: pid_t, title: String) {
         guard let app = NSRunningApplication(processIdentifier: ownerPID) else { return }
-        app.activate(options: [.activateIgnoringOtherApps])
+        app.activate()
 
         let appElement = AXUIElementCreateApplication(ownerPID)
         guard let windows = axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement] else { return }

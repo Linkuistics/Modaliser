@@ -11,7 +11,14 @@ Replaces Hammerspoon with a standalone native Swift app. Configuration and actio
 - Accessibility permissions (for global keyboard capture)
 - [`fd`](https://github.com/sharkdp/fd) (optional, for file search)
 
-## Build & Run
+## Install
+
+```bash
+make app          # builds .build/release/Modaliser.app
+make install      # copies to /Applications
+```
+
+Or for development:
 
 ```bash
 swift build
@@ -23,7 +30,9 @@ On first launch, macOS will prompt for Accessibility permissions. The app runs a
 
 ## Configuration
 
-Modaliser loads config from `~/.config/modaliser/config.scm` (falls back to `./config.scm` for development).
+On first launch, Modaliser creates `~/.config/modaliser/config.scm` with a starter config. Edit this file, then use **Reload Config** from the menu bar icon to apply changes.
+
+You can also click **Reveal Config in Finder** from the menu bar to open the config directory.
 
 ### Leader Keys
 
@@ -214,6 +223,7 @@ Selectors with `'file-roots` use `fd` to index files in the background. The choo
 The `⌨` menu provides:
 
 - **Reload Config** — Re-evaluate config.scm without restarting
+- **Reveal Config in Finder** — Open the config directory
 - **Launch at Login** — Toggle auto-start
 - **Quit Modaliser**
 

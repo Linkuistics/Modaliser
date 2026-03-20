@@ -12,6 +12,7 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        ConfigSetup.ensureConfigExists()
         setupStatusBarItem()
         loadSchemeConfig()
         startKeyboardCapture()
@@ -31,6 +32,7 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Reload Config", action: #selector(reloadConfig), keyEquivalent: "r"))
+        menu.addItem(NSMenuItem(title: "Reveal Config in Finder", action: #selector(revealConfig), keyEquivalent: ""))
         menu.addItem(.separator())
         let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         loginItem.state = LaunchAtLogin.isEnabled ? .on : .off
@@ -47,6 +49,10 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
         LaunchAtLogin.toggle()
         sender.state = LaunchAtLogin.isEnabled ? .on : .off
+    }
+
+    @objc private func revealConfig() {
+        ConfigSetup.revealInFinder()
     }
 
     @objc private func reloadConfig() {
