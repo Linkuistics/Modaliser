@@ -34,24 +34,12 @@ struct SelectorSourceInvoker {
 
     private func marshalOneChoice(from alist: Expr) -> ChooserChoice {
         ChooserChoice(
-            text: lookupString(alist, key: "text") ?? "",
-            subText: lookupString(alist, key: "subText"),
-            icon: lookupString(alist, key: "icon"),
-            iconType: lookupString(alist, key: "iconType"),
+            text: SchemeAlistLookup.lookupString(alist, key: "text") ?? "",
+            subText: SchemeAlistLookup.lookupString(alist, key: "subText"),
+            icon: SchemeAlistLookup.lookupString(alist, key: "icon"),
+            iconType: SchemeAlistLookup.lookupString(alist, key: "iconType"),
             schemeValue: alist
         )
-    }
-
-    /// Look up a string value by symbol key in a Scheme alist.
-    private func lookupString(_ alist: Expr, key: String) -> String? {
-        var current = alist
-        while case .pair(let entry, let tail) = current {
-            if case .pair(.symbol(let s), let value) = entry, s.identifier == key {
-                return try? value.asString()
-            }
-            current = tail
-        }
-        return nil
     }
 }
 

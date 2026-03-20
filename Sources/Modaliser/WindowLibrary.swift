@@ -45,12 +45,11 @@ final class WindowLibrary: NativeLibrary {
 
     /// (focus-window choice-alist) → void
     private func focusWindowFunction(_ choice: Expr) throws -> Expr {
-        guard let pidStr = lookupString(choice, key: "ownerPid"),
-              let pid = Int32(pidStr),
-              let title = lookupString(choice, key: "text") else {
+        guard let pid = SchemeAlistLookup.lookupFixnum(choice, key: "ownerPid"),
+              let title = SchemeAlistLookup.lookupString(choice, key: "text") else {
             return .void
         }
-        WindowManipulator.focusWindow(ownerPID: pid, title: title)
+        WindowManipulator.focusWindow(ownerPID: pid_t(pid), title: title)
         return .void
     }
 
@@ -87,30 +86,13 @@ final class WindowLibrary: NativeLibrary {
     // MARK: - Helpers
 
     private func makeWindowAlist(_ window: WindowInfo) -> Expr {
-        let entries: [(String, Expr)] = [
+        SchemeAlistLookup.makeAlist([
             ("text", .makeString(window.title)),
             ("subText", .makeString(window.ownerName)),
             ("icon", .makeString(window.bundleId)),
             ("iconType", .makeString("bundleId")),
             ("windowId", .fixnum(Int64(window.windowId))),
-            ("ownerPid", .makeString(String(window.ownerPID))),
-        ]
-        var result: Expr = .null
-        for (key, value) in entries.reversed() {
-            let pair = Expr.pair(.symbol(self.context.symbols.intern(key)), value)
-            result = .pair(pair, result)
-        }
-        return result
-    }
-
-    private func lookupString(_ alist: Expr, key: String) -> String? {
-        var current = alist
-        while case .pair(let entry, let tail) = current {
-            if case .pair(.symbol(let s), let value) = entry, s.identifier == key {
-                return try? value.asString()
-            }
-            current = tail
-        }
-        return nil
+            ("ownerPid", .fixnum(Int64(window.ownerPID))),
+        ], symbols: self.context.symbols)
     }
 }

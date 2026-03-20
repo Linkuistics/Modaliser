@@ -246,4 +246,63 @@ struct ModalStateMachineTests {
         #expect(result == .noBinding("s"))
         #expect(machine.isIdle)
     }
+
+    // MARK: - Local mode with bundle ID
+
+    @Test func enterLocalModeWithBundleIdActivates() {
+        let registry = makeRegistryWithGlobalTree()
+        let localTree = CommandNode.group(GroupDefinition(
+            key: "", label: "Safari",
+            children: [
+                "t": .group(GroupDefinition(key: "t", label: "Tabs", children: [:]))
+            ]
+        ))
+        registry.registerTree(for: .appLocal("com.apple.Safari"), root: localTree)
+
+        let machine = ModalStateMachine(registry: registry)
+        machine.enterLeader(mode: .local, focusedBundleId: "com.apple.Safari")
+        #expect(machine.isActive)
+        #expect(machine.currentMode == .local)
+        #expect(machine.currentNode?.label == "Safari")
+    }
+
+    @Test func enterLocalModeWithNoBundleIdStaysIdle() {
+        let registry = makeRegistryWithGlobalTree()
+        let machine = ModalStateMachine(registry: registry)
+        machine.enterLeader(mode: .local, focusedBundleId: nil)
+        #expect(machine.isIdle)
+    }
+
+    @Test func enterLocalModeWithEmptyBundleIdStaysIdle() {
+        let registry = makeRegistryWithGlobalTree()
+        let machine = ModalStateMachine(registry: registry)
+        machine.enterLeader(mode: .local, focusedBundleId: "")
+        #expect(machine.isIdle)
+    }
+
+    @Test func enterLocalModeWithUnregisteredBundleIdStaysIdle() {
+        let registry = makeRegistryWithGlobalTree()
+        let machine = ModalStateMachine(registry: registry)
+        machine.enterLeader(mode: .local, focusedBundleId: "com.example.unknown")
+        #expect(machine.isIdle)
+    }
+
+    @Test func localModeNavigatesAppLocalTree() {
+        let registry = makeRegistryWithGlobalTree()
+        let localTree = CommandNode.group(GroupDefinition(
+            key: "", label: "Safari",
+            children: [
+                "t": .group(GroupDefinition(key: "t", label: "Tabs", children: [
+                    "n": .command(CommandDefinition(key: "n", label: "New Tab", action: .void))
+                ]))
+            ]
+        ))
+        registry.registerTree(for: .appLocal("com.apple.Safari"), root: localTree)
+
+        let machine = ModalStateMachine(registry: registry)
+        machine.enterLeader(mode: .local, focusedBundleId: "com.apple.Safari")
+        let result = machine.handleKey("t")
+        #expect(result == .navigated)
+        #expect(machine.currentNode?.label == "Tabs")
+    }
 }

@@ -221,29 +221,29 @@ Key context:
   - [x] Test: 265 tests, 30 suites, all passing (up from 211/23)
   - [ ] Commit and stop
 
-- [ ] **Code Review 7**
-  - [ ] Review native library API design (Scheme-idiomatic? consistent?)
-  - [ ] Check error handling in native libraries
-  - [ ] Verify feature parity with Hammerspoon version
-  - [ ] Update plan with findings
+- [x] **Code Review 7**
+  - [x] Review native library API design (Scheme-idiomatic? consistent?)
+  - [x] Check error handling in native libraries
+  - [x] Verify feature parity with Hammerspoon version
+  - [x] Update plan with findings
 
-- [ ] **Session 8: App-local commands + polish**
-  - [ ] Implement app-local command trees (detect focused app via NSWorkspace)
-  - [ ] Port Zed, Safari, iTerm local commands to config.scm
-  - [ ] Menu bar icon / status item (optional, for quit/reload)
-  - [ ] Config reload (re-evaluate config.scm without restarting)
-  - [ ] Error reporting: Scheme evaluation errors shown as alerts
-  - [ ] Launch at login support (LSUIElement + LaunchAgent or LoginItem)
-  - [ ] Clipboard history watcher (port from current implementation)
-  - [ ] Test: complete feature parity with Hammerspoon version
+- [x] **Session 8: App-local commands + polish**
+  - [x] Implement app-local command trees (detect focused app via NSWorkspace)
+  - [x] Port Zed, Safari, iTerm local commands to config.scm
+  - [x] Menu bar icon / status item (Reload Config, Launch at Login, Quit)
+  - [x] Config reload (re-evaluate config.scm without restarting)
+  - [x] Error reporting: Scheme evaluation errors shown as alerts
+  - [x] Launch at login support (SMAppService macOS 13+)
+  - [ ] Clipboard history watcher — deferred to Phase 2
+  - [x] Test: 297 tests, 34 suites, all passing
   - [ ] Commit and stop
 
-- [ ] **Code Review 8 (Final)**
-  - [ ] Full review of architecture, code quality, test coverage
-  - [ ] Review config.scm ergonomics — is it pleasant for users?
-  - [ ] Performance review (startup time, memory, responsiveness)
-  - [ ] Document any remaining issues or Phase 2 items
-  - [ ] Update plan with findings
+- [x] **Code Review 8 (Final)**
+  - [x] Full review of architecture, code quality, test coverage
+  - [x] Review config.scm ergonomics — is it pleasant for users?
+  - [x] Performance review (startup time, memory, responsiveness)
+  - [x] Document any remaining issues or Phase 2 items
+  - [x] Update plan with findings
 
 ## Reference: Files to Port from modal-chooser
 
@@ -396,3 +396,49 @@ Source directory: `~/.config/hammerspoon/modal-chooser/Sources/`
 - **move-window with unit rect**: Changed from separate `first-third`, `last-third` etc. functions to a single `(move-window x y w h)` with unit fractions. More flexible — config composes arbitrary positions: `(move-window 0 0 1/3 1)` for first third, `(move-window 1/3 0 2/3 1)` for last two-thirds. Matches the reference's `hs.geometry.unitrect` approach but with a simpler API.
 - **File layout**: 57 source files (+8), 30 test files (+7). New: `PasteboardLibrary` (43 lines), `ShellLibrary` (44 lines), `AppLibrary` (147 lines), `AppScanner` (49 lines), `WindowLibrary` (116 lines), `WindowEnumerator` (63 lines), `WindowManipulator` (143 lines), `SearchMemory` (89 lines).
 - **265 tests total**, 30 suites (up from 211/23). All passing, zero warnings.
+
+### Code Review 7
+- **Extracted `SchemeAlistLookup`**: Alist lookup was duplicated in `AppLibrary`, `WindowLibrary`, `SelectorSourceInvoker`, and `ChooserCoordinator` (4 independent copies of the same traversal). Extracted to `SchemeAlistLookup.swift` with `lookupString`, `lookupFixnum`, and `makeAlist` static methods. All four consumers now delegate to the shared utility. `ModaliserDSLLibrary.makeAlist` also delegates to the shared helper.
+- **Fixed `ownerPid` type mismatch**: `WindowLibrary` stored `ownerPid` as `.makeString(String(pid))` then re-parsed with `Int32()` in `focusWindowFunction`. Changed to `.fixnum(Int64(pid))` matching `windowId`'s storage. Added `lookupFixnum` to `SchemeAlistLookup` for type-safe fixnum retrieval.
+- **Fixed config.scm parenthesis bug**: Find File selector's `(list ...)` closed prematurely after the first action — line 55 had 5 close parens instead of 4. The remaining 3 actions ("Show in Finder", "Copy Path", "Open in Zed") were orphaned arguments silently dropped by `parsePropertyArguments`. This went undetected because the DSL's tolerant parsing skips non-symbol arguments without error.
+- **Added missing `z → Zed` shortcut**: Present in `global.lua` as a top-level shortcut but absent from `config.scm`. Added to match feature parity.
+- **Feature parity assessment**: All `global.lua` features ported except `f.q` (Quicklinks selector) and `f.s` (Snippets selector) — both require custom backends that would need Scheme data sources. These are low-priority features suitable for Session 8 or Phase 2.
+- **API design is consistent and Scheme-idiomatic**: All four libraries follow identical patterns (NativeLibrary subclass, kebab-case naming, `!` for mutations). Alist structure is uniform across `find-installed-apps` and `list-windows`. The `(modaliser <domain>)` namespace pattern is clean and predictable.
+- **Silent failure pattern noted**: `activate-app`, `focus-window`, and `open-url` return `.void` silently when inputs are malformed. Acceptable for now — Scheme is a trusted input source — but should add logging if user config debugging becomes difficult.
+- **`run-shell` blocks main thread**: `Process.waitUntilExit()` is synchronous. Matches reference behavior. Long-running commands could freeze the UI. Future optimization: async execution with timeout.
+- **File layout**: 58 source files (+1 `SchemeAlistLookup`), 31 test files (+1 `SchemeAlistLookupTests`). **274 tests total** (up from 265), 31 suites (up from 30). All passing, zero warnings.
+
+### Session 8
+- **FocusedAppObserver is trivial by design**: Just wraps `NSWorkspace.shared.frontmostApplication?.bundleIdentifier`. No KVO observation needed — the bundle ID is read at the moment F17 is pressed, which gives the correct target app since our accessory app doesn't steal focus.
+- **ModalStateMachine.enterLeader now guards against missing trees**: When local mode is requested but no app-local tree exists for the focused app (or no app is focused), `enterLeader` returns without activating. The dispatcher checks `stateMachine.isActive` after the call and only shows the overlay if activation succeeded.
+- **Bundle IDs as tree scope keys**: Config uses `(define-tree 'com.apple.Safari ...)` with bundle IDs directly. The `ModaliserDSLLibrary.defineTreeFunction` already handled non-`global` symbols as `appLocal(identifier)` — no changes needed to the DSL. Users can alias bundle IDs with `define` if desired.
+- **KeystrokeEmitter dual lookup**: `send-keystroke` tries character lookup first (`KeystrokeEmitter.keyCode(for:)`), then named key lookup (`keyCode(forNamedKey:)`). This means `"t"` maps to the T key, `"left"` maps to the arrow key. Named keys include arrows, return, tab, escape, delete, and F1-F12.
+- **`keystroke` helper showcases Scheme config power**: `(define (keystroke mods key-name) (lambda () (send-keystroke mods key-name)))` creates a reusable factory. Config reads cleanly: `(keystroke '(cmd shift) "p")` for Cmd+Shift+P. This pattern is impossible with YAML/JSON configs.
+- **Config reload via handler swap**: `KeyboardCapture.updateHandler` replaces the event handler closure without restarting the CGEvent tap. This avoids the risk of losing the tap (macOS may not grant a new one if the old one isn't cleanly removed).
+- **ConfigErrorAlert for user feedback**: On config load failure, an NSAlert shows the error message. The app continues running with whatever was loaded (partial config is better than no config).
+- **Launch at login via SMAppService**: Single-line `SMAppService.mainApp.register()` / `.unregister()`. Menu item shows checkmark state. Requires macOS 13+, which is the minimum for this project.
+- **Config.scm cleanup**: Removed duplicate `z → Zed` top-level key. Replaced `run-shell "osascript ..."` Spotlight command with `(keystroke '(cmd) " ")`. Added `keystroke` helper near the top.
+- **Clipboard history deferred**: Deferred to Phase 2 — it's a substantial standalone feature (background watcher, persistent storage, chooser UI) that doesn't block feature parity for the core modal system.
+- **File layout**: 65 source files (+7), 36 test files (+5). New: `FocusedAppObserver` (11 lines), `KeystrokeEmitter` (65 lines), `InputLibrary` (72 lines), `ConfigErrorAlert` (16 lines), `LaunchAtLogin` (18 lines), `SchemeAlistLookup` (from CR7). **297 tests total** (up from 274), 34 suites (up from 31). All passing, zero warnings.
+
+### Code Review 8 (Final)
+- **Replaced deprecated NSWorkspace APIs**: `launchApplication(withBundleIdentifier:...)` and `launchApplication(_:)` in `AppLibrary` replaced with `openApplication(at:configuration:)` and `urlForApplication(withBundleIdentifier:)`. These APIs have been deprecated since macOS 10.15.
+- **Eliminated force unwraps in ChooserSearchHandler**: Lines 63/65 used `textMatch!` and `subMatch!` — safe at runtime (guarded by score > 0) but fragile. Replaced with `guard let` bindings for clarity.
+- **Documented AXUIElement force casts**: `WindowManipulator` lines 93/97 force-cast `AnyObject` to `AXUIElement`. These are inherent to the Accessibility API (CFTypeRef returns). Added inline comment explaining why they're safe.
+- **Config.scm ergonomics assessment**: The DSL reads well. The `keystroke` helper is clean: `(keystroke '(cmd shift) "p")` for Cmd+Shift+P. The `open-url-action` helper enables Raycast integration. Bundle IDs as tree scope keys are explicit if ugly — but `define` aliases (`(define safari "com.apple.Safari")`) mitigate this. One improvement for Phase 2: a `define-app-tree` macro that takes a friendly name and bundle ID.
+- **Architecture assessment**: Clean separation of concerns across 65 source files. Five native libraries follow identical patterns. Command tree registry, DSL library, and state machine are fully decoupled. UI layers (overlay, chooser) use protocol-based dependency injection. The only architectural coupling is `ModaliserAppDelegate` which wires everything together — appropriate for an app delegate.
+- **Test coverage assessment**: 297 tests across 34 suites cover: DSL parsing, command tree building, state machine transitions, key dispatch, overlay coordination, chooser lifecycle, fuzzy matching, file indexing, native library functions, config loading, search memory, and end-to-end flows. Main gap: UI rendering is not tested (AppKit views are tested visually, not programmatically) — acceptable for this project size.
+- **Performance assessment**: No profiling data collected (would need a running app with real workloads). Key performance decisions are sound: FuzzyMatcher uses flat-array DP (no 2D allocation), debounced search with generation counter prevents stale results, FileIndexer caps at 100K results, serial queue prevents concurrent searches. Startup should be fast — LispKit context creation + config evaluation.
+- **File size assessment**: 13 files over 100 lines, all previously reviewed. Largest is `ChooserRowRenderer` (211 lines) — inherently large due to AppKit view construction verbosity. No clean extraction opportunities remain.
+- **No critical or blocking issues found.** Phase 1 is complete.
+
+## Phase 2 Items (Future)
+
+- **Clipboard history watcher**: Background pasteboard change monitoring, persistent history, chooser UI for paste selection
+- **Quicklinks and Snippets selectors**: Ports of `f.q` and `f.s` from Hammerspoon — need Scheme data source implementations
+- **`define-app-tree` macro**: Friendly names for app-local trees: `(define-app-tree "Safari" 'com.apple.Safari ...)`
+- **Overlay content-in-place update**: Currently recreates NSPanel on every show. Could update content view in-place for smoother transitions.
+- **NSRange/character index fix**: `highlightedString` uses character indices as NSRange on UTF-16 NSAttributedString. Incorrect for multi-byte characters (emoji, CJK).
+- **Async `run-shell`**: Current `waitUntilExit()` blocks the main thread. Long-running commands freeze the UI.
+- **CommandTreeRegistry thread safety**: Single-threaded access is fine now, but config reload on a background thread would need synchronization.
+- **State machine in Scheme (Phase 2 architecture)**: Move modal state machine and key dispatch to Scheme for full scripting control. Swift becomes purely mechanical.

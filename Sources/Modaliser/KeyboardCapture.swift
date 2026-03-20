@@ -4,12 +4,18 @@ import CoreGraphics
 /// Captures global keyboard events via a CGEvent tap.
 /// Requires Accessibility permissions to function.
 final class KeyboardCapture {
-    private let onKeyEvent: (CapturedKeyEvent) -> KeyEventHandlingResult
+    private var onKeyEvent: (CapturedKeyEvent) -> KeyEventHandlingResult
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
     init(onKeyEvent: @escaping (CapturedKeyEvent) -> KeyEventHandlingResult) {
         self.onKeyEvent = onKeyEvent
+    }
+
+    /// Replace the event handler without restarting the event tap.
+    /// Used during config reload to re-wire to a new dispatcher.
+    func updateHandler(_ handler: @escaping (CapturedKeyEvent) -> KeyEventHandlingResult) {
+        self.onKeyEvent = handler
     }
 
     /// Start capturing keyboard events. Throws if Accessibility is not granted.

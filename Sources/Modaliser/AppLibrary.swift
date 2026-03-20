@@ -46,16 +46,12 @@ final class AppLibrary: NativeLibrary {
     /// (activate-app choice-alist) → void
     /// Launches or focuses an app from a chooser choice alist.
     private func activateAppFunction(_ choice: Expr) throws -> Expr {
-        let bundleId = lookupString(choice, key: "bundleId")
-        let path = lookupString(choice, key: "path")
+        let bundleId = SchemeAlistLookup.lookupString(choice, key: "bundleId")
+        let path = SchemeAlistLookup.lookupString(choice, key: "path")
 
-        if let bundleId, !bundleId.isEmpty {
-            NSWorkspace.shared.launchApplication(
-                withBundleIdentifier: bundleId,
-                options: [],
-                additionalEventParamDescriptor: nil,
-                launchIdentifier: nil
-            )
+        if let bundleId, !bundleId.isEmpty,
+           let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
         } else if let path {
             NSWorkspace.shared.open(URL(fileURLWithPath: path))
         }
@@ -65,7 +61,7 @@ final class AppLibrary: NativeLibrary {
     /// (reveal-in-finder choice-alist) → void
     /// Reveals the item at the path from a chooser choice alist in Finder.
     private func revealInFinderFunction(_ choice: Expr) throws -> Expr {
-        guard let path = lookupString(choice, key: "path") else { return .void }
+        guard let path = SchemeAlistLookup.lookupString(choice, key: "path") else { return .void }
         NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
         return .void
     }
@@ -87,7 +83,8 @@ final class AppLibrary: NativeLibrary {
     /// Launches or focuses an application by name.
     private func launchAppFunction(_ name: Expr) throws -> Expr {
         let appName = try name.asString()
-        NSWorkspace.shared.launchApplication(appName)
+        let appURL = applicationURL(forName: appName)
+        NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
         return .void
     }
 
@@ -104,31 +101,14 @@ final class AppLibrary: NativeLibrary {
     // MARK: - Helpers
 
     private func makeAppAlist(_ app: InstalledApp) -> Expr {
-        let entries: [(String, Expr)] = [
+        SchemeAlistLookup.makeAlist([
             ("text", .makeString(app.name)),
             ("subText", .makeString(app.directory)),
             ("icon", .makeString(app.path)),
             ("iconType", .makeString("path")),
             ("bundleId", .makeString(app.bundleId)),
             ("path", .makeString(app.path)),
-        ]
-        var result: Expr = .null
-        for (key, value) in entries.reversed() {
-            let pair = Expr.pair(.symbol(self.context.symbols.intern(key)), value)
-            result = .pair(pair, result)
-        }
-        return result
-    }
-
-    private func lookupString(_ alist: Expr, key: String) -> String? {
-        var current = alist
-        while case .pair(let entry, let tail) = current {
-            if case .pair(.symbol(let s), let value) = entry, s.identifier == key {
-                return try? value.asString()
-            }
-            current = tail
-        }
-        return nil
+        ], symbols: self.context.symbols)
     }
 
     private func applicationURL(forName name: String) -> URL {

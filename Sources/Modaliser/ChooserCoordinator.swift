@@ -101,14 +101,7 @@ final class ChooserCoordinator {
     }
 
     private func extractField(from alist: Expr, key: String) -> String? {
-        var current = alist
-        while case .pair(let entry, let tail) = current {
-            if case .pair(.symbol(let s), let value) = entry, s.identifier == key {
-                return try? value.asString()
-            }
-            current = tail
-        }
-        return nil
+        SchemeAlistLookup.lookupString(alist, key: key)
     }
 
     private func executeOnSelect(selector: SelectorDefinition, choice: ChooserChoice) {

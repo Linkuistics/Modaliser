@@ -171,11 +171,6 @@ final class ModaliserDSLLibrary: NativeLibrary {
 
     /// Build a Scheme alist from Swift key-value pairs.
     private func makeAlist(_ entries: [(String, Expr)]) -> Expr {
-        var result: Expr = .null
-        for (key, value) in entries.reversed() {
-            let pair = Expr.pair(.symbol(self.context.symbols.intern(key)), value)
-            result = .pair(pair, result)
-        }
-        return result
+        SchemeAlistLookup.makeAlist(entries, symbols: self.context.symbols)
     }
 }

@@ -59,10 +59,10 @@ extension ChooserWindowController: NSTextFieldDelegate {
                 subScore += max(0, 30 - charsAfterMatch)
             }
 
-            if textScore > 0 && textScore >= subScore {
-                scored.append((idx, textScore, textMatch!.matchedIndices, []))
-            } else if subScore > 0 {
-                scored.append((idx, subScore, [], subMatch!.matchedIndices))
+            if textScore > 0 && textScore >= subScore, let tm = textMatch {
+                scored.append((idx, textScore, tm.matchedIndices, []))
+            } else if subScore > 0, let sm = subMatch {
+                scored.append((idx, subScore, [], sm.matchedIndices))
             }
         }
         scored.sort { $0.score > $1.score }

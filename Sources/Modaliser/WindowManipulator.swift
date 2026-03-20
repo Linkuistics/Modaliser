@@ -89,7 +89,8 @@ enum WindowManipulator {
         guard let focusedApp = axAttribute(systemWide, kAXFocusedApplicationAttribute) else {
             return nil
         }
-        // AXUIElement is a CFTypeRef — cast from AnyObject
+        // AXUIElement is a CFTypeRef — force cast is safe because AXUIElementCopyAttributeValue
+        // guarantees the kAXFocusedApplicationAttribute returns an AXUIElement.
         let appElement = focusedApp as! AXUIElement
         guard let windowObj = axAttribute(appElement, kAXFocusedWindowAttribute) else {
             return nil

@@ -34,6 +34,8 @@ final class SchemeEngine {
         try context.environment.import(AppLibrary.name)
         try context.libraries.register(libraryType: WindowLibrary.self)
         try context.environment.import(WindowLibrary.name)
+        try context.libraries.register(libraryType: InputLibrary.self)
+        try context.environment.import(InputLibrary.name)
     }
 
     /// Evaluate a string of Scheme code and return the result.

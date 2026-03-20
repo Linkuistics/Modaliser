@@ -18,6 +18,7 @@ final class KeyEventDispatcher {
     private let executor: CommandExecutor
     private let overlayNotifier: OverlayNotifier?
     private let chooserCoordinator: ChooserCoordinator?
+    private let focusedAppObserver: FocusedAppObserver
 
     /// Whether modal navigation is currently active.
     var isModalActive: Bool { stateMachine.isActive }
@@ -29,13 +30,15 @@ final class KeyEventDispatcher {
         registry: CommandTreeRegistry,
         executor: CommandExecutor,
         overlayCoordinator: OverlayCoordinator? = nil,
-        chooserCoordinator: ChooserCoordinator? = nil
+        chooserCoordinator: ChooserCoordinator? = nil,
+        focusedAppObserver: FocusedAppObserver = FocusedAppObserver()
     ) {
         self.registry = registry
         self.executor = executor
         self.stateMachine = ModalStateMachine(registry: registry)
         self.overlayNotifier = overlayCoordinator.map { OverlayNotifier(coordinator: $0) }
         self.chooserCoordinator = chooserCoordinator
+        self.focusedAppObserver = focusedAppObserver
     }
 
     /// Handle a captured key event. Returns whether the event should be suppressed.
@@ -79,8 +82,11 @@ final class KeyEventDispatcher {
             stateMachine.exitLeader()
             overlayNotifier?.deactivated()
         } else {
-            stateMachine.enterLeader(mode: mode)
-            overlayNotifier?.activated(machine: stateMachine)
+            let bundleId = (mode == .local) ? focusedAppObserver.currentBundleId : nil
+            stateMachine.enterLeader(mode: mode, focusedBundleId: bundleId)
+            if stateMachine.isActive {
+                overlayNotifier?.activated(machine: stateMachine)
+            }
         }
         return .suppress
     }

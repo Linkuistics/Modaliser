@@ -10,7 +10,12 @@
 (define (open-url-action url)
   (lambda () (open-url url)))
 
-;; Global command tree
+;; Helper: send a keystroke to the focused app
+(define (keystroke mods key-name)
+  (lambda () (send-keystroke mods key-name)))
+
+;; ─── Global command tree ────────────────────────────────────────────────
+
 (define-tree 'global
 
   ;; Quick-launch keys
@@ -21,7 +26,7 @@
   (key "z" "Zed"
     (lambda () (launch-app "Zed")))
   (key " " "Spotlight"
-    (lambda () (run-shell "osascript -e 'tell application \"System Events\" to keystroke space using command down'")))
+    (keystroke '(cmd) " "))
 
   ;; Find group
   (group "f" "Find"
@@ -52,7 +57,7 @@
       'actions
         (list
           (action "Open" 'description "Open with default app" 'key 'primary
-            'run (lambda (c) (run-shell (string-append "/usr/bin/open \"" (cdr (assoc 'path c)) "\"")))))
+            'run (lambda (c) (run-shell (string-append "/usr/bin/open \"" (cdr (assoc 'path c)) "\""))))
           (action "Show in Finder" 'description "Reveal in Finder" 'key 'secondary
             'run (lambda (c) (reveal-in-finder c)))
           (action "Copy Path" 'description "Copy full path to clipboard"
@@ -136,3 +141,55 @@
   ;; Raycast notes
   (key "n" "Raycast Notes"
     (open-url-action "raycast://extensions/raycast/raycast-notes/raycast-notes")))
+
+;; ─── App-local command trees ────────────────────────────────────────────
+
+;; Safari (F17 when Safari is focused)
+(define-tree 'com.apple.Safari
+  (group "t" "Tabs"
+    (key "n" "New Tab"
+      (keystroke '(cmd) "t"))
+    (key "w" "Close Tab"
+      (keystroke '(cmd) "w"))
+    (key "r" "Reopen Closed Tab"
+      (keystroke '(cmd shift) "t")))
+  (group "b" "Browser"
+    (key "l" "Focus Address Bar"
+      (keystroke '(cmd) "l"))
+    (key "f" "Find on Page"
+      (keystroke '(cmd) "f"))))
+
+;; Zed (F17 when Zed is focused)
+(define-tree 'dev.zed.Zed
+  (group "p" "Pane"
+    (key "h" "Focus Left"
+      (keystroke '(cmd alt) "left"))
+    (key "l" "Focus Right"
+      (keystroke '(cmd alt) "right"))
+    (key "k" "Focus Up"
+      (keystroke '(cmd alt) "up"))
+    (key "j" "Focus Down"
+      (keystroke '(cmd alt) "down")))
+  (group "g" "Git"
+    (key "p" "Command Palette"
+      (keystroke '(cmd shift) "p")))
+  (group "t" "Task"
+    (key "r" "Run via Palette"
+      (keystroke '(cmd shift) "p"))))
+
+;; iTerm (F17 when iTerm is focused)
+(define-tree 'com.googlecode.iterm2
+  (group "t" "Tabs"
+    (key "n" "New Tab"
+      (keystroke '(cmd) "t"))
+    (key "w" "Close Tab"
+      (keystroke '(cmd) "w")))
+  (group "p" "Pane"
+    (key "h" "Focus Left"
+      (keystroke '(cmd alt) "left"))
+    (key "l" "Focus Right"
+      (keystroke '(cmd alt) "right"))
+    (key "k" "Focus Up"
+      (keystroke '(cmd alt) "up"))
+    (key "j" "Focus Down"
+      (keystroke '(cmd alt) "down"))))

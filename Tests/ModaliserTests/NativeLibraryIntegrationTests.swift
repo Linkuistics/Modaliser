@@ -195,4 +195,32 @@ struct NativeLibraryIntegrationTests {
             #expect(!choice.text.isEmpty)
         }
     }
+
+    // MARK: - App-local trees
+
+    @Test func appLocalTreeRegisteredByBundleId() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+            (define (keystroke mods key-name)
+              (lambda () (send-keystroke mods key-name)))
+
+            (define-tree 'com.apple.Safari
+              (group "t" "Tabs"
+                (key "n" "New Tab" (keystroke '(cmd) "t"))
+                (key "w" "Close Tab" (keystroke '(cmd) "w"))))
+            """)
+        let tree = engine.registry.tree(for: .appLocal("com.apple.Safari"))
+        #expect(tree != nil)
+        #expect(tree?.label == "com.apple.Safari")
+
+        let tabs = tree?.child(forKey: "t")
+        #expect(tabs?.label == "Tabs")
+        #expect(tabs?.child(forKey: "n")?.label == "New Tab")
+        #expect(tabs?.child(forKey: "w")?.label == "Close Tab")
+    }
+
+    @Test func sendKeystrokeIsProcedure() throws {
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? send-keystroke)") == .true)
+    }
 }

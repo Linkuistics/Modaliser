@@ -30,12 +30,36 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.button?.title = "⌨"
 
         let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Reload Config", action: #selector(reloadConfig), keyEquivalent: "r"))
+        menu.addItem(.separator())
+        let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        loginItem.state = LaunchAtLogin.isEnabled ? .on : .off
+        menu.addItem(loginItem)
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Modaliser", action: #selector(quit), keyEquivalent: "q"))
         statusItem?.menu = menu
     }
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        LaunchAtLogin.toggle()
+        sender.state = LaunchAtLogin.isEnabled ? .on : .off
+    }
+
+    @objc private func reloadConfig() {
+        NSLog("Reloading config…")
+        overlayCoordinator?.modalDidDeactivate()
+        loadSchemeConfig()
+        // Re-wire the keyboard capture to the new dispatcher
+        if let dispatcher = keyEventDispatcher {
+            keyboardCapture?.updateHandler { event in
+                dispatcher.handleKeyEvent(event)
+            }
+        }
+        NSLog("Config reloaded")
     }
 
     // MARK: - Scheme config
@@ -83,6 +107,7 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
             )
         } catch {
             NSLog("Failed to load Scheme config: %@", "\(error)")
+            ConfigErrorAlert.show(error: error)
         }
     }
 
