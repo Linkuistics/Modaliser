@@ -41,7 +41,7 @@ enum WindowEnumerator {
 
                 // Get window ID for deduplication with focused window
                 var windowId: CGWindowID = 0
-                _AXUIElementGetWindow(axWindow, &windowId)
+                _ = _AXUIElementGetWindow(axWindow, &windowId)
 
                 // Skip the currently focused window
                 if windowId == focusedWindow { continue }
@@ -77,7 +77,7 @@ enum WindowEnumerator {
         }
         let window = focusedWindow as! AXUIElement
         var windowId: CGWindowID = 0
-        _AXUIElementGetWindow(window, &windowId)
+        _ = _AXUIElementGetWindow(window, &windowId)
         return windowId
     }
 
