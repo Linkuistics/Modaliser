@@ -142,9 +142,19 @@ final class WindowCache {
             ))
         }
 
-        // Combine and sort by focus recency
+        // Combine and sort by focus recency.
+        // The app the user is switching FROM (most recent in focusHistory that isn't us)
+        // goes to the end. The PREVIOUS app goes to the top — this is the Alt-Tab target.
+        let switchingFromPID = focusHistory.first { $0 != currentPID }
         var allWindows = currentSpaceWindows + otherSpaceWindows
-        allWindows.sort { focusRank(for: $0.ownerPID) < focusRank(for: $1.ownerPID) }
+        allWindows.sort { lhs, rhs in
+            let lhsIsCurrent = lhs.ownerPID == switchingFromPID
+            let rhsIsCurrent = rhs.ownerPID == switchingFromPID
+            if lhsIsCurrent != rhsIsCurrent {
+                return !lhsIsCurrent  // current app goes to the end
+            }
+            return focusRank(for: lhs.ownerPID) < focusRank(for: rhs.ownerPID)
+        }
 
         return allWindows
     }
