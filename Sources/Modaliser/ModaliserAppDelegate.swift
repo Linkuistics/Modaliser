@@ -155,19 +155,13 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
         do {
             try keyboardCapture?.start()
         } catch KeyboardCaptureError.accessibilityNotTrusted {
-            NSLog("Keyboard capture failed: Accessibility not trusted")
-            AccessibilityPermissionAlert.show(
-                detail: "AXIsProcessTrusted() returned false.\n\nGrant access in System Settings > Privacy & Security > Accessibility, then Relaunch."
-            )
-        } catch KeyboardCaptureError.eventTapCreationFailed {
-            let trusted = AccessibilityPermission.isTrusted()
-            NSLog("Keyboard capture failed: event tap creation failed (trusted=%@)", trusted ? "true" : "false")
-            AccessibilityPermissionAlert.show(
-                detail: "CGEvent.tapCreate() returned nil.\nAXIsProcessTrusted = \(trusted)\n\nThis can happen if macOS hasn't registered the permission yet. Try: remove the app from Accessibility, re-add it, then Relaunch."
-            )
+            // System prompt was already shown by requestIfNeeded(). Don't show our own alert.
+            NSLog("Keyboard capture: waiting for Accessibility permission — Relaunch after granting")
         } catch {
             NSLog("Keyboard capture failed: %@", "\(error)")
-            AccessibilityPermissionAlert.show(detail: "\(error)")
+            AccessibilityPermissionAlert.show(
+                detail: "Keyboard capture failed: \(error)\n\nTry: Relaunch from the menu bar. If that doesn't work, remove and re-add the app in System Settings > Privacy & Security > Accessibility."
+            )
         }
     }
 }

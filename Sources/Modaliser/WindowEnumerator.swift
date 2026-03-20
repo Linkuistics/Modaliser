@@ -25,7 +25,7 @@ enum WindowEnumerator {
 
         let currentPID = ProcessInfo.processInfo.processIdentifier
 
-        return windowList.compactMap { info -> WindowInfo? in
+        var windows = windowList.compactMap { info -> WindowInfo? in
             guard let windowId = info[kCGWindowNumber as String] as? CGWindowID,
                   let ownerName = info[kCGWindowOwnerName as String] as? String,
                   let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
@@ -61,5 +61,25 @@ enum WindowEnumerator {
                 bounds: bounds
             )
         }
+
+        // Disambiguate duplicate titles by appending a counter: "Zed", "Zed (2)", "Zed (3)"
+        var titleCounts: [String: Int] = [:]
+        for i in windows.indices {
+            let title = windows[i].title
+            let count = (titleCounts[title] ?? 0) + 1
+            titleCounts[title] = count
+            if count > 1 {
+                windows[i] = WindowInfo(
+                    windowId: windows[i].windowId,
+                    title: "\(title) (\(count))",
+                    ownerName: windows[i].ownerName,
+                    ownerPID: windows[i].ownerPID,
+                    bundleId: windows[i].bundleId,
+                    bounds: windows[i].bounds
+                )
+            }
+        }
+
+        return windows
     }
 }
