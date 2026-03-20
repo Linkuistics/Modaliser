@@ -20,8 +20,11 @@ final class KeyboardCapture {
 
     /// Start capturing keyboard events. Throws if Accessibility is not granted.
     func start() throws {
-        let trusted = AccessibilityPermission.isTrusted()
-        NSLog("KeyboardCapture: AXIsProcessTrusted = %@", trusted ? "true" : "false")
+        // Use AXIsProcessTrustedWithOptions to trigger the system permission prompt
+        // if not yet trusted. This is the only reliable way to get the correct TCC
+        // entry — our custom alert can't do this because TCC matches by CDHash.
+        let trusted = AccessibilityPermission.requestIfNeeded()
+        NSLog("KeyboardCapture: AXIsProcessTrustedWithOptions = %@", trusted ? "true" : "false")
         guard trusted else {
             throw KeyboardCaptureError.accessibilityNotTrusted
         }
