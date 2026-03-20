@@ -70,7 +70,8 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
                 presenter: chooserController,
                 sourceInvoker: SelectorSourceInvoker(engine: engine),
                 executor: executor,
-                theme: theme
+                theme: theme,
+                searchMemory: SearchMemory()
             )
             chooserCoordinator = chooser
 

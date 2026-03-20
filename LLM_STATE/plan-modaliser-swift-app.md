@@ -211,14 +211,14 @@ Key context:
   - [x] Check debounce/threading for race conditions
   - [x] Update plan with findings
 
-- [ ] **Session 7: System integration native libraries**
-  - [ ] `(modaliser app)` — find-installed-apps, activate-app, reveal-in-finder, open-with
-  - [ ] `(modaliser window)` — list-windows, focus-window, center-window, maximize-window, window positioning (thirds)
-  - [ ] `(modaliser shell)` — run shell commands, capture output
-  - [ ] `(modaliser pasteboard)` — get-clipboard, set-clipboard!
-  - [ ] Search memory: persist query→selection mappings to JSON files
-  - [ ] Port all actions from current global.lua config to config.scm
-  - [ ] Test: all existing keybindings work end-to-end
+- [x] **Session 7: System integration native libraries**
+  - [x] `(modaliser app)` — find-installed-apps, activate-app, reveal-in-finder, open-with, launch-app, open-url
+  - [x] `(modaliser window)` — list-windows, focus-window, center-window, move-window (unit rect), toggle-fullscreen, restore-window
+  - [x] `(modaliser shell)` — run-shell (Process + Pipe, /bin/zsh -c)
+  - [x] `(modaliser pasteboard)` — get-clipboard, set-clipboard!
+  - [x] Search memory: SearchMemory with JSON persistence, wired into ChooserCoordinator
+  - [x] Port all actions from current global.lua config to config.scm
+  - [x] Test: 265 tests, 30 suites, all passing (up from 211/23)
   - [ ] Commit and stop
 
 - [ ] **Code Review 7**
@@ -383,3 +383,16 @@ Source directory: `~/.config/hammerspoon/modal-chooser/Sources/`
 - **Known tech debt: NSRange/character index mismatch**: `highlightedString` applies `FuzzyMatcher`'s character-based indices as `NSRange(location:length:)` on `NSAttributedString` (UTF-16). This is correct for ASCII but will diverge for multi-byte characters (emoji, CJK). The reference has the same bug. Tracked for future fix when non-ASCII file names are tested.
 - **Performance analysis**: For 50K files with average path length 60 and query length 5, the DP allocates ~900 Ints per file per search cycle. The 30ms debounce, serial queue, and Swift's allocator make this feasible. Profiling with a real 50K file list recommended as a future validation step.
 - **No critical issues found**. Two Important issues fixed (logging, result cap). Assessment: ready to merge.
+
+### Session 7
+- **NativeLibrary pattern scales well**: All four native libraries follow the same pattern as `ModaliserDSLLibrary`: `required init(in:)`, class var `name`, `dependencies()`, `declarations()`. Each is independently testable. Registration in `SchemeEngine` is two lines per library.
+- **NSPasteboard thread safety**: Swift Testing runs tests concurrently. Tests sharing the system pasteboard crash with `NSRangeException` if run in parallel. Fixed with `@Suite(.serialized)`.
+- **AXUIElement casting from AnyObject**: `AXUIElementCopyAttributeValue` returns `AnyObject?`. AXUIElement is a CFTypeRef, not a Swift class — cannot use `as AXUIElement?` directly. Must use `as! AXUIElement` force cast from the `AnyObject?`.
+- **Window management two-API split**: `CGWindowListCopyWindowInfo` for enumeration (lightweight, no permissions for basic info), `AXUIElement` for manipulation (needs Accessibility permissions). Both are needed. Tests cover enumeration directly but manipulation only as procedure-exists checks (no Accessibility in test runner).
+- **SearchMemory integration is minimal**: Only three changes to `ChooserCoordinator`: add `searchMemory` parameter (with default), call `saveToMemory` in `handleResult`, and add `extractField` helper. The coordinator's existing tests still pass without modification because the default `SearchMemory()` instance has no effect when `remember` is nil.
+- **Alist lookup duplication**: `lookupString` (walking a Scheme alist to find a key) is now duplicated in `AppLibrary`, `WindowLibrary`, `SelectorSourceInvoker`, and `ChooserCoordinator`. Code Review 7 should extract a shared `SchemeAlistHelper`.
+- **Config DSL power**: The `open-url-action` helper in config.scm shows the advantage of Scheme config — users can define helper functions. `(define (open-url-action url) (lambda () (open-url url)))` creates a reusable factory. This is impossible with YAML/JSON configs.
+- **Expanded API surface**: Added `launch-app` (by name) and `open-url` beyond the original plan. `launch-app` is the most common action in global.lua — every "Open Application" key uses it. `open-url` enables Raycast URL scheme integration.
+- **move-window with unit rect**: Changed from separate `first-third`, `last-third` etc. functions to a single `(move-window x y w h)` with unit fractions. More flexible — config composes arbitrary positions: `(move-window 0 0 1/3 1)` for first third, `(move-window 1/3 0 2/3 1)` for last two-thirds. Matches the reference's `hs.geometry.unitrect` approach but with a simpler API.
+- **File layout**: 57 source files (+8), 30 test files (+7). New: `PasteboardLibrary` (43 lines), `ShellLibrary` (44 lines), `AppLibrary` (147 lines), `AppScanner` (49 lines), `WindowLibrary` (116 lines), `WindowEnumerator` (63 lines), `WindowManipulator` (143 lines), `SearchMemory` (89 lines).
+- **265 tests total**, 30 suites (up from 211/23). All passing, zero warnings.

@@ -25,6 +25,15 @@ final class SchemeEngine {
             dslLib.registry = registry
         }
         try context.environment.import(ModaliserDSLLibrary.name)
+        // Register native system libraries
+        try context.libraries.register(libraryType: PasteboardLibrary.self)
+        try context.environment.import(PasteboardLibrary.name)
+        try context.libraries.register(libraryType: ShellLibrary.self)
+        try context.environment.import(ShellLibrary.name)
+        try context.libraries.register(libraryType: AppLibrary.self)
+        try context.environment.import(AppLibrary.name)
+        try context.libraries.register(libraryType: WindowLibrary.self)
+        try context.environment.import(WindowLibrary.name)
     }
 
     /// Evaluate a string of Scheme code and return the result.

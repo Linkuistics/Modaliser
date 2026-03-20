@@ -1,4 +1,5 @@
 import Foundation
+import LispKit
 
 /// Orchestrates the chooser lifecycle: invokes Scheme source functions,
 /// presents the chooser UI, and dispatches selection results to Scheme callbacks.
@@ -7,6 +8,7 @@ final class ChooserCoordinator {
     private let sourceInvoker: SelectorSourceInvoker
     private let executor: CommandExecutor
     private let theme: OverlayTheme
+    private let searchMemory: SearchMemory
     private let fileIndexer = FileIndexer()
     private var activeSelector: SelectorDefinition?
 
@@ -16,12 +18,14 @@ final class ChooserCoordinator {
         presenter: ChooserPresenting,
         sourceInvoker: SelectorSourceInvoker,
         executor: CommandExecutor,
-        theme: OverlayTheme
+        theme: OverlayTheme,
+        searchMemory: SearchMemory = SearchMemory()
     ) {
         self.presenter = presenter
         self.sourceInvoker = sourceInvoker
         self.executor = executor
         self.theme = theme
+        self.searchMemory = searchMemory
     }
 
     /// Open the chooser for a selector definition.
@@ -76,15 +80,35 @@ final class ChooserCoordinator {
         activeSelector = nil
 
         switch result {
-        case .selected(let choice, _):
+        case .selected(let choice, let query):
+            saveToMemory(selector: selector, choice: choice, query: query)
             executeOnSelect(selector: selector, choice: choice)
 
-        case .action(let actionIndex, let choice, _):
+        case .action(let actionIndex, let choice, let query):
+            saveToMemory(selector: selector, choice: choice, query: query)
             executeAction(selector: selector, actionIndex: actionIndex, choice: choice)
 
         case .cancelled:
             break
         }
+    }
+
+    private func saveToMemory(selector: SelectorDefinition, choice: ChooserChoice, query: String) {
+        guard let rememberName = selector.config.remember else { return }
+        let idField = selector.config.idField ?? "text"
+        guard let choiceId = extractField(from: choice.schemeValue, key: idField) else { return }
+        searchMemory.save(name: rememberName, query: query, selectedId: choiceId)
+    }
+
+    private func extractField(from alist: Expr, key: String) -> String? {
+        var current = alist
+        while case .pair(let entry, let tail) = current {
+            if case .pair(.symbol(let s), let value) = entry, s.identifier == key {
+                return try? value.asString()
+            }
+            current = tail
+        }
+        return nil
     }
 
     private func executeOnSelect(selector: SelectorDefinition, choice: ChooserChoice) {
