@@ -1,6 +1,6 @@
 import AppKit
 
-/// Information about a visible window, extracted from CGWindowList.
+/// Information about a visible window, extracted from the Accessibility API.
 struct WindowInfo {
     let windowId: CGWindowID
     let title: String
@@ -10,85 +10,98 @@ struct WindowInfo {
     let bounds: CGRect
 }
 
-/// Enumerates visible windows using CGWindowListCopyWindowInfo.
+/// Enumerates windows using the Accessibility API (AXUIElement).
+/// This finds real user windows across all spaces, matching Hammerspoon's hs.window.filter.
+/// Requires Accessibility permission (already granted for keyboard capture).
 enum WindowEnumerator {
 
-    /// List all visible windows, excluding the current app and empty-titled windows.
-    /// Ordered by most recently focused (front to back).
+    /// List standard windows from all running apps, across all spaces.
+    /// Excludes the currently focused window (you're switching away from it).
     static func listVisibleWindows() -> [WindowInfo] {
-        guard let windowList = CGWindowListCopyWindowInfo(
-            [.optionAll, .excludeDesktopElements],
-            kCGNullWindowID
-        ) as? [[String: Any]] else {
-            return []
-        }
-
         let currentPID = ProcessInfo.processInfo.processIdentifier
+        let focusedWindow = getFocusedWindowId()
+        var windows: [WindowInfo] = []
 
-        var windows = windowList.compactMap { info -> WindowInfo? in
-            guard let windowId = info[kCGWindowNumber as String] as? CGWindowID,
-                  let ownerName = info[kCGWindowOwnerName as String] as? String,
-                  let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
-                  let layer = info[kCGWindowLayer as String] as? Int,
-                  layer == 0,  // Normal window layer only
-                  info[kCGWindowIsOnscreen as String] as? Bool == true
-            else { return nil }
+        for app in NSWorkspace.shared.runningApplications {
+            guard app.activationPolicy == .regular,
+                  app.processIdentifier != currentPID else { continue }
 
-            // Skip our own windows
-            guard ownerPID != currentPID else { return nil }
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            guard let axWindows = axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement] else {
+                continue
+            }
 
-            // Only include windows from regular apps (not background agents/helpers).
-            // This filters out "Autofill", notification helpers, input method windows, etc.
-            guard let app = NSRunningApplication(processIdentifier: ownerPID),
-                  app.activationPolicy == .regular else { return nil }
+            for axWindow in axWindows {
+                // Only include standard windows (not sheets, dialogs, utility panels)
+                guard let subrole = axAttribute(axWindow, kAXSubroleAttribute) as? String,
+                      subrole == "AXStandardWindow" else { continue }
 
-            // kCGWindowName requires Screen Recording permission on macOS 10.15+.
-            // Without it, titles are nil. Fall back to owner name so the list is still usable.
-            let title = info[kCGWindowName as String] as? String ?? ""
-            let displayTitle = title.isEmpty ? ownerName : title
-            guard !displayTitle.isEmpty else { return nil }
+                let title = axAttribute(axWindow, kAXTitleAttribute) as? String ?? ""
+                guard !title.isEmpty else { continue }
 
-            let boundsDict = info[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
-            let bounds = CGRect(
-                x: boundsDict["X"] ?? 0,
-                y: boundsDict["Y"] ?? 0,
-                width: boundsDict["Width"] ?? 0,
-                height: boundsDict["Height"] ?? 0
-            )
+                // Get window ID for deduplication with focused window
+                var windowId: CGWindowID = 0
+                _AXUIElementGetWindow(axWindow, &windowId)
 
-            // Skip tiny/invisible helper windows (e.g. offscreen buffers)
-            guard bounds.width >= 50, bounds.height >= 50 else { return nil }
+                // Skip the currently focused window
+                if windowId == focusedWindow { continue }
 
-            let bundleId = app.bundleIdentifier ?? ""
+                let position = axPosition(axWindow) ?? .zero
+                let size = axSize(axWindow) ?? .zero
+                let bounds = CGRect(origin: position, size: size)
 
-            return WindowInfo(
-                windowId: windowId,
-                title: displayTitle,
-                ownerName: ownerName,
-                ownerPID: ownerPID,
-                bundleId: bundleId,
-                bounds: bounds
-            )
-        }
-
-        // Disambiguate duplicate titles by appending a counter: "Zed", "Zed (2)", "Zed (3)"
-        var titleCounts: [String: Int] = [:]
-        for i in windows.indices {
-            let title = windows[i].title
-            let count = (titleCounts[title] ?? 0) + 1
-            titleCounts[title] = count
-            if count > 1 {
-                windows[i] = WindowInfo(
-                    windowId: windows[i].windowId,
-                    title: "\(title) (\(count))",
-                    ownerName: windows[i].ownerName,
-                    ownerPID: windows[i].ownerPID,
-                    bundleId: windows[i].bundleId,
-                    bounds: windows[i].bounds
-                )
+                windows.append(WindowInfo(
+                    windowId: windowId,
+                    title: title,
+                    ownerName: app.localizedName ?? "",
+                    ownerPID: app.processIdentifier,
+                    bundleId: app.bundleIdentifier ?? "",
+                    bounds: bounds
+                ))
             }
         }
 
         return windows
     }
+
+    // MARK: - Private
+
+    private static func getFocusedWindowId() -> CGWindowID {
+        let systemWide = AXUIElementCreateSystemWide()
+        guard let focusedApp = axAttribute(systemWide, kAXFocusedApplicationAttribute) else {
+            return 0
+        }
+        let appElement = focusedApp as! AXUIElement
+        guard let focusedWindow = axAttribute(appElement, kAXFocusedWindowAttribute) else {
+            return 0
+        }
+        let window = focusedWindow as! AXUIElement
+        var windowId: CGWindowID = 0
+        _AXUIElementGetWindow(window, &windowId)
+        return windowId
+    }
+
+    private static func axAttribute(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
+        var value: AnyObject?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        return result == .success ? value : nil
+    }
+
+    private static func axPosition(_ element: AXUIElement) -> CGPoint? {
+        guard let value = axAttribute(element, kAXPositionAttribute) else { return nil }
+        var point = CGPoint.zero
+        AXValueGetValue(value as! AXValue, .cgPoint, &point)
+        return point
+    }
+
+    private static func axSize(_ element: AXUIElement) -> CGSize? {
+        guard let value = axAttribute(element, kAXSizeAttribute) else { return nil }
+        var size = CGSize.zero
+        AXValueGetValue(value as! AXValue, .cgSize, &size)
+        return size
+    }
 }
+
+// Private SPI: get CGWindowID from AXUIElement. Used by Hammerspoon, AltTab, etc.
+@_silgen_name("_AXUIElementGetWindow")
+func _AXUIElementGetWindow(_ element: AXUIElement, _ windowId: UnsafeMutablePointer<CGWindowID>) -> AXError
