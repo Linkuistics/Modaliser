@@ -17,7 +17,7 @@ enum WindowEnumerator {
     /// Ordered by most recently focused (front to back).
     static func listVisibleWindows() -> [WindowInfo] {
         guard let windowList = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements],
+            [.optionAll, .excludeDesktopElements],
             kCGNullWindowID
         ) as? [[String: Any]] else {
             return []
