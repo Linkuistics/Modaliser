@@ -15,11 +15,9 @@ struct WindowInfo {
 /// Requires Accessibility permission (already granted for keyboard capture).
 enum WindowEnumerator {
 
-    /// List standard windows from all running apps, across all spaces.
-    /// Excludes the currently focused window (you're switching away from it).
+    /// List windows from all running apps, across all spaces.
     static func listVisibleWindows() -> [WindowInfo] {
         let currentPID = ProcessInfo.processInfo.processIdentifier
-        let focusedWindow = getFocusedWindowId()
         var windows: [WindowInfo] = []
 
         for app in NSWorkspace.shared.runningApplications {
@@ -32,19 +30,23 @@ enum WindowEnumerator {
             }
 
             for axWindow in axWindows {
-                // Only include standard windows (not sheets, dialogs, utility panels)
-                guard let subrole = axAttribute(axWindow, kAXSubroleAttribute) as? String,
-                      subrole == "AXStandardWindow" else { continue }
+                // Filter out non-window subroles (sheets, popovers, etc.)
+                // Accept AXStandardWindow, AXDialog, or nil (some apps don't set subrole)
+                let subrole = axAttribute(axWindow, kAXSubroleAttribute) as? String
+                if let subrole, subrole != "AXStandardWindow" && subrole != "AXDialog" {
+                    continue
+                }
+
+                // Skip minimized windows
+                if axAttribute(axWindow, kAXMinimizedAttribute) as? Bool == true {
+                    continue
+                }
 
                 let title = axAttribute(axWindow, kAXTitleAttribute) as? String ?? ""
                 guard !title.isEmpty else { continue }
 
-                // Get window ID for deduplication with focused window
                 var windowId: CGWindowID = 0
                 _ = _AXUIElementGetWindow(axWindow, &windowId)
-
-                // Skip the currently focused window
-                if windowId == focusedWindow { continue }
 
                 let position = axPosition(axWindow) ?? .zero
                 let size = axSize(axWindow) ?? .zero
@@ -65,21 +67,6 @@ enum WindowEnumerator {
     }
 
     // MARK: - Private
-
-    private static func getFocusedWindowId() -> CGWindowID {
-        let systemWide = AXUIElementCreateSystemWide()
-        guard let focusedApp = axAttribute(systemWide, kAXFocusedApplicationAttribute) else {
-            return 0
-        }
-        let appElement = focusedApp as! AXUIElement
-        guard let focusedWindow = axAttribute(appElement, kAXFocusedWindowAttribute) else {
-            return 0
-        }
-        let window = focusedWindow as! AXUIElement
-        var windowId: CGWindowID = 0
-        _ = _AXUIElementGetWindow(window, &windowId)
-        return windowId
-    }
 
     private static func axAttribute(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
         var value: AnyObject?
