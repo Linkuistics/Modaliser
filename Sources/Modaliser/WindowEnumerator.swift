@@ -94,20 +94,20 @@ enum WindowEnumerator {
 
     // MARK: - AX helpers
 
-    private static func axAttribute(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
+    static func axAttribute(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         return result == .success ? value : nil
     }
 
-    private static func axPosition(_ element: AXUIElement) -> CGPoint? {
+    static func axPosition(_ element: AXUIElement) -> CGPoint? {
         guard let value = axAttribute(element, kAXPositionAttribute) else { return nil }
         var point = CGPoint.zero
         AXValueGetValue(value as! AXValue, .cgPoint, &point)
         return point
     }
 
-    private static func axSize(_ element: AXUIElement) -> CGSize? {
+    static func axSize(_ element: AXUIElement) -> CGSize? {
         guard let value = axAttribute(element, kAXSizeAttribute) else { return nil }
         var size = CGSize.zero
         AXValueGetValue(value as! AXValue, .cgSize, &size)

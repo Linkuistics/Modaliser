@@ -34,7 +34,7 @@ final class WindowLibrary: NativeLibrary {
     /// (list-windows) → list of alists
     /// Each entry: text (title), subText (app name), icon (bundleId), iconType, windowId, ownerPid
     private func listWindowsFunction() -> Expr {
-        let windows = WindowEnumerator.listVisibleWindows()
+        let windows = WindowCache.shared.listWindows()
         var result: Expr = .null
         for window in windows.reversed() {
             let alist = makeWindowAlist(window)

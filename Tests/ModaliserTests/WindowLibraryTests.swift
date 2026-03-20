@@ -63,18 +63,18 @@ struct WindowLibraryTests {
 
     // MARK: - WindowInfo
 
-    @Test func windowInfoFromCGWindowList() {
-        // Test the pure Swift WindowInfo extraction (no AX needed)
-        let windows = WindowEnumerator.listVisibleWindows()
+    @Test func windowCacheReturnsWindows() {
+        let windows = WindowCache.shared.listWindows()
         // Should return an array (may be empty in CI, but shouldn't crash)
         #expect(windows.count >= 0)
     }
 
     @Test func windowInfoHasRequiredFields() {
-        let windows = WindowEnumerator.listVisibleWindows()
+        let windows = WindowCache.shared.listWindows()
         for window in windows {
-            #expect(!window.title.isEmpty || true)  // title may be empty
-            #expect(window.windowId > 0)
+            // title is always set (window title or app name)
+            #expect(!window.title.isEmpty)
+            // windowId can be 0 for other-space app-level entries
             // ownerName should be present
             #expect(!window.ownerName.isEmpty)
         }

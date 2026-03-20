@@ -15,6 +15,7 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         ConfigSetup.ensureConfigExists()
         requestScreenRecordingPermission()
+        WindowCache.shared.startObserving()
         setupStatusBarItem()
         loadSchemeConfig()
         NSLog("Modaliser: config loaded, dispatcher=%@", keyEventDispatcher != nil ? "yes" : "nil")
