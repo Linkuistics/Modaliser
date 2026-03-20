@@ -11,10 +11,12 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
     private var chooserCoordinator: ChooserCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSLog("Modaliser starting (pid=%d, bundle=%@)", ProcessInfo.processInfo.processIdentifier, Bundle.main.bundlePath)
         NSApp.setActivationPolicy(.accessory)
         ConfigSetup.ensureConfigExists()
         setupStatusBarItem()
         loadSchemeConfig()
+        NSLog("Modaliser: config loaded, dispatcher=%@", keyEventDispatcher != nil ? "yes" : "nil")
         startKeyboardCapture()
         NSLog("Modaliser launched")
     }

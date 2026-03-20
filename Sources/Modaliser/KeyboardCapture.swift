@@ -20,7 +20,9 @@ final class KeyboardCapture {
 
     /// Start capturing keyboard events. Throws if Accessibility is not granted.
     func start() throws {
-        guard AccessibilityPermission.isTrusted() else {
+        let trusted = AccessibilityPermission.isTrusted()
+        NSLog("KeyboardCapture: AXIsProcessTrusted = %@", trusted ? "true" : "false")
+        guard trusted else {
             throw KeyboardCaptureError.accessibilityNotTrusted
         }
 
@@ -37,8 +39,10 @@ final class KeyboardCapture {
             callback: keyboardEventCallback,
             userInfo: selfPointer
         ) else {
+            NSLog("KeyboardCapture: CGEvent.tapCreate returned nil (AXIsProcessTrusted was true)")
             throw KeyboardCaptureError.eventTapCreationFailed
         }
+        NSLog("KeyboardCapture: event tap created successfully")
 
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
             throw KeyboardCaptureError.runLoopSourceCreationFailed
@@ -48,6 +52,7 @@ final class KeyboardCapture {
         runLoopSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        NSLog("KeyboardCapture: tap enabled and added to run loop")
     }
 
     /// Stop capturing keyboard events and clean up resources.

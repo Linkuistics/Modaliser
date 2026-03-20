@@ -17,4 +17,7 @@ mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 cp "${BUILD_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp Info.plist "${APP_BUNDLE}/Contents/Info.plist"
 
+echo "Signing ${APP_NAME}.app..."
+codesign --force --sign - "${APP_BUNDLE}"
+
 echo "Built ${APP_BUNDLE}"
