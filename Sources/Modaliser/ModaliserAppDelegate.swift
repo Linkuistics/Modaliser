@@ -33,6 +33,7 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Reload Config", action: #selector(reloadConfig), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: "Reveal Config in Finder", action: #selector(revealConfig), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Relaunch", action: #selector(relaunch), keyEquivalent: ""))
         menu.addItem(.separator())
         let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         loginItem.state = LaunchAtLogin.isEnabled ? .on : .off
@@ -49,6 +50,26 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
         LaunchAtLogin.toggle()
         sender.state = LaunchAtLogin.isEnabled ? .on : .off
+    }
+
+    @objc private func relaunch() {
+        let bundlePath = Bundle.main.bundlePath
+        let executable = ProcessInfo.processInfo.arguments[0]
+
+        // Use `open -a` for .app bundles to preserve Accessibility TCC permissions.
+        // For bare binaries (swift build), re-exec directly — inherits the process's TCC grants.
+        let command: String
+        if bundlePath.hasSuffix(".app") {
+            command = "sleep 0.3 && open -a \"\(bundlePath)\""
+        } else {
+            command = "sleep 0.3 && \"\(executable)\""
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        try? process.run()
+        NSApp.terminate(nil)
     }
 
     @objc private func revealConfig() {
