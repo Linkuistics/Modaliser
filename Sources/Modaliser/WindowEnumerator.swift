@@ -30,7 +30,8 @@ enum WindowEnumerator {
                   let ownerName = info[kCGWindowOwnerName as String] as? String,
                   let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
                   let layer = info[kCGWindowLayer as String] as? Int,
-                  layer == 0  // Normal window layer only
+                  layer == 0,  // Normal window layer only
+                  info[kCGWindowIsOnscreen as String] as? Bool == true
             else { return nil }
 
             // Skip our own windows
