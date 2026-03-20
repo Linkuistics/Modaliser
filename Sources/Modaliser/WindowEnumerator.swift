@@ -36,9 +36,11 @@ enum WindowEnumerator {
             // Skip our own windows
             guard ownerPID != currentPID else { return nil }
 
+            // kCGWindowName requires Screen Recording permission on macOS 10.15+.
+            // Without it, titles are nil. Fall back to owner name so the list is still usable.
             let title = info[kCGWindowName as String] as? String ?? ""
-            // Skip windows with no title (menu bar items, etc.)
-            guard !title.isEmpty else { return nil }
+            let displayTitle = title.isEmpty ? ownerName : title
+            guard !displayTitle.isEmpty else { return nil }
 
             let boundsDict = info[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
             let bounds = CGRect(
@@ -52,7 +54,7 @@ enum WindowEnumerator {
 
             return WindowInfo(
                 windowId: windowId,
-                title: title,
+                title: displayTitle,
                 ownerName: ownerName,
                 ownerPID: ownerPID,
                 bundleId: bundleId,
