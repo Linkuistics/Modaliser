@@ -36,6 +36,11 @@ enum WindowEnumerator {
             // Skip our own windows
             guard ownerPID != currentPID else { return nil }
 
+            // Only include windows from regular apps (not background agents/helpers).
+            // This filters out "Autofill", notification helpers, input method windows, etc.
+            guard let app = NSRunningApplication(processIdentifier: ownerPID),
+                  app.activationPolicy == .regular else { return nil }
+
             // kCGWindowName requires Screen Recording permission on macOS 10.15+.
             // Without it, titles are nil. Fall back to owner name so the list is still usable.
             let title = info[kCGWindowName as String] as? String ?? ""
@@ -50,7 +55,10 @@ enum WindowEnumerator {
                 height: boundsDict["Height"] ?? 0
             )
 
-            let bundleId = NSRunningApplication(processIdentifier: ownerPID)?.bundleIdentifier ?? ""
+            // Skip tiny/invisible helper windows (e.g. offscreen buffers)
+            guard bounds.width >= 50, bounds.height >= 50 else { return nil }
+
+            let bundleId = app.bundleIdentifier ?? ""
 
             return WindowInfo(
                 windowId: windowId,
