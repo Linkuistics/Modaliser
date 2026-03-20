@@ -14,15 +14,15 @@ Replaces Hammerspoon with a standalone native Swift app. Configuration and actio
 ## Install
 
 ```bash
-make app          # builds .build/release/Modaliser.app
-make install      # copies to /Applications
+./scripts/build-app.sh    # builds .build/release/Modaliser.app
+./scripts/install.sh      # builds and copies to /Applications
 ```
 
-Or for development:
+For development:
 
 ```bash
 swift build
-swift test        # 297 tests, 34 suites
+swift test
 .build/debug/Modaliser
 ```
 
