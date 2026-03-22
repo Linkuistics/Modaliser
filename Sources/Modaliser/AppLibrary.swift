@@ -26,9 +26,19 @@ final class AppLibrary: NativeLibrary {
         self.define(Procedure("open-with", openWithFunction))
         self.define(Procedure("launch-app", launchAppFunction))
         self.define(Procedure("open-url", openUrlFunction))
+        self.define(Procedure("focused-app-bundle-id", focusedAppBundleIdFunction))
     }
 
     // MARK: - Functions
+
+    /// (focused-app-bundle-id) → string or #f
+    /// Returns the bundle identifier of the frontmost application, or #f if unavailable.
+    private func focusedAppBundleIdFunction() -> Expr {
+        if let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
+            return .makeString(bundleId)
+        }
+        return .false
+    }
 
     /// (find-installed-apps) → list of alists
     /// Scans /Applications and ~/Applications for .app bundles.

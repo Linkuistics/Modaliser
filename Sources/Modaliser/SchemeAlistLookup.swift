@@ -31,6 +31,19 @@ enum SchemeAlistLookup {
         return nil
     }
 
+    /// Look up a raw Expr value by symbol key in a Scheme alist.
+    /// Returns nil if the key is not found.
+    static func lookupExpr(_ alist: Expr, key: String) -> Expr? {
+        var current = alist
+        while case .pair(let entry, let tail) = current {
+            if case .pair(.symbol(let s), let value) = entry, s.identifier == key {
+                return value
+            }
+            current = tail
+        }
+        return nil
+    }
+
     /// Build a Scheme alist from key-value pairs, interning symbols via the given table.
     static func makeAlist(_ entries: [(String, Expr)], symbols: SymbolTable) -> Expr {
         var result: Expr = .null

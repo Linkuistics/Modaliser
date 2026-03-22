@@ -118,4 +118,20 @@ struct AppLibraryTests {
         let engine = try SchemeEngine()
         #expect(try engine.evaluate("(procedure? open-url)") == .true)
     }
+
+    // MARK: - focused-app-bundle-id
+
+    @Test func focusedAppBundleIdIsProcedure() throws {
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? focused-app-bundle-id)") == .true)
+    }
+
+    @Test func focusedAppBundleIdReturnsStringOrFalse() throws {
+        let engine = try SchemeEngine()
+        let result = try engine.evaluate("(focused-app-bundle-id)")
+        // In a test runner context, there may or may not be a frontmost app
+        if case .false = result { return }
+        // Otherwise should be a string
+        _ = try result.asString()
+    }
 }

@@ -19,12 +19,22 @@ final class SchemeEngine {
             includeDocumentPath: nil
         )
         try context.environment.import(BaseLibrary.name)
+        // Register state machine before DSL (DSL's define-tree depends on modal-register-tree!)
+        try context.libraries.register(libraryType: SchemeStateMachineLibrary.self)
+        try context.environment.import(SchemeStateMachineLibrary.name)
         // Register and import the Modaliser DSL library
         try context.libraries.register(libraryType: ModaliserDSLLibrary.self)
         if let dslLib = try context.libraries.lookup(ModaliserDSLLibrary.self) {
             dslLib.registry = registry
         }
         try context.environment.import(ModaliserDSLLibrary.name)
+        // Register new primitive libraries
+        try context.libraries.register(libraryType: LifecycleLibrary.self)
+        try context.environment.import(LifecycleLibrary.name)
+        try context.libraries.register(libraryType: KeyboardLibrary.self)
+        try context.environment.import(KeyboardLibrary.name)
+        try context.libraries.register(libraryType: WebViewLibrary.self)
+        try context.environment.import(WebViewLibrary.name)
         // Register native system libraries
         try context.libraries.register(libraryType: PasteboardLibrary.self)
         try context.environment.import(PasteboardLibrary.name)

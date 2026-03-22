@@ -1,0 +1,179 @@
+import CoreGraphics
+import Foundation
+import LispKit
+
+/// Native LispKit library providing keyboard capture and hotkey registration.
+/// Scheme name: (modaliser keyboard)
+///
+/// Provides: start-keyboard-capture!, stop-keyboard-capture!,
+/// register-hotkey!, unregister-hotkey!, register-all-keys!, unregister-all-keys!,
+/// keycode->char
+///
+/// Also exports key code constants (F17, F18, ESCAPE, etc.) and
+/// modifier flag constants (MOD-CMD, MOD-SHIFT, MOD-ALT, MOD-CTRL).
+///
+/// The registration-as-state pattern: modal state is expressed structurally.
+/// When register-all-keys! is active, the app is modal. When it's removed, it's not.
+final class KeyboardLibrary: NativeLibrary {
+
+    let handlerRegistry = KeyboardHandlerRegistry()
+    private var keyboardCapture: KeyboardCapture?
+
+    public required init(in context: Context) throws {
+        try super.init(in: context)
+    }
+
+    public override class var name: [String] {
+        ["modaliser", "keyboard"]
+    }
+
+    public override func dependencies() {
+        self.`import`(from: ["lispkit", "base"])
+    }
+
+    public override func declarations() {
+        // Capture lifecycle
+        self.define(Procedure("start-keyboard-capture!", startCaptureFunction))
+        self.define(Procedure("stop-keyboard-capture!", stopCaptureFunction))
+
+        // Handler registration
+        self.define(Procedure("register-hotkey!", registerHotkeyFunction))
+        self.define(Procedure("unregister-hotkey!", unregisterHotkeyFunction))
+        self.define(Procedure("register-all-keys!", registerAllKeysFunction))
+        self.define(Procedure("unregister-all-keys!", unregisterAllKeysFunction))
+
+        // Key mapping
+        self.define(Procedure("keycode->char", keycodeToCharFunction))
+
+        // Key code constants
+        self.define("F17", as: .fixnum(Int64(KeyCode.f17)))
+        self.define("F18", as: .fixnum(Int64(KeyCode.f18)))
+        self.define("F19", as: .fixnum(Int64(KeyCode.f19)))
+        self.define("F20", as: .fixnum(Int64(KeyCode.f20)))
+        self.define("ESCAPE", as: .fixnum(Int64(KeyCode.escape)))
+        self.define("DELETE", as: .fixnum(Int64(KeyCode.delete)))
+        self.define("RETURN", as: .fixnum(Int64(KeyCode.returnKey)))
+        self.define("TAB", as: .fixnum(Int64(KeyCode.tab)))
+        self.define("SPACE", as: .fixnum(Int64(KeyCode.space)))
+
+        // Arrow keys
+        self.define("UP", as: .fixnum(Int64(126)))
+        self.define("DOWN", as: .fixnum(Int64(125)))
+        self.define("LEFT", as: .fixnum(Int64(123)))
+        self.define("RIGHT", as: .fixnum(Int64(124)))
+
+        // Modifier flag constants (CGEventFlags raw values, shifted to usable bit positions)
+        self.define("MOD-CMD", as: .fixnum(Int64(CGEventFlags.maskCommand.rawValue)))
+        self.define("MOD-SHIFT", as: .fixnum(Int64(CGEventFlags.maskShift.rawValue)))
+        self.define("MOD-ALT", as: .fixnum(Int64(CGEventFlags.maskAlternate.rawValue)))
+        self.define("MOD-CTRL", as: .fixnum(Int64(CGEventFlags.maskControl.rawValue)))
+    }
+
+    // MARK: - Capture lifecycle
+
+    /// (start-keyboard-capture!) → void
+    private func startCaptureFunction() throws -> Expr {
+        guard keyboardCapture == nil else { return .void }
+
+        let capture = KeyboardCapture { [weak self] event in
+            guard event.isKeyDown, let self else { return .passThrough }
+            let result = self.handlerRegistry.dispatch(
+                keyCode: event.keyCode,
+                modifiers: event.modifiers
+            )
+            switch result {
+            case .suppress: return .suppress
+            case .passThrough: return .passThrough
+            }
+        }
+        try capture.start()
+        keyboardCapture = capture
+        NSLog("KeyboardLibrary: capture started")
+        return .void
+    }
+
+    /// (stop-keyboard-capture!) → void
+    private func stopCaptureFunction() -> Expr {
+        keyboardCapture?.stop()
+        keyboardCapture = nil
+        NSLog("KeyboardLibrary: capture stopped")
+        return .void
+    }
+
+    // MARK: - Hotkey registration
+
+    /// (register-hotkey! keycode handler) → void
+    private func registerHotkeyFunction(_ keycodeExpr: Expr, _ handler: Expr) throws -> Expr {
+        let keyCode = CGKeyCode(try keycodeExpr.asInt64())
+        guard case .procedure = handler else {
+            throw RuntimeError.type(handler, expected: [.procedureType])
+        }
+        handlerRegistry.hotkeyHandlers[keyCode] = { [weak self] in
+            guard let self else { return }
+            let result = self.context.evaluator.execute { machine in
+                try machine.apply(handler, to: .null)
+            }
+            if case .error(let err) = result {
+                NSLog("KeyboardLibrary: hotkey handler error: %@", "\(err)")
+            }
+        }
+        return .void
+    }
+
+    /// (unregister-hotkey! keycode) → void
+    private func unregisterHotkeyFunction(_ keycodeExpr: Expr) throws -> Expr {
+        let keyCode = CGKeyCode(try keycodeExpr.asInt64())
+        handlerRegistry.hotkeyHandlers.removeValue(forKey: keyCode)
+        return .void
+    }
+
+    // MARK: - Catch-all registration
+
+    /// (register-all-keys! handler) → void
+    /// handler: (lambda (keycode modifiers) ...) → #t to suppress, #f to pass
+    private func registerAllKeysFunction(_ handler: Expr) throws -> Expr {
+        guard case .procedure = handler else {
+            throw RuntimeError.type(handler, expected: [.procedureType])
+        }
+        handlerRegistry.catchAllHandler = { [weak self] keyCode, modifiers in
+            guard let self else { return false }
+            let args: Expr = .pair(
+                .fixnum(Int64(keyCode)),
+                .pair(.fixnum(Int64(modifiers.rawValue)), .null)
+            )
+            let result = self.context.evaluator.execute { machine in
+                try machine.apply(handler, to: args)
+            }
+            switch result {
+            case .true:
+                return true
+            case .error(let err):
+                NSLog("KeyboardLibrary: catch-all handler error: %@", "\(err)")
+                // Safety: deregister catch-all on error to prevent stuck modal
+                self.handlerRegistry.catchAllHandler = nil
+                NSLog("KeyboardLibrary: catch-all deregistered after error (safety recovery)")
+                return false
+            default:
+                return false
+            }
+        }
+        return .void
+    }
+
+    /// (unregister-all-keys!) → void
+    private func unregisterAllKeysFunction() -> Expr {
+        handlerRegistry.catchAllHandler = nil
+        return .void
+    }
+
+    // MARK: - Key mapping
+
+    /// (keycode->char keycode) → string or #f
+    private func keycodeToCharFunction(_ keycodeExpr: Expr) throws -> Expr {
+        let keyCode = CGKeyCode(try keycodeExpr.asInt64())
+        if let char = KeyCodeMapping.character(for: keyCode) {
+            return .makeString(char)
+        }
+        return .false
+    }
+}

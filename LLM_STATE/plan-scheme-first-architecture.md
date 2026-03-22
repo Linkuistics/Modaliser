@@ -22,37 +22,37 @@ for full architectural context. After completing each step, update the plan file
 
 ### Phase 1: Foundation — Swift Primitives + Scheme Boot
 
-- [ ] 1.1 Create `LifecycleLibrary` (`(modaliser lifecycle)`)
-  - [ ] `(set-activation-policy! policy)` — wraps `NSApp.setActivationPolicy`
-  - [ ] `(create-status-item! title menu-alist)` — creates NSStatusItem with menu
-  - [ ] `(update-status-item! id title menu-alist)` / `(remove-status-item! id)`
-  - [ ] `(request-accessibility!)` / `(request-screen-recording!)`
-  - [ ] `(relaunch!)` / `(quit!)`
-  - [ ] Unit tests for LifecycleLibrary
-- [ ] 1.2 Create `KeyboardLibrary` (`(modaliser keyboard)`)
-  - [ ] `(start-keyboard-capture!)` / `(stop-keyboard-capture!)`
-  - [ ] `(register-hotkey! keycode handler)` / `(unregister-hotkey! keycode)`
-  - [ ] `(register-all-keys! handler)` / `(unregister-all-keys!)`
-  - [ ] `(keycode->char keycode)` — port KeyCodeMapping table
-  - [ ] Key code and modifier constants (F17, F18, ESCAPE, DELETE, MOD-CMD, etc.)
-  - [ ] CGEvent tap dispatch: catch-all priority → hotkey → pass through
-  - [ ] Error handling: catch Scheme errors, deregister catch-all on failure
-  - [ ] Unit tests for KeyboardLibrary
-- [ ] 1.3 Create `WebViewLibrary` (`(modaliser webview)`)
-  - [ ] `(webview-create id options-alist)` — WKWebView-backed NSPanel
-  - [ ] `(webview-close id)` — destroy panel
-  - [ ] `(webview-set-html! id html-string)` — set content
-  - [ ] `(webview-eval id js-string)` — evaluate JavaScript
-  - [ ] `(webview-on-message id handler)` — JS→Scheme message bridge
-  - [ ] `(webview-set-style! id css-string)` — inject/replace style block
-  - [ ] Non-activating vs activating panel configuration
-  - [ ] Unit tests for WebViewLibrary
-- [ ] 1.4 Add `(focused-app-bundle-id)` to `AppLibrary`
-  - [ ] Implement and test
-- [ ] 1.5 Modify `KeyboardCapture` for registration-based dispatch
-  - [ ] Refactor CGEvent tap callback to check handler registrations
-  - [ ] Support start/stop lifecycle from Scheme
-  - [ ] Tests for new dispatch logic
+- [x] 1.1 Create `LifecycleLibrary` (`(modaliser lifecycle)`)
+  - [x] `(set-activation-policy! policy)` — wraps `NSApp.setActivationPolicy`
+  - [x] `(create-status-item! title menu-alist)` — creates NSStatusItem with menu
+  - [x] `(update-status-item! id title menu-alist)` / `(remove-status-item! id)`
+  - [x] `(request-accessibility!)` / `(request-screen-recording!)`
+  - [x] `(relaunch!)` / `(quit!)`
+  - [x] Unit tests for LifecycleLibrary
+- [x] 1.2 Create `KeyboardLibrary` (`(modaliser keyboard)`)
+  - [x] `(start-keyboard-capture!)` / `(stop-keyboard-capture!)`
+  - [x] `(register-hotkey! keycode handler)` / `(unregister-hotkey! keycode)`
+  - [x] `(register-all-keys! handler)` / `(unregister-all-keys!)`
+  - [x] `(keycode->char keycode)` — port KeyCodeMapping table
+  - [x] Key code and modifier constants (F17, F18, ESCAPE, DELETE, MOD-CMD, etc.)
+  - [x] CGEvent tap dispatch: catch-all priority → hotkey → pass through
+  - [x] Error handling: catch Scheme errors, deregister catch-all on failure
+  - [x] Unit tests for KeyboardLibrary
+- [x] 1.3 Create `WebViewLibrary` (`(modaliser webview)`)
+  - [x] `(webview-create id options-alist)` — WKWebView-backed NSPanel
+  - [x] `(webview-close id)` — destroy panel
+  - [x] `(webview-set-html! id html-string)` — set content
+  - [x] `(webview-eval id js-string)` — evaluate JavaScript
+  - [x] `(webview-on-message id handler)` — JS→Scheme message bridge
+  - [x] `(webview-set-style! id css-string)` — inject/replace style block
+  - [x] Non-activating vs activating panel configuration
+  - [x] Unit tests for WebViewLibrary
+- [x] 1.4 Add `(focused-app-bundle-id)` to `AppLibrary`
+  - [x] Implement and test
+- [x] 1.5 Modify `KeyboardCapture` for registration-based dispatch
+  - [x] Refactor CGEvent tap callback to check handler registrations
+  - [x] Support start/stop lifecycle from Scheme
+  - [x] Tests for new dispatch logic
 - [ ] 1.6 Reduce `ModaliserAppDelegate` to bootstrap stub
   - [ ] Remove activation policy, status bar, config loading, dispatcher wiring
   - [ ] Just: create SchemeEngine, load modaliser.scm
