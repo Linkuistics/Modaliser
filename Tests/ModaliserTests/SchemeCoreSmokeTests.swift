@@ -244,6 +244,91 @@ struct SchemeCoreSmokeTests {
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
+    // MARK: - DSL integration
+
+    @Test func setLeaderRegistersHotkey() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+
+        try engine.evaluate("""
+            (define-tree 'global
+              (key "s" "Safari" (lambda () 'ok)))
+            (set-leader! F18)
+            """)
+
+        // Verify the hotkey was registered in the keyboard library
+        let keyboardLib = try engine.context.libraries.lookup(KeyboardLibrary.self)
+        #expect(keyboardLib?.handlerRegistry.hotkeyHandlers[KeyCode.f18] != nil)
+    }
+
+    @Test func fullLifecycleViaSchemeModules() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+
+        try engine.evaluate("""
+            (define test-action-log '())
+            (define-tree 'global
+              (key "s" "Safari" (lambda () (set! test-action-log (cons 'safari test-action-log))))
+              (group "w" "Windows"
+                (key "c" "Center" (lambda () (set! test-action-log (cons 'center test-action-log))))))
+            """)
+
+        // Simulate full flow: enter → navigate group → execute command
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-handle-key \"w\")")
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-handle-key \"c\")")
+        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("(car test-action-log)") == .symbol(engine.context.symbols.intern("center")))
+    }
+
+    @Test func appSpecificTreeOverridesGlobal() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+
+        try engine.evaluate("""
+            (define which-tree #f)
+            (define-tree 'global
+              (key "s" "Safari" (lambda () (set! which-tree 'global))))
+            (define-tree 'com.apple.Safari
+              (key "t" "Tab" (lambda () (set! which-tree 'safari))))
+            """)
+
+        // App-specific tree should be found for Safari
+        let safariTree = try engine.evaluate("(lookup-tree \"com.apple.Safari\")")
+        #expect(safariTree != .false)
+
+        // Global should still exist
+        let globalTree = try engine.evaluate("(lookup-tree \"global\")")
+        #expect(globalTree != .false)
+
+        // The make-leader-handler uses (or app-tree global-tree), test that logic
+        try engine.evaluate("""
+            (let ((tree (or (lookup-tree "com.apple.Safari") (lookup-tree "global"))))
+              (modal-enter tree F18))
+            """)
+        try engine.evaluate("(modal-handle-key \"t\")")
+        #expect(try engine.evaluate("which-tree") == .symbol(engine.context.symbols.intern("safari")))
+    }
+
     @Test func modalNoBindingExits() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }

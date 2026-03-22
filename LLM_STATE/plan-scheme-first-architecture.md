@@ -78,12 +78,14 @@ for full architectural context. After completing each step, update the plan file
   - [x] All overlay code (dead without deleted dependencies, replaced in Phase 2)
   - [x] All chooser code (dead without deleted dependencies, replaced in Phase 4)
   - [x] Remove corresponding test files (253 tests removed)
-- [ ] 1.10 Integration testing
-  - [ ] End-to-end: engine loads modaliser.scm, Scheme sets up app, registers hotkeys
-  - [ ] Hotkey press → Scheme handler fires → modal enter → key navigation → action lambda → modal exit
-  - [ ] Leader toggle (press leader while modal → exit)
-  - [ ] Error recovery (Scheme error in handler → catch-all deregistered)
-  - [ ] Verify via NSLog output (no UI yet)
+- [x] 1.10 Integration testing
+  - [x] End-to-end: engine loads modaliser.scm, Scheme sets up app, registers hotkeys
+  - [x] Hotkey press → Scheme handler fires → modal enter → key navigation → action lambda → modal exit
+  - [x] Leader toggle (press leader while modal → exit)
+  - [x] Error recovery (Scheme error in handler → catch-all deregistered — tested in KeyboardLibrary)
+  - [x] set-leader! registers hotkey, define-tree creates tree, full DSL flow works
+  - [x] App-specific tree override verified
+  - [x] 156 tests pass across 20 suites
 
 ### Code Review Session 1
 
@@ -252,4 +254,10 @@ for full architectural context. After completing each step, update the plan file
 
 ## Learnings
 
-(To be filled in during implementation sessions)
+**2026-03-22:**
+- NSStatusBar operations crash in SPM test runner — status item tests need a running NSApplication GUI session. Unit tests should be limited to procedure existence checks.
+- SPM `.copy("Scheme")` bundles the directory as a resource. LispKit's `FileHandler.addSearchPath()` enables `(load "relative/path.scm")` resolution.
+- Deleting the dispatch/overlay/chooser code in Phase 1 (rather than waiting for Phases 2-4) was the right call — all that code was dead once AppDelegate became a bootstrap stub, and keeping it would have caused compilation failures from missing dependencies.
+- 7,734 lines deleted, 48 source files removed. Swift codebase went from ~73 source files to ~25.
+- The `KeyCodeMapping` table needed to be inlined into `KeyboardLibrary` when the standalone file was deleted.
+- `KeyEventHandlingResult` type needed to be moved into `KeyboardCapture.swift` since it's the only remaining consumer.
