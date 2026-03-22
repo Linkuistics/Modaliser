@@ -30,11 +30,12 @@ Modaliser should be completely configurable and programmable in Scheme. Users sh
 │  Swift Host (OS primitives only)                    │
 │                                                     │
 │  SchemeEngine          LispKit context, load root    │
-│  ModaliserAppDelegate  App lifecycle, status bar     │
-│  KeyboardCapture       CGEvent tap                   │
+│  ModaliserAppDelegate  Minimal — create engine, load │
+│  KeyboardCapture       CGEvent tap (started by Scheme)│
 │                                                     │
 │  Native Libraries:                                  │
-│  (modaliser keyboard)  hotkey reg, catch-all, keycodes│
+│  (modaliser lifecycle) activation policy, status bar │
+│  (modaliser keyboard)  hotkey reg, catch-all, capture │
 │  (modaliser webview)   WKWebView lifecycle + comms   │
 │  (modaliser app)       NSWorkspace, app scanning     │
 │  (modaliser window)    AXUIElement window mgmt       │
@@ -49,14 +50,39 @@ Modaliser should be completely configurable and programmable in Scheme. Users sh
 
 ### App Lifecycle
 
-`ModaliserAppDelegate` is simplified to:
-1. Set activation policy to `.accessory`
-2. Set up status bar menu (Quit, Relaunch)
-3. Create `SchemeEngine`
-4. Load `modaliser.scm` from the app's Scheme directory
-5. Start `KeyboardCapture` (CGEvent tap)
+`ModaliserAppDelegate` is reduced to a bootstrap stub:
+1. Create `SchemeEngine`
+2. Load `modaliser.scm` from the app's Scheme directory
 
-No config path resolution, no dispatcher wiring, no overlay/chooser setup. Scheme handles all of that in its root file.
+That's it. Everything else — activation policy, status bar menu, keyboard capture, permissions — is initiated by the Scheme program via primitives. This establishes the model for writing desktop apps in Scheme: Swift provides the `NSApplication` entry point and the Scheme runtime, then hands control to Scheme.
+
+### App Lifecycle Primitive Library — `(modaliser lifecycle)`
+
+Provides primitives for macOS app lifecycle that Scheme calls during initialization.
+
+**Primitives:**
+- `(set-activation-policy! policy)` — sets `NSApp.setActivationPolicy`. `policy` is a symbol: `'regular` (dock icon + menu bar), `'accessory` (menu bar only, no dock icon), or `'prohibited` (no UI presence).
+- `(create-status-item! title menu-alist)` — creates an `NSStatusItem` in the menu bar with the given title string. `menu-alist` is a list of menu item specs, each an alist with keys `'title`, `'action` (a Scheme lambda), and optionally `'key-equivalent`. A special `'separator` symbol creates a separator item. Returns a status item id.
+- `(update-status-item! id title menu-alist)` — updates an existing status item's title and menu.
+- `(remove-status-item! id)` — removes a status item.
+- `(request-accessibility!)` — checks/requests Accessibility permission (wraps `AXIsProcessTrusted` + prompt). Returns `#t` if granted.
+- `(request-screen-recording!)` — checks/requests Screen Recording permission. Returns `#t` if granted.
+- `(relaunch!)` — relaunches the app (preserving TCC permissions for `.app` bundles).
+- `(quit!)` — calls `NSApp.terminate`.
+
+**Example usage in `modaliser.scm`:**
+```scheme
+(set-activation-policy! 'accessory)
+(request-accessibility!)
+(request-screen-recording!)
+
+(create-status-item! "⌨"
+  (list
+    (list '(title . "Reload Config") '(action . reload-config) '(key-equivalent . "r"))
+    'separator
+    (list '(title . "Relaunch") '(action . relaunch!))
+    (list '(title . "Quit Modaliser") '(action . quit!) '(key-equivalent . "q"))))
+```
 
 ### Runtime File Loading
 
@@ -69,6 +95,8 @@ User configuration is a Scheme-level concern, not a Swift one. The root `modalis
 Replaces `KeyEventDispatcher`, `KeyCodeMapping`, `LeaderMode`.
 
 **Primitives:**
+- `(start-keyboard-capture!)` — creates and starts the CGEvent tap. Must be called after accessibility permission is granted. The tap dispatches to registered handlers (see below).
+- `(stop-keyboard-capture!)` — stops and destroys the CGEvent tap.
 - `(register-hotkey! keycode handler)` — registers a specific keycode. When the CGEvent tap sees this keycode on keydown, it calls `handler` (a zero-argument Scheme procedure) and suppresses the event.
 - `(unregister-hotkey! keycode)` — removes a hotkey registration.
 - `(register-all-keys! handler)` — registers a catch-all handler for every keydown. `handler` is called with `(keycode modifiers)` and must return `#t` to suppress or `#f` to pass through. Used when going modal.
@@ -301,24 +329,25 @@ This keeps all interaction logic in Scheme/JS with no Swift event monitors.
 ### Phase 1: Foundation
 
 **Swift work:**
-- Create `KeyboardLibrary` (`(modaliser keyboard)`) — hotkey registration, catch-all, keycode→char, key constants
+- Create `LifecycleLibrary` (`(modaliser lifecycle)`) — activation policy, status bar, permissions, quit/relaunch
+- Create `KeyboardLibrary` (`(modaliser keyboard)`) — start/stop capture, hotkey registration, catch-all, keycode→char, key constants
 - Create `WebViewLibrary` (`(modaliser webview)`) — WebView lifecycle and communication primitives
 - Add `(focused-app-bundle-id)` to `AppLibrary`
-- Modify `KeyboardCapture` to support registration-based dispatch
-- Simplify `ModaliserAppDelegate` — create engine, load `modaliser.scm`, start event tap
+- Modify `KeyboardCapture` to support registration-based dispatch (started/stopped by Scheme)
+- Reduce `ModaliserAppDelegate` to bootstrap stub — create engine, load `modaliser.scm`. No activation policy, no status bar, no capture start.
 - Configure `SchemeEngine` to set LispKit include path and load `.scm` files from Scheme directory
 
 **Scheme work:**
-- `modaliser.scm` — root loader
+- `modaliser.scm` — root loader. Sets activation policy, requests permissions, creates status bar, starts keyboard capture, loads user config.
 - `core/state-machine.scm` — tree registry, navigation (side-effecting, no result tags)
 - `core/event-dispatch.scm` — hotkey handlers, modal key handler with leader toggle
 - `core/keymap.scm` — keycode→character table
 - `lib/dsl.scm` — `key`, `group`, `define-tree`, `set-leader!`
 - `lib/util.scm` — alist helpers
 
-**Swift deletions:** `KeyEventDispatcher`, `SchemeModalBridge`, `CommandExecutor`, `CommandNode`, `CommandNodeBuilder`, `CommandTreeRegistry`, `ModaliserDSLLibrary`, `SchemeStateMachineLibrary`, `LeaderMode`, `KeyDispatchResult`, `KeyEventHandlingResult`, `KeyCodeMapping`, `FocusedAppObserver`, `ConfigPathResolver`, `ConfigSetup`, `ConfigErrorAlert`
+**Swift deletions:** `KeyEventDispatcher`, `SchemeModalBridge`, `CommandExecutor`, `CommandNode`, `CommandNodeBuilder`, `CommandTreeRegistry`, `ModaliserDSLLibrary`, `SchemeStateMachineLibrary`, `LeaderMode`, `KeyDispatchResult`, `KeyEventHandlingResult`, `KeyCodeMapping`, `FocusedAppObserver`, `ConfigPathResolver`, `ConfigSetup`, `ConfigErrorAlert`, `AccessibilityPermissionAlert` (replaced by Scheme-driven permission flow)
 
-**End state:** Press F18 → Scheme activates modal → keys navigate the tree → action lambdas fire → escape/delete/leader-toggle work. Verified via NSLog. No UI.
+**End state:** App launches → Scheme sets up everything (activation policy, status bar, permissions, capture) → press F18 → modal navigation → action lambdas fire → escape/delete/leader-toggle work. Verified via NSLog. No overlay UI yet.
 
 ### Code Review Session 1
 
