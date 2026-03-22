@@ -68,14 +68,16 @@ for full architectural context. After completing each step, update the plan file
   - [x] `Sources/Modaliser/Scheme/core/keymap.scm` — keycode→character mapping table
   - [x] `Sources/Modaliser/Scheme/lib/dsl.scm` — key, group, define-tree, set-leader!
   - [x] `Sources/Modaliser/Scheme/lib/util.scm` — alist helpers
-- [ ] 1.9 Delete replaced Swift code
-  - [ ] `KeyEventDispatcher`, `SchemeModalBridge`, `CommandExecutor`
-  - [ ] `CommandNode`, `CommandNodeBuilder`, `CommandTreeRegistry`
-  - [ ] `ModaliserDSLLibrary`, `SchemeStateMachineLibrary`
-  - [ ] `LeaderMode`, `KeyDispatchResult`, `KeyEventHandlingResult`, `KeyCodeMapping`
-  - [ ] `FocusedAppObserver`, `ConfigPathResolver`, `ConfigSetup`, `ConfigErrorAlert`
-  - [ ] `AccessibilityPermissionAlert`
-  - [ ] Remove corresponding test files
+- [x] 1.9 Delete replaced Swift code
+  - [x] `KeyEventDispatcher`, `SchemeModalBridge`, `CommandExecutor`
+  - [x] `CommandNode`, `CommandNodeBuilder`, `CommandTreeRegistry`
+  - [x] `ModaliserDSLLibrary`, `SchemeStateMachineLibrary`
+  - [x] `LeaderMode`, `KeyDispatchResult`, `KeyEventHandlingResult`, `KeyCodeMapping`
+  - [x] `FocusedAppObserver`, `ConfigPathResolver`, `ConfigSetup`, `ConfigErrorAlert`
+  - [x] `AccessibilityPermissionAlert`
+  - [x] All overlay code (dead without deleted dependencies, replaced in Phase 2)
+  - [x] All chooser code (dead without deleted dependencies, replaced in Phase 4)
+  - [x] Remove corresponding test files (253 tests removed)
 - [ ] 1.10 Integration testing
   - [ ] End-to-end: engine loads modaliser.scm, Scheme sets up app, registers hotkeys
   - [ ] Hotkey press → Scheme handler fires → modal enter → key navigation → action lambda → modal exit

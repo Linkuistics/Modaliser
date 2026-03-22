@@ -5,14 +5,12 @@ import LispKit
 /// Provides the bridge between Swift and the Scheme configuration layer.
 final class SchemeEngine {
     let context: LispKitContext
-    let registry: CommandTreeRegistry
 
     /// The resolved path to the Scheme directory, if found.
     private(set) var schemeDirectoryPath: String?
 
     init() throws {
         let delegate = ModaliserContextDelegate()
-        registry = CommandTreeRegistry()
         context = LispKitContext(
             delegate: delegate,
             implementationName: "Modaliser",
@@ -30,16 +28,7 @@ final class SchemeEngine {
             NSLog("SchemeEngine: Scheme directory at %@", schemePath)
         }
 
-        // Register state machine before DSL (DSL's define-tree depends on modal-register-tree!)
-        try context.libraries.register(libraryType: SchemeStateMachineLibrary.self)
-        try context.environment.import(SchemeStateMachineLibrary.name)
-        // Register and import the Modaliser DSL library
-        try context.libraries.register(libraryType: ModaliserDSLLibrary.self)
-        if let dslLib = try context.libraries.lookup(ModaliserDSLLibrary.self) {
-            dslLib.registry = registry
-        }
-        try context.environment.import(ModaliserDSLLibrary.name)
-        // Register new primitive libraries
+        // Register primitive libraries
         try context.libraries.register(libraryType: LifecycleLibrary.self)
         try context.environment.import(LifecycleLibrary.name)
         try context.libraries.register(libraryType: KeyboardLibrary.self)

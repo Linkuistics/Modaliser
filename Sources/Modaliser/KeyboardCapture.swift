@@ -1,6 +1,14 @@
 import AppKit
 import CoreGraphics
 
+/// Result of handling a key event — tells the caller whether to suppress or pass through.
+enum KeyEventHandlingResult: Equatable {
+    /// Suppress the event (don't let it reach other apps).
+    case suppress
+    /// Pass the event through to the system.
+    case passThrough
+}
+
 /// Captures global keyboard events via a CGEvent tap.
 /// Requires Accessibility permissions to function.
 final class KeyboardCapture {

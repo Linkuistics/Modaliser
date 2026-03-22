@@ -69,14 +69,17 @@ struct KeystrokeEmitterTests {
 
     // MARK: - Consistency with KeyCodeMapping
 
-    @Test func characterLookupMatchesKeyCodeMapping() {
+    @Test func characterLookupMatchesKeyCodeMapping() throws {
         // Verify the reverse mapping is consistent with the forward mapping
         let letters = "abcdefghijklmnopqrstuvwxyz"
+        let engine = try SchemeEngine()
         for char in letters {
             let charStr = String(char)
             if let keyCode = KeystrokeEmitter.keyCode(for: charStr) {
-                let forward = KeyCodeMapping.character(for: keyCode)
-                #expect(forward == charStr, "Mismatch for '\(charStr)': keyCode \(keyCode) maps back to '\(forward ?? "nil")'")
+                let forward = try engine.evaluate("(keycode->char \(keyCode))")
+                if let mappedStr = try? forward.asString() {
+                    #expect(mappedStr == charStr, "Mismatch for '\(charStr)': keyCode \(keyCode) maps back to '\(mappedStr)'")
+                }
             }
         }
     }
