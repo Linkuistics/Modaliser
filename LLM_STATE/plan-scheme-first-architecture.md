@@ -53,9 +53,9 @@ for full architectural context. After completing each step, update the plan file
   - [x] Refactor CGEvent tap callback to check handler registrations
   - [x] Support start/stop lifecycle from Scheme
   - [x] Tests for new dispatch logic
-- [ ] 1.6 Reduce `ModaliserAppDelegate` to bootstrap stub
-  - [ ] Remove activation policy, status bar, config loading, dispatcher wiring
-  - [ ] Just: create SchemeEngine, load modaliser.scm
+- [x] 1.6 Reduce `ModaliserAppDelegate` to bootstrap stub
+  - [x] Remove activation policy, status bar, config loading, dispatcher wiring
+  - [x] Just: create SchemeEngine, load modaliser.scm
 - [x] 1.7 Configure `SchemeEngine` for `.scm` file loading
   - [x] Set LispKit include path to Scheme directory
   - [x] Resolve root .scm path for both .app bundle and swift build
