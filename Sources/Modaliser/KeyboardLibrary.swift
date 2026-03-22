@@ -19,6 +19,10 @@ final class KeyboardLibrary: NativeLibrary {
     let handlerRegistry = KeyboardHandlerRegistry()
     private var keyboardCapture: KeyboardCapture?
 
+    // Static references to prevent GC from collecting capture/registry
+    private static var sharedCapture: KeyboardCapture?
+    private static var sharedRegistry: KeyboardHandlerRegistry?
+
     public required init(in context: Context) throws {
         try super.init(in: context)
     }
@@ -75,19 +79,20 @@ final class KeyboardLibrary: NativeLibrary {
     private func startCaptureFunction() throws -> Expr {
         guard keyboardCapture == nil else { return .void }
 
-        let capture = KeyboardCapture { [weak self] event in
-            guard event.isKeyDown, let self else { return .passThrough }
-            let result = self.handlerRegistry.dispatch(
+        let registry = self.handlerRegistry
+        let capture = KeyboardCapture { event in
+            guard event.isKeyDown else { return .passThrough }
+            let result = registry.dispatch(
                 keyCode: event.keyCode,
                 modifiers: event.modifiers
             )
-            switch result {
-            case .suppress: return .suppress
-            case .passThrough: return .passThrough
-            }
+            return result == .suppress ? .suppress : .passThrough
         }
         try capture.start()
         keyboardCapture = capture
+        // Also store globally to prevent GC from collecting the library
+        KeyboardLibrary.sharedCapture = capture
+        KeyboardLibrary.sharedRegistry = registry
         NSLog("KeyboardLibrary: capture started")
         return .void
     }
