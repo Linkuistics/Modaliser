@@ -8,6 +8,7 @@
 ;;
 ;; Receives (keycode modifiers). Returns #t to suppress, #f to pass through.
 (define (modal-key-handler keycode modifiers)
+  (log "modal-key-handler: keycode=" keycode " char=" (keycode->char keycode))
   (cond
     ;; Leader key toggle — exit modal
     ((and modal-leader-keycode (= keycode modal-leader-keycode))
@@ -34,12 +35,19 @@
 ;; Create a leader key handler for a given keycode.
 ;; When pressed, looks up the focused app's bundle ID, finds the
 ;; appropriate tree, and enters modal mode.
-(define (make-leader-handler leader-kc)
+;; Create a leader key handler for a specific mode.
+;; 'global → always uses the "global" tree
+;; 'local  → uses the app-specific tree for the focused app (no fallback)
+;; If mode is #f (single-arg set-leader!), behaves like global with app fallback.
+(define (make-leader-handler leader-kc mode)
   (lambda ()
     (if modal-active?
       (modal-exit)
       (let* ((bundle-id (focused-app-bundle-id))
-             (tree (or (and bundle-id (lookup-tree bundle-id))
-                       (lookup-tree "global"))))
+             (tree (cond
+                     ((eq? mode 'global) (lookup-tree "global"))
+                     ((eq? mode 'local)  (and bundle-id (lookup-tree bundle-id)))
+                     (else (or (and bundle-id (lookup-tree bundle-id))
+                               (lookup-tree "global"))))))
         (when tree
           (modal-enter tree leader-kc))))))

@@ -106,24 +106,30 @@
 ;; Handle a character key press while modal is active.
 ;; Side-effecting: directly calls actions, updates overlay, etc.
 (define (modal-handle-key char)
+  (let ((children (node-children modal-current-node)))
+    (log "modal-handle-key: '" char "' children: " (length children))
+    (when (pair? children)
+      (log "  first child keys: " (map node-key children))
+      (log "  looking for key='" char "' equal to first='" (node-key (car children)) "'? " (equal? (node-key (car children)) char))))
   (let ((child (find-child modal-current-node char)))
+    (log "  child found: " (if child (node-label child) "NONE"))
     (cond
       ((not child)
+       (log "  -> no binding, exiting")
        (modal-exit))
       ((command? child)
        (let ((action (node-action child)))
+         (log "  -> command: " (node-label child))
          (modal-exit)
          (when action (action))))
       ((group? child)
        (set! modal-current-node child)
        (set! modal-current-path
          (append modal-current-path (list char)))
-       ;; Overlay update will be wired in Phase 2
-       (log "modal-navigate: " (node-label child)))
+       (log "  -> group: " (node-label child)))
       ((selector? child)
        (modal-exit)
-       ;; Chooser will be wired in Phase 4
-       (log "modal-selector: " (node-label child)))
+       (log "  -> selector: " (node-label child)))
       (else
        (modal-exit)))))
 

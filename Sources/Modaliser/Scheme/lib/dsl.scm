@@ -45,8 +45,15 @@
 (define (set-theme! . args) (void))
 
 ;; (set-leader! keycode) or (set-leader! 'mode keycode) → registers a hotkey
-;; The two-arg form is backward compatible with the old API (mode is ignored).
-;; When pressed: looks up focused app, finds tree, enters modal.
+;; The two-arg form is backward compatible with the old API.
+;; 'global → always uses the global tree
+;; 'local  → uses the app-specific tree for the focused app
+;; Single-arg form defaults to global-with-app-fallback.
 (define (set-leader! first . rest)
-  (let ((keycode (if (null? rest) first (car rest))))
-    (register-hotkey! keycode (make-leader-handler keycode))))
+  (if (null? rest)
+    ;; Single arg: keycode only, default behavior
+    (register-hotkey! first (make-leader-handler first #f))
+    ;; Two args: mode + keycode
+    (let ((mode first)
+          (keycode (car rest)))
+      (register-hotkey! keycode (make-leader-handler keycode mode)))))

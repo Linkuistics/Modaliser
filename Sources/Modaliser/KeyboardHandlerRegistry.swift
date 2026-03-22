@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Stores registered keyboard handlers and dispatches key events to them.
 /// Separates the dispatch logic from the CGEvent tap and the Scheme bridge,
@@ -21,7 +22,9 @@ final class KeyboardHandlerRegistry {
     /// Dispatch a key event. Returns whether to suppress or pass through.
     func dispatch(keyCode: CGKeyCode, modifiers: CGEventFlags) -> KeyboardDispatchResult {
         if let catchAll = catchAllHandler {
+            NSLog("KeyboardDispatch: catch-all handling keycode %d", keyCode)
             let shouldSuppress = catchAll(keyCode, modifiers)
+            NSLog("KeyboardDispatch: catch-all returned %@", shouldSuppress ? "suppress" : "passThrough")
             return shouldSuppress ? .suppress : .passThrough
         }
 
