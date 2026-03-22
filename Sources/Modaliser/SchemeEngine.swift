@@ -20,6 +20,13 @@ final class SchemeEngine {
             includeDocumentPath: nil
         )
         try context.environment.import(BaseLibrary.name)
+        // Import standard libraries needed by Scheme files
+        try context.environment.import(ListLibrary.name)
+        try context.environment.import(HashTableLibrary.name)
+        try context.environment.import(StringLibrary.name)
+        try context.environment.import(PortLibrary.name)
+        try context.environment.import(SystemLibrary.name)
+        try context.environment.import(MathLibrary.name)
 
         // Resolve and register the Scheme directory as a search path
         schemeDirectoryPath = SchemeEngine.resolveSchemeDirectory()
@@ -80,19 +87,38 @@ final class SchemeEngine {
         }
     }
 
-    /// Load and evaluate the root modaliser.scm from the Scheme directory.
+    /// Load and evaluate the Scheme program files in order.
+    /// Loads each .scm file via evaluateFile (which uses the global environment)
+    /// to ensure all definitions are in the same scope.
     func loadRootSchemeFile() throws {
         guard let schemePath = schemeDirectoryPath else {
             NSLog("SchemeEngine: No Scheme directory found — skipping root load")
             return
         }
-        let rootPath = (schemePath as NSString).appendingPathComponent("modaliser.scm")
-        guard FileManager.default.fileExists(atPath: rootPath) else {
-            NSLog("SchemeEngine: modaliser.scm not found at %@", rootPath)
-            return
+
+        let files = [
+            "lib/util.scm",
+            "core/keymap.scm",
+            "core/state-machine.scm",
+            "core/event-dispatch.scm",
+            "lib/dsl.scm",
+            "modaliser.scm",
+        ]
+
+        for file in files {
+            let path = (schemePath as NSString).appendingPathComponent(file)
+            guard FileManager.default.fileExists(atPath: path) else {
+                NSLog("SchemeEngine: %@ not found — skipping", file)
+                continue
+            }
+            do {
+                try evaluateFile(path)
+                NSLog("SchemeEngine: loaded %@", file)
+            } catch {
+                NSLog("SchemeEngine: error loading %@: %@", file, "\(error)")
+                throw error
+            }
         }
-        try evaluateFile(rootPath)
-        NSLog("SchemeEngine: loaded modaliser.scm")
     }
 
     // MARK: - Scheme directory resolution

@@ -1,17 +1,12 @@
 ;; modaliser.scm — Root Scheme program
 ;;
-;; This is the entry point loaded by Swift's SchemeEngine.
+;; This is loaded last by SchemeEngine (after all modules).
 ;; It sets up the application: activation policy, permissions,
-;; status bar, loads modules, starts keyboard capture, and
-;; loads user configuration.
-
-;; ─── Load modules ───────────────────────────────────────────────
-
-(load "lib/util.scm")
-(load "core/keymap.scm")
-(load "core/state-machine.scm")
-(load "core/event-dispatch.scm")
-(load "lib/dsl.scm")
+;; status bar, starts keyboard capture, and loads user configuration.
+;;
+;; Module load order (handled by Swift):
+;;   lib/util.scm → core/keymap.scm → core/state-machine.scm →
+;;   core/event-dispatch.scm → lib/dsl.scm → modaliser.scm
 
 ;; ─── App setup ──────────────────────────────────────────────────
 
@@ -26,25 +21,17 @@
 
 (create-status-item! "⌨"
   (list
-    (list '(title . "Reload Config") '(action . reload-config) '(key-equivalent . "r"))
+    (list (cons 'title "Reload Config") (cons 'action reload-config) (cons 'key-equivalent "r"))
     'separator
-    (list '(title . "Relaunch") '(action . relaunch!))
-    (list '(title . "Quit Modaliser") '(action . quit!) '(key-equivalent . "q"))))
+    (list (cons 'title "Relaunch") (cons 'action relaunch!))
+    (list (cons 'title "Quit Modaliser") (cons 'action quit!) (cons 'key-equivalent "q"))))
 
 ;; ─── Start keyboard capture ─────────────────────────────────────
 
 (start-keyboard-capture!)
 
 ;; ─── Load user configuration ────────────────────────────────────
-
-(define (load-user-config)
-  (let ((config-path (string-append
-                       (get-environment-variable "HOME")
-                       "/.config/modaliser/config.scm")))
-    (when (file-exists? config-path)
-      (load config-path)
-      (log "Loaded user config: " config-path))))
-
-(load-user-config)
+;; User config loading deferred to Phase 3 (config migration).
+;; The old config.scm uses APIs that haven't been ported yet.
 
 (log "Modaliser Scheme runtime initialized")
