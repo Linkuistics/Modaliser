@@ -113,9 +113,9 @@ final class KeyboardLibrary: NativeLibrary {
         guard case .procedure = handler else {
             throw RuntimeError.type(handler, expected: [.procedureType])
         }
-        handlerRegistry.hotkeyHandlers[keyCode] = { [weak self] in
-            guard let self else { return }
-            let result = self.context.evaluator.execute { machine in
+        let evaluator = self.context.evaluator!
+        handlerRegistry.hotkeyHandlers[keyCode] = {
+            let result = evaluator.execute { machine in
                 try machine.apply(handler, to: .null)
             }
             if case .error(let err) = result {
@@ -140,13 +140,14 @@ final class KeyboardLibrary: NativeLibrary {
         guard case .procedure = handler else {
             throw RuntimeError.type(handler, expected: [.procedureType])
         }
-        handlerRegistry.catchAllHandler = { [weak self] keyCode, modifiers in
-            guard let self else { return false }
+        let evaluator = self.context.evaluator!
+        let registry = self.handlerRegistry
+        handlerRegistry.catchAllHandler = { keyCode, modifiers in
             let args: Expr = .pair(
                 .fixnum(Int64(keyCode)),
                 .pair(.fixnum(Int64(modifiers.rawValue)), .null)
             )
-            let result = self.context.evaluator.execute { machine in
+            let result = evaluator.execute { machine in
                 try machine.apply(handler, to: args)
             }
             switch result {
@@ -155,7 +156,7 @@ final class KeyboardLibrary: NativeLibrary {
             case .error(let err):
                 NSLog("KeyboardLibrary: catch-all handler error: %@", "\(err)")
                 // Safety: deregister catch-all on error to prevent stuck modal
-                self.handlerRegistry.catchAllHandler = nil
+                registry.catchAllHandler = nil
                 NSLog("KeyboardLibrary: catch-all deregistered after error (safety recovery)")
                 return false
             default:
