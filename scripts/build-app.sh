@@ -18,6 +18,13 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 cp "${BUILD_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp Info.plist "${APP_BUNDLE}/Contents/Info.plist"
 
+# Copy SPM resource bundle (contains Scheme files)
+RESOURCE_BUNDLE="${BUILD_DIR}/${APP_NAME}_${APP_NAME}.bundle"
+if [ -d "$RESOURCE_BUNDLE" ]; then
+    cp -R "$RESOURCE_BUNDLE" "${APP_BUNDLE}/Contents/Resources/"
+    echo "Copied resource bundle"
+fi
+
 # Generate .icns from source PNG
 ICON_SOURCE="Resources/AppIcon.png"
 ICONSET_DIR="${BUILD_DIR}/AppIcon.iconset"
