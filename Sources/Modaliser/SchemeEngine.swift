@@ -7,6 +7,9 @@ final class SchemeEngine {
     let context: LispKitContext
     let registry: CommandTreeRegistry
 
+    /// The resolved path to the Scheme directory, if found.
+    private(set) var schemeDirectoryPath: String?
+
     init() throws {
         let delegate = ModaliserContextDelegate()
         registry = CommandTreeRegistry()
@@ -19,6 +22,14 @@ final class SchemeEngine {
             includeDocumentPath: nil
         )
         try context.environment.import(BaseLibrary.name)
+
+        // Resolve and register the Scheme directory as a search path
+        schemeDirectoryPath = SchemeEngine.resolveSchemeDirectory()
+        if let schemePath = schemeDirectoryPath {
+            _ = context.fileHandler.addSearchPath(schemePath)
+            NSLog("SchemeEngine: Scheme directory at %@", schemePath)
+        }
+
         // Register state machine before DSL (DSL's define-tree depends on modal-register-tree!)
         try context.libraries.register(libraryType: SchemeStateMachineLibrary.self)
         try context.environment.import(SchemeStateMachineLibrary.name)
@@ -64,7 +75,6 @@ final class SchemeEngine {
                 in: self.context.global
             )
         }
-        // Check if the result is an error
         if case .error(let err) = result {
             throw err
         }
@@ -79,6 +89,63 @@ final class SchemeEngine {
         if case .error(let err) = result {
             throw err
         }
+    }
+
+    /// Load and evaluate the root modaliser.scm from the Scheme directory.
+    func loadRootSchemeFile() throws {
+        guard let schemePath = schemeDirectoryPath else {
+            NSLog("SchemeEngine: No Scheme directory found — skipping root load")
+            return
+        }
+        let rootPath = (schemePath as NSString).appendingPathComponent("modaliser.scm")
+        guard FileManager.default.fileExists(atPath: rootPath) else {
+            NSLog("SchemeEngine: modaliser.scm not found at %@", rootPath)
+            return
+        }
+        try evaluateFile(rootPath)
+        NSLog("SchemeEngine: loaded modaliser.scm")
+    }
+
+    // MARK: - Scheme directory resolution
+
+    /// Resolve the path to the Scheme directory.
+    /// Checks in order:
+    /// 1. SPM resource bundle (Bundle.module for executables with .copy resources)
+    /// 2. Relative to executable (for swift build development)
+    /// 3. Relative to working directory (fallback)
+    private static func resolveSchemeDirectory() -> String? {
+        // 1. Check Bundle.main for .app bundles or SPM resource bundles
+        if let resourceURL = Bundle.main.resourceURL {
+            let bundlePath = resourceURL.appendingPathComponent("Modaliser_Modaliser.bundle/Scheme").path
+            if FileManager.default.fileExists(atPath: bundlePath) {
+                return bundlePath
+            }
+            let directPath = resourceURL.appendingPathComponent("Scheme").path
+            if FileManager.default.fileExists(atPath: directPath) {
+                return directPath
+            }
+        }
+
+        // 2. Relative to executable — for `swift build`, binary is at .build/debug/Modaliser
+        //    and Scheme files are at Sources/Modaliser/Scheme/
+        let executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
+            .resolvingSymlinksInPath()
+        let execDir = executableURL.deletingLastPathComponent()
+
+        // Walk up from .build/debug/ to project root
+        let projectRoot = execDir.deletingLastPathComponent().deletingLastPathComponent()
+        let devPath = projectRoot.appendingPathComponent("Sources/Modaliser/Scheme").path
+        if FileManager.default.fileExists(atPath: devPath) {
+            return devPath
+        }
+
+        // 3. Relative to working directory
+        let cwdPath = FileManager.default.currentDirectoryPath + "/Sources/Modaliser/Scheme"
+        if FileManager.default.fileExists(atPath: cwdPath) {
+            return cwdPath
+        }
+
+        return nil
     }
 }
 

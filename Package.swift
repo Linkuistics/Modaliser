@@ -13,7 +13,10 @@ let package = Package(
             dependencies: [
                 .product(name: "LispKit", package: "swift-lispkit"),
             ],
-            path: "Sources/Modaliser"
+            path: "Sources/Modaliser",
+            resources: [
+                .copy("Scheme"),
+            ]
         ),
         .testTarget(
             name: "ModaliserTests",

@@ -56,18 +56,18 @@ for full architectural context. After completing each step, update the plan file
 - [ ] 1.6 Reduce `ModaliserAppDelegate` to bootstrap stub
   - [ ] Remove activation policy, status bar, config loading, dispatcher wiring
   - [ ] Just: create SchemeEngine, load modaliser.scm
-- [ ] 1.7 Configure `SchemeEngine` for `.scm` file loading
-  - [ ] Set LispKit include path to Scheme directory
-  - [ ] Resolve root .scm path for both .app bundle and swift build
-  - [ ] Remove NativeLibrary imports for DSL/state-machine (replaced by .scm files)
-  - [ ] Register new libraries (LifecycleLibrary, KeyboardLibrary, WebViewLibrary)
-- [ ] 1.8 Write Scheme core files
-  - [ ] `Sources/Modaliser/Scheme/modaliser.scm` — root: set activation policy, permissions, status bar, load modules, start capture
-  - [ ] `Sources/Modaliser/Scheme/core/state-machine.scm` — tree hash table, register-tree!, lookup-tree, modal-enter, modal-handle-key, modal-step-back, modal-exit (side-effecting)
-  - [ ] `Sources/Modaliser/Scheme/core/event-dispatch.scm` — modal-key-handler with leader toggle, escape, delete, cmd passthrough
-  - [ ] `Sources/Modaliser/Scheme/core/keymap.scm` — keycode→character mapping table
-  - [ ] `Sources/Modaliser/Scheme/lib/dsl.scm` — key, group, define-tree, set-leader!
-  - [ ] `Sources/Modaliser/Scheme/lib/util.scm` — alist helpers
+- [x] 1.7 Configure `SchemeEngine` for `.scm` file loading
+  - [x] Set LispKit include path to Scheme directory
+  - [x] Resolve root .scm path for both .app bundle and swift build
+  - [ ] Remove NativeLibrary imports for DSL/state-machine (deferred to step 1.9)
+  - [x] Register new libraries (LifecycleLibrary, KeyboardLibrary, WebViewLibrary)
+- [x] 1.8 Write Scheme core files
+  - [x] `Sources/Modaliser/Scheme/modaliser.scm` — root: set activation policy, permissions, status bar, load modules, start capture
+  - [x] `Sources/Modaliser/Scheme/core/state-machine.scm` — tree hash table, register-tree!, lookup-tree, modal-enter, modal-handle-key, modal-step-back, modal-exit (side-effecting)
+  - [x] `Sources/Modaliser/Scheme/core/event-dispatch.scm` — modal-key-handler with leader toggle, escape, delete, cmd passthrough
+  - [x] `Sources/Modaliser/Scheme/core/keymap.scm` — keycode→character mapping table
+  - [x] `Sources/Modaliser/Scheme/lib/dsl.scm` — key, group, define-tree, set-leader!
+  - [x] `Sources/Modaliser/Scheme/lib/util.scm` — alist helpers
 - [ ] 1.9 Delete replaced Swift code
   - [ ] `KeyEventDispatcher`, `SchemeModalBridge`, `CommandExecutor`
   - [ ] `CommandNode`, `CommandNodeBuilder`, `CommandTreeRegistry`
