@@ -261,3 +261,6 @@ for full architectural context. After completing each step, update the plan file
 - 7,734 lines deleted, 48 source files removed. Swift codebase went from ~73 source files to ~25.
 - The `KeyCodeMapping` table needed to be inlined into `KeyboardLibrary` when the standalone file was deleted.
 - `KeyEventHandlingResult` type needed to be moved into `KeyboardCapture.swift` since it's the only remaining consumer.
+- LispKit's `(load ...)` evaluates files in a separate environment scope — definitions from loaded files are NOT visible in the calling context. Must load all Scheme modules from Swift via `evaluateFile()` (which uses `context.global`). The `(load ...)` function is only safe for user config files that execute in the already-populated global scope.
+- `(lispkit base)` does NOT include `cddr`, `cadr`, `reverse`, `make-hashtable`, etc. Must import `(lispkit list)`, `(lispkit hashtable)`, `(lispkit string)`, `(lispkit port)`, `(lispkit system)`, `(lispkit math)` explicitly.
+- The old `set-leader!` took `(set-leader! 'mode keycode)` — the new version needs backward compat to accept both one and two args until config migration in Phase 3.
