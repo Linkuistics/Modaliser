@@ -9,6 +9,7 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
     private var panels: [String: NSPanel] = [:]
     private var webViews: [String: WKWebView] = [:]
     private var messageHandlers: [String: (Any) -> Void] = [:]
+    private var resignObservers: [String: NSObjectProtocol] = [:]
 
     /// Create a WebView-backed panel with the given options.
     func createPanel(
@@ -30,28 +31,30 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
             styleMask.insert(.nonactivatingPanel)
         }
 
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-            styleMask: styleMask,
-            backing: .buffered,
-            defer: false
-        )
+        // Borderless panels can't become key window by default.
+        // Use KeyablePanel for activating panels that need keyboard input.
+        let panel: NSPanel = activating
+            ? KeyablePanel(
+                contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+                styleMask: styleMask, backing: .buffered, defer: false)
+            : NSPanel(
+                contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+                styleMask: styleMask, backing: .buffered, defer: false)
         panel.level = floating ? .floating : .normal
         panel.isOpaque = false
         panel.backgroundColor = transparent ? .clear : .windowBackgroundColor
-        panel.hasShadow = shadow
+        // Transparent panels use CSS box-shadow instead of system shadow
+        panel.hasShadow = transparent ? false : shadow
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
 
         let config = WKWebViewConfiguration()
         config.userContentController.add(self, name: "modaliser")
-        if transparent {
-            config.setValue(false, forKey: "_drawsBackground")
-        }
 
         let webView = WKWebView(frame: panel.contentView!.bounds, configuration: config)
         webView.autoresizingMask = [.width, .height]
         if transparent {
+            webView.underPageBackgroundColor = .clear
             webView.setValue(false, forKey: "drawsBackground")
         }
         panel.contentView?.addSubview(webView)
@@ -66,7 +69,21 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
             panel.setFrameOrigin(NSPoint(x: px, y: py))
         }
 
-        panel.orderFront(nil)
+        if activating {
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            // When an activating panel loses key status (click outside), send cancel
+            let panelId = id
+            let observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: panel, queue: .main
+            ) { [weak self] _ in
+                self?.messageHandlers[panelId]?(["type": "cancel"])
+            }
+            resignObservers[id] = observer
+        } else {
+            panel.orderFront(nil)
+        }
         panels[id] = panel
         webViews[id] = webView
     }
@@ -75,6 +92,9 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
     func closePanel(id: String) {
         if let webView = webViews[id] {
             webView.configuration.userContentController.removeScriptMessageHandler(forName: "modaliser")
+        }
+        if let observer = resignObservers.removeValue(forKey: id) {
+            NotificationCenter.default.removeObserver(observer)
         }
         panels[id]?.orderOut(nil)
         panels[id]?.close()
@@ -138,4 +158,11 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
             }
         }
     }
+}
+
+/// Borderless NSPanel that can become the key window.
+/// Required for activating panels (like the chooser) that need keyboard input.
+private class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }

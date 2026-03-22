@@ -18,6 +18,30 @@
             (cons (cons (car rest) (car (cdr rest))) result))))
   (loop args '()))
 
+;; Read the entire contents of a text file as a string.
+;; Uses read-line in a loop to avoid read-string blocking on large k values.
+(define (read-file-text path)
+  (if (file-exists? path)
+    (let ((port (open-input-file path)))
+      (let loop ((lines '()))
+        (let ((line (read-line port)))
+          (if (eof-object? line)
+            (begin
+              (close-input-port port)
+              (string-join (reverse lines) "\n"))
+            (loop (cons line lines))))))
+    ""))
+
+;; Join a list of strings with a separator.
+(define (string-join strs sep)
+  (if (null? strs)
+    ""
+    (let loop ((rest (cdr strs)) (result (car strs)))
+      (if (null? rest)
+        result
+        (loop (cdr rest)
+              (string-append result sep (car rest)))))))
+
 ;; Log a message via display (routes to NSLog via ContextDelegate)
 (define (log . args)
   (for-each display args)

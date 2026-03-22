@@ -69,6 +69,15 @@
        (car children))
       (else (loop (cdr children))))))
 
+;; ─── Overlay Hooks (overridden by ui/overlay.scm) ───────────────
+;; These stubs allow state-machine.scm to be loaded and tested
+;; independently. When overlay.scm loads, it redefines these.
+
+(define (show-overlay node path) (void))
+(define (update-overlay node path) (void))
+(define (hide-overlay) (void))
+(define (open-chooser selector-node) (void))
+
 ;; ─── Modal State ────────────────────────────────────────────────
 
 (define modal-active? #f)
@@ -80,7 +89,7 @@
 ;; ─── Modal Navigation ──────────────────────────────────────────
 
 ;; Enter modal mode with the given tree and leader keycode.
-;; Registers the catch-all key handler and shows the overlay (Phase 2).
+;; Registers the catch-all key handler and shows the overlay.
 (define (modal-enter tree leader-kc)
   (when tree
     (set! modal-active? #t)
@@ -89,47 +98,37 @@
     (set! modal-current-path '())
     (set! modal-leader-keycode leader-kc)
     (register-all-keys! modal-key-handler)
-    ;; Overlay will be wired in Phase 2
-    (log "modal-enter: activated")))
+    (show-overlay modal-root-node modal-current-path)))
 
 ;; Exit modal mode. Deregisters catch-all and hides overlay.
 (define (modal-exit)
   (unregister-all-keys!)
+  (hide-overlay)
   (set! modal-active? #f)
   (set! modal-current-node #f)
   (set! modal-root-node #f)
   (set! modal-current-path '())
-  (set! modal-leader-keycode #f)
-  ;; Overlay will be wired in Phase 2
-  (log "modal-exit: deactivated"))
+  (set! modal-leader-keycode #f))
 
 ;; Handle a character key press while modal is active.
 ;; Side-effecting: directly calls actions, updates overlay, etc.
 (define (modal-handle-key char)
-  (let ((children (node-children modal-current-node)))
-    (log "modal-handle-key: '" char "' children: " (length children))
-    (when (pair? children)
-      (log "  first child keys: " (map node-key children))
-      (log "  looking for key='" char "' equal to first='" (node-key (car children)) "'? " (equal? (node-key (car children)) char))))
   (let ((child (find-child modal-current-node char)))
-    (log "  child found: " (if child (node-label child) "NONE"))
     (cond
       ((not child)
-       (log "  -> no binding, exiting")
        (modal-exit))
       ((command? child)
        (let ((action (node-action child)))
-         (log "  -> command: " (node-label child))
          (modal-exit)
          (when action (action))))
       ((group? child)
        (set! modal-current-node child)
        (set! modal-current-path
          (append modal-current-path (list char)))
-       (log "  -> group: " (node-label child)))
+       (update-overlay modal-root-node modal-current-path))
       ((selector? child)
        (modal-exit)
-       (log "  -> selector: " (node-label child)))
+       (open-chooser child))
       (else
        (modal-exit)))))
 
@@ -141,8 +140,7 @@
            (new-node (navigate-to-path modal-root-node new-path)))
       (set! modal-current-path new-path)
       (set! modal-current-node new-node)
-      ;; Overlay update will be wired in Phase 2
-      (log "modal-step-back: " new-path))))
+      (update-overlay modal-root-node modal-current-path))))
 
 ;; Navigate from root following a list of key strings.
 (define (navigate-to-path root path)

@@ -49,6 +49,9 @@ else
     echo "Warning: ${ICON_SOURCE} not found, skipping icon generation."
 fi
 
+# Clear quarantine/provenance attributes that prevent launch
+xattr -cr "${APP_BUNDLE}"
+
 echo "Signing ${APP_NAME}.app..."
 # Use "Modaliser Dev" certificate for stable identity across rebuilds.
 # This preserves Accessibility TCC permissions between builds.

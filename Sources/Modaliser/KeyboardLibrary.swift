@@ -108,6 +108,10 @@ final class KeyboardLibrary: NativeLibrary {
     // MARK: - Hotkey registration
 
     /// (register-hotkey! keycode handler) → void
+    /// Evaluation is deferred to the next run loop iteration via DispatchQueue.main.async.
+    /// This prevents deadlocks when the Scheme handler creates WKWebView (which requires
+    /// main thread dispatches internally). The CGEvent tap always suppresses hotkey events,
+    /// so the deferred evaluation doesn't affect the suppress/pass decision.
     private func registerHotkeyFunction(_ keycodeExpr: Expr, _ handler: Expr) throws -> Expr {
         let keyCode = CGKeyCode(try keycodeExpr.asInt64())
         guard case .procedure = handler else {
@@ -115,11 +119,13 @@ final class KeyboardLibrary: NativeLibrary {
         }
         let evaluator = self.context.evaluator!
         handlerRegistry.hotkeyHandlers[keyCode] = {
-            let result = evaluator.execute { machine in
-                try machine.apply(handler, to: .null)
-            }
-            if case .error(let err) = result {
-                NSLog("KeyboardLibrary: hotkey handler error: %@", "\(err)")
+            DispatchQueue.main.async {
+                let result = evaluator.execute { machine in
+                    try machine.apply(handler, to: .null)
+                }
+                if case .error(let err) = result {
+                    NSLog("KeyboardLibrary: hotkey handler error: %@", "\(err)")
+                }
             }
         }
         return .void
@@ -136,6 +142,12 @@ final class KeyboardLibrary: NativeLibrary {
 
     /// (register-all-keys! handler) → void
     /// handler: (lambda (keycode modifiers) ...) → #t to suppress, #f to pass
+    ///
+    /// Evaluation is deferred to the next run loop iteration via DispatchQueue.main.async.
+    /// The suppress/pass decision is made synchronously based on modifiers:
+    /// Cmd+anything passes through, all other keys are suppressed. This matches
+    /// modal-key-handler's behavior exactly. The deferred evaluation handles
+    /// side effects (overlay updates, modal-exit) without deadlocking WKWebView.
     private func registerAllKeysFunction(_ handler: Expr) throws -> Expr {
         guard case .procedure = handler else {
             throw RuntimeError.type(handler, expected: [.procedureType])
@@ -143,25 +155,27 @@ final class KeyboardLibrary: NativeLibrary {
         let evaluator = self.context.evaluator!
         let registry = self.handlerRegistry
         handlerRegistry.catchAllHandler = { keyCode, modifiers in
-            let args: Expr = .pair(
-                .fixnum(Int64(keyCode)),
-                .pair(.fixnum(Int64(modifiers.rawValue)), .null)
-            )
-            let result = evaluator.execute { machine in
-                try machine.apply(handler, to: args)
-            }
-            switch result {
-            case .true:
-                return true
-            case .error(let err):
-                NSLog("KeyboardLibrary: catch-all handler error: %@", "\(err)")
-                // Safety: deregister catch-all on error to prevent stuck modal
-                registry.catchAllHandler = nil
-                NSLog("KeyboardLibrary: catch-all deregistered after error (safety recovery)")
-                return false
-            default:
+            // Cmd+anything passes through without evaluation
+            if modifiers.contains(.maskCommand) {
                 return false
             }
+            // All other keys: suppress immediately, evaluate asynchronously
+            DispatchQueue.main.async {
+                let args: Expr = .pair(
+                    .fixnum(Int64(keyCode)),
+                    .pair(.fixnum(Int64(modifiers.rawValue)), .null)
+                )
+                let result = evaluator.execute { machine in
+                    try machine.apply(handler, to: args)
+                }
+                if case .error(let err) = result {
+                    NSLog("KeyboardLibrary: catch-all handler error: %@", "\(err)")
+                    // Safety: deregister catch-all on error to prevent stuck modal
+                    registry.catchAllHandler = nil
+                    NSLog("KeyboardLibrary: catch-all deregistered after error (safety recovery)")
+                }
+            }
+            return true
         }
         return .void
     }

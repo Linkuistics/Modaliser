@@ -4,10 +4,15 @@ import AppKit
 /// Requires Accessibility permissions to function.
 enum WindowManipulator {
 
-    /// Focus a window by its owner PID and window title.
-    static func focusWindow(ownerPID: pid_t, title: String) {
+    /// Activate an app by PID — switches to its Space if on another Space.
+    static func activateApp(ownerPID: pid_t) {
         guard let app = NSRunningApplication(processIdentifier: ownerPID) else { return }
         app.activate()
+    }
+
+    /// Focus a specific window by its owner PID and title (current Space only).
+    static func focusWindow(ownerPID: pid_t, title: String) {
+        guard let app = NSRunningApplication(processIdentifier: ownerPID) else { return }
 
         let appElement = AXUIElementCreateApplication(ownerPID)
         guard let windows = axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement] else { return }
@@ -18,6 +23,7 @@ enum WindowManipulator {
                 AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
                 AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
                 AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                app.activate()
                 break
             }
         }

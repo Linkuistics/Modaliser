@@ -1,0 +1,288 @@
+/* base.css — Default Modaliser stylesheet
+ *
+ * Provides styling for the which-key overlay and (future) chooser.
+ * Users can override any variable or rule in their config.
+ */
+
+/* ─── Theme Variables ──────────────────────────────────────── */
+
+:root {
+  --overlay-bg: rgba(253, 247, 237, 1);
+  --overlay-border: rgba(153, 153, 153, 1);
+  --overlay-radius: 8px;
+  --overlay-padding: 12px;
+  --overlay-width: 320px;
+  --overlay-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+
+  --font-family: "Menlo", "SF Mono", monospace;
+  --font-size: 14px;
+  --line-height: 1.6;
+
+  --color-key: rgba(33, 97, 186, 1);
+  --color-label: rgba(56, 56, 56, 1);
+  --color-group: rgba(204, 115, 25, 1);
+  --color-arrow: rgba(128, 128, 128, 1);
+  --color-header: rgba(128, 128, 128, 1);
+  --color-separator: rgba(204, 204, 204, 1);
+}
+
+/* ─── Base Reset ───────────────────────────────────────────── */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  color: var(--color-label);
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Overlay Container ────────────────────────────────────── */
+
+.overlay {
+  background: var(--overlay-bg);
+  border: 1px solid var(--overlay-border);
+  border-radius: var(--overlay-radius);
+  padding: var(--overlay-padding);
+  width: var(--overlay-width);
+  box-shadow: var(--overlay-shadow);
+}
+
+/* ─── Header / Breadcrumb ──────────────────────────────────── */
+
+.overlay-header {
+  color: var(--color-header);
+  font-size: var(--font-size);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.overlay-header .breadcrumb {
+  display: inline;
+}
+
+.overlay-header .breadcrumb-sep {
+  margin: 0 4px;
+  color: var(--color-arrow);
+}
+
+/* ─── Entry List ───────────────────────────────────────────── */
+
+.overlay-entries {
+  list-style: none;
+}
+
+.overlay-entry {
+  display: flex;
+  align-items: baseline;
+  padding: 1px 0;
+}
+
+/* ─── Key Badge ────────────────────────────────────────────── */
+
+.entry-key {
+  color: var(--color-key);
+  font-weight: 600;
+  min-width: 1.8em;
+  text-align: left;
+  flex-shrink: 0;
+}
+
+/* ─── Arrow ────────────────────────────────────────────────── */
+
+.entry-arrow {
+  color: var(--color-arrow);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ─── Label ────────────────────────────────────────────────── */
+
+.entry-label {
+  color: var(--color-label);
+}
+
+.entry-label.group-label {
+  color: var(--color-group);
+}
+
+/* ─── Footer ───────────────────────────────────────────────── */
+
+.overlay-footer {
+  color: var(--color-header);
+  font-size: calc(var(--font-size) - 2px);
+  padding-top: 6px;
+  margin-top: 6px;
+  border-top: 1px solid var(--color-separator);
+}
+
+/* ═══════════════════════════════════════════════════════════ */
+/* Chooser                                                     */
+/* ═══════════════════════════════════════════════════════════ */
+
+:root {
+  --chooser-width: 500px;
+  --chooser-max-height: 400px;
+  --chooser-input-bg: rgba(255, 255, 255, 1);
+  --chooser-input-border: rgba(180, 180, 180, 1);
+  --chooser-input-focus-border: rgba(33, 97, 186, 1);
+  --chooser-selected-bg: rgba(33, 97, 186, 0.1);
+  --chooser-selected-border: rgba(33, 97, 186, 0.4);
+  --chooser-match-color: rgba(33, 97, 186, 1);
+  --chooser-match-weight: 700;
+  --chooser-action-bg: rgba(245, 242, 235, 1);
+}
+
+/* ─── Chooser Container ──────────────────────────────────── */
+
+.chooser {
+  background: var(--overlay-bg);
+  border: 1px solid var(--overlay-border);
+  border-radius: var(--overlay-radius);
+  width: var(--chooser-width);
+  box-shadow: var(--overlay-shadow);
+  overflow: hidden;
+}
+
+/* ─── Search Input ────────────────────────────────────────── */
+
+.chooser-search {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.chooser-prompt {
+  color: var(--color-header);
+  font-size: calc(var(--font-size) - 1px);
+  margin-bottom: 4px;
+}
+
+.chooser-input {
+  width: 100%;
+  padding: 6px 8px;
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  border: 1px solid var(--chooser-input-border);
+  border-radius: 4px;
+  background: var(--chooser-input-bg);
+  color: var(--color-label);
+  outline: none;
+}
+
+.chooser-input:focus {
+  border-color: var(--chooser-input-focus-border);
+}
+
+/* ─── Result List ─────────────────────────────────────────── */
+
+.chooser-results {
+  list-style: none;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.chooser-row {
+  padding: 4px 12px;
+  cursor: default;
+  display: flex;
+  align-items: baseline;
+  border-left: 3px solid transparent;
+}
+
+.chooser-row.selected {
+  background: var(--chooser-selected-bg);
+  border-left-color: var(--chooser-selected-border);
+}
+
+.chooser-row-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chooser-row-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.chooser-row-text .match,
+.chooser-row-subtext .match {
+  color: var(--chooser-match-color);
+  font-weight: var(--chooser-match-weight);
+}
+
+.chooser-dir {
+  font-weight: 600;
+}
+
+.chooser-row-subtext {
+  font-size: calc(var(--font-size) - 3px);
+  color: var(--color-header);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+/* ─── Result Count ────────────────────────────────────────── */
+
+.chooser-footer {
+  color: var(--color-header);
+  font-size: calc(var(--font-size) - 2px);
+  padding: 4px 12px;
+  border-top: 1px solid var(--color-separator);
+}
+
+/* ─── Action Panel ────────────────────────────────────────── */
+
+.chooser-actions {
+  background: var(--chooser-action-bg);
+  border-top: 1px solid var(--color-separator);
+  padding: 8px 12px;
+}
+
+.chooser-actions-title {
+  color: var(--color-header);
+  font-size: calc(var(--font-size) - 2px);
+  margin-bottom: 4px;
+}
+
+.chooser-action-list {
+  list-style: none;
+}
+
+.chooser-action-item {
+  padding: 2px 0;
+  display: flex;
+  align-items: baseline;
+}
+
+.chooser-action-item.selected {
+  background: var(--chooser-selected-bg);
+}
+
+.chooser-action-key {
+  color: var(--color-key);
+  font-weight: 600;
+  min-width: 4em;
+  flex-shrink: 0;
+  font-size: calc(var(--font-size) - 2px);
+}
+
+.chooser-action-label {
+  color: var(--color-label);
+}
+
+.chooser-action-desc {
+  color: var(--color-header);
+  margin-left: 8px;
+  font-size: calc(var(--font-size) - 2px);
+}

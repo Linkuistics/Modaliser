@@ -32,8 +32,10 @@ final class SchemeEngine {
         schemeDirectoryPath = SchemeEngine.resolveSchemeDirectory()
         if let schemePath = schemeDirectoryPath {
             _ = context.fileHandler.addSearchPath(schemePath)
+            try evaluate("(define *scheme-directory* \"\(schemePath)\")")
             NSLog("SchemeEngine: Scheme directory at %@", schemePath)
         }
+
 
         // Register primitive libraries
         try context.libraries.register(libraryType: LifecycleLibrary.self)
@@ -53,10 +55,8 @@ final class SchemeEngine {
         try context.environment.import(WindowLibrary.name)
         try context.libraries.register(libraryType: InputLibrary.self)
         try context.environment.import(InputLibrary.name)
-        try context.libraries.register(libraryType: QuicklinksLibrary.self)
-        try context.environment.import(QuicklinksLibrary.name)
-        try context.libraries.register(libraryType: SnippetsLibrary.self)
-        try context.environment.import(SnippetsLibrary.name)
+        try context.libraries.register(libraryType: FuzzyMatchLibrary.self)
+        try context.environment.import(FuzzyMatchLibrary.name)
         try context.libraries.register(libraryType: ClipboardHistoryLibrary.self)
         try context.environment.import(ClipboardHistoryLibrary.name)
     }
@@ -87,50 +87,22 @@ final class SchemeEngine {
         }
     }
 
-    /// Load and evaluate the Scheme program files in order.
-    /// Loads each .scm file via evaluateFile (which uses the global environment)
-    /// to ensure all definitions are in the same scope.
+    /// Load the root Scheme file which bootstraps the entire application.
+    /// root.scm uses (load-module path) to load all other modules.
     func loadRootSchemeFile() throws {
         guard let schemePath = schemeDirectoryPath else {
             NSLog("SchemeEngine: No Scheme directory found — skipping root load")
             return
         }
 
-        let files = [
-            "lib/util.scm",
-            "core/keymap.scm",
-            "core/state-machine.scm",
-            "core/event-dispatch.scm",
-            "lib/dsl.scm",
-            "modaliser.scm",
-        ]
-
-        for file in files {
-            let path = (schemePath as NSString).appendingPathComponent(file)
-            guard FileManager.default.fileExists(atPath: path) else {
-                NSLog("SchemeEngine: %@ not found — skipping", file)
-                continue
-            }
-            do {
-                try evaluateFile(path)
-                NSLog("SchemeEngine: loaded %@", file)
-            } catch {
-                NSLog("SchemeEngine: error loading %@: %@", file, "\(error)")
-                throw error
-            }
+        let rootPath = (schemePath as NSString).appendingPathComponent("root.scm")
+        guard FileManager.default.fileExists(atPath: rootPath) else {
+            NSLog("SchemeEngine: root.scm not found at %@", rootPath)
+            return
         }
 
-        // Load user config (non-fatal — errors are logged but don't prevent startup)
-        if let configPath = try? evaluate("user-config-path"),
-           let path = try? configPath.asString(),
-           FileManager.default.fileExists(atPath: path) {
-            do {
-                try evaluateFile(path)
-                NSLog("SchemeEngine: loaded user config from %@", path)
-            } catch {
-                NSLog("SchemeEngine: error loading user config: %@", "\(error)")
-            }
-        }
+        try evaluateFile(rootPath)
+        NSLog("SchemeEngine: loaded root.scm")
     }
 
     // MARK: - Scheme directory resolution

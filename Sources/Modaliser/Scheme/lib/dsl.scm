@@ -17,7 +17,7 @@
         (cons 'label label)
         (cons 'children children)))
 
-;; (selector k label . props) → selector alist (stub for Phase 3)
+;; (selector k label . props) → selector alist
 (define (selector k label . props)
   (let loop ((rest props) (entries (list (cons 'kind 'selector)
                                          (cons 'key k)
@@ -27,7 +27,7 @@
       (loop (cdr (cdr rest))
             (cons (cons (car rest) (car (cdr rest))) entries)))))
 
-;; (action name . props) → action alist (stub for Phase 3)
+;; (action name . props) → action alist
 (define (action name . props)
   (let loop ((rest props) (entries (list (cons 'name name))))
     (if (or (null? rest) (null? (cdr rest)))

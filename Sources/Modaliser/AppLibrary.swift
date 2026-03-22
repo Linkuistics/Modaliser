@@ -16,7 +16,7 @@ final class AppLibrary: NativeLibrary {
     }
 
     public override func dependencies() {
-        self.`import`(from: ["lispkit", "base"], "define", "assoc", "cdr")
+        self.`import`(from: ["lispkit", "base"])
     }
 
     public override func declarations() {
@@ -27,6 +27,7 @@ final class AppLibrary: NativeLibrary {
         self.define(Procedure("launch-app", launchAppFunction))
         self.define(Procedure("open-url", openUrlFunction))
         self.define(Procedure("focused-app-bundle-id", focusedAppBundleIdFunction))
+        self.define(Procedure("index-files", indexFilesFunction))
     }
 
     // MARK: - Functions
@@ -106,6 +107,100 @@ final class AppLibrary: NativeLibrary {
             NSWorkspace.shared.open(url)
         }
         return .void
+    }
+
+    // MARK: - File indexing
+
+    /// (index-files root-paths-list) → list of alists with 'text, 'path, and 'kind keys
+    /// Scans directories using FileManager.enumerator on a concurrent queue.
+    /// Each root is scanned in parallel, results are merged.
+    /// Includes both files and directories (directories use their name as search text
+    /// for better fuzzy match scoring against directory names).
+    private func indexFilesFunction(_ rootsExpr: Expr) throws -> Expr {
+        var roots: [String] = []
+        var current = rootsExpr
+        while case .pair(let head, let tail) = current {
+            var path = try head.asString()
+            if path.hasPrefix("~") {
+                path = NSString(string: path).expandingTildeInPath
+            }
+            roots.append(path)
+            current = tail
+        }
+
+        let maxResults = 2000
+        let maxDepth = 4
+        let skipDirs: Set<String> = [
+            ".git", ".svn", "node_modules", ".build", ".cache",
+            "DerivedData", "__pycache__", ".Trash", "Library",
+        ]
+
+        struct IndexEntry {
+            let name: String
+            let path: String
+            let isDirectory: Bool
+        }
+
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var allEntries: [IndexEntry] = []
+
+        for root in roots {
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                defer { group.leave() }
+                let rootURL = URL(fileURLWithPath: root)
+                let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey]
+                guard let enumerator = FileManager.default.enumerator(
+                    at: rootURL,
+                    includingPropertiesForKeys: keys,
+                    options: [.skipsHiddenFiles]
+                ) else { return }
+
+                var localEntries: [IndexEntry] = []
+                for case let url as URL in enumerator {
+                    let depth = url.pathComponents.count - rootURL.pathComponents.count
+                    if depth > maxDepth {
+                        enumerator.skipDescendants()
+                        continue
+                    }
+                    guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey]) else {
+                        continue
+                    }
+                    let isDir = values.isDirectory ?? false
+                    if isDir && skipDirs.contains(url.lastPathComponent) {
+                        enumerator.skipDescendants()
+                        continue
+                    }
+                    // Include both files and directories
+                    if isDir || (values.isRegularFile ?? false) {
+                        localEntries.append(IndexEntry(
+                            name: url.lastPathComponent,
+                            path: url.path,
+                            isDirectory: isDir
+                        ))
+                        if localEntries.count >= maxResults { break }
+                    }
+                }
+                lock.lock()
+                allEntries.append(contentsOf: localEntries)
+                lock.unlock()
+            }
+        }
+
+        group.wait()
+
+        let symbols = self.context.symbols
+        var result: Expr = .null
+        for entry in allEntries.prefix(maxResults).reversed() {
+            let alist = SchemeAlistLookup.makeAlist([
+                ("text", .makeString(entry.name)),
+                ("path", .makeString(entry.path)),
+                ("kind", .makeString(entry.isDirectory ? "directory" : "file")),
+            ], symbols: symbols)
+            result = .pair(alist, result)
+        }
+        return result
     }
 
     // MARK: - Helpers

@@ -8,7 +8,6 @@
 ;;
 ;; Receives (keycode modifiers). Returns #t to suppress, #f to pass through.
 (define (modal-key-handler keycode modifiers)
-  (log "modal-key-handler: keycode=" keycode " char=" (keycode->char keycode))
   (cond
     ;; Leader key toggle — exit modal
     ((and modal-leader-keycode (= keycode modal-leader-keycode))

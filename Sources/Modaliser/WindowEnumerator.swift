@@ -67,9 +67,15 @@ enum WindowEnumerator {
             }
         }
 
+        // Sort Phase 1 windows by front-to-back order (MRU) using CGWindowList
+        let cgOrder = Self.windowOrderByFrontToBack()
+        windows.sort { a, b in
+            let aOrder = cgOrder[a.windowId] ?? Int.max
+            let bOrder = cgOrder[b.windowId] ?? Int.max
+            return aOrder < bOrder
+        }
+
         // Phase 2: Running apps with no AX windows — these are on other spaces.
-        // Neither AX nor CGWindowList can see other-space windows.
-        // Add an app-level entry so the user can switch to that app/space.
         for app in NSWorkspace.shared.runningApplications {
             guard app.activationPolicy == .regular,
                   app.processIdentifier != currentPID,
@@ -90,6 +96,26 @@ enum WindowEnumerator {
         }
 
         return windows
+    }
+
+    // MARK: - Window ordering
+
+    /// Get front-to-back window order from CGWindowList.
+    /// Returns a map of windowId → position (0 = frontmost).
+    /// Uses optionAll to include windows on other Spaces.
+    private static func windowOrderByFrontToBack() -> [CGWindowID: Int] {
+        guard let infoList = CGWindowListCopyWindowInfo(
+            [.optionAll, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else {
+            return [:]
+        }
+        var order: [CGWindowID: Int] = [:]
+        for (i, info) in infoList.enumerated() {
+            if let id = info[kCGWindowNumber as String] as? Int {
+                order[CGWindowID(id)] = i
+            }
+        }
+        return order
     }
 
     // MARK: - AX helpers

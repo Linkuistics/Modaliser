@@ -45,11 +45,17 @@ final class WindowLibrary: NativeLibrary {
 
     /// (focus-window choice-alist) → void
     private func focusWindowFunction(_ choice: Expr) throws -> Expr {
-        guard let pid = SchemeAlistLookup.lookupFixnum(choice, key: "ownerPid"),
-              let title = SchemeAlistLookup.lookupString(choice, key: "text") else {
+        guard let pid = SchemeAlistLookup.lookupFixnum(choice, key: "ownerPid") else {
             return .void
         }
-        WindowManipulator.focusWindow(ownerPID: pid_t(pid), title: title)
+        let windowId = SchemeAlistLookup.lookupFixnum(choice, key: "windowId") ?? 0
+        let title = SchemeAlistLookup.lookupString(choice, key: "text") ?? ""
+
+        if windowId == 0 {
+            WindowManipulator.activateApp(ownerPID: pid_t(pid))
+        } else {
+            WindowManipulator.focusWindow(ownerPID: pid_t(pid), title: title)
+        }
         return .void
     }
 
