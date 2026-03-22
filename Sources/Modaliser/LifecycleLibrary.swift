@@ -73,7 +73,23 @@ final class LifecycleLibrary: NativeLibrary {
     private func createStatusItemFunction(_ title: Expr, _ menuItems: Expr) throws -> Expr {
         let titleStr = try title.asString()
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = titleStr
+
+        if titleStr == ":icon" {
+            // Use the app icon as the status item image
+            if let appIcon = NSApp.applicationIconImage {
+                let size = NSSize(width: 18, height: 18)
+                let resized = NSImage(size: size)
+                resized.lockFocus()
+                appIcon.draw(in: NSRect(origin: .zero, size: size))
+                resized.unlockFocus()
+                resized.isTemplate = true
+                statusItem.button?.image = resized
+            } else {
+                statusItem.button?.title = "⌨"
+            }
+        } else {
+            statusItem.button?.title = titleStr
+        }
 
         let menu = try buildMenu(from: menuItems)
         statusItem.menu = menu

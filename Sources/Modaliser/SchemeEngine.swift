@@ -119,6 +119,18 @@ final class SchemeEngine {
                 throw error
             }
         }
+
+        // Load user config (non-fatal — errors are logged but don't prevent startup)
+        if let configPath = try? evaluate("user-config-path"),
+           let path = try? configPath.asString(),
+           FileManager.default.fileExists(atPath: path) {
+            do {
+                try evaluateFile(path)
+                NSLog("SchemeEngine: loaded user config from %@", path)
+            } catch {
+                NSLog("SchemeEngine: error loading user config: %@", "\(error)")
+            }
+        }
     }
 
     // MARK: - Scheme directory resolution

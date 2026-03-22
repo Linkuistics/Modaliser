@@ -19,7 +19,7 @@
 (define (reload-config)
   (log "Config reload not yet implemented in Scheme"))
 
-(create-status-item! "⌨"
+(create-status-item! ":icon"
   (list
     (list (cons 'title "Reload Config") (cons 'action reload-config) (cons 'key-equivalent "r"))
     'separator
@@ -31,7 +31,9 @@
 (start-keyboard-capture!)
 
 ;; ─── Load user configuration ────────────────────────────────────
-;; User config loading deferred to Phase 3 (config migration).
-;; The old config.scm uses APIs that haven't been ported yet.
+
+(define user-config-path
+  (string-append (get-environment-variable "HOME")
+                 "/.config/modaliser/config.scm"))
 
 (log "Modaliser Scheme runtime initialized")
