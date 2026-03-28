@@ -26,14 +26,10 @@
 
 ;; ─── Status bar ───────────────────────────────────────────────────
 
-(define (reload-config)
-  (log "Config reload not yet implemented in Scheme"))
-
 (create-status-item! ":icon"
   (list
-    (list (cons 'title "Reload Config") (cons 'action reload-config) (cons 'key-equivalent "r"))
+    (list (cons 'title "Relaunch") (cons 'action relaunch!) (cons 'key-equivalent "r"))
     'separator
-    (list (cons 'title "Relaunch") (cons 'action relaunch!))
     (list (cons 'title "Quit Modaliser") (cons 'action quit!) (cons 'key-equivalent "q"))))
 
 ;; ─── Start keyboard capture ───────────────────────────────────────

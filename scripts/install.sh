@@ -10,5 +10,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 "${SCRIPT_DIR}/build-app.sh"
 
 echo "Installing to ${INSTALL_DIR}..."
+rm -rf "${INSTALL_DIR}/${APP_NAME}.app"
 cp -R "${APP_BUNDLE}" "${INSTALL_DIR}/${APP_NAME}.app"
 echo "Installed ${INSTALL_DIR}/${APP_NAME}.app"

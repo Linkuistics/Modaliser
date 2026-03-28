@@ -82,19 +82,21 @@ final class AppLibrary: NativeLibrary {
     private func openWithFunction(_ appName: Expr, _ path: Expr) throws -> Expr {
         let app = try appName.asString()
         let filePath = try path.asString()
+        guard let appURL = resolveApplicationURL(app) else { return .void }
         NSWorkspace.shared.open(
             [URL(fileURLWithPath: filePath)],
-            withApplicationAt: applicationURL(forName: app),
+            withApplicationAt: appURL,
             configuration: NSWorkspace.OpenConfiguration()
         )
         return .void
     }
 
-    /// (launch-app name) → void
-    /// Launches or focuses an application by name.
+    /// (launch-app name-or-bundle-id) → void
+    /// Launches or focuses an application by display name or bundle identifier.
+    /// Resolves via Launch Services (bundle ID) or Spotlight (display name).
     private func launchAppFunction(_ name: Expr) throws -> Expr {
         let appName = try name.asString()
-        let appURL = applicationURL(forName: appName)
+        guard let appURL = resolveApplicationURL(appName) else { return .void }
         NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
         return .void
     }
@@ -216,17 +218,36 @@ final class AppLibrary: NativeLibrary {
         ], symbols: self.context.symbols)
     }
 
-    private func applicationURL(forName name: String) -> URL {
-        // Try common locations
-        let paths = [
-            "/Applications/\(name).app",
-            NSString(string: "~/Applications/\(name).app").expandingTildeInPath,
-        ]
-        for path in paths {
-            if FileManager.default.fileExists(atPath: path) {
-                return URL(fileURLWithPath: path)
-            }
+    /// Resolves an application name or bundle identifier to a Launch Services URL.
+    /// Tries bundle ID lookup first, then Spotlight query by display name.
+    private func resolveApplicationURL(_ nameOrId: String) -> URL? {
+        // Try as bundle identifier first
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: nameOrId) {
+            return url
         }
-        return URL(fileURLWithPath: "/Applications/\(name).app")
+
+        // Query Spotlight for the app by filesystem name
+        let escaped = nameOrId.replacingOccurrences(of: "'", with: "'\\''")
+        let query = "kMDItemContentType == 'com.apple.application-bundle' && kMDItemFSName == '\(escaped).app'"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+        process.arguments = [query]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let appPath = output.components(separatedBy: "\n").first,
+              !appPath.isEmpty else { return nil }
+
+        // Resolve path → bundle ID → canonical Launch Services URL
+        if let bundle = Bundle(url: URL(fileURLWithPath: appPath)),
+           let bundleId = bundle.bundleIdentifier,
+           let resolvedURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            return resolvedURL
+        }
+        return URL(fileURLWithPath: appPath)
     }
 }

@@ -8,39 +8,43 @@ struct InstalledApp {
     let bundleId: String
 }
 
-/// Scans the filesystem for installed .app bundles.
+/// Discovers installed .app bundles via Spotlight.
 enum AppScanner {
 
-    private static let searchDirectories = [
-        "/Applications",
-        NSString("~/Applications").expandingTildeInPath,
-    ]
-
-    /// Scan /Applications and ~/Applications for .app bundles.
+    /// Query Spotlight for all application bundles.
     /// Returns apps sorted alphabetically by name, deduplicated.
     static func scanInstalledApps() -> [InstalledApp] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+        process.arguments = ["kMDItemContentType == 'com.apple.application-bundle'"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return [] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+
         var apps: [InstalledApp] = []
         var seen: Set<String> = []
 
-        for directory in searchDirectories {
-            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
-                continue
-            }
-            for entry in entries where entry.hasSuffix(".app") {
-                let name = String(entry.dropLast(4))  // Remove .app
-                guard !seen.contains(name) else { continue }
-                seen.insert(name)
+        for line in output.split(separator: "\n") {
+            let path = String(line)
+            guard path.hasSuffix(".app") else { continue }
+            let url = URL(fileURLWithPath: path)
+            let name = url.deletingPathExtension().lastPathComponent
+            guard !seen.contains(name) else { continue }
+            seen.insert(name)
 
-                let path = "\(directory)/\(entry)"
-                let bundleId = Bundle(path: path)?.bundleIdentifier ?? ""
+            let directory = url.deletingLastPathComponent().path
+            let bundleId = Bundle(path: path)?.bundleIdentifier ?? ""
 
-                apps.append(InstalledApp(
-                    name: name,
-                    directory: directory,
-                    path: path,
-                    bundleId: bundleId
-                ))
-            }
+            apps.append(InstalledApp(
+                name: name,
+                directory: directory,
+                path: path,
+                bundleId: bundleId
+            ))
         }
 
         apps.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
