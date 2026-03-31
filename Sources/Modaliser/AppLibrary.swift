@@ -153,17 +153,58 @@ final class AppLibrary: NativeLibrary {
                 defer { group.leave() }
                 let rootURL = URL(fileURLWithPath: root)
                 let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey]
-                guard let enumerator = FileManager.default.enumerator(
+
+                // Phase 1: always index direct children of root so top-level
+                // directories (Downloads, Documents, etc.) are never crowded out
+                // by a depth-first deep dive into earlier siblings.
+                var topLevel: [IndexEntry] = []
+                let fm = FileManager.default
+                if let children = try? fm.contentsOfDirectory(
+                    at: rootURL, includingPropertiesForKeys: keys,
+                    options: [.skipsHiddenFiles]
+                ) {
+                    for url in children {
+                        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey]) else {
+                            continue
+                        }
+                        let isDir = values.isDirectory ?? false
+                        if isDir && skipDirs.contains(url.lastPathComponent) { continue }
+                        if isDir || (values.isRegularFile ?? false) {
+                            topLevel.append(IndexEntry(
+                                name: url.lastPathComponent,
+                                path: url.path,
+                                isDirectory: isDir
+                            ))
+                        }
+                    }
+                }
+                // Phase 2: depth-first scan for deeper items, up to remaining budget
+                let deepBudget = maxResults - topLevel.count
+                var deepEntries: [IndexEntry] = []
+                guard let enumerator = fm.enumerator(
                     at: rootURL,
                     includingPropertiesForKeys: keys,
                     options: [.skipsHiddenFiles]
-                ) else { return }
+                ) else {
+                    lock.lock()
+                    allEntries.append(contentsOf: topLevel)
+                    lock.unlock()
+                    return
+                }
 
-                var localEntries: [IndexEntry] = []
                 for case let url as URL in enumerator {
                     let depth = url.pathComponents.count - rootURL.pathComponents.count
                     if depth > maxDepth {
                         enumerator.skipDescendants()
+                        continue
+                    }
+                    // Skip depth-1 items already captured in phase 1
+                    if depth == 1 {
+                        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey]) else { continue }
+                        let isDir = values.isDirectory ?? false
+                        if isDir && skipDirs.contains(url.lastPathComponent) {
+                            enumerator.skipDescendants()
+                        }
                         continue
                     }
                     guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey]) else {
@@ -174,18 +215,19 @@ final class AppLibrary: NativeLibrary {
                         enumerator.skipDescendants()
                         continue
                     }
-                    // Include both files and directories
                     if isDir || (values.isRegularFile ?? false) {
-                        localEntries.append(IndexEntry(
+                        deepEntries.append(IndexEntry(
                             name: url.lastPathComponent,
                             path: url.path,
                             isDirectory: isDir
                         ))
-                        if localEntries.count >= maxResults { break }
+                        if deepEntries.count >= deepBudget { break }
                     }
                 }
+
                 lock.lock()
-                allEntries.append(contentsOf: localEntries)
+                allEntries.append(contentsOf: topLevel)
+                allEntries.append(contentsOf: deepEntries)
                 lock.unlock()
             }
         }
