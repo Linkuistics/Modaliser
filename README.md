@@ -1,6 +1,10 @@
 # Modaliser
 
-A Scheme-scriptable modal keyboard system for macOS. Press a leader key to enter a command tree, then type key sequences to execute actions — launch apps, manage windows, search files, and more.
+> Scheme-scriptable modal keyboard system for macOS.
+
+---
+
+Press a leader key to enter a command tree, then type key sequences to execute actions — launch apps, manage windows, search files, and more.
 
 Replaces Hammerspoon with a standalone native Swift app. Configuration and actions are defined in Scheme (via [LispKit](https://github.com/objecthub/swift-lispkit)), so the config file IS code — actions are lambdas, and users can define helper functions inline.
 
@@ -229,4 +233,4 @@ The `⌨` menu provides:
 
 ## License
 
-Private project.
+TBD
