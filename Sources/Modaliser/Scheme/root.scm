@@ -24,10 +24,21 @@
 (request-accessibility!)
 (request-screen-recording!)
 
+;; ─── Config path ─────────────────────────────────────────────────
+
+(define user-config-path
+  (string-append (get-environment-variable "HOME")
+                 "/.config/modaliser/config.scm"))
+
+(define (open-settings!)
+  (run-shell (string-append "/usr/bin/open \"" user-config-path "\"")))
+
 ;; ─── Status bar ───────────────────────────────────────────────────
 
 (create-status-item! ":icon"
   (list
+    (list (cons 'title "Settings…") (cons 'action open-settings!) (cons 'key-equivalent ","))
+    'separator
     (list (cons 'title "Relaunch") (cons 'action relaunch!) (cons 'key-equivalent "r"))
     'separator
     (list (cons 'title "Quit Modaliser") (cons 'action quit!) (cons 'key-equivalent "q"))))
@@ -35,12 +46,6 @@
 ;; ─── Start keyboard capture ───────────────────────────────────────
 
 (start-keyboard-capture!)
-
-;; ─── Load user configuration ──────────────────────────────────────
-
-(define user-config-path
-  (string-append (get-environment-variable "HOME")
-                 "/.config/modaliser/config.scm"))
 
 (when (file-exists? user-config-path)
   (include "~/.config/modaliser/config.scm"))

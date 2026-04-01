@@ -1,5 +1,22 @@
 // Overlay display server — receives data, renders DOM locally.
 
+// Auto-resize the native panel to fit overlay content.
+function notifyResize() {
+  var el = document.querySelector('.overlay');
+  if (el) {
+    var h = el.offsetHeight;
+    window.webkit.messageHandlers.modaliser.postMessage({type: "resize", height: h});
+  }
+}
+
+// Observe content size changes
+var _resizeObserver = new ResizeObserver(notifyResize);
+document.addEventListener('DOMContentLoaded', function() {
+  var el = document.querySelector('.overlay');
+  if (el) _resizeObserver.observe(el);
+  notifyResize();
+});
+
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -38,4 +55,5 @@ function updateOverlay(data) {
     }
     ul.innerHTML = html;
   }
+  notifyResize();
 }

@@ -33,25 +33,30 @@ enum WindowManipulator {
     static func centerFocusedWindow() {
         guard let (window, frame) = focusedWindowAndFrame() else { return }
         guard let screen = screenContaining(frame) else { return }
-        let screenFrame = screen.visibleFrame
+        let visibleFrame = axVisibleFrame(for: screen)
 
-        let newX = screenFrame.origin.x + (screenFrame.width - frame.width) / 2
-        let newY = screenFrame.origin.y + (screenFrame.height - frame.height) / 2
+        let newX = visibleFrame.origin.x + (visibleFrame.width - frame.width) / 2
+        let newY = visibleFrame.origin.y + (visibleFrame.height - frame.height) / 2
         setWindowPosition(window, x: newX, y: newY)
     }
 
-    /// Move the focused window to a unit rectangle (fractions of screen).
-    /// e.g. (0, 0, 1/3, 1) = left third, (1/3, 0, 2/3, 1) = right two-thirds
+    /// Move the focused window to a unit rectangle (fractions of visible screen).
+    /// Coordinates use top-left origin: y=0 is the top of the visible area.
+    /// Width and height are clamped so the window never extends past the visible area.
+    /// e.g. (0, 0, 1/3, 1) = left third, (0, 1/2, 1/3, 1) = bottom half of left third
     static func moveFocusedWindow(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
         guard let (window, frame) = focusedWindowAndFrame() else { return }
         guard let screen = screenContaining(frame) else { return }
         saveFrame(window, frame: frame)
-        let screenFrame = screen.visibleFrame
+        let visibleFrame = axVisibleFrame(for: screen)
 
-        let newX = screenFrame.origin.x + screenFrame.width * x
-        let newY = screenFrame.origin.y + screenFrame.height * y
-        let newW = screenFrame.width * width
-        let newH = screenFrame.height * height
+        let clampedW = min(width, 1.0 - x)
+        let clampedH = min(height, 1.0 - y)
+
+        let newX = visibleFrame.origin.x + visibleFrame.width * x
+        let newY = visibleFrame.origin.y + visibleFrame.height * y
+        let newW = visibleFrame.width * clampedW
+        let newH = visibleFrame.height * clampedH
 
         setWindowPosition(window, x: newX, y: newY)
         setWindowSize(window, width: newW, height: newH)
@@ -69,14 +74,40 @@ enum WindowManipulator {
     }
 
     /// Restore the focused window to its previously saved frame.
+    /// Exits fullscreen first if needed.
     static func restoreFocusedWindow() {
         guard let (window, _) = focusedWindowAndFrame() else { return }
         guard let saved = savedFrames[windowKey(window)] else { return }
+
+        // Exit fullscreen before restoring — AX ignores position/size changes in fullscreen
+        if let isFS = axAttribute(window, "AXFullScreen") as? Bool, isFS {
+            AXUIElementSetAttributeValue(window, "AXFullScreen" as CFString, kCFBooleanFalse)
+            // Delay to let the fullscreen exit animation complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                setWindowPosition(window, x: saved.origin.x, y: saved.origin.y)
+                setWindowSize(window, width: saved.width, height: saved.height)
+            }
+            return
+        }
+
         setWindowPosition(window, x: saved.origin.x, y: saved.origin.y)
         setWindowSize(window, width: saved.width, height: saved.height)
     }
 
     // MARK: - Private
+
+    /// Convert an NSScreen's visibleFrame from Cocoa coordinates (bottom-left origin)
+    /// to screen coordinates (top-left origin) used by the Accessibility API.
+    private static func axVisibleFrame(for screen: NSScreen) -> CGRect {
+        let primaryHeight = NSScreen.screens[0].frame.height
+        let cocoa = screen.visibleFrame
+        return CGRect(
+            x: cocoa.origin.x,
+            y: primaryHeight - cocoa.origin.y - cocoa.height,
+            width: cocoa.width,
+            height: cocoa.height
+        )
+    }
 
     private static var savedFrames: [String: CGRect] = [:]
 

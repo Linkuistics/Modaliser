@@ -140,7 +140,11 @@
 
   ;; Raycast notes
   (key "n" "Raycast Notes"
-    (open-url-action "raycast://extensions/raycast/raycast-notes/raycast-notes")))
+    (open-url-action "raycast://extensions/raycast/raycast-notes/raycast-notes"))
+
+  ;; Settings
+  (key "," "Settings"
+    (lambda () (open-settings!))))
 
 ;; ─── App-local command trees ────────────────────────────────────────────
 

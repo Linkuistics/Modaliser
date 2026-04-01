@@ -28,7 +28,10 @@
     (else
      (let ((char (keycode->char keycode)))
        (if char
-         (begin (modal-handle-key char) #t)
+         (let ((effective (if (has-shift? modifiers)
+                            (string-upcase char)
+                            char)))
+           (modal-handle-key effective) #t)
          (begin (modal-exit) #t))))))
 
 ;; Create a leader key handler for a given keycode.

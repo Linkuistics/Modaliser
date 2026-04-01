@@ -147,12 +147,29 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
         webViews[id]?.evaluateJavaScript(script, completionHandler: nil)
     }
 
+    /// Resize a panel's height, keeping the top edge fixed.
+    func resizePanel(id: String, height: CGFloat) {
+        guard let panel = panels[id] else { return }
+        var frame = panel.frame
+        let delta = height - frame.height
+        frame.origin.y -= delta
+        frame.size.height = height
+        panel.setFrame(frame, display: true, animate: false)
+    }
+
     // MARK: - WKScriptMessageHandler
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         // Find which panel this message came from
         for (id, webView) in webViews {
             if webView.configuration.userContentController === userContentController {
+                // Handle resize messages natively without going through Scheme
+                if let dict = message.body as? [String: Any],
+                   let type = dict["type"] as? String, type == "resize",
+                   let height = dict["height"] as? Double {
+                    resizePanel(id: id, height: CGFloat(height))
+                    return
+                }
                 messageHandlers[id]?(message.body)
                 return
             }
