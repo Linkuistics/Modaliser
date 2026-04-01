@@ -176,7 +176,7 @@ Selectors with `'file-roots` use `FileManager.enumerator` to index files and dir
 
 | Function | Description |
 |----------|-------------|
-| `(find-installed-apps)` | Scan /Applications and ~/Applications, returns list of alists |
+| `(find-installed-apps)` | Scan installed apps via Spotlight, returns list of alists |
 | `(activate-app alist)` | Launch/focus app from choice alist |
 | `(launch-app name)` | Launch/focus app by name or bundle ID |
 | `(reveal-in-finder alist)` | Show in Finder from choice alist |
@@ -217,6 +217,8 @@ Selectors with `'file-roots` use `FileManager.enumerator` to index files and dir
 | `(set-clipboard! text)` | Write string to clipboard |
 
 ### Clipboard History -- `(modaliser clipboard-history)`
+
+The Swift primitives for clipboard history exist but the clipboard monitor is not yet started at runtime. See TODO.md for wiring instructions.
 
 | Function | Description |
 |----------|-------------|
