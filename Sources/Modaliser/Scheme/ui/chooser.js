@@ -1,6 +1,7 @@
 // Chooser state — JS tracks selection and results (Display PostScript pattern)
 var chooserItems = [];
 var chooserSelectedIndex = 0;
+var chooserResultsMaxHeight = 0;  // high-water mark for results list height
 
 document.addEventListener('DOMContentLoaded', function() {
   var input = document.getElementById('chooser-input');
@@ -122,6 +123,13 @@ function updateResults(items, totalCount) {
   }
 
   ul.innerHTML = html;
+
+  // Enforce high-water mark — only grow, never shrink (capped at max-height)
+  var currentHeight = ul.scrollHeight;
+  if (currentHeight > chooserResultsMaxHeight) {
+    chooserResultsMaxHeight = Math.min(currentHeight, 280);
+  }
+  ul.style.minHeight = chooserResultsMaxHeight + 'px';
 
   var footer = document.querySelector('.chooser-footer');
   if (footer) {

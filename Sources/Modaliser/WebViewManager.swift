@@ -10,6 +10,7 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
     private var webViews: [String: WKWebView] = [:]
     private var messageHandlers: [String: (Any) -> Void] = [:]
     private var resignObservers: [String: NSObjectProtocol] = [:]
+    private var previousApps: [String: NSRunningApplication] = [:]
 
     /// Create a WebView-backed panel with the given options.
     func createPanel(
@@ -70,6 +71,10 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
         }
 
         if activating {
+            // Remember the frontmost app so we can restore it on close
+            if let frontApp = NSWorkspace.shared.frontmostApplication, frontApp != NSRunningApplication.current {
+                previousApps[id] = frontApp
+            }
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
             // When an activating panel loses key status (click outside), send cancel
@@ -98,6 +103,10 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
         }
         panels[id]?.orderOut(nil)
         panels[id]?.close()
+        // Restore the previously focused app
+        if let prevApp = previousApps.removeValue(forKey: id) {
+            prevApp.activate()
+        }
         panels.removeValue(forKey: id)
         webViews.removeValue(forKey: id)
         messageHandlers.removeValue(forKey: id)

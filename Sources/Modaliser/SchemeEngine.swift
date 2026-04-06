@@ -27,6 +27,7 @@ final class SchemeEngine {
         try context.environment.import(PortLibrary.name)
         try context.environment.import(SystemLibrary.name)
         try context.environment.import(MathLibrary.name)
+        try context.environment.import(BytevectorLibrary.name)
 
         // Resolve and register the Scheme directory as a search path
         schemeDirectoryPath = SchemeEngine.resolveSchemeDirectory()
@@ -59,6 +60,8 @@ final class SchemeEngine {
         try context.environment.import(FuzzyMatchLibrary.name)
         try context.libraries.register(libraryType: ClipboardHistoryLibrary.self)
         try context.environment.import(ClipboardHistoryLibrary.name)
+        try context.libraries.register(libraryType: HttpLibrary.self)
+        try context.environment.import(HttpLibrary.name)
     }
 
     /// Evaluate a string of Scheme code and return the result.

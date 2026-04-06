@@ -38,6 +38,9 @@ struct ChooserIntegrationTests {
               (set! webview-set-html-calls (cons (cons id html) webview-set-html-calls)))
             (define (webview-on-message id handler)
               (set! webview-on-message-calls (cons (cons id handler) webview-on-message-calls)))
+            (define webview-eval-calls '())
+            (define (webview-eval id js)
+              (set! webview-eval-calls (cons (cons id js) webview-eval-calls)))
             """)
 
         let files = [
@@ -92,7 +95,7 @@ struct ChooserIntegrationTests {
         #expect(try engine.evaluate("(not (null? webview-create-calls))") == .true)
     }
 
-    @Test func chooserShowsSourceItems() throws {
+    @Test func chooserCachesSourceItems() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define test-items
@@ -109,15 +112,14 @@ struct ChooserIntegrationTests {
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
-        // Chooser should show all items initially
-        let html = try engine.evaluate("(cdr (car webview-set-html-calls))").asString()
-        #expect(html.contains("Safari"))
-        #expect(html.contains("Chrome"))
+        // Chooser should have cached all source items
+        #expect(try engine.evaluate("(length chooser-items)").asInt64() == 2)
+        #expect(try engine.evaluate("(cdr (assoc 'text (car chooser-items)))").asString() == "Safari")
     }
 
     // MARK: - Search filtering
 
-    @Test func searchFiltersItems() throws {
+    @Test func searchUpdatesQueryState() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define test-items
@@ -140,13 +142,14 @@ struct ChooserIntegrationTests {
             (chooser-handle-search "saf")
             """)
 
-        // Should only show Safari
-        #expect(try engine.evaluate("(length chooser-filtered)").asInt64() == 1)
+        // Query state should be updated and selection reset
+        #expect(try engine.evaluate("chooser-query").asString() == "saf")
+        #expect(try engine.evaluate("chooser-selected-index").asInt64() == 0)
     }
 
-    // MARK: - Navigation
+    // MARK: - Selection index (navigation is handled by JS)
 
-    @Test func navigateDownMovesSelection() throws {
+    @Test func selectionIndexStartsAtZero() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define test-items
@@ -163,43 +166,6 @@ struct ChooserIntegrationTests {
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
-        #expect(try engine.evaluate("chooser-selected-index").asInt64() == 0)
-
-        try engine.evaluate("(chooser-handle-navigate \"down\")")
-        #expect(try engine.evaluate("chooser-selected-index").asInt64() == 1)
-
-        try engine.evaluate("(chooser-handle-navigate \"down\")")
-        #expect(try engine.evaluate("chooser-selected-index").asInt64() == 2)
-
-        // Should not go past the end
-        try engine.evaluate("(chooser-handle-navigate \"down\")")
-        #expect(try engine.evaluate("chooser-selected-index").asInt64() == 2)
-    }
-
-    @Test func navigateUpMovesSelection() throws {
-        let engine = try loadAllModules()
-        try engine.evaluate("""
-            (define test-items
-              (list (list (cons 'text "Alpha"))
-                    (list (cons 'text "Beta"))))
-            (define (test-source) test-items)
-            (define-tree 'global
-              (selector "a" "Find"
-                'prompt "Find..."
-                'source test-source
-                'on-select (lambda (item) #t)))
-            """)
-
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        try engine.evaluate("(modal-handle-key \"a\")")
-        try engine.evaluate("(chooser-handle-navigate \"down\")")
-        #expect(try engine.evaluate("chooser-selected-index").asInt64() == 1)
-
-        try engine.evaluate("(chooser-handle-navigate \"up\")")
-        #expect(try engine.evaluate("chooser-selected-index").asInt64() == 0)
-
-        // Should not go below 0
-        try engine.evaluate("(chooser-handle-navigate \"up\")")
         #expect(try engine.evaluate("chooser-selected-index").asInt64() == 0)
     }
 
@@ -223,9 +189,10 @@ struct ChooserIntegrationTests {
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
-        // Navigate to Chrome (index 1) and select
-        try engine.evaluate("(chooser-handle-navigate \"down\")")
-        try engine.evaluate("(chooser-handle-select)")
+        // Select Chrome (originalIndex 1) via message handler
+        try engine.evaluate("""
+            (chooser-message-handler (list (cons 'type "select") (cons 'originalIndex 1)))
+            """)
 
         // on-select should have been called with the Chrome item
         #expect(try engine.evaluate("chooser-open?") == .false)
@@ -308,7 +275,11 @@ struct ChooserIntegrationTests {
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
-        try engine.evaluate("(chooser-handle-secondary-action)")
+
+        // Secondary action on first item (index 0)
+        try engine.evaluate("""
+            (chooser-message-handler (list (cons 'type "secondary-action") (cons 'originalIndex 0)))
+            """)
 
         #expect(try engine.evaluate("secondary-fired") == .true)
         #expect(try engine.evaluate("chooser-open?") == .false)
@@ -332,12 +303,12 @@ struct ChooserIntegrationTests {
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
-        // Test search message
-        try engine.evaluate("(chooser-message-handler (list (cons 'type \"navigate\") (cons 'direction \"down\")))")
-        #expect(try engine.evaluate("chooser-selected-index").asInt64() == 1)
+        // Test search message updates query state
+        try engine.evaluate("(chooser-message-handler (list (cons 'type \"search\") (cons 'query \"test\")))")
+        #expect(try engine.evaluate("chooser-query").asString() == "test")
 
-        // Test select message
-        try engine.evaluate("(chooser-message-handler (list (cons 'type \"select\")))")
+        // Test select message with originalIndex
+        try engine.evaluate("(chooser-message-handler (list (cons 'type \"select\") (cons 'originalIndex 1)))")
         #expect(try engine.evaluate("chooser-open?") == .false)
         #expect(try engine.evaluate("(cdr (assoc 'text test-selected))").asString() == "Beta")
     }
@@ -375,9 +346,10 @@ struct ChooserIntegrationTests {
         #expect(try engine.evaluate("modal-active?") == .false)
         #expect(try engine.evaluate("chooser-open?") == .true)
 
-        // Navigate down and select Chrome
-        try engine.evaluate("(chooser-handle-navigate \"down\")")
-        try engine.evaluate("(chooser-handle-select)")
+        // Select Chrome (originalIndex 1) via message handler
+        try engine.evaluate("""
+            (chooser-message-handler (list (cons 'type "select") (cons 'originalIndex 1)))
+            """)
 
         #expect(try engine.evaluate("chooser-open?") == .false)
         let selected = try engine.evaluate("(cdr (assoc 'text test-result))").asString()
@@ -403,11 +375,12 @@ struct ChooserIntegrationTests {
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
-        try engine.evaluate("(chooser-handle-navigate \"down\")")
-        try engine.evaluate("(chooser-handle-navigate \"down\")")
+
+        // Simulate JS having moved selection
+        try engine.evaluate("(set! chooser-selected-index 2)")
         #expect(try engine.evaluate("chooser-selected-index").asInt64() == 2)
 
-        // Search should reset selection
+        // Search should reset selection to 0
         try engine.evaluate("(chooser-handle-search \"Al\")")
         #expect(try engine.evaluate("chooser-selected-index").asInt64() == 0)
     }

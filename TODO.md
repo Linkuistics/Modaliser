@@ -1,5 +1,9 @@
 # TODO
 
+## Additional dynamic search sources
+
+The dynamic chooser infrastructure (`'dynamic-search` callback + `chooser-push-results`) supports any external data source. Potential additions: DuckDuckGo search, dictionary/thesaurus lookup, calculator, emoji search via API, or custom REST API integration.
+
 ## Clipboard history integration
 
 The `ClipboardHistoryLibrary`, `ClipboardHistoryStore`, and `ClipboardMonitor` Swift code exists but the clipboard monitor is never started -- the library is registered but no polling timer is created. Wire up the monitor and add a chooser selector for browsing/restoring clipboard history.

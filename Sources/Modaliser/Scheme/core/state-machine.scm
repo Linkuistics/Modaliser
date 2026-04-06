@@ -73,6 +73,7 @@
 ;; These stubs allow state-machine.scm to be loaded and tested
 ;; independently. When overlay.scm loads, it redefines these.
 
+(define overlay-open? #f)
 (define (show-overlay node path) (void))
 (define (update-overlay node path) (void))
 (define (hide-overlay) (void))
@@ -85,11 +86,31 @@
 (define modal-root-node #f)
 (define modal-current-path '())
 (define modal-leader-keycode #f)
+(define modal-overlay-generation 0) ;; generation counter for delayed overlay show
+(define modal-overlay-delay 1.0)    ;; seconds before overlay appears (0 = immediate)
 
 ;; ─── Modal Navigation ──────────────────────────────────────────
 
+;; Show overlay immediately, cancelling any pending delayed show.
+(define (modal-show-overlay-now)
+  (set! modal-overlay-generation (+ modal-overlay-generation 1))
+  (show-overlay modal-root-node modal-current-path))
+
+;; Schedule overlay to appear after modal-overlay-delay seconds.
+;; If a key is pressed before the delay, the show is cancelled.
+(define (modal-show-overlay-delayed)
+  (if (<= modal-overlay-delay 0)
+    (show-overlay modal-root-node modal-current-path)
+    (let ()
+      (set! modal-overlay-generation (+ modal-overlay-generation 1))
+      (let ((gen modal-overlay-generation))
+        (after-delay modal-overlay-delay
+          (lambda ()
+            (when (and modal-active? (= gen modal-overlay-generation))
+              (show-overlay modal-root-node modal-current-path))))))))
+
 ;; Enter modal mode with the given tree and leader keycode.
-;; Registers the catch-all key handler and shows the overlay.
+;; Registers the catch-all key handler and schedules delayed overlay show.
 (define (modal-enter tree leader-kc)
   (when tree
     (set! modal-active? #t)
@@ -98,10 +119,11 @@
     (set! modal-current-path '())
     (set! modal-leader-keycode leader-kc)
     (register-all-keys! modal-key-handler)
-    (show-overlay modal-root-node modal-current-path)))
+    (modal-show-overlay-delayed)))
 
 ;; Exit modal mode. Deregisters catch-all and hides overlay.
 (define (modal-exit)
+  (set! modal-overlay-generation (+ modal-overlay-generation 1))
   (unregister-all-keys!)
   (hide-overlay)
   (set! modal-active? #f)
@@ -125,7 +147,10 @@
        (set! modal-current-node child)
        (set! modal-current-path
          (append modal-current-path (list char)))
-       (update-overlay modal-root-node modal-current-path))
+       ;; If overlay already visible, update immediately; otherwise restart delay
+       (if overlay-open?
+         (update-overlay modal-root-node modal-current-path)
+         (modal-show-overlay-delayed)))
       ((selector? child)
        (modal-exit)
        (open-chooser child))

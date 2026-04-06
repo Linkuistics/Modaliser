@@ -17,6 +17,7 @@
 (include "ui/overlay.scm")
 (include "ui/chooser.scm")
 (include "lib/dsl.scm")
+(include "lib/web-search.scm")
 
 ;; ─── App setup ────────────────────────────────────────────────────
 

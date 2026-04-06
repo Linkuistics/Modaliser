@@ -47,6 +47,8 @@ struct OverlayIntegrationTests {
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
+        // Disable overlay delay for synchronous testing
+        try engine.evaluate("(set! modal-overlay-delay 0)")
         return engine
     }
 

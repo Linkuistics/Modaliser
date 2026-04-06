@@ -38,6 +38,7 @@ final class LifecycleLibrary: NativeLibrary {
         self.define(Procedure("request-screen-recording!", requestScreenRecordingFunction))
         self.define(Procedure("relaunch!", relaunchFunction))
         self.define(Procedure("quit!", quitFunction))
+        self.define(Procedure("after-delay", afterDelayFunction))
     }
 
     // MARK: - Activation policy
@@ -159,6 +160,32 @@ final class LifecycleLibrary: NativeLibrary {
     /// (quit!) → void
     private func quitFunction() -> Expr {
         NSApp.terminate(nil)
+        return .void
+    }
+
+    // MARK: - Timer
+
+    /// (after-delay seconds callback) → void
+    /// Calls (callback) on the main thread after the given delay in seconds.
+    private func afterDelayFunction(_ delayExpr: Expr, _ callbackExpr: Expr) throws -> Expr {
+        let seconds: Double
+        if case .fixnum(let n) = delayExpr {
+            seconds = Double(n)
+        } else if case .flonum(let n) = delayExpr {
+            seconds = n
+        } else {
+            throw RuntimeError.type(delayExpr, expected: [.floatType])
+        }
+        guard case .procedure = callbackExpr else {
+            throw RuntimeError.custom("eval", "after-delay: second argument must be a procedure", [])
+        }
+        let context = self.context
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            guard let evaluator = context.evaluator else { return }
+            _ = evaluator.execute { machine in
+                try machine.apply(callbackExpr, to: .null)
+            }
+        }
         return .void
     }
 

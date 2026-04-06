@@ -46,6 +46,8 @@ struct ConfigDslTests {
               (set! webview-close-calls (cons id webview-close-calls)))
             (define (webview-set-html! id html)
               (set! webview-set-html-calls (cons (cons id html) webview-set-html-calls)))
+            (define (webview-on-message id handler) #t)
+            (define (webview-eval id js) #t)
             """)
         let files = [
             "lib/util.scm",
@@ -55,7 +57,9 @@ struct ConfigDslTests {
             "core/state-machine.scm",
             "core/event-dispatch.scm",
             "ui/overlay.scm",
+            "ui/chooser.scm",
             "lib/dsl.scm",
+            "lib/web-search.scm",
         ]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))

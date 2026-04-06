@@ -185,6 +185,7 @@ body {
 .chooser-results {
   list-style: none;
   max-height: 280px;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 

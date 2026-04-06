@@ -15,9 +15,9 @@ Modaliser is a native Swift macOS app, but the majority of its logic lives in Sc
 The UI is rendered in WKWebView-backed NSPanels controlled from Scheme. Two panel types exist:
 
 - **Overlay** -- a non-activating floating panel showing available keybindings at the current position in the command tree (which-key style)
-- **Chooser** -- an activating panel with a search input, fuzzy-filtered result list, and optional action panel (used by selectors)
+- **Chooser** -- an activating panel with a search input, fuzzy-filtered result list, and optional action panel (used by selectors). Supports both static sources (fuzzy-matched locally) and dynamic sources (results fetched from external APIs)
 
-Swift provides native libraries that Scheme calls into: keyboard capture, window management, app management, shell execution, clipboard, input emulation, fuzzy matching, clipboard history, WebView management, and app lifecycle.
+Swift provides native libraries that Scheme calls into: keyboard capture, window management, app management, shell execution, HTTP requests, clipboard, input emulation, fuzzy matching, clipboard history, WebView management, and app lifecycle.
 
 Incremental DOM updates use a Display PostScript-inspired pattern: Scheme builds data, pushes JSON to JavaScript, and JS renders directly into the DOM. Full-page HTML replacement is avoided except for structural changes like toggling the action panel.
 
@@ -132,7 +132,9 @@ The UI is styled with CSS custom properties defined in `base.css`. Users can ove
 
 ### Selectors
 
-Selectors present a searchable chooser UI with fuzzy matching. Options:
+Selectors present a searchable chooser UI. Two modes are available:
+
+**Static selectors** load items upfront and fuzzy-match locally:
 
 | Property | Description |
 |----------|-------------|
@@ -142,7 +144,17 @@ Selectors present a searchable chooser UI with fuzzy matching. Options:
 | `'file-roots` | List of directory paths for file search mode |
 | `'actions` | List of `(action ...)` forms for the action panel |
 
-Each choice alist should have at least `text` (display name). Optional: `subText`, `icon`, `iconType` (`"path"` or `"bundleId"`), `path`, `kind`.
+**Dynamic selectors** fetch results from external sources on each keystroke:
+
+| Property | Description |
+|----------|-------------|
+| `'prompt` | Search field placeholder text |
+| `'dynamic-search` | One-arg procedure called with the query string on each input |
+| `'on-select` | One-arg procedure called with the chosen alist |
+
+The dynamic-search callback is responsible for fetching results and pushing them to the chooser via `(chooser-push-results items)`. Each item is an alist with at least `'text`. A generation counter discards stale responses from earlier queries.
+
+Each choice alist should have at least `text` (display name). Optional: `path`, `kind`, `search-url`.
 
 ### File Search
 
@@ -154,6 +166,19 @@ Selectors with `'file-roots` use `FileManager.enumerator` to index files and dir
   'file-roots (list "~")
   'on-select (lambda (c) (run-shell (string-append "/usr/bin/open \"" (cdr (assoc 'path c)) "\""))))
 ```
+
+### Web Search
+
+A built-in Google search selector is available via `web-search-handler` and `web-search-on-select`. It fetches autocomplete suggestions from Google's Suggest API, prepends a pinned "Search Google for '...'" item, and opens the selected result in the default browser.
+
+```scheme
+(selector "g" "Google Search"
+  'prompt "Search Google…"
+  'dynamic-search web-search-handler
+  'on-select web-search-on-select)
+```
+
+Suggestions appear after typing 3+ characters. Below that threshold, only the pinned search item is shown.
 
 ## Available Scheme Functions
 
@@ -202,6 +227,12 @@ Selectors with `'file-roots` use `FileManager.enumerator` to index files and dir
 |----------|-------------|
 | `(send-keystroke mods key)` | Emit a keystroke. mods: `'(cmd alt shift ctrl)`, key: `"t"`, `"left"`, etc. |
 
+### HTTP -- `(modaliser http)`
+
+| Function | Description |
+|----------|-------------|
+| `(http-get url callback)` | Async HTTP GET. Calls `(callback response-string)` on success, `(callback #f)` on error |
+
 ### Shell -- `(modaliser shell)`
 
 | Function | Description |
@@ -238,6 +269,7 @@ The Swift primitives for clipboard history exist but the clipboard monitor is no
 | `(request-screen-recording!)` | Request Screen Recording permissions |
 | `(relaunch!)` | Relaunch the application |
 | `(quit!)` | Quit the application |
+| `(after-delay seconds callback)` | Call `(callback)` on the main thread after a delay |
 
 ### WebView -- `(modaliser webview)`
 
@@ -256,6 +288,32 @@ The Swift primitives for clipboard history exist but the clipboard monitor is no
 |----------|-------------|
 | `(fuzzy-match query target)` | Match query against target, returns `(score (indices...))` or `#f` |
 | `(fuzzy-filter query texts)` | Filter and rank a list of strings by fuzzy match score |
+
+### Dynamic Chooser (auto-imported)
+
+| Function | Description |
+|----------|-------------|
+| `(chooser-push-results items)` | Push a list of item alists to the open chooser |
+
+### Web Search (auto-imported)
+
+| Function | Description |
+|----------|-------------|
+| `(web-search-handler query)` | Dynamic-search callback for Google autocomplete |
+| `(web-search-on-select item)` | Opens the selected search result in the default browser |
+| `(google-suggest-url query)` | Build Google Suggest API URL |
+| `(google-search-url query)` | Build Google search URL |
+| `(parse-google-suggestions response)` | Parse Google Suggest JSON into a list of strings |
+| `(build-web-search-results query suggestions)` | Build chooser items with pinned search item |
+| `(url-encode str)` | RFC 3986 percent-encoding with UTF-8 support |
+
+### Overlay Delay
+
+The command overlay appears after a configurable delay (default 1 second). This allows fast key sequences (e.g. leader → s to launch Safari) to execute without the overlay ever appearing. Each keystroke resets the timer. Once the overlay has appeared, subsequent navigation within that session updates immediately.
+
+```scheme
+(set! modal-overlay-delay 0.5)  ;; seconds (0 = show immediately)
+```
 
 ## Keyboard Reference
 

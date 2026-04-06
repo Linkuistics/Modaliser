@@ -24,6 +24,7 @@
 (define chooser-actions-visible? #f)
 (define chooser-selector-node #f)    ;; the selector alist
 (define chooser-action-index 0)      ;; index into actions list when panel is visible
+(define chooser-dynamic-search #f)   ;; dynamic-search callback or #f
 
 ;; ─── Panel Configuration ────────────────────────────────────
 
@@ -220,17 +221,21 @@
 (define (open-chooser selector-node)
   (let* ((source-fn (alist-ref selector-node 'source #f))
          (file-roots (alist-ref selector-node 'file-roots #f))
+         (dynamic-search-fn (alist-ref selector-node 'dynamic-search #f))
          (prompt (alist-ref selector-node 'prompt "Select..."))
          (actions (alist-ref selector-node 'actions '()))
          (items (cond
+                  (dynamic-search-fn '())  ;; dynamic: no static items
                   (source-fn (source-fn))
                   (file-roots (index-files file-roots))
                   (else '())))
          (texts (extract-item-texts items))
-         ;; Initial: no filter, show all items
-         (initial-visible (build-visible-items
-                            (fuzzy-filter "" texts)
-                            texts)))
+         ;; Initial: no filter, show all items (skip for dynamic — no static items)
+         (initial-visible (if dynamic-search-fn
+                            '()
+                            (build-visible-items
+                              (fuzzy-filter "" texts)
+                              texts))))
     ;; Set chooser state
     (set! chooser-open? #t)
     (set! chooser-items items)
@@ -241,9 +246,11 @@
     (set! chooser-actions-visible? #f)
     (set! chooser-selector-node selector-node)
     (set! chooser-action-index 0)
+    (set! chooser-dynamic-search dynamic-search-fn)
 
-    ;; Cache items in Swift for background search
-    (chooser-cache-items! items)
+    ;; Cache items in Swift for background search (static selectors only)
+    (unless dynamic-search-fn
+      (chooser-cache-items! items))
 
     ;; Create activating WebView
     (webview-create chooser-webview-id
@@ -273,7 +280,8 @@
     (set! chooser-query "")
     (set! chooser-actions-visible? #f)
     (set! chooser-selector-node #f)
-    (set! chooser-action-index 0)))
+    (set! chooser-action-index 0)
+    (set! chooser-dynamic-search #f)))
 
 ;; Render just the results rows as an HTML string (no document wrapper).
 (define (render-results-inner-html visible-items selected-index)
@@ -351,6 +359,61 @@
                              chooser-selected-index chooser-actions-visible?
                              actions)))))
 
+;; ─── Dynamic Chooser Support ────────────────────────────────
+
+;; Escape a string for embedding in a JSON string literal.
+(define (json-escape str)
+  (let loop ((chars (string->list str)) (result '()))
+    (if (null? chars)
+      (list->string (reverse result))
+      (let ((c (car chars)))
+        (loop (cdr chars)
+              (cond
+                ((char=? c #\\) (append '(#\\ #\\) result))
+                ((char=? c #\") (append '(#\" #\\) result))
+                ((char=? c #\newline) (append '(#\n #\\) result))
+                ((char=? c #\return) (append '(#\r #\\) result))
+                ((char=? c #\tab) (append '(#\t #\\) result))
+                (else (cons c result))))))))
+
+;; (chooser-push-results items) → void
+;; Push dynamic results to the chooser WebView.
+;; Items: list of alists with at minimum a 'text key.
+;; Formats as JSON and calls JS updateResults() directly,
+;; reusing the same rendering path as the static fuzzy-match pipeline.
+(define (chooser-push-results items)
+  (when chooser-open?
+    (set! chooser-items items)
+    (set! chooser-selected-index 0)
+    ;; Update chooser-filtered so action panel toggle renders correctly
+    (set! chooser-filtered
+      (let loop ((rest items) (i 0) (acc '()))
+        (if (null? rest)
+          (reverse acc)
+          (loop (cdr rest) (+ i 1)
+                (cons (list i (alist-ref (car rest) 'text "") '()) acc)))))
+    (let* ((count (length items))
+           (json (let loop ((rest items) (i 0) (acc "["))
+                   (if (null? rest)
+                     (string-append acc "]")
+                     (let* ((item (car rest))
+                            (text (alist-ref item 'text ""))
+                            (path (alist-ref item 'path ""))
+                            (kind (alist-ref item 'kind ""))
+                            (sep (if (= i 0) "" ","))
+                            (entry (string-append sep
+                                     "{\"d\":\"" (json-escape text) "\""
+                                     ",\"s\":\"" (json-escape text) "\""
+                                     ",\"p\":\"" (json-escape path) "\""
+                                     ",\"k\":\"" (json-escape kind) "\""
+                                     ",\"i\":[],\"x\":"
+                                     (number->string i) "}")))
+                       (loop (cdr rest) (+ i 1) (string-append acc entry))))))
+           (js (string-append
+                 "if(window.updateResults)updateResults("
+                 json "," (number->string count) ");")))
+      (webview-eval chooser-webview-id js))))
+
 ;; ─── Message Handler ────────────────────────────────────────
 
 ;; Handle messages from the chooser JavaScript.
@@ -360,7 +423,9 @@
     (cond
       ((equal? msg-type "ready")
        ;; Page loaded — populate initial results
-       (chooser-async-search! "" chooser-webview-id))
+       (if chooser-dynamic-search
+         (chooser-dynamic-search "")
+         (chooser-async-search! "" chooser-webview-id)))
       ((equal? msg-type "search")
        (chooser-handle-search (alist-ref msg 'query "")))
       ((equal? msg-type "select")
@@ -377,9 +442,11 @@
 (define (chooser-handle-search query)
   (set! chooser-query query)
   (set! chooser-selected-index 0)
-  ;; Run fuzzy match on background thread, push results as JSON to JS.
-  ;; JS updateResults() renders the DOM directly — no Scheme rendering needed.
-  (chooser-async-search! query chooser-webview-id))
+  (if chooser-dynamic-search
+    ;; Dynamic mode: delegate to Scheme callback (responsible for fetching + pushing results)
+    (chooser-dynamic-search query)
+    ;; Static mode: fuzzy match on background thread, push results as JSON to JS
+    (chooser-async-search! query chooser-webview-id)))
 
 ;; Navigation is handled entirely in JS (setSelectedIndex) — no Scheme call needed.
 
@@ -387,15 +454,16 @@
   (let ((orig-index (and raw-index (exact (truncate raw-index)))))
     (when (and orig-index (>= orig-index 0) (< orig-index (length chooser-items)))
       (let* ((item (list-ref chooser-items orig-index))
-           (on-select (alist-ref chooser-selector-node 'on-select #f))
-           (actions (alist-ref chooser-selector-node 'actions '()))
-           (primary-action (find-action-by-key actions 'primary)))
-      (close-chooser)
-      (cond
-        ((and chooser-actions-visible? primary-action)
-         (let ((run-fn (alist-ref primary-action 'run #f)))
-           (when run-fn (run-fn item))))
-        (on-select (on-select item)))))))
+             (on-select (alist-ref chooser-selector-node 'on-select #f))
+             (actions (alist-ref chooser-selector-node 'actions '()))
+             (primary-action (find-action-by-key actions 'primary))
+             (was-actions-visible? chooser-actions-visible?))
+        (close-chooser)
+        (cond
+          ((and was-actions-visible? primary-action)
+           (let ((run-fn (alist-ref primary-action 'run #f)))
+             (when run-fn (run-fn item))))
+          (on-select (on-select item)))))))
 
 (define (chooser-handle-toggle-actions)
   (set! chooser-actions-visible? (not chooser-actions-visible?))

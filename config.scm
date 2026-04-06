@@ -68,6 +68,12 @@
     (key "m" "Menu Items"
       (open-url-action "raycast://extensions/raycast/navigation/search-menu-items")))
 
+  ;; Google search
+  (selector "g" "Google Search"
+    'prompt "Search Google…"
+    'dynamic-search web-search-handler
+    'on-select web-search-on-select)
+
   ;; Open application group
   (group "o" "Open App"
     (group "c" "C"
