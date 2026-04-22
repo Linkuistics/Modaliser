@@ -9,6 +9,7 @@
 ;; ─── Load modules ─────────────────────────────────────────────────
 
 (include "lib/util.scm")
+(include "lib/terminal.scm")
 (include "core/keymap.scm")
 (include "ui/dom.scm")
 (include "ui/css.scm")

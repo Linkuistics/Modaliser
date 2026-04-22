@@ -34,6 +34,20 @@
            (modal-handle-key effective) #t)
          (begin (modal-exit) #t))))))
 
+;; Hook: given the focused app's bundle ID, return a suffix string like
+;; "/zellij" to try a more specific tree first, or #f to use the plain
+;; bundle-id tree. User configs override this with their own definition.
+(define (local-context-suffix bundle-id) #f)
+
+;; Resolve the per-app tree for a bundle ID, preferring a context-suffixed
+;; variant (e.g. "com.googlecode.iterm2/zellij") when the suffix hook
+;; returns one and that variant is registered.
+(define (resolve-app-tree bundle-id)
+  (and bundle-id
+       (or (let ((suffix (local-context-suffix bundle-id)))
+             (and suffix (lookup-tree (string-append bundle-id suffix))))
+           (lookup-tree bundle-id))))
+
 ;; Create a leader key handler for a given keycode.
 ;; When pressed, looks up the focused app's bundle ID, finds the
 ;; appropriate tree, and enters modal mode.
@@ -48,8 +62,8 @@
       (let* ((bundle-id (focused-app-bundle-id))
              (tree (cond
                      ((eq? mode 'global) (lookup-tree "global"))
-                     ((eq? mode 'local)  (and bundle-id (lookup-tree bundle-id)))
-                     (else (or (and bundle-id (lookup-tree bundle-id))
+                     ((eq? mode 'local)  (resolve-app-tree bundle-id))
+                     (else (or (resolve-app-tree bundle-id)
                                (lookup-tree "global"))))))
         (when tree
           (modal-enter tree leader-kc))))))

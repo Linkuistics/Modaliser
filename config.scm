@@ -1,3 +1,4 @@
+
 ;; Modaliser configuration
 ;; This file is evaluated by the Scheme engine at startup.
 ;; DSL functions and native libraries are auto-imported.
@@ -21,12 +22,27 @@
   ;; Quick-launch keys
   (key "s" "Safari"
     (lambda () (launch-app "Safari")))
+  (key "c" "ChatGPT"
+    (lambda () (launch-app "ChatGPT")))
   (key "i" "iTerm"
     (lambda () (launch-app "iTerm")))
+  (key "j" "Jump Desktop"
+    (lambda () (launch-app "Jump Desktop")))
   (key "z" "Zed"
     (lambda () (launch-app "Zed")))
   (key " " "Spotlight"
     (keystroke '(cmd) " "))
+  (key "," "Settings"
+    (lambda () (open-settings!)))
+
+  ;; Google search
+  (selector "g" "Google Search"
+    'prompt "Search Google…"
+    'dynamic-search web-search-handler
+    'on-select web-search-on-select)
+
+  (key "c" "ChatGPT"
+    (lambda () (launch-app "ChatGPT")))
 
   ;; Find group
   (group "f" "Find"
@@ -66,27 +82,30 @@
             'run (lambda (c) (open-with "Zed" (cdr (assoc 'path c)))))))
 
     (key "m" "Menu Items"
-      (open-url-action "raycast://extensions/raycast/navigation/search-menu-items")))
+      (open-url-action "raycast://extensions/raycast/navigation/search-menu-items"))
 
-  ;; Google search
-  (selector "g" "Google Search"
-    'prompt "Search Google…"
-    'dynamic-search web-search-handler
-    'on-select web-search-on-select)
+    (selector "w" "Window"
+        'prompt "Find window…"
+        'source list-windows
+        'on-select focus-window
+        'actions
+        (list
+            (action "Focus" 'description "Switch to window" 'key 'primary
+            'run (lambda (c) (focus-window c))))))
 
   ;; Open application group
   (group "o" "Open App"
     (group "c" "C"
       (key "h" "ChatGPT"
         (lambda () (launch-app "ChatGPT")))
+      (key "m" "cmux"
+        (lambda () (launch-app "cmux")))
       (key "o" "Codex"
         (lambda () (launch-app "Codex")))
       (key "r" "Chrome"
         (lambda () (launch-app "Google Chrome"))))
     (key "g" "GitButler"
       (lambda () (launch-app "GitButler")))
-    (key "j" "Jump Desktop"
-      (lambda () (launch-app "Jump Desktop")))
     (group "m" "M"
       (key "a" "Mail"
         (lambda () (launch-app "Mail")))
@@ -103,9 +122,13 @@
       (key "a" "Safari"
         (lambda () (launch-app "Safari")))
       (key "i" "Signal"
-        (lambda () (launch-app "Signal"))))
+           (lambda () (launch-app "Signal")))
+      (key "l" "Slack"
+        (lambda () (launch-app "Slack"))))
     (key "t" "Telegram"
       (lambda () (launch-app "Telegram")))
+    (key "w" "Wire"
+      (lambda () (launch-app "Wire")))
     (group "z" "Z"
       (key "e" "Zed"
         (lambda () (launch-app "Zed")))
@@ -119,16 +142,30 @@
 
   ;; Window management group
   (group "w" "Windows"
-    (key "c" "Center"
-      (lambda () (center-window)))
     (key "d" "First Third"
       (lambda () (move-window 0 0 1/3 1)))
-    (key "e" "First Two Thirds"
-      (lambda () (move-window 0 0 2/3 1)))
+    (key "D" "First Third Top"
+      (lambda () (move-window 0 0 1/3 1/2)))
+    (key "C" "First Third Bottom"
+      (lambda () (move-window 0 1/2 1/3 1/2)))
     (key "f" "Center Third"
       (lambda () (move-window 1/3 0 1/3 1)))
+    (key "F" "Center Third Top"
+      (lambda () (move-window 1/3 0 1/3 1/2)))
+    (key "V" "Center Third Bottom"
+      (lambda () (move-window 1/3 1/2 1/3 1/2)))
     (key "g" "Last Third"
       (lambda () (move-window 2/3 0 1/3 1)))
+    (key "G" "Last Third Top"
+      (lambda () (move-window 2/3 0 1/3 1/2)))
+    (key "B" "Last Third Bottom"
+      (lambda () (move-window 2/3 1/2 1/3 1/2)))
+    (key "e" "First Two Thirds"
+      (lambda () (move-window 0 0 2/3 1)))    
+    (key "t" "Last Two Thirds"
+      (lambda () (move-window 1/3 0 2/3 1)))
+    (key "c" "Center"
+      (lambda () (center-window)))
     (key "m" "Maximise"
       (lambda () (toggle-fullscreen)))
     (key "r" "Restore"
@@ -140,17 +177,11 @@
       'actions
         (list
           (action "Focus" 'description "Switch to window" 'key 'primary
-            'run (lambda (c) (focus-window c)))))
-    (key "t" "Last Two Thirds"
-      (lambda () (move-window 1/3 0 2/3 1))))
+            'run (lambda (c) (focus-window c))))))
 
   ;; Raycast notes
   (key "n" "Raycast Notes"
-    (open-url-action "raycast://extensions/raycast/raycast-notes/raycast-notes"))
-
-  ;; Settings
-  (key "," "Settings"
-    (lambda () (open-settings!))))
+    (open-url-action "raycast://extensions/raycast/raycast-notes/raycast-notes")))
 
 ;; ─── App-local command trees ────────────────────────────────────────────
 
@@ -183,23 +214,60 @@
   (group "g" "Git"
     (key "p" "Command Palette"
       (keystroke '(cmd shift) "p")))
+  (key "s" "Select (Terminal Vi Mode)"
+    (keystroke '(ctrl shift) "space"))
   (group "t" "Task"
     (key "r" "Run via Palette"
       (keystroke '(cmd shift) "p"))))
 
 ;; iTerm (F17 when iTerm is focused)
-(define-tree 'com.googlecode.iterm2
-  (group "t" "Tabs"
-    (key "n" "New Tab"
-      (keystroke '(cmd) "t"))
-    (key "w" "Close Tab"
-      (keystroke '(cmd) "w")))
-  (group "p" "Pane"
-    (key "h" "Focus Left"
-      (keystroke '(cmd alt) "left"))
-    (key "l" "Focus Right"
-      (keystroke '(cmd alt) "right"))
-    (key "k" "Focus Up"
-      (keystroke '(cmd alt) "up"))
-    (key "j" "Focus Down"
-      (keystroke '(cmd alt) "down"))))
+;;
+;; Two trees are registered: the plain iTerm tree, and a "/zellij" variant
+;; that is selected by local-context-suffix when zellij is the foreground
+;; process on iTerm's focused pane. The zellij variant adds a "z" key that
+;; sends Ctrl+G to hand control to zellij's own modal/which-key.
+
+(define iterm-bindings
+  (list
+    (group "t" "Tabs"
+      (key "n" "New Tab"
+        (keystroke '(cmd) "t"))
+      (key "w" "Close Tab"
+        (keystroke '(cmd) "w")))
+    (key "s" "Select (Copy Mode)"
+      (keystroke '(cmd shift) "c"))
+    (group "p" "Pane"
+      (key "h" "Focus Left"
+        (keystroke '(cmd alt) "left"))
+      (key "l" "Focus Right"
+        (keystroke '(cmd alt) "right"))
+      (key "k" "Focus Up"
+        (keystroke '(cmd alt) "up"))
+      (key "j" "Focus Down"
+        (keystroke '(cmd alt) "down")))))
+
+(apply define-tree 'com.googlecode.iterm2 iterm-bindings)
+
+(apply define-tree 'com.googlecode.iterm2/zellij
+  (append iterm-bindings
+          (list (key "z" "Zellij (Ctrl+G)"
+                  (keystroke '(ctrl) "g")))))
+
+;; True when iTerm's focused pane has zellij (or the `zj` wrapper) as its
+;; foreground process. Only called when iTerm is the focused app, so it
+;; can't false-positive against zellij running in an unfocused window.
+(define (iterm-running-zellij?)
+  (let ((cmd (focused-terminal-foreground-command)))
+    (and cmd
+         (or (string-contains? cmd "zellij")
+             (string-contains? cmd "zj")))))
+
+;; Dispatcher hook: return a suffix to append to the bundle-id before tree
+;; lookup. Used by event-dispatch.scm; returning #f falls through to the
+;; plain bundle-id tree.
+(define (local-context-suffix bundle-id)
+  (cond
+    ((and (equal? bundle-id "com.googlecode.iterm2")
+          (iterm-running-zellij?))
+     "/zellij")
+    (else #f)))
