@@ -79,12 +79,20 @@
 ;; True if the nvim at SOCK reports g:modaliser_focused == 1. The `get`
 ;; form treats a missing variable as 0, so unconfigured nvim instances
 ;; simply register as not-focused rather than producing a Vim error.
+;;
+;; Critical: redirect stdin from /dev/null. When stdin is a TTY, the nvim
+;; client decides to attach a UI, emits its alt-screen init + teardown
+;; escapes (including \E[?1004l which globally disables terminal focus
+;; reporting), and writes the expression result to stderr instead of
+;; stdout. That single leaked escape would break every subsequent focus
+;; probe silently. Closing stdin flips isatty() to false and nvim runs as
+;; a proper non-UI RPC client.
 (define (nvim-server-focused? sock)
   (let ((out (run-shell
                (string-append
                  "nvim --server " sock
                  " --remote-expr 'get(g:, \"modaliser_focused\", 0)'"
-                 " 2>/dev/null"))))
+                 " </dev/null 2>/dev/null"))))
     (string=? (string-trim out) "1")))
 
 ;; Return the socket of the focused nvim (direct, or via a multiplexer), or
@@ -105,7 +113,7 @@
       (run-shell
         (string-append "nvim --server " sock
                        " --remote-send '" keys "'"
-                       " 2>/dev/null")))))
+                       " </dev/null 2>/dev/null")))))
 
 (define (nvim-remote-expr expr)
   (let ((sock (focused-nvim-socket)))
@@ -114,5 +122,5 @@
         (run-shell
           (string-append "nvim --server " sock
                          " --remote-expr '" expr "'"
-                         " 2>/dev/null")))
+                         " </dev/null 2>/dev/null")))
       #f)))
