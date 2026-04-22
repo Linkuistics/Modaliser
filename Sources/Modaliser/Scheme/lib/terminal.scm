@@ -60,10 +60,21 @@
 ;; xterm focus-reporting escapes to their active pane, so exactly one nvim
 ;; across the system should report 1 at any given moment.
 
+;; PATH prefix for subprocesses that need Homebrew-installed or /usr/sbin
+;; tools. GUI-launched Modaliser inherits a minimal path_helper PATH that
+;; excludes both /opt/homebrew/bin (Apple Silicon), /usr/local/bin (Intel)
+;; — though the latter is sometimes present — and /usr/sbin (where lsof
+;; lives). Prepending here is deterministic and doesn't depend on the
+;; user's interactive shell config. Update when adding tools from other
+;; locations.
+(define modaliser-tool-path
+  "/opt/homebrew/bin:/usr/local/bin:/usr/sbin")
+
 ;; Return a list of Unix-socket paths bound by running nvim processes.
 (define (list-nvim-sockets)
   (let ((out (run-shell
                (string-append
+                 "export PATH=" modaliser-tool-path ":$PATH; "
                  "for pid in $(pgrep -x nvim); do "
                  "  lsof -p $pid -a -U -Fn 2>/dev/null "
                  "  | awk '/^n\\// {print substr($0,2)}'; "
@@ -90,6 +101,7 @@
 (define (nvim-server-focused? sock)
   (let ((out (run-shell
                (string-append
+                 "export PATH=" modaliser-tool-path ":$PATH; "
                  "nvim --server " sock
                  " --remote-expr 'get(g:, \"modaliser_focused\", 0)'"
                  " </dev/null 2>/dev/null"))))
@@ -111,7 +123,8 @@
   (let ((sock (focused-nvim-socket)))
     (when sock
       (run-shell
-        (string-append "nvim --server " sock
+        (string-append "export PATH=" modaliser-tool-path ":$PATH; "
+                       "nvim --server " sock
                        " --remote-send '" keys "'"
                        " </dev/null 2>/dev/null")))))
 
@@ -120,7 +133,8 @@
     (if sock
       (string-trim
         (run-shell
-          (string-append "nvim --server " sock
+          (string-append "export PATH=" modaliser-tool-path ":$PATH; "
+                         "nvim --server " sock
                          " --remote-expr '" expr "'"
                          " </dev/null 2>/dev/null")))
       #f)))
