@@ -263,24 +263,33 @@
       (key "j" "Focus Down"
         (keystroke '(cmd alt) "down")))))
 
+;; Composable "additions" — keep each chunk separate so tree variants can
+;; union them (e.g. zellij+nvim gets both the zellij and nvim tops).
+(define zellij-additions
+  (list (key "z" "Zellij (Ctrl+G)"
+          (keystroke '(ctrl) "g"))))
+
+(define nvim-additions
+  (list (key "w" "Nvim :w (save)"
+          (lambda () (nvim-remote-send ":w<CR>")))))
+
 (apply define-tree 'com.googlecode.iterm2 iterm-bindings)
-
 (apply define-tree 'com.googlecode.iterm2/zellij
-  (append iterm-bindings
-          (list (key "z" "Zellij (Ctrl+G)"
-                  (keystroke '(ctrl) "g")))))
-
-;; Starter nvim tree: inherits iTerm pane bindings, adds one canonical RPC
-;; action as a demonstration. Extend with more (:wa, :bd, telescope open,
-;; harpoon marks, etc.) via nvim-remote-send / nvim-remote-expr.
+  (append iterm-bindings zellij-additions))
 (apply define-tree 'com.googlecode.iterm2/nvim
-  (append iterm-bindings
-          (list (key "w" "Nvim :w (save)"
-                  (lambda () (nvim-remote-send ":w<CR>"))))))
+  (append iterm-bindings nvim-additions))
+(apply define-tree 'com.googlecode.iterm2/zellij+nvim
+  (append iterm-bindings zellij-additions nvim-additions))
 
 ;; Dispatcher hook. Single foreground-process probe, then optional RPC
 ;; scan only when a known multiplexer is in the pane — keeps the typical
 ;; (plain nvim or plain shell) case to one subprocess round.
+;;
+;; Precedence:
+;;   nvim directly in iTerm                 → /nvim
+;;   nvim inside zellij (nvim claims focus) → /zellij+nvim (merged)
+;;   zellij with no focused nvim            → /zellij
+;;   anything else                          → #f (plain iTerm tree)
 (define (local-context-suffix bundle-id)
   (cond
     ((equal? bundle-id "com.googlecode.iterm2")
@@ -290,6 +299,6 @@
          ((string-contains? cmd "nvim") "/nvim")
          ((or (string-contains? cmd "zellij")
               (string-contains? cmd "zj"))
-          (if (focused-nvim-socket) "/nvim" "/zellij"))
+          (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
          (else #f))))
     (else #f)))

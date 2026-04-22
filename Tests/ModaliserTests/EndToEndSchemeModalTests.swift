@@ -279,7 +279,7 @@ struct EndToEndSchemeModalTests {
                      ((string-contains? cmd "nvim") "/nvim")
                      ((or (string-contains? cmd "zellij")
                           (string-contains? cmd "zj"))
-                      (if (focused-nvim-socket) "/nvim" "/zellij"))
+                      (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
                      (else #f))))
                 (else #f)))
             """)
@@ -292,12 +292,12 @@ struct EndToEndSchemeModalTests {
             #expect((ms as String) == "/nvim", "nvim-direct → /nvim, got \(ms)")
         } else { Issue.record("expected string, got \(s1)") }
 
-        // Case 2: zellij foreground, an nvim claims focus → nvim wins.
+        // Case 2: zellij foreground, an nvim claims focus → merged tree.
         try engine.evaluate("(set! mock-fg \"zellij\")")
         try engine.evaluate("(set! mock-focused-nvim \"/tmp/nvim.sock\")")
         let s2 = try engine.evaluate("(local-context-suffix \"com.googlecode.iterm2\")")
         if case .string(let ms) = s2 {
-            #expect((ms as String) == "/nvim", "nvim-in-zellij → /nvim, got \(ms)")
+            #expect((ms as String) == "/zellij+nvim", "nvim-in-zellij → /zellij+nvim, got \(ms)")
         } else { Issue.record("expected string, got \(s2)") }
 
         // Case 3: zellij foreground, no nvim claims focus → zellij tree.
