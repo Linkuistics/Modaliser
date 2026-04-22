@@ -252,6 +252,120 @@ struct EndToEndSchemeModalTests {
         try engine.evaluate("(set! mock-cmd #f)")
         #expect(try engine.evaluate("(iterm-running-zellij?)") == .false)
     }
+
+    @Test func itermSubscopePrecedenceNvimOverZellij() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("Scheme directory not found")
+            return
+        }
+        try engine.evaluateFile(joinPath(schemePath, "lib/terminal.scm"))
+
+        // Install Scheme-level stubs for the two environmental probes, then
+        // mirror the exact body of local-context-suffix from the user
+        // config. If the shape ever diverges, this test will drift from the
+        // real behavior — keep it in sync with config.scm.
+        try engine.evaluate("""
+            (define mock-fg #f)
+            (define mock-focused-nvim #f)
+            (define (focused-terminal-foreground-command) mock-fg)
+            (define (focused-nvim-socket) mock-focused-nvim)
+            (define (local-context-suffix bundle-id)
+              (cond
+                ((equal? bundle-id "com.googlecode.iterm2")
+                 (let ((cmd (focused-terminal-foreground-command)))
+                   (cond
+                     ((not cmd) #f)
+                     ((string-contains? cmd "nvim") "/nvim")
+                     ((or (string-contains? cmd "zellij")
+                          (string-contains? cmd "zj"))
+                      (if (focused-nvim-socket) "/nvim" "/zellij"))
+                     (else #f))))
+                (else #f)))
+            """)
+
+        // Case 1: nvim directly in iTerm — fast path, no RPC.
+        try engine.evaluate("(set! mock-fg \"nvim\")")
+        try engine.evaluate("(set! mock-focused-nvim #f)")
+        let s1 = try engine.evaluate("(local-context-suffix \"com.googlecode.iterm2\")")
+        if case .string(let ms) = s1 {
+            #expect((ms as String) == "/nvim", "nvim-direct → /nvim, got \(ms)")
+        } else { Issue.record("expected string, got \(s1)") }
+
+        // Case 2: zellij foreground, an nvim claims focus → nvim wins.
+        try engine.evaluate("(set! mock-fg \"zellij\")")
+        try engine.evaluate("(set! mock-focused-nvim \"/tmp/nvim.sock\")")
+        let s2 = try engine.evaluate("(local-context-suffix \"com.googlecode.iterm2\")")
+        if case .string(let ms) = s2 {
+            #expect((ms as String) == "/nvim", "nvim-in-zellij → /nvim, got \(ms)")
+        } else { Issue.record("expected string, got \(s2)") }
+
+        // Case 3: zellij foreground, no nvim claims focus → zellij tree.
+        try engine.evaluate("(set! mock-fg \"zellij\")")
+        try engine.evaluate("(set! mock-focused-nvim #f)")
+        let s3 = try engine.evaluate("(local-context-suffix \"com.googlecode.iterm2\")")
+        if case .string(let ms) = s3 {
+            #expect((ms as String) == "/zellij", "zellij-only → /zellij, got \(ms)")
+        } else { Issue.record("expected string, got \(s3)") }
+
+        // Case 4: plain shell, nothing special.
+        try engine.evaluate("(set! mock-fg \"-zsh\")")
+        try engine.evaluate("(set! mock-focused-nvim #f)")
+        #expect(try engine.evaluate("(local-context-suffix \"com.googlecode.iterm2\")") == .false,
+                "plain shell → #f")
+
+        // Case 5: foreground probe failed (iTerm AppleScript refused etc.).
+        try engine.evaluate("(set! mock-fg #f)")
+        #expect(try engine.evaluate("(local-context-suffix \"com.googlecode.iterm2\")") == .false,
+                "probe-failed → #f")
+
+        // Case 6: non-iTerm app, suffix always #f regardless of terminal state.
+        try engine.evaluate("(set! mock-fg \"nvim\")")
+        #expect(try engine.evaluate("(local-context-suffix \"dev.zed.Zed\")") == .false,
+                "non-iTerm bundle-id → #f")
+    }
+
+    @Test func focusedNvimSocketReturnsFirstClaimant() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("Scheme directory not found")
+            return
+        }
+        try engine.evaluateFile(joinPath(schemePath, "lib/terminal.scm"))
+
+        // Stub out the two pieces that shell out, then exercise the
+        // scanning loop in focused-nvim-socket.
+        try engine.evaluate("""
+            (define mock-socks '())
+            (define mock-focused-sock #f)
+            (define (list-nvim-sockets) mock-socks)
+            (define (nvim-server-focused? s)
+              (and mock-focused-sock (string=? s mock-focused-sock)))
+            """)
+
+        // No nvims → #f.
+        #expect(try engine.evaluate("(focused-nvim-socket)") == .false)
+
+        // One nvim, claims focus.
+        try engine.evaluate("(set! mock-socks '(\"/tmp/a.sock\"))")
+        try engine.evaluate("(set! mock-focused-sock \"/tmp/a.sock\")")
+        let s1 = try engine.evaluate("(focused-nvim-socket)")
+        if case .string(let ms) = s1 {
+            #expect((ms as String) == "/tmp/a.sock")
+        } else { Issue.record("expected string, got \(s1)") }
+
+        // Two nvims, only the second claims focus.
+        try engine.evaluate("(set! mock-socks '(\"/tmp/a.sock\" \"/tmp/b.sock\"))")
+        try engine.evaluate("(set! mock-focused-sock \"/tmp/b.sock\")")
+        let s2 = try engine.evaluate("(focused-nvim-socket)")
+        if case .string(let ms) = s2 {
+            #expect((ms as String) == "/tmp/b.sock")
+        } else { Issue.record("expected string, got \(s2)") }
+
+        // Two nvims, none claims focus.
+        try engine.evaluate("(set! mock-focused-sock #f)")
+        #expect(try engine.evaluate("(focused-nvim-socket)") == .false)
+    }
 }
 
 private func joinPath(_ base: String, _ component: String) -> String {

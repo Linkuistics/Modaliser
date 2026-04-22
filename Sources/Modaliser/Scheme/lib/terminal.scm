@@ -46,3 +46,73 @@
   (cond
     ((focused-iterm-tty) => tty-foreground-command)
     (else #f)))
+
+;; ─── Neovim RPC discovery ─────────────────────────────────────────────
+;;
+;; Every running nvim binds a Unix socket (its msgpack-RPC server). macOS
+;; lsof only emits the socket path when scoped to a specific pid — globally
+;; it shows peer-pointer aliases — so we pgrep nvim and scan each process.
+;;
+;; Focus disambiguation (multiple nvim instances, or nvim nested inside a
+;; multiplexer): each nvim exposes its own belief about terminal focus via
+;; the user-maintained global g:modaliser_focused, updated by FocusGained /
+;; FocusLost autocmds. Modern terminals (iTerm2, zellij, tmux) forward the
+;; xterm focus-reporting escapes to their active pane, so exactly one nvim
+;; across the system should report 1 at any given moment.
+
+;; Return a list of Unix-socket paths bound by running nvim processes.
+(define (list-nvim-sockets)
+  (let ((out (run-shell
+               (string-append
+                 "for pid in $(pgrep -x nvim); do "
+                 "  lsof -p $pid -a -U -Fn 2>/dev/null "
+                 "  | awk '/^n\\// {print substr($0,2)}'; "
+                 "done | sort -u"))))
+    (let loop ((lines (string-split out "\n")) (acc '()))
+      (cond
+        ((null? lines) (reverse acc))
+        (else
+          (let ((s (string-trim (car lines))))
+            (loop (cdr lines)
+                  (if (string=? s "") acc (cons s acc)))))))))
+
+;; True if the nvim at SOCK reports g:modaliser_focused == 1. The `get`
+;; form treats a missing variable as 0, so unconfigured nvim instances
+;; simply register as not-focused rather than producing a Vim error.
+(define (nvim-server-focused? sock)
+  (let ((out (run-shell
+               (string-append
+                 "nvim --server " sock
+                 " --remote-expr 'get(g:, \"modaliser_focused\", 0)'"
+                 " 2>/dev/null"))))
+    (string=? (string-trim out) "1")))
+
+;; Return the socket of the focused nvim (direct, or via a multiplexer), or
+;; #f if no running nvim claims focus. O(n) RPC calls in the worst case,
+;; but typical n is 1–2.
+(define (focused-nvim-socket)
+  (let loop ((socks (list-nvim-sockets)))
+    (cond
+      ((null? socks) #f)
+      ((nvim-server-focused? (car socks)) (car socks))
+      (else (loop (cdr socks))))))
+
+;; Helpers for bindings to act on the focused nvim without refetching the
+;; socket each time at the call site.
+(define (nvim-remote-send keys)
+  (let ((sock (focused-nvim-socket)))
+    (when sock
+      (run-shell
+        (string-append "nvim --server " sock
+                       " --remote-send '" keys "'"
+                       " 2>/dev/null")))))
+
+(define (nvim-remote-expr expr)
+  (let ((sock (focused-nvim-socket)))
+    (if sock
+      (string-trim
+        (run-shell
+          (string-append "nvim --server " sock
+                         " --remote-expr '" expr "'"
+                         " 2>/dev/null")))
+      #f)))

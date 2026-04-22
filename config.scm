@@ -222,10 +222,27 @@
 
 ;; iTerm (F17 when iTerm is focused)
 ;;
-;; Two trees are registered: the plain iTerm tree, and a "/zellij" variant
-;; that is selected by local-context-suffix when zellij is the foreground
-;; process on iTerm's focused pane. The zellij variant adds a "z" key that
-;; sends Ctrl+G to hand control to zellij's own modal/which-key.
+;; Three trees are registered: the plain iTerm tree, a "/zellij" variant,
+;; and a "/nvim" variant. local-context-suffix picks between them based on
+;; what's actually running in the focused pane. Precedence: nvim wins over
+;; zellij (so nvim-inside-zellij routes to /nvim), zellij wins over plain.
+;;
+;; Nvim focus detection (including nvim-inside-zellij) requires each nvim
+;; to maintain the global g:modaliser_focused, which flips to 1 on
+;; FocusGained and 0 on FocusLost. Nvim fires the events but doesn't
+;; cache the state anywhere queryable via RPC, so we have to stash it
+;; ourselves. On a LazyVim setup drop this into
+;; ~/.config/nvim/lua/config/autocmds.lua (elsewhere just put it in
+;; init.lua):
+;;
+;;   vim.g.modaliser_focused = 1
+;;   vim.api.nvim_create_autocmd('FocusGained',
+;;     { callback = function() vim.g.modaliser_focused = 1 end })
+;;   vim.api.nvim_create_autocmd('FocusLost',
+;;     { callback = function() vim.g.modaliser_focused = 0 end })
+;;
+;; iTerm2 and zellij both forward xterm focus-reporting escapes by
+;; default, so exactly one nvim across the system reports 1 at any time.
 
 (define iterm-bindings
   (list
@@ -253,21 +270,26 @@
           (list (key "z" "Zellij (Ctrl+G)"
                   (keystroke '(ctrl) "g")))))
 
-;; True when iTerm's focused pane has zellij (or the `zj` wrapper) as its
-;; foreground process. Only called when iTerm is the focused app, so it
-;; can't false-positive against zellij running in an unfocused window.
-(define (iterm-running-zellij?)
-  (let ((cmd (focused-terminal-foreground-command)))
-    (and cmd
-         (or (string-contains? cmd "zellij")
-             (string-contains? cmd "zj")))))
+;; Starter nvim tree: inherits iTerm pane bindings, adds one canonical RPC
+;; action as a demonstration. Extend with more (:wa, :bd, telescope open,
+;; harpoon marks, etc.) via nvim-remote-send / nvim-remote-expr.
+(apply define-tree 'com.googlecode.iterm2/nvim
+  (append iterm-bindings
+          (list (key "w" "Nvim :w (save)"
+                  (lambda () (nvim-remote-send ":w<CR>"))))))
 
-;; Dispatcher hook: return a suffix to append to the bundle-id before tree
-;; lookup. Used by event-dispatch.scm; returning #f falls through to the
-;; plain bundle-id tree.
+;; Dispatcher hook. Single foreground-process probe, then optional RPC
+;; scan only when a known multiplexer is in the pane — keeps the typical
+;; (plain nvim or plain shell) case to one subprocess round.
 (define (local-context-suffix bundle-id)
   (cond
-    ((and (equal? bundle-id "com.googlecode.iterm2")
-          (iterm-running-zellij?))
-     "/zellij")
+    ((equal? bundle-id "com.googlecode.iterm2")
+     (let ((cmd (focused-terminal-foreground-command)))
+       (cond
+         ((not cmd) #f)
+         ((string-contains? cmd "nvim") "/nvim")
+         ((or (string-contains? cmd "zellij")
+              (string-contains? cmd "zj"))
+          (if (focused-nvim-socket) "/nvim" "/zellij"))
+         (else #f))))
     (else #f)))
