@@ -35,6 +35,7 @@ struct OverlayIntegrationTests {
               (set! webview-set-html-calls (cons (cons id html) webview-set-html-calls)))
             (define (webview-on-message id handler)
               (hashtable-set! webview-message-handlers id handler))
+            ;; Test-only: simulate the Swift side delivering a panel message.
             (define (webview-dispatch-message id msg)
               (let ((h (hashtable-ref webview-message-handlers id #f)))
                 (when h (h msg))))
