@@ -26,12 +26,18 @@ struct OverlayIntegrationTests {
             (define webview-create-calls '())
             (define webview-close-calls '())
             (define webview-set-html-calls '())
+            (define webview-message-handlers (make-hashtable string-hash string=?))
             (define (webview-create id opts)
               (set! webview-create-calls (cons id webview-create-calls)) id)
             (define (webview-close id)
               (set! webview-close-calls (cons id webview-close-calls)))
             (define (webview-set-html! id html)
               (set! webview-set-html-calls (cons (cons id html) webview-set-html-calls)))
+            (define (webview-on-message id handler)
+              (hashtable-set! webview-message-handlers id handler))
+            (define (webview-dispatch-message id msg)
+              (let ((h (hashtable-ref webview-message-handlers id #f)))
+                (when h (h msg))))
             """)
 
         let files = [
@@ -244,6 +250,26 @@ struct OverlayIntegrationTests {
 
         // Press 'x' which has no binding → should exit and close overlay
         try engine.evaluate("(modal-key-handler 7 0)")  // keycode 7 = 'x'
+        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
+
+    @Test func overlayCancelMessageExitsModal() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("""
+            (define-tree 'global
+              (key "s" "Safari" (lambda () 'ok)))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        // Simulate the Swift side sending a cancel message for an outside click.
+        try engine.evaluate("""
+            (webview-dispatch-message "modaliser-overlay" '((type . "cancel")))
+            """)
+
         #expect(try engine.evaluate("overlay-open?") == .false)
         #expect(try engine.evaluate("modal-active?") == .false)
     }

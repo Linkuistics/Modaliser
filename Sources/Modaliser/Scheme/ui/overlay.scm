@@ -175,6 +175,13 @@
 
 ;; ─── Overlay Lifecycle (Side-Effecting) ───────────────────────
 
+;; Handle messages posted from the overlay panel. Currently the only
+;; message is {type: "cancel"} sent by WebViewManager when the user clicks
+;; outside the panel — exit the modal so the overlay hides.
+(define (overlay-message-handler msg)
+  (when (equal? (alist-ref msg 'type "") "cancel")
+    (modal-exit)))
+
 ;; (show-overlay node path) — create panel if needed, render content
 (define (show-overlay node path)
   (unless overlay-open?
@@ -185,6 +192,7 @@
             (cons 'floating #t)
             (cons 'transparent #t)
             (cons 'shadow #t)))
+    (webview-on-message overlay-webview-id overlay-message-handler)
     (set! overlay-open? #t))
   (webview-set-html! overlay-webview-id
     (render-overlay-html node path)))
