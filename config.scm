@@ -7,6 +7,10 @@
 (set-leader! 'global F18)
 (set-leader! 'local F17)
 
+;; Overlay delay: seconds before the which-key hint panel appears after
+;; pressing the leader. 0 shows it immediately. Default is 1.0.
+;; (set-overlay-delay! 0.5)
+
 ;; Helper: open a URL
 (define (open-url-action url)
   (lambda () (open-url url)))
