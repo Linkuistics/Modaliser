@@ -248,6 +248,18 @@ struct OverlayIntegrationTests {
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
+    // MARK: - Delay configuration
+
+    @Test func setOverlayDelayUpdatesVariable() throws {
+        let engine = try loadAllModules()
+        // loadAllModules sets modal-overlay-delay to 0 as a side effect.
+        try engine.evaluate("(set-overlay-delay! 0.75)")
+        #expect(try engine.evaluate("modal-overlay-delay") == .flonum(0.75))
+
+        try engine.evaluate("(set-overlay-delay! 0)")
+        #expect(try engine.evaluate("modal-overlay-delay") == .fixnum(0))
+    }
+
     // MARK: - Overlay HTML content verification
 
     @Test func overlayContentMatchesCurrentPosition() throws {
