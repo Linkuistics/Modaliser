@@ -11,6 +11,7 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
     private var messageHandlers: [String: (Any) -> Void] = [:]
     private var resignObservers: [String: NSObjectProtocol] = [:]
     private var previousApps: [String: NSRunningApplication] = [:]
+    private var mouseMonitors: [String: Any] = [:]
 
     /// Create a WebView-backed panel with the given options.
     func createPanel(
@@ -88,6 +89,18 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
             resignObservers[id] = observer
         } else {
             panel.orderFront(nil)
+            // Non-activating panels never become key, so resignKey never fires.
+            // Use a global mouse-down monitor to detect clicks in other apps and
+            // dispatch the same {type: "cancel"} message activating panels send.
+            let panelId = id
+            let monitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+            ) { [weak self] _ in
+                self?.messageHandlers[panelId]?(["type": "cancel"])
+            }
+            if let monitor {
+                mouseMonitors[id] = monitor
+            }
         }
         panels[id] = panel
         webViews[id] = webView
@@ -100,6 +113,9 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
         }
         if let observer = resignObservers.removeValue(forKey: id) {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let monitor = mouseMonitors.removeValue(forKey: id) {
+            NSEvent.removeMonitor(monitor)
         }
         panels[id]?.orderOut(nil)
         panels[id]?.close()
