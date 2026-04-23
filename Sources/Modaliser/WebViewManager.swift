@@ -92,7 +92,9 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
             // Non-activating panels never become key, so resignKey never fires.
             // Use a global mouse-down monitor to detect clicks in other apps and
             // dispatch the same {type: "cancel"} message activating panels send.
-            let panelId = id
+            // Returns nil if Input Monitoring is not granted; close-outside is
+            // silently disabled in that case (see NSLog below).
+            let panelId = id  // copy for closure capture; same pattern as resignObservers above
             let monitor = NSEvent.addGlobalMonitorForEvents(
                 matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
             ) { [weak self] _ in
@@ -100,6 +102,8 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
             }
             if let monitor {
                 mouseMonitors[id] = monitor
+            } else {
+                NSLog("WebViewManager: addGlobalMonitorForEvents returned nil — Input Monitoring permission may not be granted; outside-click dismissal disabled for panel '%@'", id)
             }
         }
         panels[id] = panel
