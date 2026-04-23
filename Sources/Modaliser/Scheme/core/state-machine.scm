@@ -89,8 +89,8 @@
 (define modal-overlay-generation 0) ;; generation counter for delayed overlay show
 (define modal-overlay-delay 1.0)    ;; seconds before overlay appears (0 = immediate)
 
-;; Public setter: call from user config to adjust the which-key overlay delay.
-;; 0 shows the overlay immediately. Typical values: 0.3–1.0 seconds.
+;; (set-overlay-delay! seconds) — set the which-key overlay delay.
+;; 0 shows the overlay immediately; typical values are 0.3–1.0 seconds.
 (define (set-overlay-delay! seconds)
   (set! modal-overlay-delay seconds))
 

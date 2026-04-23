@@ -252,10 +252,11 @@ struct OverlayIntegrationTests {
 
     @Test func setOverlayDelayUpdatesVariable() throws {
         let engine = try loadAllModules()
-        // loadAllModules sets modal-overlay-delay to 0 as a side effect.
+        // loadAllModules forces modal-overlay-delay to 0 for synchronous testing.
         try engine.evaluate("(set-overlay-delay! 0.75)")
         #expect(try engine.evaluate("modal-overlay-delay") == .flonum(0.75))
 
+        // Scheme literal 0 is a fixnum; the setter stores it as-is.
         try engine.evaluate("(set-overlay-delay! 0)")
         #expect(try engine.evaluate("modal-overlay-delay") == .fixnum(0))
     }
