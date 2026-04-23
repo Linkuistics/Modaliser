@@ -255,6 +255,25 @@ struct OverlayIntegrationTests {
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
+    @Test func modalExitIsIdempotent() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("""
+            (define-tree 'global
+              (key "s" "Safari" (lambda () 'ok)))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-exit)")
+        #expect(try engine.evaluate("modal-active?") == .false)
+
+        // Second exit while already inactive must be a no-op.
+        let genBefore = try engine.evaluate("modal-overlay-generation")
+        try engine.evaluate("(modal-exit)")
+        #expect(try engine.evaluate("modal-active?") == .false)
+        // Generation counter should NOT change (no spurious cancellation of a pending show).
+        #expect(try engine.evaluate("modal-overlay-generation") == genBefore)
+    }
+
     @Test func overlayCancelMessageExitsModal() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""

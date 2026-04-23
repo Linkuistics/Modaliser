@@ -127,15 +127,17 @@
     (modal-show-overlay-delayed)))
 
 ;; Exit modal mode. Deregisters catch-all and hides overlay.
+;; Idempotent: a second call after the modal is already inactive is a no-op.
 (define (modal-exit)
-  (set! modal-overlay-generation (+ modal-overlay-generation 1))
-  (unregister-all-keys!)
-  (hide-overlay)
-  (set! modal-active? #f)
-  (set! modal-current-node #f)
-  (set! modal-root-node #f)
-  (set! modal-current-path '())
-  (set! modal-leader-keycode #f))
+  (when modal-active?
+    (set! modal-overlay-generation (+ modal-overlay-generation 1))
+    (unregister-all-keys!)
+    (hide-overlay)
+    (set! modal-active? #f)
+    (set! modal-current-node #f)
+    (set! modal-root-node #f)
+    (set! modal-current-path '())
+    (set! modal-leader-keycode #f)))
 
 ;; Handle a character key press while modal is active.
 ;; Side-effecting: directly calls actions, updates overlay, etc.
