@@ -1,0 +1,11 @@
+name: Modaliser
+slug: modaliser
+tagline: Scheme-scriptable modal keyboard system for macOS.
+summary: |
+  Press a leader key to enter a command tree, then type key sequences to launch apps,
+  manage windows, run shell commands, search files, and more. Configuration is written
+  in Scheme via LispKit — actions are lambdas, and users can define helper functions inline.
+status: active
+github_url: https://github.com/Linkuistics/Modaliser
+tags: [utility, macos, scheme]
+versioning: none
