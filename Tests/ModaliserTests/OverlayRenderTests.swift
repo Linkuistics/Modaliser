@@ -383,4 +383,26 @@ struct OverlayRenderTests {
         #expect(js.contains("Global"))
         #expect(!js.contains("\"label\":"))
     }
+
+    @Test func renderOverlayHtmlIncludesHostCssWhenColoursSet() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate(
+            "(set-host-header! 'name \"x\" 'background \"#abc\" 'foreground \"#def\")")
+        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("x" "Global") '())
+            """).asString()
+        #expect(html.contains("--color-host-bg: #abc"))
+        #expect(html.contains("--color-host-fg: #def"))
+    }
+
+    @Test func renderOverlayHtmlOmitsHostCssWhenNotSet() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("Global") '())
+            """).asString()
+        #expect(!html.contains("--color-host-bg"))
+        #expect(!html.contains("--color-host-fg"))
+    }
 }

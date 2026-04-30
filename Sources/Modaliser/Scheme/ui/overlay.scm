@@ -104,9 +104,12 @@
 ;; (render-overlay-html node root-segments path) → full HTML document string
 ;; Pure function. Includes overlay.js for incremental updates.
 (define (render-overlay-html node root-segments path)
-  (let ((css (if (string=? overlay-custom-css "")
-               overlay-base-css
-               (string-append overlay-base-css "\n" overlay-custom-css))))
+  (let ((css (string-append overlay-base-css
+                            (if (string=? overlay-custom-css "")
+                              ""
+                              (string-append "\n" overlay-custom-css))
+                            "\n"
+                            (host-header-css))))
     (html-document
       (make-raw-html
         (string-append
