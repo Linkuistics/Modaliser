@@ -21,4 +21,14 @@ final class ModaliserAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         NSLog("Modaliser shutting down")
     }
+
+    /// If we're inside a modal session (e.g. the permission onboarding panel), stop it
+    /// so the run loop can unwind cleanly. Required for system-initiated quits such as
+    /// the "Quit & Reopen" prompt that macOS shows after granting Screen Recording.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if NSApp.modalWindow != nil {
+            NSApp.stopModal()
+        }
+        return .terminateNow
+    }
 }

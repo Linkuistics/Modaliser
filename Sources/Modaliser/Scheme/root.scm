@@ -22,9 +22,14 @@
 
 ;; ─── App setup ────────────────────────────────────────────────────
 
+;; Block until every required permission is granted. If any is missing on
+;; first run (or after a revoke), this presents the onboarding window and
+;; either relaunches the app once the user grants them, or terminates if
+;; the user closes the window. By the line below this call, all listed
+;; permissions are guaranteed to be granted.
+(ensure-permissions! '(accessibility screen-recording))
+
 (set-activation-policy! 'accessory)
-(request-accessibility!)
-(request-screen-recording!)
 
 ;; ─── Config path ─────────────────────────────────────────────────
 

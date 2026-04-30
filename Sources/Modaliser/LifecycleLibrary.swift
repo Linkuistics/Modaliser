@@ -6,8 +6,7 @@ import LispKit
 /// Scheme name: (modaliser lifecycle)
 ///
 /// Provides: set-activation-policy!, create-status-item!, update-status-item!,
-/// remove-status-item!, request-accessibility!, request-screen-recording!,
-/// relaunch!, quit!
+/// remove-status-item!, ensure-permissions!, relaunch!, quit!, after-delay
 ///
 /// Scheme calls these during initialization to set up the app — activation policy,
 /// menu bar, permissions. This establishes the model for writing desktop apps in Scheme.
@@ -16,6 +15,7 @@ final class LifecycleLibrary: NativeLibrary {
     private var statusItems: [Int64: NSStatusItem] = [:]
     private var menuActionHandlers: [ObjectIdentifier: Expr] = [:]
     private var nextStatusItemId: Int64 = 1
+    private var onboarding: PermissionOnboardingWindow?
 
     public required init(in context: Context) throws {
         try super.init(in: context)
@@ -34,8 +34,7 @@ final class LifecycleLibrary: NativeLibrary {
         self.define(Procedure("create-status-item!", createStatusItemFunction))
         self.define(Procedure("update-status-item!", updateStatusItemFunction))
         self.define(Procedure("remove-status-item!", removeStatusItemFunction))
-        self.define(Procedure("request-accessibility!", requestAccessibilityFunction))
-        self.define(Procedure("request-screen-recording!", requestScreenRecordingFunction))
+        self.define(Procedure("ensure-permissions!", ensurePermissionsFunction))
         self.define(Procedure("relaunch!", relaunchFunction))
         self.define(Procedure("quit!", quitFunction))
         self.define(Procedure("after-delay", afterDelayFunction))
@@ -121,24 +120,86 @@ final class LifecycleLibrary: NativeLibrary {
 
     // MARK: - Permissions
 
-    /// (request-accessibility!) → boolean
-    private func requestAccessibilityFunction() -> Expr {
-        AccessibilityPermission.requestIfNeeded() ? .true : .false
-    }
-
-    /// (request-screen-recording!) → boolean
-    private func requestScreenRecordingFunction() -> Expr {
-        if CGPreflightScreenCaptureAccess() {
-            return .true
+    /// (ensure-permissions! '(accessibility screen-recording)) → void
+    ///
+    /// Blocks until every listed permission has been surfaced to the user via the
+    /// appropriate flow. Permissions split into two classes:
+    ///
+    ///   - **Pollable** (Accessibility, Input Monitoring): grant state updates live
+    ///     in this process. Handled by our onboarding panel — shows status dots,
+    ///     deep-link buttons, polls until all are granted, then auto-relaunches.
+    ///
+    ///   - **System-prompt** (Screen Recording): TCC state is cached per-process,
+    ///     so we can't observe a grant in the running process. macOS provides its
+    ///     own prompt with an "Open System Settings" CTA and handles the post-grant
+    ///     "Quit & Reopen" flow. We just trigger the prompt and let the OS drive.
+    ///
+    /// On the already-granted path this returns immediately. When the panel runs,
+    /// control typically does not come back to Scheme — the process either
+    /// relaunches (all pollable granted) or terminates (user closed the panel).
+    /// The OS Screen Recording prompt is fire-and-forget; we proceed regardless of
+    /// the user's choice (a denial just means degraded window-switcher titles).
+    private func ensurePermissionsFunction(_ list: Expr) throws -> Expr {
+        var permissions: [RequiredPermission] = []
+        var current = list
+        while case .pair(let head, let tail) = current {
+            guard case .symbol(let sym) = head else {
+                throw RuntimeError.type(head, expected: [.symbolType])
+            }
+            guard let permission = RequiredPermission.parse(symbol: sym.identifier) else {
+                throw RuntimeError.custom(
+                    "eval",
+                    "ensure-permissions!: unknown permission '\(sym.identifier)'. Expected: accessibility, screen-recording",
+                    []
+                )
+            }
+            permissions.append(permission)
+            current = tail
         }
-        CGRequestScreenCaptureAccess()
-        return CGPreflightScreenCaptureAccess() ? .true : .false
+
+        // Step 1: pollable permissions (panel-driven).
+        let pollable = permissions.filter { $0 != .screenRecording }
+        let missingPollable = pollable.filter { !$0.isGranted }
+        if !missingPollable.isEmpty {
+            for permission in missingPollable {
+                permission.registerWithTCC()
+            }
+            // Onboarding needs the app to be a foreground citizen so the window can
+            // take focus and show up in Cmd-Tab. Restored to .accessory in root.scm
+            // after the gate clears.
+            NSApp.setActivationPolicy(.regular)
+            let window = PermissionOnboardingWindow(permissions: missingPollable) {
+                Self.performRelaunch()
+            }
+            self.onboarding = window
+            window.runModal()
+            // window.runModal returns only on programmatic stopModal (which we don't
+            // call) or terminate. In practice the process is relaunching or quitting
+            // by the time control reaches here.
+            return .void
+        }
+
+        // Step 2: system-prompt permissions. Fire and forget — the OS owns the UI
+        // and the post-grant restart flow. applicationShouldTerminate handles the
+        // modal-unwind side of macOS's "Quit & Reopen" cleanly.
+        for permission in permissions where permission == .screenRecording && !permission.isGranted {
+            permission.registerWithTCC()
+        }
+
+        return .void
     }
 
     // MARK: - App lifecycle
 
     /// (relaunch!) → void
-    private func relaunchFunction() throws -> Expr {
+    private func relaunchFunction() -> Expr {
+        Self.performRelaunch()
+        return .void
+    }
+
+    /// Spawn a sibling process and terminate the current one. Used by both relaunch!
+    /// and the permission-granted exit path inside the onboarding window.
+    static func performRelaunch() {
         let bundlePath = Bundle.main.bundlePath
         let executable = ProcessInfo.processInfo.arguments[0]
 
@@ -152,9 +213,12 @@ final class LifecycleLibrary: NativeLibrary {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            NSLog("LifecycleLibrary: failed to spawn relaunch process: %@", "\(error)")
+        }
         NSApp.terminate(nil)
-        return .void
     }
 
     /// (quit!) → void
