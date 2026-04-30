@@ -104,6 +104,36 @@ enum WindowManipulator {
 
     // MARK: - Private
 
+    /// Diagnostic file at ~/Library/Logs/Modaliser/window.log. We can't rely
+    /// on NSLog reaching the unified log on every machine (some MDM-managed
+    /// hosts suppress process logs), so we tee diagnostics to a file as well.
+    private static let diagLogURL: URL = {
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/Modaliser", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("window.log")
+    }()
+
+    private static let diagFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static func diag(_ message: String) {
+        NSLog("%@", message)
+        let line = "\(diagFormatter.string(from: Date())) \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if FileManager.default.fileExists(atPath: diagLogURL.path),
+           let handle = try? FileHandle(forWritingTo: diagLogURL) {
+            handle.seekToEndOfFile()
+            try? handle.write(contentsOf: data)
+            try? handle.close()
+        } else {
+            try? data.write(to: diagLogURL)
+        }
+    }
+
     /// Convert an NSScreen's visibleFrame from Cocoa coordinates (bottom-left origin)
     /// to screen coordinates (top-left origin) used by the Accessibility API.
     private static func axVisibleFrame(for screen: NSScreen) -> CGRect {
@@ -171,7 +201,7 @@ enum WindowManipulator {
         }
         let app = AXUIElementCreateApplication(pid)
         let wasEnhanced = (axAttribute(app, "AXEnhancedUserInterface") as? Bool) ?? false
-        NSLog("WindowManipulator: pid=%d EUI=%@", pid, wasEnhanced ? "true" : "false")
+        diag("WindowManipulator: pid=\(pid) EUI=\(wasEnhanced)")
         if wasEnhanced {
             AXUIElementSetAttributeValue(
                 app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
@@ -189,10 +219,7 @@ enum WindowManipulator {
         if let value = AXValueCreate(.cgPoint, &point) {
             let err = AXUIElementSetAttributeValue(
                 window, kAXPositionAttribute as CFString, value)
-            if err != .success {
-                NSLog("WindowManipulator: AXSetAttributeValue(position) error: %d",
-                      err.rawValue)
-            }
+            diag("WindowManipulator: setPosition x=\(x) y=\(y) err=\(err.rawValue)")
         }
     }
 
@@ -201,10 +228,7 @@ enum WindowManipulator {
         if let value = AXValueCreate(.cgSize, &size) {
             let err = AXUIElementSetAttributeValue(
                 window, kAXSizeAttribute as CFString, value)
-            if err != .success {
-                NSLog("WindowManipulator: AXSetAttributeValue(size) error: %d",
-                      err.rawValue)
-            }
+            diag("WindowManipulator: setSize w=\(width) h=\(height) err=\(err.rawValue)")
         }
     }
 
