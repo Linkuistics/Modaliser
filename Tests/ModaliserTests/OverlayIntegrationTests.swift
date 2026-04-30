@@ -112,7 +112,7 @@ struct OverlayIntegrationTests {
 
         // Verify we can render the current overlay content (path should be ("w"))
         let html = try engine.evaluate("""
-            (render-overlay-html modal-root-node modal-current-path)
+            (render-overlay-html modal-root-node modal-root-segments modal-current-path)
             """).asString()
         #expect(html.contains("Center"))
         #expect(html.contains("Maximize"))
@@ -157,7 +157,7 @@ struct OverlayIntegrationTests {
 
         // Overlay should now show root entries again
         let html = try engine.evaluate("""
-            (render-overlay-html modal-root-node modal-current-path)
+            (render-overlay-html modal-root-node modal-root-segments modal-current-path)
             """).asString()
         #expect(html.contains("Safari"))
         #expect(html.contains("Windows"))
@@ -321,7 +321,7 @@ struct OverlayIntegrationTests {
 
         // At root: should show "s" and "w" entries
         let rootHtml = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '())
+            (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
         #expect(rootHtml.contains("Safari"))
         #expect(rootHtml.contains("Windows"))
@@ -329,7 +329,7 @@ struct OverlayIntegrationTests {
 
         // After navigating into group: should show "c" and "f"
         let groupHtml = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("w"))
+            (render-overlay-html (lookup-tree "global") '("Global") '("w"))
             """).asString()
         #expect(groupHtml.contains("Center"))
         #expect(groupHtml.contains("Full Screen"))
