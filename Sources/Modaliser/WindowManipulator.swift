@@ -37,7 +37,9 @@ enum WindowManipulator {
 
         let newX = visibleFrame.origin.x + (visibleFrame.width - frame.width) / 2
         let newY = visibleFrame.origin.y + (visibleFrame.height - frame.height) / 2
-        setWindowPosition(window, x: newX, y: newY)
+        withResizableApp(window) {
+            setWindowPosition(window, x: newX, y: newY)
+        }
     }
 
     /// Move the focused window to a unit rectangle (fractions of visible screen).
@@ -58,8 +60,10 @@ enum WindowManipulator {
         let newW = visibleFrame.width * clampedW
         let newH = visibleFrame.height * clampedH
 
-        setWindowPosition(window, x: newX, y: newY)
-        setWindowSize(window, width: newW, height: newH)
+        withResizableApp(window) {
+            setWindowPosition(window, x: newX, y: newY)
+            setWindowSize(window, width: newW, height: newH)
+        }
     }
 
     /// Toggle fullscreen on the focused window.
@@ -84,14 +88,18 @@ enum WindowManipulator {
             AXUIElementSetAttributeValue(window, "AXFullScreen" as CFString, kCFBooleanFalse)
             // Delay to let the fullscreen exit animation complete
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                setWindowPosition(window, x: saved.origin.x, y: saved.origin.y)
-                setWindowSize(window, width: saved.width, height: saved.height)
+                withResizableApp(window) {
+                    setWindowPosition(window, x: saved.origin.x, y: saved.origin.y)
+                    setWindowSize(window, width: saved.width, height: saved.height)
+                }
             }
             return
         }
 
-        setWindowPosition(window, x: saved.origin.x, y: saved.origin.y)
-        setWindowSize(window, width: saved.width, height: saved.height)
+        withResizableApp(window) {
+            setWindowPosition(window, x: saved.origin.x, y: saved.origin.y)
+            setWindowSize(window, width: saved.width, height: saved.height)
+        }
     }
 
     // MARK: - Private
@@ -143,6 +151,30 @@ enum WindowManipulator {
     private static func screenContaining(_ frame: CGRect) -> NSScreen? {
         let center = CGPoint(x: frame.midX, y: frame.midY)
         return NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.main
+    }
+
+    /// Run AX position/size mutations with the owning app's
+    /// AXEnhancedUserInterface flag temporarily disabled. Electron apps and
+    /// some others set this flag — when it's on, `AXUIElementSetAttributeValue`
+    /// for AXSize/AXPosition silently no-ops. The flag is restored to its
+    /// prior value afterward so the app's accessibility behavior is unchanged.
+    private static func withResizableApp(_ window: AXUIElement, _ body: () -> Void) {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(window, &pid) == .success, pid > 0 else {
+            body()
+            return
+        }
+        let app = AXUIElementCreateApplication(pid)
+        let wasEnhanced = (axAttribute(app, "AXEnhancedUserInterface") as? Bool) ?? false
+        if wasEnhanced {
+            AXUIElementSetAttributeValue(
+                app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
+        }
+        body()
+        if wasEnhanced {
+            AXUIElementSetAttributeValue(
+                app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+        }
     }
 
     private static func setWindowPosition(_ window: AXUIElement, x: CGFloat, y: CGFloat) {
