@@ -20,6 +20,18 @@
 (define (keystroke mods key-name)
   (lambda () (send-keystroke mods key-name)))
 
+;; Helper: split the focused WezTerm pane in the given direction
+;; (one of "left", "right", "top", "bottom"). Queries the focused
+;; pane via list-clients first because WEZTERM_PANE is not set when
+;; modaliser shells out from outside any pane.
+(define (wezterm-split direction)
+  (lambda ()
+    (run-shell
+      (string-append
+        "PANE=$(/opt/homebrew/bin/wezterm cli list-clients --format json"
+        " | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)[0][\"focused_pane_id\"])')"
+        " && /opt/homebrew/bin/wezterm cli split-pane --pane-id \"$PANE\" --" direction))))
+
 ;; ─── Global command tree ────────────────────────────────────────────────
 
 (define-tree 'global
@@ -35,10 +47,12 @@
     (lambda () (launch-app "Notes")))
   (key "s" "Safari"
     (lambda () (launch-app "Safari")))
-  (key "t" "Terminal (Ghostty)"
-    (lambda () (launch-app "Ghostty")))
+  (key "t" "Terminal (WezTerm)"
+    (lambda () (launch-app "WezTerm")))
   (key "," "Settings"
-    (lambda () (open-settings!)))
+    (lambda ()
+      (run-shell
+        "/usr/bin/open -a Zed \"$HOME/.config/modaliser/config.scm\" || /usr/bin/open \"$HOME/.config/modaliser/config.scm\"")))
 
   ;; Google search
   (selector "g" "Google Search"
@@ -110,7 +124,7 @@
       (key "b" "GitButler"
         (lambda () (launch-app "GitButler")))
       (key "h" "Ghostty"
-        (lambda () (launch-app "GHostty"))))
+        (lambda () (launch-app "Ghostty"))))
     (group "m" "M"
       (key "a" "Mail"
         (lambda () (launch-app "Mail")))
@@ -129,8 +143,8 @@
         (lambda () (launch-app "Slack"))))
     (key "t" "Telegram"
       (lambda () (launch-app "Telegram")))
-    (key "w" "Wire"
-      (lambda () (launch-app "Wire")))
+    (key "w" "WezTerm"
+      (lambda () (launch-app "WezTerm")))
     (group "z" "Z"
       (key "e" "Zed"
         (lambda () (launch-app "Zed")))
@@ -212,6 +226,47 @@
   (group "t" "Task"
     (key "r" "Run via Palette"
       (keystroke '(cmd shift) "p"))))
+
+;; WezTerm (F17 when WezTerm is focused)
+;;
+;; Mirrors the iTerm-tree shape but uses WezTerm's native bindings. Pane
+;; h/j/k/l fire Alt+hjkl, which routes through the alt_nav callback in
+;; ~/.config/wezterm/wezterm.lua — so they work whether the focused pane
+;; is nvim or a plain shell. Toggle Zoom mirrors the Cmd+Shift+Enter
+;; binding defined there.
+;;
+;; Nvim-aware variants (analogous to com.googlecode.iterm2/nvim) can be
+;; added later by registering com.github.wez.wezterm/nvim and extending
+;; local-context-suffix below. Foreground-process probing in WezTerm can
+;; use `wezterm cli list --format json`.
+(define-tree 'com.github.wez.wezterm
+  (group "t" "Tabs"
+    (key "n" "New Tab"
+      (keystroke '(cmd) "t"))
+    (key "w" "Close Tab"
+      (keystroke '(cmd) "w"))
+    (key "]" "Next Tab"
+      (keystroke '(cmd shift) "]"))
+    (key "[" "Previous Tab"
+      (keystroke '(cmd shift) "[")))
+  (group "p" "Pane"
+    (key "h" "Focus Left"
+      (keystroke '(alt) "h"))
+    (key "j" "Focus Down"
+      (keystroke '(alt) "j"))
+    (key "k" "Focus Up"
+      (keystroke '(alt) "k"))
+    (key "l" "Focus Right"
+      (keystroke '(alt) "l"))
+    (key "z" "Toggle Zoom"
+      (keystroke '(cmd shift) "return"))
+    (group "s" "Split"
+      (key "h" "Split Left"  (wezterm-split "left"))
+      (key "j" "Split Down"  (wezterm-split "bottom"))
+      (key "k" "Split Up"    (wezterm-split "top"))
+      (key "l" "Split Right" (wezterm-split "right"))))
+  (key "s" "Select (Copy Mode)"
+    (keystroke '(ctrl shift) "space")))
 
 ;; iTerm (F17 when iTerm is focused)
 ;;

@@ -45,7 +45,7 @@ swift test
 .build/debug/Modaliser
 ```
 
-On first launch, macOS will prompt for Accessibility and Screen Recording permissions. The app runs as an accessory (no dock icon) with a menu bar icon.
+On first launch, Modaliser presents an onboarding window for Accessibility (with a deep-link button into System Settings, polling for the grant and auto-relaunching when it lands) and then triggers macOS's native Screen Recording prompt (which has its own Open System Settings affordance and Quit & Reopen flow). After both are granted, the app runs as an accessory (no Dock icon) with a menu bar icon.
 
 ## Configuration
 
@@ -265,8 +265,7 @@ The Swift primitives for clipboard history exist but the clipboard monitor is no
 |----------|-------------|
 | `(set-activation-policy! policy)` | Set app activation policy (`'regular`, `'accessory`, `'prohibited`) |
 | `(create-status-item! title menu-items)` | Create a menu bar item |
-| `(request-accessibility!)` | Request Accessibility permissions |
-| `(request-screen-recording!)` | Request Screen Recording permissions |
+| `(ensure-permissions! perms)` | Block until each TCC permission in the list is granted. Pollable permissions (e.g. `accessibility`) are surfaced via an in-app onboarding panel; cached ones (`screen-recording`) are handed off to macOS's native prompt |
 | `(relaunch!)` | Relaunch the application |
 | `(quit!)` | Quit the application |
 | `(after-delay seconds callback)` | Call `(callback)` on the main thread after a delay |
