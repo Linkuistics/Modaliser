@@ -162,20 +162,43 @@ enum WindowManipulator {
     private static func focusedWindowAndFrame() -> (AXUIElement, CGRect)? {
         let systemWide = AXUIElementCreateSystemWide()
         guard let focusedApp = axAttribute(systemWide, kAXFocusedApplicationAttribute) else {
+            diag("WindowManipulator: no focused application")
             return nil
         }
         // AXUIElement is a CFTypeRef — force cast is safe because AXUIElementCopyAttributeValue
         // guarantees the kAXFocusedApplicationAttribute returns an AXUIElement.
         let appElement = focusedApp as! AXUIElement
-        guard let windowObj = axAttribute(appElement, kAXFocusedWindowAttribute) else {
+        guard let window = focusedWindowOf(app: appElement) else {
+            diag("WindowManipulator: no focused window via any AX path")
             return nil
         }
-        let window = windowObj as! AXUIElement
         guard let position = axPosition(window),
               let size = axSize(window) else {
+            diag("WindowManipulator: window has no position/size")
             return nil
         }
         return (window, CGRect(origin: position, size: size))
+    }
+
+    /// Resolve the focused window for an app element with fallbacks. Some apps
+    /// (notably Electron apps like Slack) don't expose AXFocusedWindow
+    /// consistently. Try AXFocusedWindow → AXMainWindow → first AXWindows.
+    private static func focusedWindowOf(app: AXUIElement) -> AXUIElement? {
+        if let obj = axAttribute(app, kAXFocusedWindowAttribute) {
+            diag("WindowManipulator: window via AXFocusedWindow")
+            return (obj as! AXUIElement)
+        }
+        if let obj = axAttribute(app, kAXMainWindowAttribute) {
+            diag("WindowManipulator: window via AXMainWindow (fallback)")
+            return (obj as! AXUIElement)
+        }
+        if let windows = axAttribute(app, kAXWindowsAttribute) as? [AXUIElement],
+           let first = windows.first
+        {
+            diag("WindowManipulator: window via AXWindows[0] (fallback)")
+            return first
+        }
+        return nil
     }
 
     private static func screenContaining(_ frame: CGRect) -> NSScreen? {
