@@ -12,6 +12,16 @@
 
 (set-overlay-delay! 0.3)
 
+;; Identify this Modaliser instance in the overlay/chooser breadcrumb.
+;; Useful when you run multiple instances simultaneously (e.g. a local
+;; instance plus one on a remote host viewed via Jump Desktop / VNC).
+;; Optional. Background and foreground take any CSS colour value.
+;;
+;; (set-host-header!
+;;   'name       (run-shell "hostname -s")
+;;   'background "#7a1f3d"
+;;   'foreground "#ffffff")
+
 ;; Helper: open a URL
 (define (open-url-action url)
   (lambda () (open-url url)))
