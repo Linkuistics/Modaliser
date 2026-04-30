@@ -197,23 +197,32 @@ enum WindowManipulator {
         return nil
     }
 
-    /// Resolve the focused window for an app element with fallbacks. Some apps
-    /// (notably Electron apps like Slack) don't expose AXFocusedWindow
-    /// consistently. Try AXFocusedWindow → AXMainWindow → first AXWindows.
+    /// Resolve the focused window for an app element with fallbacks.
+    ///
+    /// Electron apps (Slack et al) run in an "on-demand AX" mode where the AX
+    /// tree is empty until a client requests it via AXManualAccessibility. We
+    /// flip that flag first, then retry the standard resolution paths with a
+    /// short backoff while the app populates its tree.
     private static func focusedWindowOf(app: AXUIElement) -> AXUIElement? {
-        if let obj = axAttribute(app, kAXFocusedWindowAttribute) {
-            diag("WindowManipulator: window via AXFocusedWindow")
-            return (obj as! AXUIElement)
-        }
-        if let obj = axAttribute(app, kAXMainWindowAttribute) {
-            diag("WindowManipulator: window via AXMainWindow (fallback)")
-            return (obj as! AXUIElement)
-        }
-        if let windows = axAttribute(app, kAXWindowsAttribute) as? [AXUIElement],
-           let first = windows.first
-        {
-            diag("WindowManipulator: window via AXWindows[0] (fallback)")
-            return first
+        AXUIElementSetAttributeValue(
+            app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+
+        for attempt in 0..<5 {
+            if let obj = axAttribute(app, kAXFocusedWindowAttribute) {
+                diag("WindowManipulator: window via AXFocusedWindow attempt=\(attempt)")
+                return (obj as! AXUIElement)
+            }
+            if let obj = axAttribute(app, kAXMainWindowAttribute) {
+                diag("WindowManipulator: window via AXMainWindow attempt=\(attempt)")
+                return (obj as! AXUIElement)
+            }
+            if let windows = axAttribute(app, kAXWindowsAttribute) as? [AXUIElement],
+               let first = windows.first
+            {
+                diag("WindowManipulator: window via AXWindows[0] attempt=\(attempt)")
+                return first
+            }
+            if attempt < 4 { usleep(20_000) }
         }
         return nil
     }
