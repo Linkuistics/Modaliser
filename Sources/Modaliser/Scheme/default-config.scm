@@ -4,20 +4,11 @@
 ;; DSL functions and native libraries are auto-imported.
 
 ;; Leader keys
-(set-leader! 'global F18)
-(set-leader! 'local F17)
+(set-leader! 'global F18 'passthrough-when-frontmost '("com.p5sys.jump.mac.viewer"))
+(set-leader! 'global F18 'modifiers '(shift))
 
-;; Per-leader passthrough by frontmost app (e.g. Jump Desktop remoting):
-;; uncomment to let F17/F18 flow through to the remote machine when
-;; Jump Desktop is frontmost on the host. Shift+F17/F18 still grab
-;; locally so you can drive the host's Modaliser as an "escape."
-;;
-;; (set-leader! 'global F18
-;;              'passthrough-when-frontmost '("com.jumpdesktop.Jump-Desktop"))
-;; (set-leader! 'local  F17
-;;              'passthrough-when-frontmost '("com.jumpdesktop.Jump-Desktop"))
-;; (set-leader! 'global F18 'modifiers '(shift))
-;; (set-leader! 'local  F17 'modifiers '(shift))
+(set-leader! 'local F17 'passthrough-when-frontmost '("com.p5sys.jump.mac.viewer"))
+(set-leader! 'local F17 'modifiers '(shift))
 
 (set-overlay-delay! 0.3)
 
