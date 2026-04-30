@@ -402,7 +402,8 @@ struct OverlayRenderTests {
         let html = try engine.evaluate("""
             (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
-        #expect(!html.contains("--color-host-bg"))
-        #expect(!html.contains("--color-host-fg"))
+        // Variables are referenced in base.css with fallbacks, but not assigned when not set
+        #expect(!html.contains("--color-host-bg:"))
+        #expect(!html.contains("--color-host-fg:"))
     }
 }

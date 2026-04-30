@@ -56,19 +56,24 @@ body {
 
 /* ─── Header / Breadcrumb ──────────────────────────────────── */
 
-.overlay-header {
-  color: var(--color-header);
+.overlay-header,
+.chooser-header {
+  background: var(--color-host-bg, transparent);
+  color: var(--color-host-fg, var(--color-header));
   font-size: var(--font-size);
-  padding-bottom: 6px;
+  padding: 4px 6px;
   margin-bottom: 6px;
   border-bottom: 1px solid var(--color-separator);
+  border-radius: 4px;
 }
 
-.overlay-header .breadcrumb {
+.overlay-header .breadcrumb,
+.chooser-header .breadcrumb {
   display: inline;
 }
 
-.overlay-header .breadcrumb-sep {
+.overlay-header .breadcrumb-sep,
+.chooser-header .breadcrumb-sep {
   margin: 0 4px;
   color: var(--color-arrow);
 }
@@ -156,12 +161,6 @@ body {
 .chooser-search {
   padding: 10px 12px;
   border-bottom: 1px solid var(--color-separator);
-}
-
-.chooser-prompt {
-  color: var(--color-header);
-  font-size: calc(var(--font-size) - 1px);
-  margin-bottom: 4px;
 }
 
 .chooser-input {
