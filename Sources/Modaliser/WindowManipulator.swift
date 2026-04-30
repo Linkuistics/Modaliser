@@ -160,14 +160,10 @@ enum WindowManipulator {
     }
 
     private static func focusedWindowAndFrame() -> (AXUIElement, CGRect)? {
-        let systemWide = AXUIElementCreateSystemWide()
-        guard let focusedApp = axAttribute(systemWide, kAXFocusedApplicationAttribute) else {
-            diag("WindowManipulator: no focused application")
+        guard let appElement = focusedAppElement() else {
+            diag("WindowManipulator: no focused application via AX or NSWorkspace")
             return nil
         }
-        // AXUIElement is a CFTypeRef — force cast is safe because AXUIElementCopyAttributeValue
-        // guarantees the kAXFocusedApplicationAttribute returns an AXUIElement.
-        let appElement = focusedApp as! AXUIElement
         guard let window = focusedWindowOf(app: appElement) else {
             diag("WindowManipulator: no focused window via any AX path")
             return nil
@@ -178,6 +174,27 @@ enum WindowManipulator {
             return nil
         }
         return (window, CGRect(origin: position, size: size))
+    }
+
+    /// Resolve the focused-app AX element, falling back to NSWorkspace when
+    /// the AX system-wide query returns nil. Some screen-sharing / managed
+    /// sessions don't populate kAXFocusedApplicationAttribute even when AX
+    /// permission is granted and NSWorkspace correctly tracks the frontmost
+    /// application.
+    private static func focusedAppElement() -> AXUIElement? {
+        let systemWide = AXUIElementCreateSystemWide()
+        if let focusedApp = axAttribute(systemWide, kAXFocusedApplicationAttribute) {
+            diag("WindowManipulator: app via AX systemwide")
+            return (focusedApp as! AXUIElement)
+        }
+        if let running = NSWorkspace.shared.frontmostApplication {
+            diag(
+                "WindowManipulator: app via NSWorkspace fallback "
+                + "pid=\(running.processIdentifier) "
+                + "bundle=\(running.bundleIdentifier ?? "?")")
+            return AXUIElementCreateApplication(running.processIdentifier)
+        }
+        return nil
     }
 
     /// Resolve the focused window for an app element with fallbacks. Some apps
