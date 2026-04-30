@@ -27,6 +27,7 @@ final class AppLibrary: NativeLibrary {
         self.define(Procedure("launch-app", launchAppFunction))
         self.define(Procedure("open-url", openUrlFunction))
         self.define(Procedure("focused-app-bundle-id", focusedAppBundleIdFunction))
+        self.define(Procedure("app-display-name", appDisplayNameFunction))
         self.define(Procedure("index-files", indexFilesFunction))
     }
 
@@ -39,6 +40,24 @@ final class AppLibrary: NativeLibrary {
             return .makeString(bundleId)
         }
         return .false
+    }
+
+    /// (app-display-name bundle-id) → string or #f
+    /// Returns the user-visible name (localized, extension-hidden) for the
+    /// given bundle identifier, or #f when Launch Services can't resolve it.
+    private func appDisplayNameFunction(_ idExpr: Expr) throws -> Expr {
+        let bundleId = try idExpr.asString()
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
+            return .false
+        }
+        // FileManager.displayName honors the user's "Show all filename extensions"
+        // preference and may include the .app extension. Always strip it so the
+        // result is consistently extension-hidden as documented.
+        var name = FileManager.default.displayName(atPath: url.path)
+        if name.hasSuffix(".app") {
+            name = String(name.dropLast(4))
+        }
+        return .makeString(name)
     }
 
     /// (find-installed-apps) → list of alists

@@ -134,4 +134,17 @@ struct AppLibraryTests {
         // Otherwise should be a string
         _ = try result.asString()
     }
+
+    @Test func appDisplayNameResolvesKnownBundleId() throws {
+        let engine = try SchemeEngine()
+        // Finder is guaranteed to be installed and Launch Services-registered on macOS.
+        let result = try engine.evaluate("(app-display-name \"com.apple.finder\")").asString()
+        #expect(result == "Finder")
+    }
+
+    @Test func appDisplayNameReturnsFalseForUnknownBundleId() throws {
+        let engine = try SchemeEngine()
+        let result = try engine.evaluate("(app-display-name \"com.nonexistent.fake-bundle-id-zzz\")")
+        #expect(result == .false)
+    }
 }
