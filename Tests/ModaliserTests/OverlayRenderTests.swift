@@ -346,4 +346,41 @@ struct OverlayRenderTests {
         #expect(html.contains("iTerm"))
         #expect(html.contains("nvim"))
     }
+
+    @Test func pushOverlayUpdateEmitsRootSegmentsArray() throws {
+        // Stub webview-eval BEFORE loading modules so the native binding is
+        // shadowed for the duration of the test.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("Scheme directory not found")
+            throw SchemeTestError.noSchemeDir
+        }
+        try engine.evaluate("""
+            (define last-eval-js #f)
+            (define (webview-eval id js) (set! last-eval-js js))
+            """)
+        let files = [
+            "lib/util.scm",
+            "core/keymap.scm",
+            "ui/dom.scm",
+            "ui/css.scm",
+            "core/state-machine.scm",
+            "core/event-dispatch.scm",
+            "ui/overlay.scm",
+            "lib/dsl.scm",
+        ]
+        for file in files {
+            try engine.evaluateFile(joinPath(schemePath, file))
+        }
+        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("(set! overlay-open? #t)")
+        // push-overlay-update reads modal-root-segments — set it manually for the test.
+        try engine.evaluate("(set! modal-root-segments '(\"my-server\" \"Global\"))")
+        try engine.evaluate("(push-overlay-update (lookup-tree \"global\") '(\"w\"))")
+        let js = try engine.evaluate("last-eval-js").asString()
+        #expect(js.contains("rootSegments"))
+        #expect(js.contains("my-server"))
+        #expect(js.contains("Global"))
+        #expect(!js.contains("\"label\":"))
+    }
 }

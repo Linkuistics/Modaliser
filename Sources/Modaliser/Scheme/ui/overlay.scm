@@ -114,45 +114,47 @@
           (html->string (script-element '() overlay-js))))
       (render-overlay-body root-segments node path))))
 
-;; Build JSON string for overlay data and push to JS updateOverlay().
-;; Much faster than full HTML replacement for group navigation.
+;; Build JSON for overlay update and push to JS updateOverlay().
+;; Sends {rootSegments: [...], path: [...], entries: [...]} so the JS
+;; can render the breadcrumb identically to the initial Scheme render.
 (define (push-overlay-update node path)
-  (let* ((root-label (node-label node))
-         (current (if (null? path)
-                    node
-                    (navigate-to-path node path)))
+  (let* ((current (if (null? path) node (navigate-to-path node path)))
          (children (if current (node-children current) '()))
          (sorted (sort-children children))
-         ;; Build path JSON array
-         (path-json (string-append "["
-                      (let loop ((segs path) (result ""))
-                        (if (null? segs)
-                          result
-                          (loop (cdr segs)
-                                (string-append result
-                                  (if (string=? result "") "" ",")
-                                  "\"" (js-escape-overlay (car segs)) "\""))))
-                      "]"))
-         ;; Build entries JSON array
-         (entries-json (string-append "["
-                         (let loop ((items sorted) (result ""))
-                           (if (null? items)
-                             result
-                             (let* ((item (car items))
-                                    (k (node-key item))
-                                    (lbl (node-label item))
-                                    (is-grp (group? item)))
-                               (loop (cdr items)
-                                     (string-append result
-                                       (if (string=? result "") "" ",")
-                                       "{\"key\":\"" (js-escape-overlay k)
-                                       "\",\"label\":\"" (js-escape-overlay lbl)
-                                       "\",\"isGroup\":" (if is-grp "true" "false")
-                                       "}")))))
-                         "]")))
+         ;; Helper: build a JSON string array from a list of strings.
+         (string-list->json
+           (lambda (lst)
+             (string-append "["
+               (let loop ((xs lst) (result ""))
+                 (if (null? xs)
+                   result
+                   (loop (cdr xs)
+                         (string-append result
+                           (if (string=? result "") "" ",")
+                           "\"" (js-escape-overlay (car xs)) "\""))))
+               "]")))
+         (segments-json (string-list->json modal-root-segments))
+         (path-json     (string-list->json path))
+         (entries-json
+           (string-append "["
+             (let loop ((items sorted) (result ""))
+               (if (null? items)
+                 result
+                 (let* ((item (car items))
+                        (k (node-key item))
+                        (lbl (node-label item))
+                        (is-grp (group? item)))
+                   (loop (cdr items)
+                         (string-append result
+                           (if (string=? result "") "" ",")
+                           "{\"key\":\"" (js-escape-overlay k)
+                           "\",\"label\":\"" (js-escape-overlay lbl)
+                           "\",\"isGroup\":" (if is-grp "true" "false")
+                           "}")))))
+             "]")))
     (webview-eval overlay-webview-id
-      (string-append "updateOverlay({\"label\":\""
-        (js-escape-overlay root-label) "\",\"path\":" path-json
+      (string-append "updateOverlay({\"rootSegments\":" segments-json
+        ",\"path\":" path-json
         ",\"entries\":" entries-json "})"))))
 
 ;; Escape string for embedding in JSON/JS string literal.

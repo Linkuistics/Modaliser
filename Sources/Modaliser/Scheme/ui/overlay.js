@@ -23,12 +23,12 @@ function escapeHtml(str) {
 }
 
 // Update overlay content with new entries and breadcrumb.
-// data: { label: "Global", path: ["w"], entries: [{key, label, isGroup}, ...] }
+// data: { rootSegments: ["my-server","Global"], path: ["w"], entries: [...] }
 function updateOverlay(data) {
   // Update breadcrumb header
   var header = document.querySelector('.overlay-header');
   if (header) {
-    var segments = [data.label].concat(data.path || []);
+    var segments = (data.rootSegments || []).concat(data.path || []);
     var html = '';
     for (var i = 0; i < segments.length; i++) {
       if (i > 0) html += '<span class="breadcrumb-sep">&gt;</span>';
