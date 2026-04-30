@@ -158,6 +158,11 @@ enum WindowManipulator {
     /// some others set this flag — when it's on, `AXUIElementSetAttributeValue`
     /// for AXSize/AXPosition silently no-ops. The flag is restored to its
     /// prior value afterward so the app's accessibility behavior is unchanged.
+    ///
+    /// After flipping EUI off we briefly wait so the target app has a runloop
+    /// tick to actually process the flag change. Without this delay, Electron
+    /// can silently drop the AXSize/AXPosition writes because internally it's
+    /// still in EUI mode when they arrive.
     private static func withResizableApp(_ window: AXUIElement, _ body: () -> Void) {
         var pid: pid_t = 0
         guard AXUIElementGetPid(window, &pid) == .success, pid > 0 else {
@@ -166,9 +171,11 @@ enum WindowManipulator {
         }
         let app = AXUIElementCreateApplication(pid)
         let wasEnhanced = (axAttribute(app, "AXEnhancedUserInterface") as? Bool) ?? false
+        NSLog("WindowManipulator: pid=%d EUI=%@", pid, wasEnhanced ? "true" : "false")
         if wasEnhanced {
             AXUIElementSetAttributeValue(
                 app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
+            usleep(50_000)
         }
         body()
         if wasEnhanced {
@@ -180,14 +187,24 @@ enum WindowManipulator {
     private static func setWindowPosition(_ window: AXUIElement, x: CGFloat, y: CGFloat) {
         var point = CGPoint(x: x, y: y)
         if let value = AXValueCreate(.cgPoint, &point) {
-            AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, value)
+            let err = AXUIElementSetAttributeValue(
+                window, kAXPositionAttribute as CFString, value)
+            if err != .success {
+                NSLog("WindowManipulator: AXSetAttributeValue(position) error: %d",
+                      err.rawValue)
+            }
         }
     }
 
     private static func setWindowSize(_ window: AXUIElement, width: CGFloat, height: CGFloat) {
         var size = CGSize(width: width, height: height)
         if let value = AXValueCreate(.cgSize, &size) {
-            AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value)
+            let err = AXUIElementSetAttributeValue(
+                window, kAXSizeAttribute as CFString, value)
+            if err != .success {
+                NSLog("WindowManipulator: AXSetAttributeValue(size) error: %d",
+                      err.rawValue)
+            }
         }
     }
 
