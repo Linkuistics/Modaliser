@@ -126,26 +126,44 @@
 ;; actions: list of action alists
 (define chooser-max-visible-rows 50)
 
+;; Render breadcrumb segments shared between overlay and chooser.
+;; Same DOM shape as ui/overlay.scm's render-breadcrumb but with the
+;; "chooser-header" / "overlay-header" class chosen by the caller.
+(define (render-header-breadcrumb header-class segments)
+  (let ((sep (html->string (span '((class . "breadcrumb-sep")) ">"))))
+    (header (list (cons 'class header-class))
+      (span '((class . "breadcrumb"))
+        (make-raw-html
+          (let loop ((segs segments) (result ""))
+            (if (null? segs)
+              result
+              (loop (cdr segs)
+                    (string-append result
+                      (if (string=? result "") "" sep)
+                      (html-escape (car segs)))))))))))
+
 (define (render-chooser-html prompt visible-items query selected-index
                              actions-visible? actions)
-  (let* ((css (if (string=? overlay-custom-css "")
-                overlay-base-css
-                (string-append overlay-base-css "\n" overlay-custom-css)))
+  (let* ((css (string-append overlay-base-css
+                             (if (string=? overlay-custom-css "")
+                               ""
+                               (string-append "\n" overlay-custom-css))
+                             "\n"
+                             (host-header-css)))
          (item-count (length visible-items))
          (footer-text (string-append (number->string item-count)
                         (if (= item-count 1) " item" " items")))
+         (segments (append modal-root-segments (list prompt)))
          (body
            (div '((class . "chooser"))
-             ;; Search input area
+             (render-header-breadcrumb "chooser-header" segments)
              (div '((class . "chooser-search"))
-               (div '((class . "chooser-prompt")) prompt)
                (input-element (list (cons 'type "text")
                                     (cons 'class "chooser-input")
                                     (cons 'id "chooser-input")
                                     (cons 'value query)
                                     (cons 'autocomplete "off")
                                     (cons 'autofocus #t))))
-             ;; Result list (capped to avoid slow rendering)
              (apply ul (cons '((class . "chooser-results"))
                              (let loop ((items visible-items) (i 0) (rows '()))
                                (if (or (null? items) (>= i chooser-max-visible-rows))
@@ -156,9 +174,7 @@
                                    (loop (cdr items) (+ i 1)
                                          (cons (render-chooser-row item source-item i selected-index)
                                                rows)))))))
-             ;; Footer
              (div '((class . "chooser-footer")) footer-text)
-             ;; Action panel (conditional)
              (if actions-visible?
                (render-action-panel actions chooser-action-index)
                (make-raw-html "")))))
@@ -328,17 +344,21 @@
 (define (chooser-load-skeleton)
   (when chooser-open?
     (let* ((prompt (alist-ref chooser-selector-node 'prompt "Select..."))
-           (css (if (string=? overlay-custom-css "")
-                  overlay-base-css
-                  (string-append overlay-base-css "\n" overlay-custom-css)))
+           (css (string-append overlay-base-css
+                               (if (string=? overlay-custom-css "")
+                                 ""
+                                 (string-append "\n" overlay-custom-css))
+                               "\n"
+                               (host-header-css)))
+           (segments (append modal-root-segments (list prompt)))
            (html (html-document
                    (make-raw-html
                      (string-append
                        (html->string (style-element '() css))
                        (html->string (script-element '() chooser-js))))
                    (div '((class . "chooser"))
+                     (render-header-breadcrumb "chooser-header" segments)
                      (div '((class . "chooser-search"))
-                       (div '((class . "chooser-prompt")) prompt)
                        (input-element (list (cons 'type "text")
                                             (cons 'class "chooser-input")
                                             (cons 'id "chooser-input")

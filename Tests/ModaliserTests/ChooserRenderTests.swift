@@ -69,6 +69,8 @@ struct ChooserRenderTests {
             (render-chooser-html "Find app…" '() "" 0 #f '())
             """).asString()
         #expect(html.contains("Find app"))
+        #expect(html.contains("chooser-header"))
+        #expect(html.contains("breadcrumb"))
     }
 
     /// Set up chooser-items so render-chooser-html can look up source items.
@@ -215,5 +217,43 @@ struct ChooserRenderTests {
             (item-display-text (list (cons 'text "Safari") (cons 'path "/Apps")))
             """).asString()
         #expect(text == "Safari")
+    }
+
+    @Test func renderChooserHtmlBreadcrumbIncludesPrompt() throws {
+        let engine = try loadAllModules()
+        // The breadcrumb consumes modal-root-segments + (list prompt)
+        try engine.evaluate("(set! modal-root-segments '(\"Global\"))")
+        let html = try engine.evaluate("""
+            (render-chooser-html "Find app…" '() "" 0 #f '())
+            """).asString()
+        #expect(html.contains("chooser-header"))
+        #expect(html.contains("breadcrumb"))
+        #expect(html.contains("Global"))
+        #expect(html.contains("Find app"))
+        #expect(html.contains("breadcrumb-sep"))
+    }
+
+    @Test func renderChooserHtmlPrependsHostSegment() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate(
+            "(set! modal-root-segments '(\"my-server\" \"Global\"))")
+        let html = try engine.evaluate("""
+            (render-chooser-html "Find app…" '() "" 0 #f '())
+            """).asString()
+        #expect(html.contains("my-server"))
+        #expect(html.contains("Global"))
+        #expect(html.contains("Find app"))
+    }
+
+    @Test func renderChooserHtmlIncludesHostCssWhenColoursSet() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate(
+            "(set-host-header! 'name \"x\" 'background \"#abc\" 'foreground \"#def\")")
+        try engine.evaluate("(set! modal-root-segments '(\"x\" \"Global\"))")
+        let html = try engine.evaluate("""
+            (render-chooser-html "Find app…" '() "" 0 #f '())
+            """).asString()
+        #expect(html.contains("--color-host-bg: #abc"))
+        #expect(html.contains("--color-host-fg: #def"))
     }
 }
