@@ -211,7 +211,7 @@ struct ConfigDslTests {
             (define-tree 'global (key "s" "Safari" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '())
+            (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
         #expect(html.contains("--overlay-bg: #333"))
     }
