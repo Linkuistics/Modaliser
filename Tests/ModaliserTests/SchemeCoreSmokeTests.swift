@@ -263,7 +263,7 @@ struct SchemeCoreSmokeTests {
 
         // Verify the hotkey was registered in the keyboard library
         let keyboardLib = try engine.context.libraries.lookup(KeyboardLibrary.self)
-        #expect(keyboardLib?.handlerRegistry.hotkeyHandlers[KeyCode.f18] != nil)
+        #expect(keyboardLib?.handlerRegistry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] != nil)
     }
 
     @Test func fullLifecycleViaSchemeModules() throws {

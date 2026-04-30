@@ -107,35 +107,76 @@ final class KeyboardLibrary: NativeLibrary {
 
     // MARK: - Hotkey registration
 
-    /// (register-hotkey! keycode handler) → void
+    /// (register-hotkey! keycode handler [modifier-mask [passthrough-bundle-ids]]) → void
+    /// modifier-mask defaults to 0 (no modifiers).
+    /// passthrough-bundle-ids defaults to '() (always capture).
     /// Evaluation is deferred to the next run loop iteration via DispatchQueue.main.async.
     /// This prevents deadlocks when the Scheme handler creates WKWebView (which requires
-    /// main thread dispatches internally). The CGEvent tap always suppresses hotkey events,
-    /// so the deferred evaluation doesn't affect the suppress/pass decision.
-    private func registerHotkeyFunction(_ keycodeExpr: Expr, _ handler: Expr) throws -> Expr {
-        let keyCode = CGKeyCode(try keycodeExpr.asInt64())
+    /// main thread dispatches internally).
+    private func registerHotkeyFunction(_ args: Arguments) throws -> Expr {
+        guard args.count >= 2, args.count <= 4 else {
+            throw RuntimeError.argumentCount(min: 2, max: 4, args: .makeList(args))
+        }
+        let argList = Array(args)
+        let keyCode = CGKeyCode(try argList[0].asInt64())
+        let handler = argList[1]
         guard case .procedure = handler else {
             throw RuntimeError.type(handler, expected: [.procedureType])
         }
+        let modifierMask: UInt64 =
+            argList.count >= 3 ? UInt64(try argList[2].asInt64()) : 0
+        let passthrough: [String] =
+            argList.count >= 4 ? try schemeListToStrings(argList[3]) : []
+
+        let normalizedFlags = CGEventFlags(rawValue: modifierMask)
+            .intersection(KeyboardHandlerRegistry.primaryModifiers)
+
         let evaluator = self.context.evaluator!
-        handlerRegistry.hotkeyHandlers[keyCode] = {
-            DispatchQueue.main.async {
-                let result = evaluator.execute { machine in
-                    try machine.apply(handler, to: .null)
+        let key = HotkeyKey(keyCode: keyCode, modifiers: normalizedFlags)
+        let entry = HotkeyEntry(
+            handler: {
+                DispatchQueue.main.async {
+                    let result = evaluator.execute { machine in
+                        try machine.apply(handler, to: .null)
+                    }
+                    if case .error(let err) = result {
+                        NSLog("KeyboardLibrary: hotkey handler error: %@", "\(err)")
+                    }
                 }
-                if case .error(let err) = result {
-                    NSLog("KeyboardLibrary: hotkey handler error: %@", "\(err)")
-                }
-            }
-        }
+            },
+            passthroughBundleIds: passthrough
+        )
+        handlerRegistry.hotkeyHandlers[key] = entry
         return .void
     }
 
-    /// (unregister-hotkey! keycode) → void
-    private func unregisterHotkeyFunction(_ keycodeExpr: Expr) throws -> Expr {
-        let keyCode = CGKeyCode(try keycodeExpr.asInt64())
-        handlerRegistry.hotkeyHandlers.removeValue(forKey: keyCode)
+    /// (unregister-hotkey! keycode [modifier-mask]) → void
+    /// modifier-mask defaults to 0. Different modifier combinations are independent.
+    private func unregisterHotkeyFunction(_ args: Arguments) throws -> Expr {
+        guard args.count >= 1, args.count <= 2 else {
+            throw RuntimeError.argumentCount(min: 1, max: 2, args: .makeList(args))
+        }
+        let argList = Array(args)
+        let keyCode = CGKeyCode(try argList[0].asInt64())
+        let modifierMask: UInt64 =
+            argList.count >= 2 ? UInt64(try argList[1].asInt64()) : 0
+        let normalizedFlags = CGEventFlags(rawValue: modifierMask)
+            .intersection(KeyboardHandlerRegistry.primaryModifiers)
+        handlerRegistry.hotkeyHandlers.removeValue(
+            forKey: HotkeyKey(keyCode: keyCode, modifiers: normalizedFlags)
+        )
         return .void
+    }
+
+    /// Walk a Scheme proper list of strings into a Swift `[String]`.
+    private func schemeListToStrings(_ expr: Expr) throws -> [String] {
+        var out: [String] = []
+        var node = expr
+        while case .pair(let head, let tail) = node {
+            out.append(try head.asString())
+            node = tail
+        }
+        return out
     }
 
     // MARK: - Catch-all registration

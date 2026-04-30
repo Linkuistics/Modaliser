@@ -88,6 +88,50 @@ struct KeyboardLibraryTests {
         #expect(result == .void)
     }
 
+    @Test func registerHotkeyWithModifierStoresUnderModifierKey() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(register-hotkey! F18 (lambda () #t) MOD-SHIFT)")
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] != nil)
+        // No-modifier slot must remain empty.
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] == nil)
+    }
+
+    @Test func registerHotkeyWithPassthroughListStoresIt() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate(
+            "(register-hotkey! F18 (lambda () #t) 0 '(\"com.jumpdesktop.Jump-Desktop\"))")
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+        let entry = kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [])]
+        #expect(entry != nil)
+        #expect(entry?.passthroughBundleIds == ["com.jumpdesktop.Jump-Desktop"])
+    }
+
+    @Test func registerHotkeyOmittingOptionalArgsDefaultsToEmpty() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(register-hotkey! F18 (lambda () #t))")
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+        let entry = kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [])]
+        #expect(entry != nil)
+        #expect(entry?.passthroughBundleIds.isEmpty == true)
+    }
+
+    @Test func unregisterHotkeyWithModifierRemovesOnlyThatBinding() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(register-hotkey! F18 (lambda () #t))")
+        try engine.evaluate("(register-hotkey! F18 (lambda () #t) MOD-SHIFT)")
+        try engine.evaluate("(unregister-hotkey! F18 MOD-SHIFT)")
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] != nil)
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] == nil)
+    }
+
     @Test func unregisterHotkeyAcceptsKeycode() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(register-hotkey! F18 (lambda () #t))")
@@ -125,7 +169,8 @@ struct KeyboardLibraryTests {
         var hotkeyCalled = false
 
         registry.catchAllHandler = { _, _ in catchAllCalled = true; return true }
-        registry.hotkeyHandlers[64] = { hotkeyCalled = true }  // F17
+        registry.hotkeyHandlers[HotkeyKey(keyCode: 64, modifiers: [])] =
+            HotkeyEntry(handler: { hotkeyCalled = true }, passthroughBundleIds: [])  // F17
 
         let result = registry.dispatch(keyCode: 64, modifiers: [])
         #expect(result == .suppress)
@@ -137,7 +182,8 @@ struct KeyboardLibraryTests {
         let registry = KeyboardHandlerRegistry()
         var hotkeyCalled = false
 
-        registry.hotkeyHandlers[64] = { hotkeyCalled = true }
+        registry.hotkeyHandlers[HotkeyKey(keyCode: 64, modifiers: [])] =
+            HotkeyEntry(handler: { hotkeyCalled = true }, passthroughBundleIds: [])
 
         let result = registry.dispatch(keyCode: 64, modifiers: [])
         #expect(result == .suppress)
@@ -157,5 +203,133 @@ struct KeyboardLibraryTests {
 
         let result = registry.dispatch(keyCode: 42, modifiers: [])
         #expect(result == .passThrough)
+    }
+
+    // MARK: - Modifier-aware dispatch
+
+    @Test func plainBindingDoesNotFireOnModifiedKey() throws {
+        let registry = KeyboardHandlerRegistry()
+        var fired = false
+        // Bind plain F18 (no modifiers required).
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] =
+            HotkeyEntry(handler: { fired = true }, passthroughBundleIds: [])
+
+        // Pressing Shift+F18 must not match the plain F18 binding.
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskShift])
+        #expect(result == .passThrough)
+        #expect(!fired)
+    }
+
+    @Test func modifierBindingFiresOnExactModifiers() throws {
+        let registry = KeyboardHandlerRegistry()
+        var fired = false
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] =
+            HotkeyEntry(handler: { fired = true }, passthroughBundleIds: [])
+
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskShift])
+        #expect(result == .suppress)
+        #expect(fired)
+    }
+
+    @Test func modifierBindingDoesNotFireOnPlainKey() throws {
+        let registry = KeyboardHandlerRegistry()
+        var fired = false
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] =
+            HotkeyEntry(handler: { fired = true }, passthroughBundleIds: [])
+
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        #expect(result == .passThrough)
+        #expect(!fired)
+    }
+
+    // MARK: - Frontmost passthrough
+
+    @Test func passthroughReturnsPassThroughWhenFrontmostMatches() throws {
+        let registry = KeyboardHandlerRegistry()
+        registry.frontmostBundleId = { "com.jumpdesktop.Jump-Desktop" }
+        var fired = false
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] =
+            HotkeyEntry(
+                handler: { fired = true },
+                passthroughBundleIds: ["com.jumpdesktop.Jump-Desktop"]
+            )
+
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        #expect(result == .passThrough)
+        #expect(!fired)
+    }
+
+    @Test func passthroughCapturesWhenFrontmostDoesNotMatch() throws {
+        let registry = KeyboardHandlerRegistry()
+        registry.frontmostBundleId = { "com.apple.Safari" }
+        var fired = false
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] =
+            HotkeyEntry(
+                handler: { fired = true },
+                passthroughBundleIds: ["com.jumpdesktop.Jump-Desktop"]
+            )
+
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        #expect(result == .suppress)
+        #expect(fired)
+    }
+
+    @Test func emptyPassthroughListAlwaysCaptures() throws {
+        let registry = KeyboardHandlerRegistry()
+        registry.frontmostBundleId = { "com.jumpdesktop.Jump-Desktop" }
+        var fired = false
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] =
+            HotkeyEntry(handler: { fired = true }, passthroughBundleIds: [])
+
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        #expect(result == .suppress)
+        #expect(fired)
+    }
+
+    @Test func passthroughCapturesWhenFrontmostUnknown() throws {
+        let registry = KeyboardHandlerRegistry()
+        registry.frontmostBundleId = { nil }
+        var fired = false
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] =
+            HotkeyEntry(
+                handler: { fired = true },
+                passthroughBundleIds: ["com.jumpdesktop.Jump-Desktop"]
+            )
+
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        #expect(result == .suppress)
+        #expect(fired)
+    }
+
+    @Test func capsLockBitIsIgnoredOnDispatch() throws {
+        let registry = KeyboardHandlerRegistry()
+        var fired = false
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] =
+            HotkeyEntry(handler: { fired = true }, passthroughBundleIds: [])
+
+        // Caps Lock is a non-primary modifier — should be masked off so a
+        // plain F18 binding still matches.
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskAlphaShift])
+        #expect(result == .suppress)
+        #expect(fired)
+    }
+
+    @Test func plainAndModifierBindingsAreIndependent() throws {
+        let registry = KeyboardHandlerRegistry()
+        var plainFired = false
+        var shiftFired = false
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] =
+            HotkeyEntry(handler: { plainFired = true }, passthroughBundleIds: [])
+        registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] =
+            HotkeyEntry(handler: { shiftFired = true }, passthroughBundleIds: [])
+
+        _ = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        #expect(plainFired)
+        #expect(!shiftFired)
+
+        plainFired = false
+        _ = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskShift])
+        #expect(!plainFired)
+        #expect(shiftFired)
     }
 }

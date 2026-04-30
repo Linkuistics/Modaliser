@@ -243,8 +243,8 @@ struct ConfigDslTests {
 
         // Verify hotkeys registered
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
-        #expect(kbLib.handlerRegistry.hotkeyHandlers[KeyCode.f18] != nil)
-        #expect(kbLib.handlerRegistry.hotkeyHandlers[KeyCode.f17] != nil)
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] != nil)
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f17, modifiers: [])] != nil)
     }
 
     // MARK: - Config-like pattern
@@ -287,7 +287,68 @@ struct ConfigDslTests {
 
         // Verify hotkeys registered
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
-        #expect(kbLib.handlerRegistry.hotkeyHandlers[KeyCode.f18] != nil)
-        #expect(kbLib.handlerRegistry.hotkeyHandlers[KeyCode.f17] != nil)
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] != nil)
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f17, modifiers: [])] != nil)
+    }
+
+    // MARK: - set-leader! keyword args (modifiers, passthrough)
+
+    @Test func setLeaderWithModifiersRegistersUnderModifierKey() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("(set-leader! 'global F18 'modifiers '(shift))")
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] != nil)
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] == nil)
+    }
+
+    @Test func setLeaderWithPassthroughRegistersBundleIds() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("""
+            (set-leader! 'global F18
+                         'passthrough-when-frontmost '("com.jumpdesktop.Jump-Desktop"))
+            """)
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+        let entry = kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [])]
+        #expect(entry?.passthroughBundleIds == ["com.jumpdesktop.Jump-Desktop"])
+    }
+
+    @Test func setLeaderAcceptsBothKeywordsInEitherOrder() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("""
+            (set-leader! 'global F18
+                         'passthrough-when-frontmost '("com.foo")
+                         'modifiers '(shift ctrl))
+            """)
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+        let entry = kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift, .maskControl])]
+        #expect(entry != nil)
+        #expect(entry?.passthroughBundleIds == ["com.foo"])
+    }
+
+    @Test func setLeaderSingleArgFormStillWorks() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("(set-leader! F18)")
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] != nil)
+    }
+
+    @Test func setLeaderSingleArgFormAcceptsModifiers() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("(set-leader! F18 'modifiers '(shift))")
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[
+            HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] != nil)
+    }
+
+    @Test func setLeaderUnknownKeywordRaisesError() throws {
+        let engine = try loadAllModules()
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(set-leader! 'global F18 'frob 1)")
+        }
     }
 }

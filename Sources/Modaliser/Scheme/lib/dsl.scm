@@ -44,16 +44,49 @@
 ;; Theming moves to CSS in Phase 3.
 (define (set-theme! . args) (void))
 
-;; (set-leader! keycode) or (set-leader! 'mode keycode) → registers a hotkey
-;; The two-arg form is backward compatible with the old API.
-;; 'global → always uses the global tree
-;; 'local  → uses the app-specific tree for the focused app
-;; Single-arg form defaults to global-with-app-fallback.
-(define (set-leader! first . rest)
-  (if (null? rest)
-    ;; Single arg: keycode only, default behavior
-    (register-hotkey! first (make-leader-handler first #f))
-    ;; Two args: mode + keycode
-    (let ((mode first)
-          (keycode (car rest)))
-      (register-hotkey! keycode (make-leader-handler keycode mode)))))
+;; Convert a list of modifier symbols (e.g. '(shift ctrl)) to the integer
+;; bitmask expected by register-hotkey!. Unknown symbols are ignored.
+(define (modifier-symbols->mask syms)
+  (let loop ((s syms) (mask 0))
+    (cond
+      ((null? s) mask)
+      ((eq? (car s) 'cmd)   (loop (cdr s) (bitwise-ior mask MOD-CMD)))
+      ((eq? (car s) 'shift) (loop (cdr s) (bitwise-ior mask MOD-SHIFT)))
+      ((eq? (car s) 'alt)   (loop (cdr s) (bitwise-ior mask MOD-ALT)))
+      ((eq? (car s) 'ctrl)  (loop (cdr s) (bitwise-ior mask MOD-CTRL)))
+      (else (loop (cdr s) mask)))))
+
+;; (set-leader! [mode] keycode [keyword value]...) → registers a hotkey
+;;
+;; Forms:
+;;   (set-leader! keycode)                  ; default mode
+;;   (set-leader! 'global keycode)
+;;   (set-leader! 'local keycode)
+;;
+;; Optional trailing keyword/value pairs:
+;;   'modifiers <symbol-list>               ; e.g. '(shift) or '(cmd alt)
+;;   'passthrough-when-frontmost <strs>     ; bundle IDs that pass through
+;;
+;; Disambiguation: only 'global / 'local count as a leading mode arg —
+;; other symbols (e.g. 'modifiers) start the keyword tail.
+(define (set-leader! . args)
+  (let-values
+    (((mode keycode tail)
+      (if (and (pair? args)
+               (symbol? (car args))
+               (or (eq? (car args) 'global) (eq? (car args) 'local)))
+        (values (car args) (cadr args) (cddr args))
+        (values #f (car args) (cdr args)))))
+    (let loop ((rest tail) (mod-mask 0) (passthrough '()))
+      (cond
+        ((null? rest)
+         (register-hotkey! keycode
+                           (make-leader-handler keycode mode)
+                           mod-mask
+                           passthrough))
+        ((eq? (car rest) 'modifiers)
+         (loop (cddr rest) (modifier-symbols->mask (cadr rest)) passthrough))
+        ((eq? (car rest) 'passthrough-when-frontmost)
+         (loop (cddr rest) mod-mask (cadr rest)))
+        (else
+         (error "set-leader!: unknown keyword" (car rest)))))))

@@ -27,7 +27,7 @@ struct EndToEndSchemeModalTests {
             """)
 
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
-        #expect(kbLib.handlerRegistry.hotkeyHandlers[KeyCode.f18] != nil)
+        #expect(kbLib.handlerRegistry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] != nil)
     }
 
     @Test func f18ThenSExecutesAction() throws {
