@@ -214,3 +214,18 @@
        (loop (cddr rest) name bg (cadr rest) saw-name?))
       (else
        (error "set-host-header!: unknown keyword" (car rest))))))
+
+;; (host-header-css) → string
+;; Returns a :root { ... } CSS block defining --color-host-bg and/or
+;; --color-host-fg when set, or "" when neither is set.  Concatenated
+;; into the <style> block by both the overlay and the chooser renderers.
+(define (host-header-css)
+  (if (and (not host-header-background) (not host-header-foreground))
+    ""
+    (string-append
+      ":root {"
+      (if host-header-background
+        (string-append " --color-host-bg: " host-header-background ";") "")
+      (if host-header-foreground
+        (string-append " --color-host-fg: " host-header-foreground ";") "")
+      " }")))

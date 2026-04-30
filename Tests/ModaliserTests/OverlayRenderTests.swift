@@ -201,4 +201,30 @@ struct OverlayRenderTests {
             try engine.evaluate("(set-host-header! 'name \"x\" 'unknown 1)")
         }
     }
+
+    @Test func hostHeaderCssEmptyWhenNoColoursSet() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header! 'name \"x\")")
+        let css = try engine.evaluate("(host-header-css)").asString()
+        #expect(css == "")
+    }
+
+    @Test func hostHeaderCssEmitsBothVariables() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (set-host-header! 'name "x" 'background "#000" 'foreground "#fff")
+            """)
+        let css = try engine.evaluate("(host-header-css)").asString()
+        #expect(css.contains(":root"))
+        #expect(css.contains("--color-host-bg: #000"))
+        #expect(css.contains("--color-host-fg: #fff"))
+    }
+
+    @Test func hostHeaderCssEmitsOnlyTheSetVariable() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header! 'name \"x\" 'background \"#abc\")")
+        let css = try engine.evaluate("(host-header-css)").asString()
+        #expect(css.contains("--color-host-bg: #abc"))
+        #expect(!css.contains("--color-host-fg"))
+    }
 }
