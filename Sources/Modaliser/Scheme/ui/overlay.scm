@@ -44,16 +44,12 @@
 
 ;; ─── Rendering (Pure Functions) ───────────────────────────────
 
-;; Build the breadcrumb header string from a navigation path.
-;; path: list of key strings, e.g. '("w" "m")
-;; root-label: label of the root tree node
-(define (render-breadcrumb root-label path)
-  (if (null? path)
+;; Build the breadcrumb header from a list of segments.
+;; segments: non-empty list of strings, e.g. ("my-server" "Global" "w")
+(define (render-breadcrumb segments)
+  (let ((sep (html->string (span '((class . "breadcrumb-sep")) ">"))))
     (header '((class . "overlay-header"))
-      (span '((class . "breadcrumb")) root-label))
-    (let* ((segments (cons root-label path))
-           (sep (html->string (span '((class . "breadcrumb-sep")) ">"))))
-      (header '((class . "overlay-header"))
+      (span '((class . "breadcrumb"))
         (make-raw-html
           (let loop ((segs segments) (result ""))
             (if (null? segs)
@@ -78,17 +74,17 @@
       (span '((class . "entry-arrow")) "\x2192;")
       (span (list (cons 'class label-class)) display-label))))
 
-;; Render the full overlay body: header + entry list
-(define (render-overlay-body node path)
-  (let* ((root-label (node-label node))
-         (current (if (null? path)
-                    node
-                    (navigate-to-path node path)))
+;; Render the full overlay body: header + entry list.
+;; root-segments: breadcrumb root (e.g. ("my-server" "Global"))
+;; node: the registered root tree node (provides children navigation only)
+;; path: navigation path from root, e.g. ("w" "m")
+(define (render-overlay-body root-segments node path)
+  (let* ((current  (if (null? path) node (navigate-to-path node path)))
          (children (if current (node-children current) '()))
-         ;; Sort children by key
-         (sorted (sort-children children)))
+         (sorted   (sort-children children))
+         (segments (append root-segments path)))
     (div '((class . "overlay"))
-      (render-breadcrumb root-label path)
+      (render-breadcrumb segments)
       (apply ul (cons '((class . "overlay-entries"))
                       (map render-entry sorted))))))
 
@@ -105,10 +101,9 @@
       sorted
       (loop (cdr rest) (insert (car rest) sorted)))))
 
-;; (render-overlay-html node path) → full HTML document string
-;; Pure function. node is the root tree node, path is the navigation path.
-;; Includes overlay.js for incremental updates.
-(define (render-overlay-html node path)
+;; (render-overlay-html node root-segments path) → full HTML document string
+;; Pure function. Includes overlay.js for incremental updates.
+(define (render-overlay-html node root-segments path)
   (let ((css (if (string=? overlay-custom-css "")
                overlay-base-css
                (string-append overlay-base-css "\n" overlay-custom-css))))
@@ -117,7 +112,7 @@
         (string-append
           (html->string (style-element '() css))
           (html->string (script-element '() overlay-js))))
-      (render-overlay-body node path))))
+      (render-overlay-body root-segments node path))))
 
 ;; Build JSON string for overlay data and push to JS updateOverlay().
 ;; Much faster than full HTML replacement for group navigation.
@@ -195,7 +190,7 @@
     (webview-on-message overlay-webview-id overlay-message-handler)
     (set! overlay-open? #t))
   (webview-set-html! overlay-webview-id
-    (render-overlay-html node path)))
+    (render-overlay-html node modal-root-segments path)))
 
 ;; (update-overlay node path) — update content via JS (no page reload)
 (define (update-overlay node path)

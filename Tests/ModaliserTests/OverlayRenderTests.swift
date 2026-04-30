@@ -42,7 +42,7 @@ struct OverlayRenderTests {
               (key "f" "Finder" (lambda () 'ok)))
             """)
         let result = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '())
+            (render-overlay-html (lookup-tree "global") '("Global") '())
             """)
         let html = try result.asString()
         #expect(html.hasPrefix("<!DOCTYPE html>"))
@@ -58,7 +58,7 @@ struct OverlayRenderTests {
               (key "f" "Finder" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '())
+            (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
         #expect(html.contains("Safari"))
         #expect(html.contains("Finder"))
@@ -75,7 +75,7 @@ struct OverlayRenderTests {
               (key "m" "Messages" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '())
+            (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
         // 'a' should appear before 'm', and 'm' before 'z'
         let aPos = html.range(of: "Alacritty")!.lowerBound
@@ -93,7 +93,7 @@ struct OverlayRenderTests {
                 (key "c" "Center" (lambda () 'ok))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '())
+            (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
         // Group entries show label with ellipsis and group-label class
         #expect(html.contains("Windows \u{2026}"))
@@ -109,7 +109,7 @@ struct OverlayRenderTests {
                 (key "m" "Maximize" (lambda () 'ok))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("w"))
+            (render-overlay-html (lookup-tree "global") '("Global") '("w"))
             """).asString()
         // Should show Windows' children, not root
         #expect(html.contains("Center"))
@@ -126,7 +126,7 @@ struct OverlayRenderTests {
               (key "s" "Safari" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '())
+            (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
         // Should include base.css content in a style tag
         #expect(html.contains("<style>"))
@@ -140,7 +140,7 @@ struct OverlayRenderTests {
               (key "s" "Open <Script>" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '())
+            (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
         // Label should be HTML-escaped
         #expect(html.contains("&lt;Script&gt;"))
@@ -154,7 +154,7 @@ struct OverlayRenderTests {
               (key " " "Space action" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '())
+            (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
         #expect(html.contains("\u{2423}"))
     }
@@ -321,5 +321,29 @@ struct OverlayRenderTests {
         try engine.evaluate("(modal-exit)")
         let lenAfter = try engine.evaluate("(length modal-root-segments)")
         #expect(lenAfter == .fixnum(0))
+    }
+
+    @Test func renderOverlayHtmlPrependsHostSegment() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("my-server" "Global") '("w"))
+            """).asString()
+        #expect(html.contains("my-server"))
+        #expect(html.contains("Global"))
+        // The breadcrumb separator is &gt; (HTML-escaped >).
+        #expect(html.contains("breadcrumb-sep"))
+    }
+
+    @Test func renderOverlayHtmlVariantSegmentsRendered() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate(
+            "(define-tree 'com.googlecode.iterm2/nvim (key \"x\" \"X\" (lambda () 'ok)))")
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "com.googlecode.iterm2/nvim")
+                                 '("iTerm" "nvim") '())
+            """).asString()
+        #expect(html.contains("iTerm"))
+        #expect(html.contains("nvim"))
     }
 }
