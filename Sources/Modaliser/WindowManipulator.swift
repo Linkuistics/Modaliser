@@ -207,24 +207,66 @@ enum WindowManipulator {
         AXUIElementSetAttributeValue(
             app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
 
+        var lastFW: AXError = .success
+        var lastMW: AXError = .success
+        var lastWS: AXError = .success
         for attempt in 0..<5 {
-            if let obj = axAttribute(app, kAXFocusedWindowAttribute) {
+            var obj: AnyObject?
+            lastFW = AXUIElementCopyAttributeValue(
+                app, kAXFocusedWindowAttribute as CFString, &obj)
+            if lastFW == .success, let obj {
                 diag("WindowManipulator: window via AXFocusedWindow attempt=\(attempt)")
                 return (obj as! AXUIElement)
             }
-            if let obj = axAttribute(app, kAXMainWindowAttribute) {
+            lastMW = AXUIElementCopyAttributeValue(
+                app, kAXMainWindowAttribute as CFString, &obj)
+            if lastMW == .success, let obj {
                 diag("WindowManipulator: window via AXMainWindow attempt=\(attempt)")
                 return (obj as! AXUIElement)
             }
-            if let windows = axAttribute(app, kAXWindowsAttribute) as? [AXUIElement],
-               let first = windows.first
-            {
+            lastWS = AXUIElementCopyAttributeValue(
+                app, kAXWindowsAttribute as CFString, &obj)
+            if lastWS == .success, let arr = obj as? [AXUIElement], let first = arr.first {
                 diag("WindowManipulator: window via AXWindows[0] attempt=\(attempt)")
                 return first
             }
             if attempt < 4 { usleep(20_000) }
         }
+        diag(
+            "WindowManipulator: AX resolution failed "
+            + "FW=\(lastFW.rawValue) MW=\(lastMW.rawValue) WS=\(lastWS.rawValue)")
+        dumpCGWindowsForApp(app)
         return nil
+    }
+
+    /// Dump CGWindowList entries for the given AX app element's pid, so we can
+    /// see whether the windows are visible at all (and under which pid).
+    private static func dumpCGWindowsForApp(_ app: AXUIElement) {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(app, &pid) == .success else { return }
+        guard let infoList = CGWindowListCopyWindowInfo(
+            [.optionAll, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else {
+            diag("WindowManipulator: CGWindowList unavailable")
+            return
+        }
+        var matches = 0
+        for info in infoList {
+            let owner = info[kCGWindowOwnerPID as String] as? pid_t ?? 0
+            let name = info[kCGWindowOwnerName as String] as? String ?? "?"
+            let title = info[kCGWindowName as String] as? String ?? ""
+            let layer = info[kCGWindowLayer as String] as? Int ?? -1
+            if owner == pid {
+                matches += 1
+                diag(
+                    "WindowManipulator: CG window pid=\(owner) "
+                    + "owner=\"\(name)\" title=\"\(title)\" layer=\(layer)")
+            }
+        }
+        if matches == 0 {
+            diag("WindowManipulator: no CG windows for pid=\(pid) "
+                + "(searched \(infoList.count) entries)")
+        }
     }
 
     private static func screenContaining(_ frame: CGRect) -> NSScreen? {
