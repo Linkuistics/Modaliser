@@ -12,12 +12,15 @@
 ;; Register a command tree for a scope.
 ;; scope: symbol or string (e.g. 'global or "com.apple.Safari")
 ;; children: alist nodes produced by (key ...), (group ...), etc.
+;;
+;; The root node carries 'scope (the raw key string) instead of a label;
+;; the breadcrumb is computed at modal-enter time via compute-root-segments,
+;; not from a baked-in root label.
 (define (register-tree! scope . children)
   (let* ((scope-str (if (symbol? scope) (symbol->string scope) scope))
-         (label (if (equal? scope-str "global") "Global" scope-str))
          (root (list (cons 'kind 'group)
                      (cons 'key "")
-                     (cons 'label label)
+                     (cons 'scope scope-str)
                      (cons 'children children))))
     (hashtable-set! tree-registry scope-str root)))
 
@@ -88,6 +91,7 @@
 (define modal-leader-keycode #f)
 (define modal-overlay-generation 0) ;; generation counter for delayed overlay show
 (define modal-overlay-delay 1.0)    ;; seconds before overlay appears (0 = immediate)
+(define modal-root-segments '())     ;; breadcrumb root: host? + scope segments
 
 ;; (set-overlay-delay! seconds) — set the which-key overlay delay.
 ;; 0 shows the overlay immediately; typical values are 0.3–1.0 seconds.
@@ -123,6 +127,9 @@
     (set! modal-current-node tree)
     (set! modal-current-path '())
     (set! modal-leader-keycode leader-kc)
+    (set! modal-root-segments
+      (compute-root-segments
+        (or (alist-ref tree 'scope #f) "")))
     (register-all-keys! modal-key-handler)
     (modal-show-overlay-delayed)))
 
@@ -137,7 +144,8 @@
     (set! modal-current-node #f)
     (set! modal-root-node #f)
     (set! modal-current-path '())
-    (set! modal-leader-keycode #f)))
+    (set! modal-leader-keycode #f)
+    (set! modal-root-segments '())))
 
 ;; Handle a character key press while modal is active.
 ;; Side-effecting: directly calls actions, updates overlay, etc.
@@ -246,3 +254,15 @@
          (variant   (cdr parts))
          (display   (or (app-display-name bundle-id) bundle-id)))
     (cons display variant)))
+
+;; (compute-root-segments scope-str) → list of strings
+;;
+;; Builds the breadcrumb root: optional host name, then scope segments.
+;;   global tree              → (host? "Global")
+;;   app-local tree           → (host? app-name [variant])
+(define (compute-root-segments scope-str)
+  (let ((host-prefix (if host-header-name (list host-header-name) '()))
+        (scope-segs  (if (equal? scope-str "global")
+                       (list "Global")
+                       (resolve-app-segments scope-str))))
+    (append host-prefix scope-segs)))

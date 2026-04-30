@@ -260,4 +260,66 @@ struct OverlayRenderTests {
         #expect(try engine.evaluate("(resolve-app-segments \"com.example.unknown\")")
                   == .pair(.makeString("com.example.unknown"), .null))
     }
+
+    @Test func registerTreeStoresScopeOnRoot() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        #expect(try engine.evaluate("(alist-ref (lookup-tree \"global\") 'scope #f)").asString()
+                  == "global")
+
+        try engine.evaluate("(define-tree 'com.apple.Safari (key \"t\" \"Tabs\" (lambda () 'ok)))")
+        #expect(try engine.evaluate("(alist-ref (lookup-tree \"com.apple.Safari\") 'scope #f)").asString()
+                  == "com.apple.Safari")
+    }
+
+    @Test func computeRootSegmentsGlobalNoHost() throws {
+        let engine = try loadOverlay()
+        let result = try engine.evaluate("(compute-root-segments \"global\")")
+        #expect(result == .pair(.makeString("Global"), .null))
+    }
+
+    @Test func computeRootSegmentsAppNoHost() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (define (app-display-name id)
+              (if (equal? id "com.apple.Safari") "Safari" #f))
+            """)
+        let result = try engine.evaluate("(compute-root-segments \"com.apple.Safari\")")
+        #expect(result == .pair(.makeString("Safari"), .null))
+    }
+
+    @Test func computeRootSegmentsPrependsHostWhenSet() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header! 'name \"my-server\")")
+        try engine.evaluate("""
+            (define (app-display-name id)
+              (if (equal? id "com.googlecode.iterm2") "iTerm" #f))
+            """)
+        // List → ("my-server" "iTerm" "nvim"). Pre-bind to a Scheme variable
+        // so the assertions can index into it without re-evaluating the expression.
+        try engine.evaluate("""
+            (define segs (compute-root-segments "com.googlecode.iterm2/nvim"))
+            """)
+        #expect(try engine.evaluate("(length segs)") == .fixnum(3))
+        #expect(try engine.evaluate("(list-ref segs 0)").asString() == "my-server")
+        #expect(try engine.evaluate("(list-ref segs 1)").asString() == "iTerm")
+        #expect(try engine.evaluate("(list-ref segs 2)").asString() == "nvim")
+    }
+
+    @Test func modalEnterPopulatesRootSegments() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header! 'name \"box\")")
+        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        // Stub the keymap registrations (modal-enter calls register-all-keys!).
+        try engine.evaluate("(define (register-all-keys! h) #t)")
+        try engine.evaluate("(define (unregister-all-keys!) #t)")
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") 0)")
+        let len = try engine.evaluate("(length modal-root-segments)")
+        #expect(len == .fixnum(2))
+        #expect(try engine.evaluate("(list-ref modal-root-segments 0)").asString() == "box")
+        #expect(try engine.evaluate("(list-ref modal-root-segments 1)").asString() == "Global")
+        try engine.evaluate("(modal-exit)")
+        let lenAfter = try engine.evaluate("(length modal-root-segments)")
+        #expect(lenAfter == .fixnum(0))
+    }
 }
