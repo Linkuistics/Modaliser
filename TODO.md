@@ -20,14 +20,6 @@ The menu bar currently offers "Relaunch" to apply config changes. Implement hot 
 Read Sources/Modaliser/Scheme/root.scm and Sources/Modaliser/Scheme/core/state-machine.scm. The tree-registry is a hash table. Implement a (reload-config!) function in Scheme that: 1) clears the tree-registry hash table with (hashtable-walk tree-registry (lambda (k v) (hashtable-delete! tree-registry k))), 2) unregisters all hotkeys by iterating, 3) re-evaluates the user config file at user-config-path using (load user-config-path). Add a "Reload Config" menu item to the status bar in root.scm (above Relaunch) with action reload-config! and key-equivalent "R". Be careful to preserve the keyboard capture state -- only the trees and leader bindings should be reloaded, not the core modules.
 ```
 
-## Starter config generation
-
-When no config file exists at `~/.config/modaliser/config.scm`, root.scm silently skips it. Generate a starter config on first launch so users have something to work with.
-
-```
-Read Sources/Modaliser/Scheme/root.scm. After the (when (file-exists? user-config-path) ...) block, add an else branch that: 1) creates the ~/.config/modaliser/ directory if needed (using run-shell "mkdir -p ~/.config/modaliser"), 2) writes a minimal starter config.scm with (set-leader! 'global F18), (set-leader! 'local F17), and a global tree containing a few example commands (launch Safari, center window, find apps selector), and 3) loads it. Use (with-output-to-file user-config-path (lambda () (display starter-config-string))) for writing. Model the starter config on the existing config.scm but with only the essentials.
-```
-
 ## Dark mode CSS theme
 
 The default base.css uses a light theme. Add a `@media (prefers-color-scheme: dark)` block so the overlay and chooser adapt to macOS dark mode.

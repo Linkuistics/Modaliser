@@ -7,9 +7,7 @@
 (set-leader! 'global F18)
 (set-leader! 'local F17)
 
-;; Overlay delay: seconds before the which-key hint panel appears after
-;; pressing the leader. 0 shows it immediately. Default is 1.0.
-;; (set-overlay-delay! 0.5)
+(set-overlay-delay! 0.3)
 
 ;; Helper: open a URL
 (define (open-url-action url)
@@ -24,18 +22,18 @@
 (define-tree 'global
 
   ;; Quick-launch keys
-  (key "s" "Safari"
-    (lambda () (launch-app "Safari")))
-  (key "c" "ChatGPT"
-    (lambda () (launch-app "ChatGPT")))
-  (key "i" "iTerm"
-    (lambda () (launch-app "iTerm")))
-  (key "j" "Jump Desktop"
-    (lambda () (launch-app "Jump Desktop")))
-  (key "z" "Zed"
-    (lambda () (launch-app "Zed")))
   (key " " "Spotlight"
     (keystroke '(cmd) " "))
+  (key "c" "ChatGPT"
+    (lambda () (launch-app "ChatGPT")))
+  (key "j" "Jump Desktop"
+    (lambda () (launch-app "Jump Desktop")))
+  (key "n" "Notes"
+    (lambda () (launch-app "Notes")))
+  (key "s" "Safari"
+    (lambda () (launch-app "Safari")))
+  (key "t" "Terminal (Ghostty)"
+    (lambda () (launch-app "Ghostty")))
   (key "," "Settings"
     (lambda () (open-settings!)))
 
@@ -44,9 +42,6 @@
     'prompt "Search Google…"
     'dynamic-search web-search-handler
     'on-select web-search-on-select)
-
-  (key "c" "ChatGPT"
-    (lambda () (launch-app "ChatGPT")))
 
   ;; Find group
   (group "f" "Find"
@@ -108,18 +103,18 @@
         (lambda () (launch-app "Codex")))
       (key "r" "Chrome"
         (lambda () (launch-app "Google Chrome"))))
-    (key "g" "GitButler"
-      (lambda () (launch-app "GitButler")))
+    (group "g" "G"
+      (key "b" "GitButler"
+        (lambda () (launch-app "GitButler")))
+      (key "h" "Ghostty"
+        (lambda () (launch-app "GHostty"))))
     (group "m" "M"
       (key "a" "Mail"
         (lambda () (launch-app "Mail")))
       (key "e" "Messages"
         (lambda () (launch-app "Messages"))))
-    (group "n" "N"
-      (key "a" "Apple Notes"
+    (key "n" "Notes"
         (lambda () (launch-app "Notes")))
-      (key "r" "Raycast Notes"
-        (open-url-action "raycast://extensions/raycast/raycast-notes/raycast-notes")))
     (key "o" "Obsidian"
       (lambda () (launch-app "Obsidian")))
     (group "s" "S"
@@ -138,11 +133,6 @@
         (lambda () (launch-app "Zed")))
       (key "o" "Zotero"
         (lambda () (launch-app "Zotero")))))
-
-  ;; Reload group
-  (group "r" "Reload"
-    (key "r" "Reload Config"
-      (lambda () (run-shell "echo 'Reload not yet implemented'"))))
 
   ;; Window management group
   (group "w" "Windows"
@@ -181,11 +171,7 @@
       'actions
         (list
           (action "Focus" 'description "Switch to window" 'key 'primary
-            'run (lambda (c) (focus-window c))))))
-
-  ;; Raycast notes
-  (key "n" "Raycast Notes"
-    (open-url-action "raycast://extensions/raycast/raycast-notes/raycast-notes")))
+            'run (lambda (c) (focus-window c)))))))
 
 ;; ─── App-local command trees ────────────────────────────────────────────
 

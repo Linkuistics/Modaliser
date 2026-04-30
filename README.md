@@ -49,7 +49,7 @@ On first launch, macOS will prompt for Accessibility and Screen Recording permis
 
 ## Configuration
 
-On launch, Modaliser loads `~/.config/modaliser/config.scm` if it exists. Edit this file, then use **Relaunch** from the menu bar icon to apply changes.
+On first launch, Modaliser seeds `~/.config/modaliser/config.scm` from a bundled default (`Sources/Modaliser/Scheme/default-config.scm`). On every launch it loads that user file. Edit it, then use **Relaunch** from the menu bar icon to apply changes.
 
 You can also click **Settings** from the menu bar to open the config file directly.
 

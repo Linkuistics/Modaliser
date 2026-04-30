@@ -28,12 +28,38 @@
 
 ;; ─── Config path ─────────────────────────────────────────────────
 
-(define user-config-path
+(define user-config-dir
   (string-append (get-environment-variable "HOME")
-                 "/.config/modaliser/config.scm"))
+                 "/.config/modaliser"))
+
+(define user-config-path
+  (string-append user-config-dir "/config.scm"))
+
+(define default-config-path
+  (string-append *scheme-directory* "/default-config.scm"))
 
 (define (open-settings!)
   (run-shell (string-append "/usr/bin/open \"" user-config-path "\"")))
+
+;; Copy file by streaming characters; preserves contents exactly.
+(define (copy-file! src dst)
+  (let ((in (open-input-file src))
+        (out (open-output-file dst)))
+    (let loop ((c (read-char in)))
+      (if (eof-object? c)
+        (begin
+          (close-input-port in)
+          (close-output-port out))
+        (begin
+          (write-char c out)
+          (loop (read-char in)))))))
+
+;; Seed user config from the bundled default on first run.
+(unless (file-exists? user-config-path)
+  (run-shell (string-append "/bin/mkdir -p \"" user-config-dir "\""))
+  (when (file-exists? default-config-path)
+    (copy-file! default-config-path user-config-path)
+    (log "Modaliser: seeded default config at " user-config-path)))
 
 ;; ─── Status bar ───────────────────────────────────────────────────
 
