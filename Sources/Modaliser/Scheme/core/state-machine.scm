@@ -182,3 +182,35 @@
       (if child
         (navigate-to-path child (cdr path))
         #f))))
+
+;; ─── Host Header ────────────────────────────────────────────────
+;;
+;; Optional banner identifying which Modaliser instance owns the
+;; overlay/chooser. Set once at config load via (set-host-header! ...).
+
+(define host-header-name #f)         ;; #f → no host segment, no recolour
+(define host-header-background #f)   ;; CSS colour string or #f
+(define host-header-foreground #f)   ;; CSS colour string or #f
+
+;; (set-host-header! 'name VAL [ 'background CSS ] [ 'foreground CSS ])
+;;
+;; Keyword-style API mirroring set-leader!.  Only 'name is required.
+;; Re-calling overwrites the previous values.
+(define (set-host-header! . args)
+  (let loop ((rest args)
+             (name #f) (bg #f) (fg #f) (saw-name? #f))
+    (cond
+      ((null? rest)
+       (unless saw-name?
+         (error "set-host-header!: missing required 'name keyword"))
+       (set! host-header-name name)
+       (set! host-header-background bg)
+       (set! host-header-foreground fg))
+      ((eq? (car rest) 'name)
+       (loop (cddr rest) (cadr rest) bg fg #t))
+      ((eq? (car rest) 'background)
+       (loop (cddr rest) name (cadr rest) fg saw-name?))
+      ((eq? (car rest) 'foreground)
+       (loop (cddr rest) name bg (cadr rest) saw-name?))
+      (else
+       (error "set-host-header!: unknown keyword" (car rest))))))

@@ -173,4 +173,32 @@ struct OverlayRenderTests {
         let engine = try loadOverlay()
         #expect(try engine.evaluate("overlay-open?") == .false)
     }
+
+    @Test func setHostHeaderStoresAllThreeFields() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (set-host-header!
+              'name "my-server"
+              'background "#7a1f3d"
+              'foreground "#ffffff")
+            """)
+        #expect(try engine.evaluate("host-header-name").asString() == "my-server")
+        #expect(try engine.evaluate("host-header-background").asString() == "#7a1f3d")
+        #expect(try engine.evaluate("host-header-foreground").asString() == "#ffffff")
+    }
+
+    @Test func setHostHeaderAcceptsNameOnly() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header! 'name \"local\")")
+        #expect(try engine.evaluate("host-header-name").asString() == "local")
+        #expect(try engine.evaluate("host-header-background") == .false)
+        #expect(try engine.evaluate("host-header-foreground") == .false)
+    }
+
+    @Test func setHostHeaderRejectsUnknownKeyword() throws {
+        let engine = try loadOverlay()
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(set-host-header! 'name \"x\" 'unknown 1)")
+        }
+    }
 }
