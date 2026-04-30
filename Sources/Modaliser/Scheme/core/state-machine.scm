@@ -229,3 +229,20 @@
       (if host-header-foreground
         (string-append " --color-host-fg: " host-header-foreground ";") "")
       " }")))
+
+;; (resolve-app-segments scope-str) → list of strings
+;;
+;; Splits a registered scope key into breadcrumb segments by `/`.
+;; The first segment is resolved to a display name via app-display-name;
+;; if resolution fails, the bare bundle ID is used.  Subsequent
+;; segments (variant suffixes like "nvim") are passed through verbatim.
+;;
+;;   "com.apple.Safari"            → ("Safari")
+;;   "com.googlecode.iterm2/nvim"  → ("iTerm" "nvim")
+;;   "com.example.unknown"         → ("com.example.unknown")
+(define (resolve-app-segments scope-str)
+  (let* ((parts (string-split scope-str "/"))
+         (bundle-id (car parts))
+         (variant   (cdr parts))
+         (display   (or (app-display-name bundle-id) bundle-id)))
+    (cons display variant)))

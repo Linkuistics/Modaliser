@@ -227,4 +227,37 @@ struct OverlayRenderTests {
         #expect(css.contains("--color-host-bg: #abc"))
         #expect(!css.contains("--color-host-fg"))
     }
+
+    @Test func resolveAppSegmentsResolvesPlainBundleId() throws {
+        let engine = try loadOverlay()
+        // Stub the Swift native function with a Scheme one for predictability.
+        try engine.evaluate("""
+            (define (app-display-name id)
+              (cond ((equal? id "com.apple.Safari") "Safari")
+                    ((equal? id "com.googlecode.iterm2") "iTerm")
+                    (else #f)))
+            """)
+        #expect(try engine.evaluate("(resolve-app-segments \"com.apple.Safari\")")
+                  == .pair(.makeString("Safari"), .null))
+    }
+
+    @Test func resolveAppSegmentsSplitsVariant() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (define (app-display-name id)
+              (if (equal? id "com.googlecode.iterm2") "iTerm" #f))
+            """)
+        let result = try engine.evaluate(
+            "(resolve-app-segments \"com.googlecode.iterm2/nvim\")")
+        // Expect ("iTerm" "nvim") as a Scheme list.
+        #expect(result == .pair(.makeString("iTerm"),
+                                 .pair(.makeString("nvim"), .null)))
+    }
+
+    @Test func resolveAppSegmentsFallsBackToBundleIdWhenUnresolvable() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(define (app-display-name id) #f)")
+        #expect(try engine.evaluate("(resolve-app-segments \"com.example.unknown\")")
+                  == .pair(.makeString("com.example.unknown"), .null))
+    }
 }
