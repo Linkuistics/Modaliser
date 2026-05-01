@@ -199,11 +199,15 @@
 ;; Optional banner identifying which Modaliser instance owns the
 ;; overlay/chooser. Set once at config load via (set-host-header! ...).
 
-(define host-header-name #f)         ;; #f → no host segment, no recolour
-(define host-header-background #f)   ;; CSS colour string or #f
-(define host-header-foreground #f)   ;; CSS colour string or #f
+(define host-header-name #f)              ;; #f → no host segment, no recolour
+(define host-header-background #f)         ;; CSS colour string or #f
+(define host-header-foreground #f)         ;; CSS colour string or #f
+(define host-header-separator-color #f)    ;; CSS colour string or #f
 
-;; (set-host-header! 'name VAL [ 'background CSS ] [ 'foreground CSS ])
+;; (set-host-header! 'name VAL
+;;                   [ 'background      CSS ]
+;;                   [ 'foreground      CSS ]
+;;                   [ 'separator-color CSS ])
 ;;
 ;; Keyword-style API mirroring set-leader!.  Only 'name is required.
 ;; Re-calling overwrites the previous values. All values are whitespace-
@@ -211,29 +215,34 @@
 ;; can be passed directly without callers handling the trailing newline.
 (define (set-host-header! . args)
   (let loop ((rest args)
-             (name #f) (bg #f) (fg #f) (saw-name? #f))
+             (name #f) (bg #f) (fg #f) (sep #f) (saw-name? #f))
     (cond
       ((null? rest)
        (unless saw-name?
          (error "set-host-header!: missing required 'name keyword"))
        (set! host-header-name (string-trim name))
        (set! host-header-background (and bg (string-trim bg)))
-       (set! host-header-foreground (and fg (string-trim fg))))
+       (set! host-header-foreground (and fg (string-trim fg)))
+       (set! host-header-separator-color (and sep (string-trim sep))))
       ((eq? (car rest) 'name)
-       (loop (cddr rest) (cadr rest) bg fg #t))
+       (loop (cddr rest) (cadr rest) bg fg sep #t))
       ((eq? (car rest) 'background)
-       (loop (cddr rest) name (cadr rest) fg saw-name?))
+       (loop (cddr rest) name (cadr rest) fg sep saw-name?))
       ((eq? (car rest) 'foreground)
-       (loop (cddr rest) name bg (cadr rest) saw-name?))
+       (loop (cddr rest) name bg (cadr rest) sep saw-name?))
+      ((eq? (car rest) 'separator-color)
+       (loop (cddr rest) name bg fg (cadr rest) saw-name?))
       (else
        (error "set-host-header!: unknown keyword" (car rest))))))
 
 ;; (host-header-css) → string
-;; Returns a :root { ... } CSS block defining --color-host-bg and/or
-;; --color-host-fg when set, or "" when neither is set.  Concatenated
-;; into the <style> block by both the overlay and the chooser renderers.
+;; Returns a :root { ... } CSS block defining --color-host-bg / --color-host-fg
+;; / --color-host-sep when set, or "" when none are set. Concatenated into the
+;; <style> block by both the overlay and the chooser renderers.
 (define (host-header-css)
-  (if (and (not host-header-background) (not host-header-foreground))
+  (if (and (not host-header-background)
+           (not host-header-foreground)
+           (not host-header-separator-color))
     ""
     (string-append
       ":root {"
@@ -241,6 +250,8 @@
         (string-append " --color-host-bg: " host-header-background ";") "")
       (if host-header-foreground
         (string-append " --color-host-fg: " host-header-foreground ";") "")
+      (if host-header-separator-color
+        (string-append " --color-host-sep: " host-header-separator-color ";") "")
       " }")))
 
 ;; (resolve-app-segments scope-str) → list of strings

@@ -208,13 +208,28 @@ struct OverlayRenderTests {
         let engine = try loadOverlay()
         try engine.evaluate("""
             (set-host-header!
-              'name       "  Bach\\n"
-              'background "  steelblue\\n"
-              'foreground "  white\\n")
+              'name            "  Bach\\n"
+              'background      "  steelblue\\n"
+              'foreground      "  white\\n"
+              'separator-color "  #888\\n")
             """)
         #expect(try engine.evaluate("host-header-name").asString() == "Bach")
         #expect(try engine.evaluate("host-header-background").asString() == "steelblue")
         #expect(try engine.evaluate("host-header-foreground").asString() == "white")
+        #expect(try engine.evaluate("host-header-separator-color").asString() == "#888")
+    }
+
+    @Test func setHostHeaderSeparatorColorIsOptional() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header! 'name \"x\")")
+        #expect(try engine.evaluate("host-header-separator-color") == .false)
+    }
+
+    @Test func hostHeaderCssEmitsSeparatorVariableWhenSet() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header! 'name \"x\" 'separator-color \"#abc\")")
+        let css = try engine.evaluate("(host-header-css)").asString()
+        #expect(css.contains("--color-host-sep: #abc"))
     }
 
     @Test func hostHeaderCssEmptyWhenNoColoursSet() throws {
@@ -359,7 +374,6 @@ struct OverlayRenderTests {
             """).asString()
         #expect(html.contains("my-server"))
         #expect(html.contains("Global"))
-        // The breadcrumb separator is &gt; (HTML-escaped >).
         #expect(html.contains("breadcrumb-sep"))
     }
 

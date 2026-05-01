@@ -49,7 +49,7 @@
 ;; overlay, "chooser-header" for the chooser.
 ;; segments: non-empty list of strings, e.g. ("my-server" "Global" "w")
 (define (render-header-breadcrumb header-class segments)
-  (let ((sep (html->string (span '((class . "breadcrumb-sep")) ">"))))
+  (let ((sep (html->string (span '((class . "breadcrumb-sep")) "\xbb;"))))
     (header (list (cons 'class header-class))
       (span '((class . "breadcrumb"))
         (make-raw-html

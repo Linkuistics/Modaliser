@@ -31,7 +31,7 @@ function updateOverlay(data) {
     var segments = (data.rootSegments || []).concat(data.path || []);
     var html = '';
     for (var i = 0; i < segments.length; i++) {
-      if (i > 0) html += '<span class="breadcrumb-sep">&gt;</span>';
+      if (i > 0) html += '<span class="breadcrumb-sep">»</span>';
       html += escapeHtml(segments[i]);
     }
     header.innerHTML = '<span class="breadcrumb">' + html + '</span>';
