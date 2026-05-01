@@ -75,7 +75,7 @@ body {
 .overlay-header .breadcrumb-sep,
 .chooser-header .breadcrumb-sep {
   margin: 0 4px;
-  color: var(--color-arrow);
+  color: var(--color-host-fg, var(--color-arrow));
 }
 
 /* ─── Entry List ───────────────────────────────────────────── */
