@@ -202,6 +202,21 @@ struct OverlayRenderTests {
         }
     }
 
+    @Test func setHostHeaderTrimsWhitespaceFromAllValues() throws {
+        // (run-shell "hostname -s") and similar return a trailing newline;
+        // callers shouldn't have to know to trim before passing.
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (set-host-header!
+              'name       "  Bach\\n"
+              'background "  steelblue\\n"
+              'foreground "  white\\n")
+            """)
+        #expect(try engine.evaluate("host-header-name").asString() == "Bach")
+        #expect(try engine.evaluate("host-header-background").asString() == "steelblue")
+        #expect(try engine.evaluate("host-header-foreground").asString() == "white")
+    }
+
     @Test func hostHeaderCssEmptyWhenNoColoursSet() throws {
         let engine = try loadOverlay()
         try engine.evaluate("(set-host-header! 'name \"x\")")

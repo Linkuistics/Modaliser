@@ -206,7 +206,9 @@
 ;; (set-host-header! 'name VAL [ 'background CSS ] [ 'foreground CSS ])
 ;;
 ;; Keyword-style API mirroring set-leader!.  Only 'name is required.
-;; Re-calling overwrites the previous values.
+;; Re-calling overwrites the previous values. All values are whitespace-
+;; trimmed so (run-shell "hostname -s") and similar shell-derived strings
+;; can be passed directly without callers handling the trailing newline.
 (define (set-host-header! . args)
   (let loop ((rest args)
              (name #f) (bg #f) (fg #f) (saw-name? #f))
@@ -214,9 +216,9 @@
       ((null? rest)
        (unless saw-name?
          (error "set-host-header!: missing required 'name keyword"))
-       (set! host-header-name name)
-       (set! host-header-background bg)
-       (set! host-header-foreground fg))
+       (set! host-header-name (string-trim name))
+       (set! host-header-background (and bg (string-trim bg)))
+       (set! host-header-foreground (and fg (string-trim fg))))
       ((eq? (car rest) 'name)
        (loop (cddr rest) (cadr rest) bg fg #t))
       ((eq? (car rest) 'background)
