@@ -233,6 +233,29 @@ struct ChooserRenderTests {
         #expect(html.contains("breadcrumb-sep"))
     }
 
+    @Test func renderChooserHtmlBreadcrumbStripsTrailingEllipsis() throws {
+        // "Find app…" ends with U+2026 — the breadcrumb segment should
+        // drop it so the chooser header reads "Global » Find app"
+        // instead of "Global » Find app…".
+        let engine = try loadAllModules()
+        try engine.evaluate("(set! modal-root-segments '(\"Global\"))")
+        let html = try engine.evaluate("""
+            (render-chooser-html "Find app…" '() "" 0 #f '())
+            """).asString()
+        let breadcrumb = String(html[html.range(of: "<header")!.lowerBound ..<
+                                     html.range(of: "</header>")!.upperBound])
+        #expect(breadcrumb.contains("Find app"))
+        #expect(!breadcrumb.contains("Find app\u{2026}"))
+    }
+
+    @Test func chooserPromptSegmentLeavesNonEllipsisStringsAlone() throws {
+        let engine = try loadAllModules()
+        #expect(try engine.evaluate("(chooser-prompt-segment \"hello\")").asString()
+                  == "hello")
+        #expect(try engine.evaluate("(chooser-prompt-segment \"\")").asString()
+                  == "")
+    }
+
     @Test func renderChooserHtmlPrependsHostSegment() throws {
         let engine = try loadAllModules()
         try engine.evaluate(

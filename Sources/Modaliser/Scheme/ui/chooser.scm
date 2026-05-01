@@ -126,6 +126,17 @@
 ;; actions: list of action alists
 (define chooser-max-visible-rows 50)
 
+;; Drop a trailing horizontal ellipsis (U+2026) from a prompt string for
+;; use as a breadcrumb segment. Prompts are written with "…" because they
+;; double as input-field placeholders ("Find app…", "Search Google…")
+;; where the suspense glyph signals "type something"; in the breadcrumb
+;; the same glyph is redundant — the segment IS the action description.
+(define (chooser-prompt-segment s)
+  (let ((n (string-length s)))
+    (if (and (> n 0) (char=? (string-ref s (- n 1)) #\x2026))
+      (substring s 0 (- n 1))
+      s)))
+
 (define (render-chooser-html prompt visible-items query selected-index
                              actions-visible? actions)
   (let* ((css (string-append overlay-base-css
@@ -137,7 +148,8 @@
          (item-count (length visible-items))
          (footer-text (string-append (number->string item-count)
                         (if (= item-count 1) " item" " items")))
-         (segments (append modal-root-segments (list prompt)))
+         (segments (append modal-root-segments
+                           (list (chooser-prompt-segment prompt))))
          (body
            (div '((class . "chooser"))
              (render-header-breadcrumb "chooser-header" segments)
@@ -334,7 +346,8 @@
                                  (string-append "\n" overlay-custom-css))
                                "\n"
                                (host-header-css)))
-           (segments (append modal-root-segments (list prompt)))
+           (segments (append modal-root-segments
+                             (list (chooser-prompt-segment prompt))))
            (html (html-document
                    (make-raw-html
                      (string-append
