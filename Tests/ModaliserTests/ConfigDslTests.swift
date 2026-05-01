@@ -218,21 +218,12 @@ struct ConfigDslTests {
 
     // MARK: - Config loading
 
-    @Test func projectConfigSchemeLoadsWithoutErrors() throws {
+    @Test func defaultConfigSchemeLoadsWithoutErrors() throws {
         let engine = try loadAllModules()
-        // Load the actual config.scm from the project root
         guard let schemePath = engine.schemeDirectoryPath else {
             throw SchemeTestError.noSchemeDir
         }
-        // config.scm is at the project root, 3 levels up from Sources/Modaliser/Scheme
-        let projectRoot = (schemePath as NSString)
-            .deletingLastPathComponent  // Modaliser
-            .appending("/../..")        // project root
-        let configPath = (projectRoot as NSString).standardizingPath + "/config.scm"
-        guard FileManager.default.fileExists(atPath: configPath) else {
-            Issue.record("config.scm not found at \(configPath)")
-            return
-        }
+        let configPath = schemePath + "/default-config.scm"
         try engine.evaluateFile(configPath)
 
         // Verify trees were registered from config
