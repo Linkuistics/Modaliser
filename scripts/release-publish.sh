@@ -42,6 +42,30 @@ verify_tag_matches_artifacts() {
     || die "artifact version mismatch: $sample does not contain v${version}"
 }
 
+# Ensure the current branch and the v$version tag are present on origin
+# before `gh release create` runs. Without this, gh creates a lightweight
+# tag from origin's default-branch tip — which silently differs from the
+# local annotated tag when there are unpushed commits, producing a release
+# pointing at the wrong commit.
+push_branch_and_tag() {
+  local version="$1"
+  local tag="v${version}"
+  local remote_tag_sha local_tag_sha branch
+  branch="$(git -C "$REPO_ROOT" symbolic-ref --quiet --short HEAD)" \
+    || die "HEAD is detached; release from a branch"
+
+  echo "release-publish: pushing $branch to origin"
+  git -C "$REPO_ROOT" push origin "$branch"
+
+  local_tag_sha="$(git -C "$REPO_ROOT" rev-parse "$tag")"
+  remote_tag_sha="$(git -C "$REPO_ROOT" ls-remote --tags origin "$tag" | awk '{print $1}')"
+  if [[ -n "$remote_tag_sha" && "$remote_tag_sha" != "$local_tag_sha" ]]; then
+    die "remote tag $tag ($remote_tag_sha) differs from local ($local_tag_sha); resolve manually"
+  fi
+  echo "release-publish: pushing tag $tag to origin"
+  git -C "$REPO_ROOT" push origin "$tag"
+}
+
 create_github_release() {
   local version="$1"
   local tag="v${version}"
@@ -69,6 +93,7 @@ main() {
   version="$(read_version)"
   verify_tag_matches_artifacts "$version"
 
+  push_branch_and_tag "$version"
   create_github_release "$version"
   push_cask_to_tap "$version"
 
