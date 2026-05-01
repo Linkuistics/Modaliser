@@ -13,10 +13,10 @@ struct LifecycleLibraryTests {
         _ = try engine.evaluate("create-status-item!")
         _ = try engine.evaluate("update-status-item!")
         _ = try engine.evaluate("remove-status-item!")
-        _ = try engine.evaluate("request-accessibility!")
-        _ = try engine.evaluate("request-screen-recording!")
+        _ = try engine.evaluate("ensure-permissions!")
         _ = try engine.evaluate("relaunch!")
         _ = try engine.evaluate("quit!")
+        _ = try engine.evaluate("after-delay")
     }
 
     @Test func allFunctionsAreProcedures() throws {
@@ -25,10 +25,10 @@ struct LifecycleLibraryTests {
         #expect(try engine.evaluate("(procedure? create-status-item!)") == .true)
         #expect(try engine.evaluate("(procedure? update-status-item!)") == .true)
         #expect(try engine.evaluate("(procedure? remove-status-item!)") == .true)
-        #expect(try engine.evaluate("(procedure? request-accessibility!)") == .true)
-        #expect(try engine.evaluate("(procedure? request-screen-recording!)") == .true)
+        #expect(try engine.evaluate("(procedure? ensure-permissions!)") == .true)
         #expect(try engine.evaluate("(procedure? relaunch!)") == .true)
         #expect(try engine.evaluate("(procedure? quit!)") == .true)
+        #expect(try engine.evaluate("(procedure? after-delay)") == .true)
     }
 
     // MARK: - set-activation-policy!
@@ -45,22 +45,6 @@ struct LifecycleLibraryTests {
         #expect(throws: (any Error).self) {
             try engine.evaluate("(set-activation-policy! \"accessory\")")
         }
-    }
-
-    // MARK: - request-accessibility!
-
-    @Test func requestAccessibilityReturnsBoolean() throws {
-        let engine = try SchemeEngine()
-        let result = try engine.evaluate("(request-accessibility!)")
-        #expect(result == .true || result == .false)
-    }
-
-    // MARK: - request-screen-recording!
-
-    @Test func requestScreenRecordingReturnsBoolean() throws {
-        let engine = try SchemeEngine()
-        let result = try engine.evaluate("(request-screen-recording!)")
-        #expect(result == .true || result == .false)
     }
 
     // MARK: - remove-status-item!
