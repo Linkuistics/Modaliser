@@ -318,9 +318,22 @@ struct OverlayRenderTests {
         #expect(len == .fixnum(2))
         #expect(try engine.evaluate("(list-ref modal-root-segments 0)").asString() == "box")
         #expect(try engine.evaluate("(list-ref modal-root-segments 1)").asString() == "Global")
+    }
+
+    @Test func modalExitPreservesRootSegmentsForChooserHandoff() throws {
+        // Selector keys call (modal-exit) immediately before (open-chooser …),
+        // and the chooser reads modal-root-segments to render its breadcrumb.
+        // If modal-exit cleared the segments the chooser would lose host + scope.
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header! 'name \"box\")")
+        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("(define (register-all-keys! h) #t)")
+        try engine.evaluate("(define (unregister-all-keys!) #t)")
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") 0)")
         try engine.evaluate("(modal-exit)")
-        let lenAfter = try engine.evaluate("(length modal-root-segments)")
-        #expect(lenAfter == .fixnum(0))
+        #expect(try engine.evaluate("(length modal-root-segments)") == .fixnum(2))
+        #expect(try engine.evaluate("(list-ref modal-root-segments 0)").asString() == "box")
+        #expect(try engine.evaluate("(list-ref modal-root-segments 1)").asString() == "Global")
     }
 
     @Test func renderOverlayHtmlPrependsHostSegment() throws {

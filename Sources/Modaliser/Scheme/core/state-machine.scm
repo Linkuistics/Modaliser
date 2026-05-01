@@ -144,8 +144,11 @@
     (set! modal-current-node #f)
     (set! modal-root-node #f)
     (set! modal-current-path '())
-    (set! modal-leader-keycode #f)
-    (set! modal-root-segments '())))
+    (set! modal-leader-keycode #f)))
+;; modal-root-segments is intentionally NOT reset here. A selector key in
+;; the modal calls (modal-exit) before (open-chooser ...), and the chooser
+;; reads modal-root-segments to render its breadcrumb. The next modal-enter
+;; overwrites it, so staleness can't leak into a new session.
 
 ;; Handle a character key press while modal is active.
 ;; Side-effecting: directly calls actions, updates overlay, etc.
