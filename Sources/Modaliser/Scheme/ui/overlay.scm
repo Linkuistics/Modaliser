@@ -44,11 +44,13 @@
 
 ;; ─── Rendering (Pure Functions) ───────────────────────────────
 
-;; Build the breadcrumb header from a list of segments.
+;; Build a breadcrumb header from a list of segments.
+;; header-class is the outer element's class — "overlay-header" for the
+;; overlay, "chooser-header" for the chooser.
 ;; segments: non-empty list of strings, e.g. ("my-server" "Global" "w")
-(define (render-breadcrumb segments)
+(define (render-header-breadcrumb header-class segments)
   (let ((sep (html->string (span '((class . "breadcrumb-sep")) ">"))))
-    (header '((class . "overlay-header"))
+    (header (list (cons 'class header-class))
       (span '((class . "breadcrumb"))
         (make-raw-html
           (let loop ((segs segments) (result ""))
@@ -84,7 +86,7 @@
          (sorted   (sort-children children))
          (segments (append root-segments path)))
     (div '((class . "overlay"))
-      (render-breadcrumb segments)
+      (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons '((class . "overlay-entries"))
                       (map render-entry sorted))))))
 

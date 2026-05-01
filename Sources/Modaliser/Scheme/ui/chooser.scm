@@ -126,22 +126,6 @@
 ;; actions: list of action alists
 (define chooser-max-visible-rows 50)
 
-;; Render breadcrumb segments shared between overlay and chooser.
-;; Same DOM shape as ui/overlay.scm's render-breadcrumb but with the
-;; "chooser-header" / "overlay-header" class chosen by the caller.
-(define (render-header-breadcrumb header-class segments)
-  (let ((sep (html->string (span '((class . "breadcrumb-sep")) ">"))))
-    (header (list (cons 'class header-class))
-      (span '((class . "breadcrumb"))
-        (make-raw-html
-          (let loop ((segs segments) (result ""))
-            (if (null? segs)
-              result
-              (loop (cdr segs)
-                    (string-append result
-                      (if (string=? result "") "" sep)
-                      (html-escape (car segs)))))))))))
-
 (define (render-chooser-html prompt visible-items query selected-index
                              actions-visible? actions)
   (let* ((css (string-append overlay-base-css
