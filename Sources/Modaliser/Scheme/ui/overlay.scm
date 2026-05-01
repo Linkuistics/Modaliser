@@ -76,6 +76,19 @@
       (span '((class . "entry-arrow")) "\x2192;")
       (span (list (cons 'class label-class)) display-label))))
 
+;; (path-labels root path) → list of strings
+;; Walks `path` (list of key chars) from `root`, collecting the label of
+;; each successive group. Used to render the breadcrumb path with human-
+;; readable labels instead of key chars. Returns the labels collected up
+;; to the first key the tree can't resolve.
+(define (path-labels root path)
+  (if (null? path)
+    '()
+    (let ((child (find-child root (car path))))
+      (if child
+        (cons (node-label child) (path-labels child (cdr path)))
+        '()))))
+
 ;; Render the full overlay body: header + entry list.
 ;; root-segments: breadcrumb root (e.g. ("my-server" "Global"))
 ;; node: the registered root tree node (provides children navigation only)
@@ -84,7 +97,7 @@
   (let* ((current  (if (null? path) node (navigate-to-path node path)))
          (children (if current (node-children current) '()))
          (sorted   (sort-children children))
-         (segments (append root-segments path)))
+         (segments (append root-segments (path-labels node path))))
     (div '((class . "overlay"))
       (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons '((class . "overlay-entries"))
@@ -139,7 +152,7 @@
                            "\"" (js-escape-overlay (car xs)) "\""))))
                "]")))
          (segments-json (string-list->json modal-root-segments))
-         (path-json     (string-list->json path))
+         (path-json     (string-list->json (path-labels node path)))
          (entries-json
            (string-append "["
              (let loop ((items sorted) (result ""))

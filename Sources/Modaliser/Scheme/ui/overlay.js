@@ -1,11 +1,17 @@
 // Overlay display server — receives data, renders DOM locally.
 
 // Auto-resize the native panel to fit overlay content.
+// Width is reported alongside height because .overlay is width:max-content,
+// so it grows to fit the widest of breadcrumb / entry list. The native
+// panel matches both dimensions, top-left anchored.
 function notifyResize() {
   var el = document.querySelector('.overlay');
   if (el) {
-    var h = el.offsetHeight;
-    window.webkit.messageHandlers.modaliser.postMessage({type: "resize", height: h});
+    window.webkit.messageHandlers.modaliser.postMessage({
+      type: "resize",
+      height: el.offsetHeight,
+      width: el.offsetWidth
+    });
   }
 }
 
@@ -23,7 +29,10 @@ function escapeHtml(str) {
 }
 
 // Update overlay content with new entries and breadcrumb.
-// data: { rootSegments: ["my-server","Global"], path: ["w"], entries: [...] }
+// data: { rootSegments: ["my-server","Global"], path: ["Windows"], entries: [...] }
+// path entries are group labels resolved from the navigation key chars,
+// not the raw keys — so the breadcrumb reads "Global » Windows" not
+// "Global » w".
 function updateOverlay(data) {
   // Update breadcrumb header
   var header = document.querySelector('.overlay-header');

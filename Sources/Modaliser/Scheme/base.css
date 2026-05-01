@@ -50,7 +50,11 @@ body {
   border: 1px solid var(--overlay-border);
   border-radius: var(--overlay-radius);
   padding: var(--overlay-padding);
-  width: var(--overlay-width);
+  /* width grows to fit the widest of breadcrumb / entry list; the JS
+   * resize observer reports the natural width back to the native panel
+   * so it can match. min-width keeps the standard look for narrow trees. */
+  min-width: var(--overlay-width);
+  width: max-content;
   box-shadow: var(--overlay-shadow);
 }
 
@@ -65,6 +69,15 @@ body {
   margin-bottom: 6px;
   border-bottom: 1px solid var(--color-separator);
   border-radius: 4px;
+}
+
+/* Overlay panel auto-resizes to fit the breadcrumb (see .overlay above);
+ * keeping the breadcrumb on a single line is what makes that work — without
+ * nowrap the breadcrumb would wrap inside the existing width and the panel
+ * would never grow. The chooser is fixed-width by design, so it doesn't
+ * get nowrap; long chooser breadcrumbs wrap inside its 500px frame. */
+.overlay-header {
+  white-space: nowrap;
 }
 
 .overlay-header .breadcrumb,

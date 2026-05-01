@@ -114,9 +114,30 @@ struct OverlayRenderTests {
         // Should show Windows' children, not root
         #expect(html.contains("Center"))
         #expect(html.contains("Maximize"))
-        // Header should show breadcrumb with Global > w
+        // Breadcrumb path is rendered with the group's label, not the key char.
         #expect(html.contains("Global"))
-        #expect(html.contains("w"))
+        #expect(html.contains("Windows"))
+    }
+
+    @Test func renderOverlayHtmlPathRendersLabelsNotKeyChars() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (define-tree 'global
+              (group "w" "Windows"
+                (group "x" "Layouts"
+                  (key "c" "Center" (lambda () 'ok)))))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("Global") '("w" "x"))
+            """).asString()
+        // Specifically inspect the breadcrumb element so we don't pick up the
+        // group's `data-key` or single-char fragments anywhere else in the HTML.
+        let breadcrumb = String(html[html.range(of: "<header")!.lowerBound ..<
+                                     html.range(of: "</header>")!.upperBound])
+        #expect(breadcrumb.contains("Windows"))
+        #expect(breadcrumb.contains("Layouts"))
+        #expect(!breadcrumb.contains(">w<"))
+        #expect(!breadcrumb.contains(">x<"))
     }
 
     @Test func renderOverlayHtmlIncludesCSS() throws {
@@ -414,7 +435,11 @@ struct OverlayRenderTests {
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
-        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("""
+            (define-tree 'global
+              (group "w" "Windows"
+                (key "c" "Center" (lambda () 'ok))))
+            """)
         try engine.evaluate("(set! overlay-open? #t)")
         // push-overlay-update reads modal-root-segments — set it manually for the test.
         try engine.evaluate("(set! modal-root-segments '(\"my-server\" \"Global\"))")
@@ -423,7 +448,9 @@ struct OverlayRenderTests {
         #expect(js.contains("rootSegments"))
         #expect(js.contains("my-server"))
         #expect(js.contains("Global"))
-        #expect(!js.contains("\"label\":"))
+        // Path is sent as labels, not raw key chars.
+        #expect(js.contains("\"path\":[\"Windows\"]"))
+        #expect(!js.contains("\"path\":[\"w\"]"))
     }
 
     @Test func renderOverlayHtmlIncludesHostCssWhenColoursSet() throws {

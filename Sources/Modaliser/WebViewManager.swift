@@ -176,13 +176,19 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
         webViews[id]?.evaluateJavaScript(script, completionHandler: nil)
     }
 
-    /// Resize a panel's height, keeping the top edge fixed.
-    func resizePanel(id: String, height: CGFloat) {
+    /// Resize a panel, keeping the top-left corner fixed. Width and height
+    /// are independent — pass nil to leave a dimension untouched.
+    func resizePanel(id: String, width: CGFloat? = nil, height: CGFloat? = nil) {
         guard let panel = panels[id] else { return }
         var frame = panel.frame
-        let delta = height - frame.height
-        frame.origin.y -= delta
-        frame.size.height = height
+        if let height {
+            let delta = height - frame.height
+            frame.origin.y -= delta   // macOS y grows upward; shift origin down to keep top fixed
+            frame.size.height = height
+        }
+        if let width {
+            frame.size.width = width  // origin.x unchanged: panel grows rightward
+        }
         panel.setFrame(frame, display: true, animate: false)
     }
 
@@ -194,9 +200,10 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
             if webView.configuration.userContentController === userContentController {
                 // Handle resize messages natively without going through Scheme
                 if let dict = message.body as? [String: Any],
-                   let type = dict["type"] as? String, type == "resize",
-                   let height = dict["height"] as? Double {
-                    resizePanel(id: id, height: CGFloat(height))
+                   let type = dict["type"] as? String, type == "resize" {
+                    let height = (dict["height"] as? Double).map { CGFloat($0) }
+                    let width  = (dict["width"]  as? Double).map { CGFloat($0) }
+                    resizePanel(id: id, width: width, height: height)
                     return
                 }
                 messageHandlers[id]?(message.body)
