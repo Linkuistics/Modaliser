@@ -207,9 +207,22 @@
 ;; each pane is painted with a small chip showing its label — type the
 ;; chip's letter to focus that pane.
 ;;
-;; Built using the generic helpers in lib/ax-hints.scm; the same pattern
-;; works for any AX-introspectable app (Safari tabs = "AXTab", Finder
-;; sidebar items = "AXOutline", etc.).
+;; Pane selection bridges AX → iTerm AppleScript by walk-order index:
+;; AX gives us the pane frame (chip placement) and a 0-based 'idx field
+;; recording subview-walk position. AppleScript's `id of every session
+;; of current tab` returns session UUIDs in the same order (verified:
+;; iTerm's session enumeration is the NSView subview tree DFS, same as
+;; AX walks). So pane at AX walk-idx N corresponds to the N-th UUID in
+;; AppleScript's list. We capture both at discovery time and bind each
+;; chip's action to the UUID directly:
+;;   tell first session whose id is "<UUID>" to select
+;; — race-free, no event injection, no cursor disturbance, no clicks
+;; landing on terminal cells. UUIDs are URL-safe so no escaping is
+;; needed; the only string interpolated into the AppleScript is a
+;; pre-validated UUID. Names (often duplicated, "zsh"+ in particular)
+;; are NOT used for the join — the index correspondence handles
+;; duplicates correctly. (We tried setting AXFocusedUIElement on the
+;; scroll area; iTerm reports focus state but ignores focus writes.)
 
 (define iterm-pane-labels
   (list "a" "s" "d" "f" "g" ";" "q" "w" "e" "r" "t" "y" "u" "i" "o" "p"))
@@ -227,15 +240,78 @@
         (cons 'border-width 1)
         (cons 'border-color "#cc0000")))
 
+;; Query iTerm for the UUIDs of every session in the focused window's
+;; current tab, in iTerm's enumeration order. Returns a list of strings
+;; (one per session), or '() if iTerm isn't running or the call fails.
+;; iTerm's `id of every session` returns "U1, U2, ..." (one line, comma-
+;; space separated). UUIDs don't contain commas, so the parse is safe.
+(define (iterm-list-session-ids)
+  (let* ((out (run-shell
+                (string-append
+                  "osascript -e 'tell application \"iTerm\" to "
+                  "id of every session of current tab of current window' "
+                  "2>/dev/null")))
+         (trimmed (string-trim out)))
+    (if (string=? trimmed "")
+      '()
+      (let loop ((parts (string-split trimmed ",")) (acc '()))
+        (cond
+          ((null? parts) (reverse acc))
+          (else
+            (let ((s (string-trim (car parts))))
+              (loop (cdr parts)
+                    (if (string=? s "") acc (cons s acc))))))))))
+
+;; Activate the iTerm session whose UUID equals SESSION-ID. UUIDs are
+;; alphanumeric + hyphens (URL-safe), so they can be inlined into the
+;; AppleScript source without escaping. No name interpolation, no shell
+;; quoting hazards.
+(define (iterm-select-session-by-id session-id)
+  (run-shell
+    (string-append
+      "osascript -e 'tell application \"iTerm\" to "
+      "tell first session of current tab of current window "
+      "whose id is \"" session-id "\" to select' "
+      "2>/dev/null")))
+
+;; Build (key ...) bindings for each labelled pane. We resolve the
+;; session UUID for each pane up-front via its AX walk-order index
+;; (the 'idx field set by ax-find-elements-named), so the action thunk
+;; closes over a stable UUID rather than recomputing the mapping at
+;; pick time. If the AppleScript call returns fewer UUIDs than AX
+;; found scroll areas — the orderings shouldn't diverge but if they
+;; somehow do, e.g. an iTerm window with non-tab content — bindings
+;; for the unmapped panes are dropped; nothing claims a chip without
+;; a target.
+(define (iterm-pane-bindings labelled-panes session-ids)
+  (let loop ((ps labelled-panes) (acc '()))
+    (if (null? ps)
+      (reverse acc)
+      (let* ((entry (car ps))
+             (label (car entry))
+             (pane  (cdr entry))
+             (idx   (cdr (assoc 'idx pane)))
+             (sid   (and (< idx (length session-ids))
+                         (list-ref session-ids idx))))
+        (loop (cdr ps)
+              (if sid
+                (cons (key label
+                           (string-append "Pane " label)
+                           (lambda () (iterm-select-session-by-id sid)))
+                      acc)
+                acc))))))
+
 (define (rebuild-iterm-tree!)
-  (let ((panes (ax-find-labelled "com.googlecode.iterm2" "AXScrollArea"
-                                  iterm-pane-labels)))
+  (let* ((raw-panes (ax-find-elements-named
+                      "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
+         (panes (label-pairs iterm-pane-labels raw-panes))
+         (session-ids (iterm-list-session-ids)))
     (apply define-tree 'com.googlecode.iterm2
       'on-enter (lambda ()
                   (hints-show (ax-target-hints panes iterm-pane-hint-options)))
       'on-leave (lambda () (hints-hide))
       (append
-        (ax-target-bindings panes "Pane " ax-click-handle)
+        (iterm-pane-bindings panes session-ids)
         (list
           (key "c" "Select (Copy Mode)" (keystroke '(cmd shift) "c"))
           (key "h" "Focus Left"  (keystroke '(cmd alt) "left"))

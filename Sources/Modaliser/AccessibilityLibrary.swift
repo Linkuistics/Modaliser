@@ -24,10 +24,34 @@ import LispKit
 ///         ((handle . N) (x . N) (y . N) (w . N) (h . N))
 ///       sorted top-to-bottom, then left-to-right.
 ///
+///   (ax-find-elements-named bundle-id role name-role)
+///       Like ax-find-elements, but for each match also pairs the
+///       AXValue of the next sibling whose role equals name-role into
+///       the result alist as 'name', and includes an 'idx' field
+///       holding the element's position in AX subview-walk order
+///       (0-based, before the visual sort). Returns:
+///         ((handle . N) (idx . N) (name . S) (x . N) (y . N) (w . N) (h . N))
+///       The 'idx' is the join key into the app's scripting interface
+///       when scripting orders sessions/items the same way AX walks
+///       the subview tree (true for iTerm: session 1 in AppleScript
+///       corresponds to walk-idx 0). 'name' is retained for diagnostic
+///       comparison against the scripting side's own labels.
+///
+///   (ax-focus-handle handle)
+///       Activate the handle's owning app and set the application's
+///       AXFocusedUIElement to the target — the standard sub-element
+///       focus mechanism that VoiceOver and Switch Control use.
+///       Note: apps with custom AX implementations (iTerm being one)
+///       silently no-op focus writes — they expose focus state read-only.
+///       For those, use the app's scripting bridge instead.
+///
 ///   (ax-click-handle handle)
 ///       Activate the handle's owning app and synthesize a left-click at
 ///       the centre of the handle's frame. Cursor is saved and warped
-///       back. No-op for stale handles.
+///       back. No-op for stale handles. Prefer ax-focus-handle (or an
+///       app's scripting bridge) for pane / tab / sidebar selection —
+///       clicks in editable content are interpreted as real user input
+///       and disturb selection state.
 final class AccessibilityLibrary: NativeLibrary {
 
     /// Handles only stay valid until the next ax-find-elements call.
@@ -49,6 +73,8 @@ final class AccessibilityLibrary: NativeLibrary {
 
     public override func declarations() {
         self.define(Procedure("ax-find-elements", axFindElementsFunction))
+        self.define(Procedure("ax-find-elements-named", axFindElementsNamedFunction))
+        self.define(Procedure("ax-focus-handle", axFocusHandleFunction))
         self.define(Procedure("ax-click-handle", axClickHandleFunction))
     }
 
@@ -87,6 +113,67 @@ final class AccessibilityLibrary: NativeLibrary {
         }
 
         return makeFrameList(matches, symbols: self.context.symbols)
+    }
+
+    private func axFindElementsNamedFunction(_ bundleIdExpr: Expr,
+                                             _ roleExpr: Expr,
+                                             _ nameRoleExpr: Expr) throws -> Expr {
+        let bundleId = try bundleIdExpr.asString()
+        let role = try roleExpr.asString()
+        let nameRole = try nameRoleExpr.asString()
+
+        elementsByHandle.removeAll(keepingCapacity: true)
+        nextHandle = 1
+
+        guard let app = runningApp(forBundleId: bundleId) else { return .null }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        guard let window = focusedWindow(of: appElement) else { return .null }
+
+        var walkOrder: [(handle: Int64, name: String, frame: CGRect)] = []
+        collectByRoleNamed(window, role: role, nameRole: nameRole, into: &walkOrder)
+
+        // Stamp walk-order index BEFORE the visual sort so it survives.
+        var indexed = walkOrder.enumerated().map {
+            (idx: Int64($0.offset), handle: $0.element.handle,
+             name: $0.element.name, frame: $0.element.frame)
+        }
+        indexed.sort { lhs, rhs in
+            let dy = lhs.frame.minY - rhs.frame.minY
+            if abs(dy) > 4 { return dy < 0 }
+            return lhs.frame.minX < rhs.frame.minX
+        }
+        return makeNamedFrameList(indexed, symbols: self.context.symbols)
+    }
+
+    private func axFocusHandleFunction(_ handleExpr: Expr) throws -> Expr {
+        let handle = try handleExpr.asInt64()
+        guard let element = elementsByHandle[handle] else {
+            NSLog("AccessibilityLibrary: ax-focus-handle: stale handle %lld", handle)
+            return .void
+        }
+
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        guard pid > 0 else {
+            NSLog("AccessibilityLibrary: ax-focus-handle: no pid for handle %lld", handle)
+            return .void
+        }
+
+        // Bring the app to front for the user. Activation is async, but the
+        // AX focus call below doesn't depend on it — focus mechanics are
+        // independent of frontmost state.
+        NSRunningApplication(processIdentifier: pid)?.activate()
+
+        let appElement = AXUIElementCreateApplication(pid)
+        let result = AXUIElementSetAttributeValue(
+            appElement,
+            kAXFocusedUIElementAttribute as CFString,
+            element)
+        if result != .success {
+            NSLog("AccessibilityLibrary: ax-focus-handle: AXError %d for handle %lld",
+                  result.rawValue, handle)
+        }
+        return .void
     }
 
     private func axClickHandleFunction(_ handleExpr: Expr) throws -> Expr {
@@ -181,6 +268,37 @@ final class AccessibilityLibrary: NativeLibrary {
         }
     }
 
+    /// Sibling-aware variant. Walks each container's children in order; when a
+    /// child matches `role`, scans forward through the siblings for the next
+    /// element whose role equals `nameRole` and records its AXValue as the
+    /// name. The pattern matches apps that lay out a control plus its label
+    /// as adjacent siblings under the same parent — iTerm scroll areas and
+    /// pane-title AXStaticText are the original use case.
+    private func collectByRoleNamed(_ element: AXUIElement,
+                                     role: String,
+                                     nameRole: String,
+                                     into acc: inout [(handle: Int64, name: String, frame: CGRect)]) {
+        guard let children = axChildren(element) else { return }
+        for (i, child) in children.enumerated() {
+            if axString(child, kAXRoleAttribute) == role,
+               let frame = axFrame(child) {
+                var name = ""
+                for j in (i + 1)..<children.count {
+                    if axString(children[j], kAXRoleAttribute) == nameRole {
+                        name = axString(children[j], kAXValueAttribute) ?? ""
+                        break
+                    }
+                }
+                let handle = nextHandle
+                nextHandle += 1
+                elementsByHandle[handle] = child
+                acc.append((handle, name, frame))
+            } else {
+                collectByRoleNamed(child, role: role, nameRole: nameRole, into: &acc)
+            }
+        }
+    }
+
     private func axString(_ element: AXUIElement, _ attribute: String) -> String? {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
@@ -218,6 +336,24 @@ final class AccessibilityLibrary: NativeLibrary {
         for entry in matches.reversed() {
             let alist = SchemeAlistLookup.makeAlist([
                 ("handle", .fixnum(entry.handle)),
+                ("x", .fixnum(Int64(entry.frame.origin.x))),
+                ("y", .fixnum(Int64(entry.frame.origin.y))),
+                ("w", .fixnum(Int64(entry.frame.size.width))),
+                ("h", .fixnum(Int64(entry.frame.size.height))),
+            ], symbols: symbols)
+            result = .pair(alist, result)
+        }
+        return result
+    }
+
+    private func makeNamedFrameList(_ matches: [(idx: Int64, handle: Int64, name: String, frame: CGRect)],
+                                     symbols: SymbolTable) -> Expr {
+        var result: Expr = .null
+        for entry in matches.reversed() {
+            let alist = SchemeAlistLookup.makeAlist([
+                ("handle", .fixnum(entry.handle)),
+                ("idx", .fixnum(entry.idx)),
+                ("name", .makeString(entry.name)),
                 ("x", .fixnum(Int64(entry.frame.origin.x))),
                 ("y", .fixnum(Int64(entry.frame.origin.y))),
                 ("w", .fixnum(Int64(entry.frame.size.width))),
