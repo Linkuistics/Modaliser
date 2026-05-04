@@ -308,15 +308,46 @@ Macros around the macOS Accessibility API for cases where Scheme needs to round-
 | `(ax-find-elements bundle-id role)` | Walk the AX tree of `bundle-id`'s focused window. Returns a list of alists `((handle . N) (x . N) (y . N) (w . N) (h . N))` for every descendant whose AXRole equals `role`, sorted top-to-bottom then left-to-right. Returns `()` if the app isn't running |
 | `(ax-click-handle handle)` | Activate the handle's owning app and synthesize a left-click at the centre of the handle's frame. Cursor position is saved and warped back. No-op for stale handles |
 
-### iTerm dynamic tree -- `lib/iterm.scm`
+### AX hint flows -- `lib/ax-hints.scm`
 
-Auto-loaded. Builds the iTerm command tree from the live pane layout each time the local leader fires.
+Auto-loaded. Generic primitives for "see a chip, type a letter, focus that thing" UX over any AX-introspectable app — used by the bundled iTerm tree and reusable for any other app.
 
 | Function/Variable | Description |
 |-------------------|-------------|
-| `(rebuild-iterm-tree!)` | Re-register the `com.googlecode.iterm2` tree based on current pane geometry. Hint chips appear over each pane while the modal overlay is visible. Typically called from `local-context-suffix` |
-| `iterm-default-pane-labels` | Home-row letters assigned to panes in reading order. Excludes `h/j/k/l` to leave them free for directional focus |
-| `iterm-pane-hint-options` | Alist of chip appearance: `'offset-x-frac` / `'offset-y-frac` (fraction of pane size), `'font-size`, `'padding`, `'corner-radius`, `'color`, `'background`, `'border-width`, `'border-color`. Override anywhere after `lib/iterm.scm` has loaded |
+| `(ax-find-labelled bundle-id role labels)` | Probe AX for elements of `role` inside `bundle-id`'s focused window, pair them with `labels` in reading order. Returns `((label . elem-alist) ...)`. Truncates at the shorter of the two lists |
+| `(ax-target-bindings labelled-elements label-prefix action-fn)` | Convert that list into `(key ...)` entries. Each fires `(action-fn handle)` where handle is the AX handle from the elem alist. Display label = `label-prefix ++ label` |
+| `(ax-target-hints labelled-elements opts)` | Convert that list into the alist shape `hints-show` consumes. `opts` is an alist of chip appearance (offset, size, colour, padding, border) — see `default-hint-options` for the shape |
+| `default-hint-options` | Sensible smallish defaults. Override per-tree by passing your own opts alist |
+
+End-to-end pattern (from `default-config.scm`):
+
+```scheme
+(define iterm-pane-labels
+  (list "a" "s" "d" "f" "g" ";" "q" "w" "e" "r" "t" "y" "u" "i" "o" "p"))
+
+(define iterm-pane-hint-options
+  (list (cons 'font-size 56) (cons 'padding 16)
+        (cons 'color "#cc0000") (cons 'background "#ffffff") ...))
+
+(define (rebuild-iterm-tree!)
+  (let ((panes (ax-find-labelled "com.googlecode.iterm2" "AXScrollArea"
+                                  iterm-pane-labels)))
+    (apply define-tree 'com.googlecode.iterm2
+      'on-enter (lambda () (hints-show (ax-target-hints panes iterm-pane-hint-options)))
+      'on-leave (lambda () (hints-hide))
+      (append
+        (ax-target-bindings panes "Pane " ax-click-handle)
+        (list (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return")) ...)))))
+
+;; Re-fire on every leader press so the tree tracks live layout changes.
+(define (local-context-suffix bundle-id)
+  (when (equal? bundle-id "com.googlecode.iterm2") (rebuild-iterm-tree!))
+  #f)
+
+(rebuild-iterm-tree!)  ;; pre-register so lookups succeed before first leader
+```
+
+Same pattern works for Safari tabs (`role = "AXTab"`), Finder windows, etc. — only the bundle-id, role, and static keys change.
 
 ### Fuzzy Matching -- `(modaliser fuzzy)`
 

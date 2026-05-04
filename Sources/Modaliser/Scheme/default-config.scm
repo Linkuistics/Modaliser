@@ -198,33 +198,56 @@
     (key "f" "Find on Page"
       (keystroke '(cmd) "f"))))
 
-;; Zed (F17 when Zed is focused)
-(define-tree 'dev.zed.Zed
-  (group "p" "Pane"
-    (key "h" "Focus Left"
-      (keystroke '(cmd alt) "left"))
-    (key "l" "Focus Right"
-      (keystroke '(cmd alt) "right"))
-    (key "k" "Focus Up"
-      (keystroke '(cmd alt) "up"))
-    (key "j" "Focus Down"
-      (keystroke '(cmd alt) "down")))
-  (group "g" "Git"
-    (key "p" "Command Palette"
-      (keystroke '(cmd shift) "p")))
-  (key "s" "Select (Terminal Vi Mode)"
-    (keystroke '(ctrl shift) "space"))
-  (group "t" "Task"
-    (key "r" "Run via Palette"
-      (keystroke '(cmd shift) "p"))))
-
+;; ─── iTerm dynamic pane tree ──────────────────────────────────────
+;;
 ;; The iTerm tree is rebuilt on every leader press (see local-context-suffix
-;; below) so pane bindings track the current pane layout. Pane labels are
-;; home-row letters from iterm-default-pane-labels (see lib/iterm.scm), and
-;; sit at the iTerm tree's top level alongside h/j/k/l directional focus,
-;; "c" copy-mode, "z" zoom and "x" split. While the modal overlay is
-;; visible, each pane is also painted with a small chip showing its label
-;; — type the chip's letter to focus that pane.
+;; below) so pane bindings track the current pane layout. Pane labels sit
+;; at the iTerm tree's top level alongside h/j/k/l directional focus, "c"
+;; copy-mode, "z" zoom and "x" split. While the modal overlay is visible,
+;; each pane is painted with a small chip showing its label — type the
+;; chip's letter to focus that pane.
+;;
+;; Built using the generic helpers in lib/ax-hints.scm; the same pattern
+;; works for any AX-introspectable app (Safari tabs = "AXTab", Finder
+;; sidebar items = "AXOutline", etc.).
+
+(define iterm-pane-labels
+  (list "a" "s" "d" "f" "g" ";" "q" "w" "e" "r" "t" "y" "u" "i" "o" "p"))
+
+;; Iterm-tuned chip appearance: large, red-on-white, soft border. Override
+;; any subset by editing here — defaults in lib/ax-hints.scm are smaller.
+(define iterm-pane-hint-options
+  (list (cons 'offset-x-frac 0.02)
+        (cons 'offset-y-frac 0.02)
+        (cons 'font-size 56)
+        (cons 'padding 16)
+        (cons 'corner-radius 8)
+        (cons 'color "#cc0000")
+        (cons 'background "#ffffff")
+        (cons 'border-width 1)
+        (cons 'border-color "#cc0000")))
+
+(define (rebuild-iterm-tree!)
+  (let ((panes (ax-find-labelled "com.googlecode.iterm2" "AXScrollArea"
+                                  iterm-pane-labels)))
+    (apply define-tree 'com.googlecode.iterm2
+      'on-enter (lambda ()
+                  (hints-show (ax-target-hints panes iterm-pane-hint-options)))
+      'on-leave (lambda () (hints-hide))
+      (append
+        (ax-target-bindings panes "Pane " ax-click-handle)
+        (list
+          (key "c" "Select (Copy Mode)" (keystroke '(cmd shift) "c"))
+          (key "h" "Focus Left"  (keystroke '(cmd alt) "left"))
+          (key "j" "Focus Down"  (keystroke '(cmd alt) "down"))
+          (key "k" "Focus Up"    (keystroke '(cmd alt) "up"))
+          (key "l" "Focus Right" (keystroke '(cmd alt) "right"))
+          (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
+          (group "x" "Split"
+            (key "h" "Split Left"  (keystroke '(cmd ctrl shift) "h"))
+            (key "j" "Split Down"  (keystroke '(cmd ctrl shift) "j"))
+            (key "k" "Split Up"    (keystroke '(cmd ctrl shift) "k"))
+            (key "l" "Split Right" (keystroke '(cmd ctrl shift) "l"))))))))
 
 ;; Dispatcher hook. For iTerm, refresh the dynamic tree (panes may have
 ;; changed) then probe the pane to pick a tree variant.

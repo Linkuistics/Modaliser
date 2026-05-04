@@ -61,7 +61,7 @@ struct ConfigDslTests {
             "ui/chooser.scm",
             "lib/dsl.scm",
             "lib/web-search.scm",
-            "lib/iterm.scm",
+            "lib/ax-hints.scm",
         ]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
@@ -231,7 +231,6 @@ struct ConfigDslTests {
         // Verify trees were registered from config
         #expect(try engine.evaluate("(lookup-tree \"global\")") != .false)
         #expect(try engine.evaluate("(lookup-tree \"com.apple.Safari\")") != .false)
-        #expect(try engine.evaluate("(lookup-tree \"dev.zed.Zed\")") != .false)
         #expect(try engine.evaluate("(lookup-tree \"com.googlecode.iterm2\")") != .false)
 
         // Verify hotkeys registered
