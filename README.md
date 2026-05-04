@@ -187,15 +187,24 @@ Suggestions appear after typing 3+ characters. Below that threshold, only the pi
 | Function | Description |
 |----------|-------------|
 | `(key k label action)` | Define a command |
-| `(group k label children...)` | Define a group |
+| `(group k label [keyword value]... children...)` | Define a group |
 | `(selector k label props...)` | Define a selector |
 | `(action name props...)` | Define a selector action |
-| `(define-tree scope children...)` | Register a command tree |
+| `(define-tree scope [keyword value]... children...)` | Register a command tree |
 | `(set-leader! mode keycode)` | Set leader key for a mode |
 | `(set-overlay-css! css-string)` | Inject custom CSS after base styles |
 | `F17` `F18` `F19` `F20` | Key code constants |
 | `ESCAPE` `DELETE` `RETURN` `TAB` `SPACE` | Key code constants |
 | `UP` `DOWN` `LEFT` `RIGHT` | Arrow key code constants |
+
+Both `(group ...)` and `(define-tree ...)` accept optional leading keyword/value pairs before children:
+
+| Keyword | Description |
+|---------|-------------|
+| `'on-enter THUNK` | Runs when the modal navigates into this group/tree, *and* the overlay panel becomes visible. Does **not** fire when fast keypresses race past the overlay's display delay. |
+| `'on-leave THUNK` | Runs when the modal navigates out of this group/tree (or exits) while the overlay is visible. Paired one-for-one with `on-enter`. |
+
+Useful for showing/hiding ancillary UI (e.g. pane-hint chips) that should accompany the overlay.
 
 ### App Management -- `(modaliser app)`
 
@@ -280,6 +289,34 @@ The Swift primitives for clipboard history exist but the clipboard monitor is no
 | `(webview-eval id js)` | Evaluate JavaScript in a panel |
 | `(webview-on-message id handler)` | Register a message handler for JS postMessage |
 | `(webview-set-style! id css)` | Inject or replace a dynamic style block |
+
+### Hints -- `(modaliser hints)`
+
+Generic on-screen labels drawn at arbitrary screen rectangles. Used today for iTerm pane chips; the library itself is app-agnostic and reusable for any future "pick one of these visible targets" flow.
+
+| Function | Description |
+|----------|-------------|
+| `(hints-show hint-list)` | Open one transparent floating panel per entry. Each entry is an alist with required `'label`, `'x`, `'y`, `'w`, `'h` (AX coords, top-left origin) and optional `'color`, `'background`, `'font-size`, `'padding`, `'corner-radius`, `'border-width`, `'border-color` |
+| `(hints-hide)` | Close all hint panels |
+
+### Accessibility -- `(modaliser accessibility)`
+
+Macros around the macOS Accessibility API for cases where Scheme needs to round-trip element references (e.g. "find these elements, then later click one"). Element pointers are stored in a Swift-side cache keyed by integer handle; each `ax-find-elements` call invalidates prior handles.
+
+| Function | Description |
+|----------|-------------|
+| `(ax-find-elements bundle-id role)` | Walk the AX tree of `bundle-id`'s focused window. Returns a list of alists `((handle . N) (x . N) (y . N) (w . N) (h . N))` for every descendant whose AXRole equals `role`, sorted top-to-bottom then left-to-right. Returns `()` if the app isn't running |
+| `(ax-click-handle handle)` | Activate the handle's owning app and synthesize a left-click at the centre of the handle's frame. Cursor position is saved and warped back. No-op for stale handles |
+
+### iTerm dynamic tree -- `lib/iterm.scm`
+
+Auto-loaded. Builds the iTerm command tree from the live pane layout each time the local leader fires.
+
+| Function/Variable | Description |
+|-------------------|-------------|
+| `(rebuild-iterm-tree!)` | Re-register the `com.googlecode.iterm2` tree based on current pane geometry. Hint chips appear over each pane while the modal overlay is visible. Typically called from `local-context-suffix` |
+| `iterm-default-pane-labels` | Home-row letters assigned to panes in reading order. Excludes `h/j/k/l` to leave them free for directional focus |
+| `iterm-pane-hint-options` | Alist of chip appearance: `'offset-x-frac` / `'offset-y-frac` (fraction of pane size), `'font-size`, `'padding`, `'corner-radius`, `'color`, `'background`, `'border-width`, `'border-color`. Override anywhere after `lib/iterm.scm` has loaded |
 
 ### Fuzzy Matching -- `(modaliser fuzzy)`
 

@@ -11,18 +11,39 @@
 
 ;; Register a command tree for a scope.
 ;; scope: symbol or string (e.g. 'global or "com.apple.Safari")
-;; children: alist nodes produced by (key ...), (group ...), etc.
+;; rest:  optional leading keyword/value pairs followed by child nodes.
+;;
+;; Recognized keywords (mirror the (group ...) DSL):
+;;   'on-enter THUNK  — runs when the modal navigates into this tree
+;;   'on-leave THUNK  — runs when the modal navigates out of this tree
+;;
+;; Children are alist nodes produced by (key ...), (group ...), (selector ...).
+;; Disambiguation: a child node's car is a pair; a keyword is a bare symbol.
 ;;
 ;; The root node carries 'scope (the raw key string) instead of a label;
 ;; the breadcrumb is computed at modal-enter time via compute-root-segments,
 ;; not from a baked-in root label.
-(define (register-tree! scope . children)
-  (let* ((scope-str (if (symbol? scope) (symbol->string scope) scope))
-         (root (list (cons 'kind 'group)
-                     (cons 'key "")
-                     (cons 'scope scope-str)
-                     (cons 'children children))))
-    (hashtable-set! tree-registry scope-str root)))
+(define (register-tree! scope . rest)
+  (let ((scope-str (if (symbol? scope) (symbol->string scope) scope)))
+    (let loop ((args rest) (on-enter #f) (on-leave #f))
+      (cond
+        ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
+         (case (car args)
+           ((on-enter) (loop (cddr args) (cadr args) on-leave))
+           ((on-leave) (loop (cddr args) on-enter (cadr args)))
+           (else (error "register-tree!: unknown keyword" (car args)))))
+        (else
+          (let* ((base (list (cons 'kind 'group)
+                             (cons 'key "")
+                             (cons 'scope scope-str)
+                             (cons 'children args)))
+                 (with-leave (if on-leave
+                               (cons (cons 'on-leave on-leave) base)
+                               base))
+                 (with-enter (if on-enter
+                               (cons (cons 'on-enter on-enter) with-leave)
+                               with-leave)))
+            (hashtable-set! tree-registry scope-str with-enter)))))))
 
 ;; Look up a tree by scope. Returns #f if not found.
 (define (lookup-tree scope)
@@ -64,6 +85,32 @@
   (let ((entry (assoc 'action node)))
     (if entry (cdr entry) #f)))
 
+;; Optional lifecycle thunks attached to group nodes. Either may be #f.
+;;
+;;   on-enter fires the moment the modal navigates *into* this group (initial
+;;   modal-enter for the root, or descending into a child group).
+;;   on-leave fires when the modal navigates *out* of this group (step-back,
+;;   exit, or descending past it via a child action).
+;;
+;; They run for their side effects only; return values are ignored.
+;; Used by lib/iterm.scm to show pane-hint overlays while the user is in the
+;; "Pane" group, and tear them down on exit.
+(define (node-on-enter node)
+  (let ((entry (assoc 'on-enter node)))
+    (if entry (cdr entry) #f)))
+
+(define (node-on-leave node)
+  (let ((entry (assoc 'on-leave node)))
+    (if entry (cdr entry) #f)))
+
+(define (run-on-enter node)
+  (let ((thunk (node-on-enter node)))
+    (when thunk (thunk))))
+
+(define (run-on-leave node)
+  (let ((thunk (node-on-leave node)))
+    (when thunk (thunk))))
+
 (define (find-child node key)
   (let loop ((children (node-children node)))
     (cond
@@ -101,25 +148,36 @@
 ;; ─── Modal Navigation ──────────────────────────────────────────
 
 ;; Show overlay immediately, cancelling any pending delayed show.
+;; on-enter for the current node fires here, so subscribers see the same
+;; "user is now looking at this level" event the overlay represents.
 (define (modal-show-overlay-now)
   (set! modal-overlay-generation (+ modal-overlay-generation 1))
+  (run-on-enter modal-current-node)
   (show-overlay modal-root-node modal-current-path))
 
 ;; Schedule overlay to appear after modal-overlay-delay seconds.
-;; If a key is pressed before the delay, the show is cancelled.
+;; If a key is pressed before the delay, the show is cancelled — and so are
+;; the on-enter hooks. Quick muscle-memory presses produce no UI at all
+;; (no overlay, no hint chips, nothing).
 (define (modal-show-overlay-delayed)
   (if (<= modal-overlay-delay 0)
-    (show-overlay modal-root-node modal-current-path)
+    (begin
+      (run-on-enter modal-current-node)
+      (show-overlay modal-root-node modal-current-path))
     (let ()
       (set! modal-overlay-generation (+ modal-overlay-generation 1))
       (let ((gen modal-overlay-generation))
         (after-delay modal-overlay-delay
           (lambda ()
             (when (and modal-active? (= gen modal-overlay-generation))
+              (run-on-enter modal-current-node)
               (show-overlay modal-root-node modal-current-path))))))))
 
 ;; Enter modal mode with the given tree and leader keycode.
 ;; Registers the catch-all key handler and schedules delayed overlay show.
+;; on-enter for the root tree is NOT fired here — it fires inside the
+;; overlay-show callback, so quick keypresses that race past the delay
+;; never trigger the hooks (no overlay, no hint chips, no flash).
 (define (modal-enter tree leader-kc)
   (when tree
     (set! modal-active? #t)
@@ -135,8 +193,14 @@
 
 ;; Exit modal mode. Deregisters catch-all and hides overlay.
 ;; Idempotent: a second call after the modal is already inactive is a no-op.
+;;
+;; on-leave only fires if the overlay was actually visible — paired with
+;; on-enter, which only fires when the overlay shows. A modal that exits
+;; before the overlay's display delay elapses produces zero hook fires.
 (define (modal-exit)
   (when modal-active?
+    (when (and modal-current-node overlay-open?)
+      (run-on-leave modal-current-node))
     (set! modal-overlay-generation (+ modal-overlay-generation 1))
     (unregister-all-keys!)
     (hide-overlay)
@@ -162,13 +226,22 @@
          (modal-exit)
          (when action (action))))
       ((group? child)
+       ;; Hooks pair with overlay visibility — fire transitions only when
+       ;; the user actually sees the change. Fast descent before the
+       ;; overlay shows gets neither leave nor enter; the eventual
+       ;; overlay-show callback will fire on-enter for whatever the
+       ;; current node is at that moment.
+       (when overlay-open?
+         (run-on-leave modal-current-node))
        (set! modal-current-node child)
        (set! modal-current-path
          (append modal-current-path (list char)))
-       ;; If overlay already visible, update immediately; otherwise restart delay
-       (if overlay-open?
-         (update-overlay modal-root-node modal-current-path)
-         (modal-show-overlay-delayed)))
+       (cond
+         (overlay-open?
+          (run-on-enter child)
+          (update-overlay modal-root-node modal-current-path))
+         (else
+          (modal-show-overlay-delayed))))
       ((selector? child)
        (modal-exit)
        (open-chooser child))
@@ -176,13 +249,18 @@
        (modal-exit)))))
 
 ;; Step back one level in the navigation path.
+;; Hooks only fire if the overlay was visible — same gating as the descent
+;; case in modal-handle-key.
 (define (modal-step-back)
   (if (null? modal-current-path)
     (modal-exit)
     (let* ((new-path (reverse (cdr (reverse modal-current-path))))
-           (new-node (navigate-to-path modal-root-node new-path)))
+           (new-node (navigate-to-path modal-root-node new-path))
+           (leaving  modal-current-node))
+      (when overlay-open? (run-on-leave leaving))
       (set! modal-current-path new-path)
       (set! modal-current-node new-node)
+      (when overlay-open? (run-on-enter new-node))
       (update-overlay modal-root-node modal-current-path))))
 
 ;; Navigate from root following a list of key strings.

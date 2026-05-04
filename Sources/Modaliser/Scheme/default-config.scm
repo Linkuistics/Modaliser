@@ -12,17 +12,10 @@
 
 (set-overlay-delay! 0.3)
 
-;; Identify this Modaliser instance in the overlay/chooser breadcrumb.
-;; Useful when you run multiple instances simultaneously (e.g. a local
-;; instance plus one on a remote host viewed via Jump Desktop / VNC).
-;; Optional. All colour fields take any CSS colour value; separator-color
-;; defaults to following the foreground when unset.
-;;
-;; (set-host-header!
-;;   'name            (run-shell "hostname -s")
-;;   'background      "#7a1f3d"
-;;   'foreground      "#ffffff"
-;;   'separator-color "#cccccc")
+(set-host-header!
+  'name            (run-shell "hostname -s")
+  'background      "steelblue"
+  'foreground      "white")
 
 ;; Helper: open a URL
 (define (open-url-action url)
@@ -32,35 +25,21 @@
 (define (keystroke mods key-name)
   (lambda () (send-keystroke mods key-name)))
 
-;; Helper: split the focused WezTerm pane in the given direction
-;; (one of "left", "right", "top", "bottom"). Queries the focused
-;; pane via list-clients first because WEZTERM_PANE is not set when
-;; modaliser shells out from outside any pane.
-(define (wezterm-split direction)
-  (lambda ()
-    (run-shell
-      (string-append
-        "PANE=$(/opt/homebrew/bin/wezterm cli list-clients --format json"
-        " | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)[0][\"focused_pane_id\"])')"
-        " && /opt/homebrew/bin/wezterm cli split-pane --pane-id \"$PANE\" --" direction))))
-
 ;; ─── Global command tree ────────────────────────────────────────────────
 
 (define-tree 'global
 
   ;; Quick-launch keys
-  (key " " "Spotlight"
-    (keystroke '(cmd) " "))
   (key "c" "ChatGPT"
     (lambda () (launch-app "ChatGPT")))
+  (key "i" "iTerm"
+    (lambda () (launch-app "iTerm")))
   (key "j" "Jump Desktop"
     (lambda () (launch-app "Jump Desktop")))
   (key "n" "Notes"
     (lambda () (launch-app "Notes")))
   (key "s" "Safari"
     (lambda () (launch-app "Safari")))
-  (key "t" "Terminal (WezTerm)"
-    (lambda () (launch-app "WezTerm")))
   (key "," "Settings"
     (lambda ()
       (run-shell
@@ -122,26 +101,25 @@
             'run (lambda (c) (focus-window c))))))
 
   ;; Open application group
-  (group "o" "Open App"
+  (group "a" " Applications"
     (group "c" "C"
       (key "h" "ChatGPT"
         (lambda () (launch-app "ChatGPT")))
-      (key "m" "cmux"
-        (lambda () (launch-app "cmux")))
+      (key "l" "Claude"
+        (lambda () (launch-app "Claude")))
       (key "o" "Codex"
         (lambda () (launch-app "Codex")))
       (key "r" "Chrome"
-        (lambda () (launch-app "Google Chrome"))))
-    (group "g" "G"
-      (key "b" "GitButler"
-        (lambda () (launch-app "GitButler")))
-      (key "h" "Ghostty"
-        (lambda () (launch-app "Ghostty"))))
+        (lambda () (launch-app "Google Chrome")))
+    )
+    (key "i" "iTerm"
+      (lambda () (launch-app "iTerm")))
     (group "m" "M"
       (key "a" "Mail"
         (lambda () (launch-app "Mail")))
       (key "e" "Messages"
-        (lambda () (launch-app "Messages"))))
+        (lambda () (launch-app "Messages")))
+    )
     (key "n" "Notes"
         (lambda () (launch-app "Notes")))
     (key "o" "Obsidian"
@@ -152,16 +130,17 @@
       (key "i" "Signal"
            (lambda () (launch-app "Signal")))
       (key "l" "Slack"
-        (lambda () (launch-app "Slack"))))
+        (lambda () (launch-app "Slack")))
+    )
     (key "t" "Telegram"
       (lambda () (launch-app "Telegram")))
-    (key "w" "WezTerm"
-      (lambda () (launch-app "WezTerm")))
     (group "z" "Z"
       (key "e" "Zed"
         (lambda () (launch-app "Zed")))
       (key "o" "Zotero"
-        (lambda () (launch-app "Zotero")))))
+        (lambda () (launch-app "Zotero")))
+    )
+  )
 
   ;; Window management group
   (group "w" "Windows"
@@ -184,7 +163,7 @@
     (key "B" "Last Third Bottom"
       (lambda () (move-window 2/3 1/2 1/3 1/2)))
     (key "e" "First Two Thirds"
-      (lambda () (move-window 0 0 2/3 1)))    
+      (lambda () (move-window 0 0 2/3 1)))
     (key "t" "Last Two Thirds"
       (lambda () (move-window 1/3 0 2/3 1)))
     (key "c" "Center"
@@ -239,120 +218,20 @@
     (key "r" "Run via Palette"
       (keystroke '(cmd shift) "p"))))
 
-;; WezTerm (F17 when WezTerm is focused)
-;;
-;; Mirrors the iTerm-tree shape but uses WezTerm's native bindings. Pane
-;; h/j/k/l fire Alt+hjkl, which routes through the alt_nav callback in
-;; ~/.config/wezterm/wezterm.lua — so they work whether the focused pane
-;; is nvim or a plain shell. Toggle Zoom mirrors the Cmd+Shift+Enter
-;; binding defined there.
-;;
-;; Nvim-aware variants (analogous to com.googlecode.iterm2/nvim) can be
-;; added later by registering com.github.wez.wezterm/nvim and extending
-;; local-context-suffix below. Foreground-process probing in WezTerm can
-;; use `wezterm cli list --format json`.
-(define-tree 'com.github.wez.wezterm
-  (group "t" "Tabs"
-    (key "n" "New Tab"
-      (keystroke '(cmd) "t"))
-    (key "w" "Close Tab"
-      (keystroke '(cmd) "w"))
-    (key "]" "Next Tab"
-      (keystroke '(cmd shift) "]"))
-    (key "[" "Previous Tab"
-      (keystroke '(cmd shift) "[")))
-  (group "p" "Pane"
-    (key "h" "Focus Left"
-      (keystroke '(alt) "h"))
-    (key "j" "Focus Down"
-      (keystroke '(alt) "j"))
-    (key "k" "Focus Up"
-      (keystroke '(alt) "k"))
-    (key "l" "Focus Right"
-      (keystroke '(alt) "l"))
-    (key "z" "Toggle Zoom"
-      (keystroke '(cmd shift) "return"))
-    (group "s" "Split"
-      (key "h" "Split Left"  (wezterm-split "left"))
-      (key "j" "Split Down"  (wezterm-split "bottom"))
-      (key "k" "Split Up"    (wezterm-split "top"))
-      (key "l" "Split Right" (wezterm-split "right"))))
-  (key "s" "Select (Copy Mode)"
-    (keystroke '(ctrl shift) "space")))
+;; The iTerm tree is rebuilt on every leader press (see local-context-suffix
+;; below) so pane bindings track the current pane layout. Pane labels are
+;; home-row letters from iterm-default-pane-labels (see lib/iterm.scm), and
+;; sit at the iTerm tree's top level alongside h/j/k/l directional focus,
+;; "c" copy-mode, "z" zoom and "x" split. While the modal overlay is
+;; visible, each pane is also painted with a small chip showing its label
+;; — type the chip's letter to focus that pane.
 
-;; iTerm (F17 when iTerm is focused)
-;;
-;; Three trees are registered: the plain iTerm tree, a "/zellij" variant,
-;; and a "/nvim" variant. local-context-suffix picks between them based on
-;; what's actually running in the focused pane. Precedence: nvim wins over
-;; zellij (so nvim-inside-zellij routes to /nvim), zellij wins over plain.
-;;
-;; Nvim focus detection (including nvim-inside-zellij) requires each nvim
-;; to maintain the global g:modaliser_focused, which flips to 1 on
-;; FocusGained and 0 on FocusLost. Nvim fires the events but doesn't
-;; cache the state anywhere queryable via RPC, so we have to stash it
-;; ourselves. On a LazyVim setup drop this into
-;; ~/.config/nvim/lua/config/autocmds.lua (elsewhere just put it in
-;; init.lua):
-;;
-;;   vim.g.modaliser_focused = 1
-;;   vim.api.nvim_create_autocmd('FocusGained',
-;;     { callback = function() vim.g.modaliser_focused = 1 end })
-;;   vim.api.nvim_create_autocmd('FocusLost',
-;;     { callback = function() vim.g.modaliser_focused = 0 end })
-;;
-;; iTerm2 and zellij both forward xterm focus-reporting escapes by
-;; default, so exactly one nvim across the system reports 1 at any time.
-
-(define iterm-bindings
-  (list
-    (group "t" "Tabs"
-      (key "n" "New Tab"
-        (keystroke '(cmd) "t"))
-      (key "w" "Close Tab"
-        (keystroke '(cmd) "w")))
-    (key "s" "Select (Copy Mode)"
-      (keystroke '(cmd shift) "c"))
-    (group "p" "Pane"
-      (key "h" "Focus Left"
-        (keystroke '(cmd alt) "left"))
-      (key "l" "Focus Right"
-        (keystroke '(cmd alt) "right"))
-      (key "k" "Focus Up"
-        (keystroke '(cmd alt) "up"))
-      (key "j" "Focus Down"
-        (keystroke '(cmd alt) "down")))))
-
-;; Composable "additions" — keep each chunk separate so tree variants can
-;; union them (e.g. zellij+nvim gets both the zellij and nvim tops).
-(define zellij-additions
-  (list (key "z" "Zellij (Ctrl+G)"
-          (keystroke '(ctrl) "g"))))
-
-(define nvim-additions
-  (list (key "w" "Nvim :w (save)"
-          (lambda () (nvim-remote-send ":w<CR>")))))
-
-(apply define-tree 'com.googlecode.iterm2 iterm-bindings)
-(apply define-tree 'com.googlecode.iterm2/zellij
-  (append iterm-bindings zellij-additions))
-(apply define-tree 'com.googlecode.iterm2/nvim
-  (append iterm-bindings nvim-additions))
-(apply define-tree 'com.googlecode.iterm2/zellij+nvim
-  (append iterm-bindings zellij-additions nvim-additions))
-
-;; Dispatcher hook. Single foreground-process probe, then optional RPC
-;; scan only when a known multiplexer is in the pane — keeps the typical
-;; (plain nvim or plain shell) case to one subprocess round.
-;;
-;; Precedence:
-;;   nvim directly in iTerm                 → /nvim
-;;   nvim inside zellij (nvim claims focus) → /zellij+nvim (merged)
-;;   zellij with no focused nvim            → /zellij
-;;   anything else                          → #f (plain iTerm tree)
+;; Dispatcher hook. For iTerm, refresh the dynamic tree (panes may have
+;; changed) then probe the pane to pick a tree variant.
 (define (local-context-suffix bundle-id)
   (cond
     ((equal? bundle-id "com.googlecode.iterm2")
+     (rebuild-iterm-tree!)
      (let ((cmd (focused-terminal-foreground-command)))
        (cond
          ((not cmd) #f)
@@ -362,3 +241,9 @@
           (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
          (else #f))))
     (else #f)))
+
+;; Pre-register the iTerm tree at load time so lookups don't return #f
+;; before the first leader press. Cheap when iTerm isn't running (the AX
+;; query returns an empty list); local-context-suffix re-fires this on
+;; every leader press, so the tree always reflects the current layout.
+(rebuild-iterm-tree!)

@@ -19,6 +19,7 @@
 (include "ui/chooser.scm")
 (include "lib/dsl.scm")
 (include "lib/web-search.scm")
+(include "lib/iterm.scm")
 
 ;; ─── App setup ────────────────────────────────────────────────────
 

@@ -10,12 +10,36 @@
         (cons 'label label)
         (cons 'action action)))
 
-;; (group k label . children) → group alist
-(define (group k label . children)
-  (list (cons 'kind 'group)
-        (cons 'key k)
-        (cons 'label label)
-        (cons 'children children)))
+;; (group k label [keyword value]... . children) → group alist
+;;
+;; Optional leading keyword/value pairs. Recognized keywords:
+;;   'on-enter THUNK  — called when modal navigates into this group
+;;   'on-leave THUNK  — called when modal navigates out of this group
+;;
+;; Args after the keyword pairs are children. Disambiguation: a child node
+;; is always a pair whose first element is a pair (alist starting with
+;; (kind . ...)); a keyword is a bare symbol. So leading bare symbols start
+;; the keyword tail and the first non-symbol begins the children.
+(define (group k label . rest)
+  (let loop ((args rest) (on-enter #f) (on-leave #f))
+    (cond
+      ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
+       (case (car args)
+         ((on-enter) (loop (cddr args) (cadr args) on-leave))
+         ((on-leave) (loop (cddr args) on-enter (cadr args)))
+         (else (error "group: unknown keyword" (car args)))))
+      (else
+        (let ((base (list (cons 'kind 'group)
+                          (cons 'key k)
+                          (cons 'label label)
+                          (cons 'children args))))
+          (let* ((with-leave (if on-leave
+                               (cons (cons 'on-leave on-leave) base)
+                               base))
+                 (with-enter (if on-enter
+                               (cons (cons 'on-enter on-enter) with-leave)
+                               with-leave)))
+            with-enter))))))
 
 ;; (selector k label . props) → selector alist
 (define (selector k label . props)

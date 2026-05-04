@@ -51,6 +51,7 @@ struct ConfigDslTests {
             """)
         let files = [
             "lib/util.scm",
+            "lib/terminal.scm",
             "core/keymap.scm",
             "ui/dom.scm",
             "ui/css.scm",
@@ -60,6 +61,7 @@ struct ConfigDslTests {
             "ui/chooser.scm",
             "lib/dsl.scm",
             "lib/web-search.scm",
+            "lib/iterm.scm",
         ]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))

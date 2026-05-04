@@ -62,6 +62,10 @@ final class SchemeEngine {
         try context.environment.import(ClipboardHistoryLibrary.name)
         try context.libraries.register(libraryType: HttpLibrary.self)
         try context.environment.import(HttpLibrary.name)
+        try context.libraries.register(libraryType: HintsLibrary.self)
+        try context.environment.import(HintsLibrary.name)
+        try context.libraries.register(libraryType: AccessibilityLibrary.self)
+        try context.environment.import(AccessibilityLibrary.name)
     }
 
     /// Evaluate a string of Scheme code and return the result.
