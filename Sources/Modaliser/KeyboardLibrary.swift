@@ -81,10 +81,14 @@ final class KeyboardLibrary: NativeLibrary {
 
         let registry = self.handlerRegistry
         let capture = KeyboardCapture { event in
-            guard event.isKeyDown else { return .passThrough }
+            // Both keyDown and keyUp go to dispatch — the registry decides
+            // what to do based on isKeyDown. The buffer needs key-up too so
+            // we can drain or re-inject without leaving keys "stuck down"
+            // in the focused app.
             let result = registry.dispatch(
                 keyCode: event.keyCode,
-                modifiers: event.modifiers
+                modifiers: event.modifiers,
+                isKeyDown: event.isKeyDown
             )
             return result == .suppress ? .suppress : .passThrough
         }
@@ -110,9 +114,24 @@ final class KeyboardLibrary: NativeLibrary {
     /// (register-hotkey! keycode handler [modifier-mask [passthrough-bundle-ids]]) → void
     /// modifier-mask defaults to 0 (no modifiers).
     /// passthrough-bundle-ids defaults to '() (always capture).
-    /// Evaluation is deferred to the next run loop iteration via DispatchQueue.main.async.
-    /// This prevents deadlocks when the Scheme handler creates WKWebView (which requires
-    /// main thread dispatches internally).
+    ///
+    /// Optimistic capture pattern. When the hotkey fires:
+    ///   1. Synchronously install a capture buffer in the tap callback (just
+    ///      sets a property, microseconds). Subsequent key events queue into
+    ///      the buffer instead of leaking to the focused app.
+    ///   2. Yield the tap callback so the kernel doesn't disable us by
+    ///      timeout — Scheme leader handlers can shell out to osascript /
+    ///      ps / lsof when probing iTerm panes, which can easily exceed the
+    ///      tap's 1-second budget.
+    ///   3. Dispatch the Scheme handler asynchronously on the main run loop.
+    ///   4. After the Scheme handler returns, finalise:
+    ///      - If a catch-all was installed (modal-enter fired): drain the
+    ///        buffered events through it so they reach modal-key-handler in
+    ///        arrival order.
+    ///      - Otherwise (modal didn't enter — e.g. no app-local tree found):
+    ///        re-inject the buffered events back into the system tap with a
+    ///        magic eventSourceUserData so our own tap recognises them and
+    ///        passes them through instead of re-buffering.
     private func registerHotkeyFunction(_ args: Arguments) throws -> Expr {
         guard args.count >= 2, args.count <= 4 else {
             throw RuntimeError.argumentCount(min: 2, max: 4, args: .makeList(args))
@@ -132,22 +151,83 @@ final class KeyboardLibrary: NativeLibrary {
             .intersection(KeyboardHandlerRegistry.primaryModifiers)
 
         let evaluator = self.context.evaluator!
+        let registry = self.handlerRegistry
         let key = HotkeyKey(keyCode: keyCode, modifiers: normalizedFlags)
         let entry = HotkeyEntry(
-            handler: {
-                DispatchQueue.main.async {
-                    let result = evaluator.execute { machine in
-                        try machine.apply(handler, to: .null)
-                    }
-                    if case .error(let err) = result {
-                        NSLog("KeyboardLibrary: hotkey handler error: %@", "\(err)")
-                    }
-                }
+            handler: { [weak self] in
+                self?.fireHotkeyHandler(handler, evaluator: evaluator, registry: registry)
             },
             passthroughBundleIds: passthrough
         )
         handlerRegistry.hotkeyHandlers[key] = entry
         return .void
+    }
+
+    /// Optimistic-capture finalize step. Called after the Scheme handler
+    /// returns: drain through the new catch-all or re-inject events that
+    /// the handler turned out not to want.
+    private func fireHotkeyHandler(_ handler: Expr,
+                                    evaluator: Evaluator,
+                                    registry: KeyboardHandlerRegistry) {
+        // Step 1: install the buffer synchronously. After this returns the
+        // tap callback finishes; subsequent key events queue here.
+        let buffer = CaptureBuffer()
+        registry.captureBuffer = buffer
+
+        // Step 2: dispatch Scheme work asynchronously. This yields the tap
+        // callback immediately — even if Scheme spends seconds shelling out
+        // to AppleScript probes, the kernel never disables our tap.
+        DispatchQueue.main.async { [weak self] in
+            let result = evaluator.execute { machine in
+                try machine.apply(handler, to: .null)
+            }
+            if case .error(let err) = result {
+                NSLog("KeyboardLibrary: hotkey handler error: %@", "\(err)")
+            }
+            self?.finalizeCapture(buffer: buffer, registry: registry)
+        }
+    }
+
+    /// Drain the buffered events into the now-installed catch-all, or
+    /// re-inject them if the leader handler didn't take ownership.
+    private func finalizeCapture(buffer: CaptureBuffer,
+                                  registry: KeyboardHandlerRegistry) {
+        // Only finalize if we're still the active buffer — a nested leader
+        // press could have replaced us with its own buffer in between.
+        guard registry.captureBuffer === buffer else { return }
+        registry.captureBuffer = nil
+
+        if let catchAll = registry.catchAllHandler {
+            // Modal active — feed events through in arrival order so the
+            // user sees deterministic dispatch regardless of how slow the
+            // Scheme handler was.
+            for buffered in buffer.events {
+                if buffered.isKeyDown {
+                    _ = catchAll(buffered.keyCode, buffered.modifiers)
+                }
+            }
+        } else {
+            // Modal didn't enter — re-inject so the focused app sees the
+            // keys it would have if our tap weren't here.
+            for buffered in buffer.events {
+                postSyntheticKeyEvent(buffered)
+            }
+        }
+    }
+
+    /// Synthesize and post a CGEvent matching a buffered key press. The
+    /// event is tagged with KeyboardCapture.reInjectionMagic so our own tap
+    /// recognises it and passes it through. Uses .cgSessionEventTap so the
+    /// re-injected event flows through the same path as the original.
+    private func postSyntheticKeyEvent(_ buffered: BufferedKeyEvent) {
+        guard let event = CGEvent(keyboardEventSource: nil,
+                                  virtualKey: buffered.keyCode,
+                                  keyDown: buffered.isKeyDown)
+        else { return }
+        event.flags = buffered.modifiers
+        event.setIntegerValueField(.eventSourceUserData,
+                                   value: KeyboardCapture.reInjectionMagic)
+        event.post(tap: .cgSessionEventTap)
     }
 
     /// (unregister-hotkey! keycode [modifier-mask]) → void

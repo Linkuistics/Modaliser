@@ -79,6 +79,13 @@ final class KeyboardCapture {
         runLoopSource = nil
     }
 
+    /// Magic value tagged onto re-injected CGEvents (in eventSourceUserData)
+    /// so we recognise them when they re-enter our tap and pass them through
+    /// instead of re-buffering. Picked to be unlikely to collide with anything
+    /// else; if a future event source happens to use the same value we'd
+    /// merely skip our normal dispatch for that event — a benign degradation.
+    static let reInjectionMagic: Int64 = 0x4d6f64616c6c69ef  // "Modalliª"
+
     /// Called from the C callback on the main thread.
     fileprivate func handleEvent(_ proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         // If the tap gets disabled by the system (e.g. timeout), re-enable it
@@ -86,6 +93,13 @@ final class KeyboardCapture {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Re-injected events (from optimistic-capture rollback) carry our
+        // magic in eventSourceUserData — pass them through untouched so they
+        // reach the focused app instead of looping back into the buffer.
+        if event.getIntegerValueField(.eventSourceUserData) == Self.reInjectionMagic {
             return Unmanaged.passUnretained(event)
         }
 

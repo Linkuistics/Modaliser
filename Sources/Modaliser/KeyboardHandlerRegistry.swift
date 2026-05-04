@@ -6,10 +6,14 @@ import CoreGraphics
 /// making it independently testable.
 ///
 /// Dispatch priority:
-/// 1. Catch-all handler (if registered) — receives all keys, returns suppress/pass
-/// 2. Specific hotkey handler (if registered for this keycode+modifiers) — captures
+/// 1. Capture buffer (if active) — buffers the event, returns suppress.
+///    Used post-leader to hold keys while the (potentially slow) Scheme
+///    leader handler runs asynchronously; drained or re-injected when the
+///    handler completes.
+/// 2. Catch-all handler (if registered) — receives all keys, returns suppress/pass
+/// 3. Specific hotkey handler (if registered for this keycode+modifiers) — captures
 ///    or passes through depending on the entry's passthrough rule
-/// 3. Pass through
+/// 4. Pass through
 final class KeyboardHandlerRegistry {
 
     /// Handler for all keys (used during modal mode).
@@ -20,13 +24,30 @@ final class KeyboardHandlerRegistry {
     /// Each entry carries the handler closure and an optional passthrough rule.
     var hotkeyHandlers: [HotkeyKey: HotkeyEntry] = [:]
 
+    /// Active capture buffer, set when a hotkey handler is mid-flight to
+    /// prevent its (asynchronously-running) Scheme handler from racing the
+    /// next keystroke. Either drained through the resulting catch-all (if
+    /// the handler installed one) or re-injected (if it didn't).
+    var captureBuffer: CaptureBuffer?
+
     /// Frontmost-app bundle ID lookup. Injectable for tests.
     var frontmostBundleId: () -> String? = {
         NSWorkspace.shared.frontmostApplication?.bundleIdentifier
     }
 
     /// Dispatch a key event. Returns whether to suppress or pass through.
-    func dispatch(keyCode: CGKeyCode, modifiers: CGEventFlags) -> KeyboardDispatchResult {
+    func dispatch(keyCode: CGKeyCode, modifiers: CGEventFlags, isKeyDown: Bool) -> KeyboardDispatchResult {
+        if let buffer = captureBuffer {
+            buffer.events.append(
+                BufferedKeyEvent(keyCode: keyCode, modifiers: modifiers, isKeyDown: isKeyDown))
+            return .suppress
+        }
+
+        // Catch-all and hotkey handlers only fire on key-down — key-up just
+        // passes through so the focused app gets a clean release event for
+        // any modifier that was held when modal began.
+        guard isKeyDown else { return .passThrough }
+
         if let catchAll = catchAllHandler {
             let shouldSuppress = catchAll(keyCode, modifiers)
             return shouldSuppress ? .suppress : .passThrough
@@ -85,4 +106,20 @@ struct HotkeyEntry {
 enum KeyboardDispatchResult {
     case suppress
     case passThrough
+}
+
+/// A key event captured by the optimistic-capture buffer. Stores enough to
+/// either feed back through a catch-all handler or synthesise a fresh CGEvent
+/// for re-injection.
+struct BufferedKeyEvent {
+    let keyCode: CGKeyCode
+    let modifiers: CGEventFlags
+    let isKeyDown: Bool
+}
+
+/// Reference type so the entry.handler closure and the async finalizer
+/// share the same buffer instance (and so the registry's `captureBuffer`
+/// reference can be compared by identity if needed).
+final class CaptureBuffer {
+    var events: [BufferedKeyEvent] = []
 }

@@ -172,7 +172,7 @@ struct KeyboardLibraryTests {
         registry.hotkeyHandlers[HotkeyKey(keyCode: 64, modifiers: [])] =
             HotkeyEntry(handler: { hotkeyCalled = true }, passthroughBundleIds: [])  // F17
 
-        let result = registry.dispatch(keyCode: 64, modifiers: [])
+        let result = registry.dispatch(keyCode: 64, modifiers: [], isKeyDown: true)
         #expect(result == .suppress)
         #expect(catchAllCalled)
         #expect(!hotkeyCalled)
@@ -185,7 +185,7 @@ struct KeyboardLibraryTests {
         registry.hotkeyHandlers[HotkeyKey(keyCode: 64, modifiers: [])] =
             HotkeyEntry(handler: { hotkeyCalled = true }, passthroughBundleIds: [])
 
-        let result = registry.dispatch(keyCode: 64, modifiers: [])
+        let result = registry.dispatch(keyCode: 64, modifiers: [], isKeyDown: true)
         #expect(result == .suppress)
         #expect(hotkeyCalled)
     }
@@ -193,7 +193,7 @@ struct KeyboardLibraryTests {
     @Test func registryPassesThroughWhenNoHandlers() throws {
         let registry = KeyboardHandlerRegistry()
 
-        let result = registry.dispatch(keyCode: 42, modifiers: [])
+        let result = registry.dispatch(keyCode: 42, modifiers: [], isKeyDown: true)
         #expect(result == .passThrough)
     }
 
@@ -201,7 +201,7 @@ struct KeyboardLibraryTests {
         let registry = KeyboardHandlerRegistry()
         registry.catchAllHandler = { _, _ in return false }
 
-        let result = registry.dispatch(keyCode: 42, modifiers: [])
+        let result = registry.dispatch(keyCode: 42, modifiers: [], isKeyDown: true)
         #expect(result == .passThrough)
     }
 
@@ -215,7 +215,7 @@ struct KeyboardLibraryTests {
             HotkeyEntry(handler: { fired = true }, passthroughBundleIds: [])
 
         // Pressing Shift+F18 must not match the plain F18 binding.
-        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskShift])
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskShift], isKeyDown: true)
         #expect(result == .passThrough)
         #expect(!fired)
     }
@@ -226,7 +226,7 @@ struct KeyboardLibraryTests {
         registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] =
             HotkeyEntry(handler: { fired = true }, passthroughBundleIds: [])
 
-        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskShift])
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskShift], isKeyDown: true)
         #expect(result == .suppress)
         #expect(fired)
     }
@@ -237,7 +237,7 @@ struct KeyboardLibraryTests {
         registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] =
             HotkeyEntry(handler: { fired = true }, passthroughBundleIds: [])
 
-        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [], isKeyDown: true)
         #expect(result == .passThrough)
         #expect(!fired)
     }
@@ -254,7 +254,7 @@ struct KeyboardLibraryTests {
                 passthroughBundleIds: ["com.jumpdesktop.Jump-Desktop"]
             )
 
-        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [], isKeyDown: true)
         #expect(result == .passThrough)
         #expect(!fired)
     }
@@ -269,7 +269,7 @@ struct KeyboardLibraryTests {
                 passthroughBundleIds: ["com.jumpdesktop.Jump-Desktop"]
             )
 
-        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [], isKeyDown: true)
         #expect(result == .suppress)
         #expect(fired)
     }
@@ -281,7 +281,7 @@ struct KeyboardLibraryTests {
         registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] =
             HotkeyEntry(handler: { fired = true }, passthroughBundleIds: [])
 
-        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [], isKeyDown: true)
         #expect(result == .suppress)
         #expect(fired)
     }
@@ -296,7 +296,7 @@ struct KeyboardLibraryTests {
                 passthroughBundleIds: ["com.jumpdesktop.Jump-Desktop"]
             )
 
-        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [], isKeyDown: true)
         #expect(result == .suppress)
         #expect(fired)
     }
@@ -309,7 +309,7 @@ struct KeyboardLibraryTests {
 
         // Caps Lock is a non-primary modifier — should be masked off so a
         // plain F18 binding still matches.
-        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskAlphaShift])
+        let result = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskAlphaShift], isKeyDown: true)
         #expect(result == .suppress)
         #expect(fired)
     }
@@ -323,12 +323,12 @@ struct KeyboardLibraryTests {
         registry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] =
             HotkeyEntry(handler: { shiftFired = true }, passthroughBundleIds: [])
 
-        _ = registry.dispatch(keyCode: KeyCode.f18, modifiers: [])
+        _ = registry.dispatch(keyCode: KeyCode.f18, modifiers: [], isKeyDown: true)
         #expect(plainFired)
         #expect(!shiftFired)
 
         plainFired = false
-        _ = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskShift])
+        _ = registry.dispatch(keyCode: KeyCode.f18, modifiers: [.maskShift], isKeyDown: true)
         #expect(!plainFired)
         #expect(shiftFired)
     }
