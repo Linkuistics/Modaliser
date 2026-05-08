@@ -23,7 +23,8 @@
 ;; Keys (all optional):
 ;;   offset-x-frac, offset-y-frac  — chip top-left as fraction of element size
 ;;   font-size, padding, corner-radius, border-width  — pixels
-;;   color, background, border-color  — CSS hex strings
+;;   color, background, border-color  — CSS colour: "#rgb"/"#rrggbb"/
+;;     "#rrggbbaa", or any CSS named colour ("red", "tomato", etc.)
 (define default-hint-options
   (list (cons 'offset-x-frac 0.02)
         (cons 'offset-y-frac 0.02)
