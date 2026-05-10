@@ -47,14 +47,6 @@
 (define (open-settings!)
   (run-shell (string-append "/usr/bin/open \"" user-config-path "\"")))
 
-;; Re-evaluate the user's config without restarting the app. Tree and hotkey
-;; registrations are keyed by scope/keycode, so re-running define-tree and
-;; set-leader! overwrites entries in place. Bindings removed from the file
-;; persist until next relaunch — full reset is via (relaunch!).
-(define (reload-config!)
-  (when (file-exists? user-config-path)
-    (load user-config-path)))
-
 ;; Copy file by streaming characters; preserves contents exactly.
 (define (copy-file! src dst)
   (let ((in (open-input-file src))

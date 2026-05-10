@@ -46,7 +46,7 @@
         (run-shell
           "/usr/bin/open -a Zed \"$HOME/.config/modaliser/config.scm\" || /usr/bin/open \"$HOME/.config/modaliser/config.scm\"")))
     (key "r" "Reload"
-      (lambda () (reload-config!))))
+      (lambda () (relaunch!))))
 
   ;; Google search
   (selector "g" "Google Search"
