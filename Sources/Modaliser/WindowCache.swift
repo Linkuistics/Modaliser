@@ -14,6 +14,12 @@ final class WindowCache {
     /// Cached windows from other spaces, keyed by "pid:title" for stable identity.
     private var otherSpaceCache: [String: WindowInfo] = [:]
 
+    /// Guards focusHistory and otherSpaceCache. listWindows() can be called
+    /// from any thread (e.g. Scheme's main-queue dispatch races with workspace
+    /// notification observers also touching the cache). Without this lock the
+    /// dictionary's CoW machinery can crash with garbage tagged-pointer reads.
+    private let lock = NSLock()
+
     private var activateObserver: Any?
     private var terminateObserver: Any?
 
@@ -51,6 +57,9 @@ final class WindowCache {
 
     /// List windows: fresh AX for current space, cached for other spaces, sorted by focus recency.
     func listWindows() -> [WindowInfo] {
+        lock.lock()
+        defer { lock.unlock() }
+
         let currentPID = ProcessInfo.processInfo.processIdentifier
         let runningPIDs = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
 
@@ -162,11 +171,15 @@ final class WindowCache {
     // MARK: - Private
 
     private func removeApp(pid: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
         otherSpaceCache = otherSpaceCache.filter { $0.value.ownerPID != pid }
         focusHistory.removeAll { $0 == pid }
     }
 
     private func recordFocusChange(pid: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
         focusHistory.removeAll { $0 == pid }
         focusHistory.insert(pid, at: 0)
     }
