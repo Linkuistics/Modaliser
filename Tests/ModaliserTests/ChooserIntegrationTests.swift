@@ -224,6 +224,33 @@ struct ChooserIntegrationTests {
         #expect(try engine.evaluate("chooser-open?") == .false)
     }
 
+    // MARK: - Trigger key closes chooser
+
+    @Test func leaderKeyClosesOpenChooser() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("""
+            (define test-items (list (list (cons 'text "Safari"))))
+            (define (test-source) test-items)
+            (set-leader! 'global F18)
+            (define-tree 'global
+              (selector "a" "Find"
+                'prompt "Find..."
+                'source test-source
+                'on-select (lambda (item) #t)))
+            """)
+
+        // Open chooser via selector
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-handle-key \"a\")")
+        #expect(try engine.evaluate("chooser-open?") == .true)
+        #expect(try engine.evaluate("modal-active?") == .false)
+
+        // Invoke the leader handler — should close the chooser, not open modal
+        try engine.evaluate("((make-leader-handler F18 'global))")
+        #expect(try engine.evaluate("chooser-open?") == .false)
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
+
     // MARK: - Actions panel
 
     @Test func toggleActionsShowsPanel() throws {

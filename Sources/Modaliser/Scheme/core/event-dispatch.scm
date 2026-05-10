@@ -57,13 +57,17 @@
 ;; If mode is #f (single-arg set-leader!), behaves like global with app fallback.
 (define (make-leader-handler leader-kc mode)
   (lambda ()
-    (if modal-active?
-      (modal-exit)
-      (let* ((bundle-id (focused-app-bundle-id))
-             (tree (cond
-                     ((eq? mode 'global) (lookup-tree "global"))
-                     ((eq? mode 'local)  (resolve-app-tree bundle-id))
-                     (else (or (resolve-app-tree bundle-id)
-                               (lookup-tree "global"))))))
-        (when tree
-          (modal-enter tree leader-kc))))))
+    (cond
+      (chooser-open?
+       (close-chooser))
+      (modal-active?
+       (modal-exit))
+      (else
+       (let* ((bundle-id (focused-app-bundle-id))
+              (tree (cond
+                      ((eq? mode 'global) (lookup-tree "global"))
+                      ((eq? mode 'local)  (resolve-app-tree bundle-id))
+                      (else (or (resolve-app-tree bundle-id)
+                                (lookup-tree "global"))))))
+         (when tree
+           (modal-enter tree leader-kc)))))))
