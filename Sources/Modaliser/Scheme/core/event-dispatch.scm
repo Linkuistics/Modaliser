@@ -48,9 +48,6 @@
              (and suffix (lookup-tree (string-append bundle-id suffix))))
            (lookup-tree bundle-id))))
 
-;; Create a leader key handler for a given keycode.
-;; When pressed, looks up the focused app's bundle ID, finds the
-;; appropriate tree, and enters modal mode.
 ;; Create a leader key handler for a specific mode.
 ;; 'global → always uses the "global" tree
 ;; 'local  → uses the app-specific tree for the focused app (no fallback)

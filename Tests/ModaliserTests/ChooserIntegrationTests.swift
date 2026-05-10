@@ -15,7 +15,6 @@ private enum ChooserTestError: Error {
 @Suite("Chooser Integration")
 struct ChooserIntegrationTests {
 
-
     /// Load all modules with WebView and fuzzy match stubs.
     private func loadAllModules() throws -> SchemeEngine {
         let engine = try SchemeEngine()
