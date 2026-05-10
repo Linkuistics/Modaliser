@@ -40,10 +40,13 @@
     (lambda () (launch-app "Notes")))
   (key "s" "Safari"
     (lambda () (launch-app "Safari")))
-  (key "," "Settings"
-    (lambda ()
-      (run-shell
-        "/usr/bin/open -a Zed \"$HOME/.config/modaliser/config.scm\" || /usr/bin/open \"$HOME/.config/modaliser/config.scm\"")))
+  (group "," "Settings"
+    (key "e" "Edit"
+      (lambda ()
+        (run-shell
+          "/usr/bin/open -a Zed \"$HOME/.config/modaliser/config.scm\" || /usr/bin/open \"$HOME/.config/modaliser/config.scm\"")))
+    (key "r" "Reload"
+      (lambda () (reload-config!))))
 
   ;; Google search
   (selector "g" "Google Search"
