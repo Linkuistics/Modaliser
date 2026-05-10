@@ -283,7 +283,7 @@ struct ConfigDslTests {
         #expect(kbLib.handlerRegistry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f17, modifiers: [])] != nil)
     }
 
-    // MARK: - set-leader! keyword args (modifiers, passthrough)
+    // MARK: - set-leader! keyword args (modifiers, arm-when-frontmost)
 
     @Test func setLeaderWithModifiersRegistersUnderModifierKey() throws {
         let engine = try loadAllModules()
@@ -295,30 +295,30 @@ struct ConfigDslTests {
             HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] == nil)
     }
 
-    @Test func setLeaderWithPassthroughRegistersBundleIds() throws {
+    @Test func setLeaderWithArmBundleIdsRegistersBundleIds() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (set-leader! 'global F18
-                         'passthrough-when-frontmost '("com.jumpdesktop.Jump-Desktop"))
+                         'arm-when-frontmost '("com.jumpdesktop.Jump-Desktop"))
             """)
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
         let entry = kbLib.handlerRegistry.hotkeyHandlers[
             HotkeyKey(keyCode: KeyCode.f18, modifiers: [])]
-        #expect(entry?.passthroughBundleIds == ["com.jumpdesktop.Jump-Desktop"])
+        #expect(entry?.armBundleIds == ["com.jumpdesktop.Jump-Desktop"])
     }
 
     @Test func setLeaderAcceptsBothKeywordsInEitherOrder() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (set-leader! 'global F18
-                         'passthrough-when-frontmost '("com.foo")
+                         'arm-when-frontmost '("com.foo")
                          'modifiers '(shift ctrl))
             """)
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
         let entry = kbLib.handlerRegistry.hotkeyHandlers[
             HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift, .maskControl])]
         #expect(entry != nil)
-        #expect(entry?.passthroughBundleIds == ["com.foo"])
+        #expect(entry?.armBundleIds == ["com.foo"])
     }
 
     @Test func setLeaderSingleArgFormStillWorks() throws {

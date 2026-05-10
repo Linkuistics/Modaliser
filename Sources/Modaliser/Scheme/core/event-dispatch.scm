@@ -52,6 +52,14 @@
 ;; 'global → always uses the "global" tree
 ;; 'local  → uses the app-specific tree for the focused app (no fallback)
 ;; If mode is #f (single-arg set-leader!), behaves like global with app fallback.
+;;
+;; Pass-and-arm passthrough is implemented entirely in Swift (see
+;; KeyboardHandlerRegistry). When the focused app is in arm-bundle-ids,
+;; the dispatch layer arms a Swift-side state machine and returns
+;; passThrough, *without* calling this handler. On the second trigger
+;; within the arm window, Swift posts Escape, then calls this handler
+;; — at which point Scheme just enters the local modal as for a normal
+;; idle press.
 (define (make-leader-handler leader-kc mode)
   (lambda ()
     (cond

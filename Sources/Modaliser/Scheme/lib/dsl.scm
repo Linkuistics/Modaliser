@@ -89,7 +89,7 @@
 ;;
 ;; Optional trailing keyword/value pairs:
 ;;   'modifiers <symbol-list>               ; e.g. '(shift) or '(cmd alt)
-;;   'passthrough-when-frontmost <strs>     ; bundle IDs that pass through
+;;   'arm-when-frontmost <strs>             ; bundle IDs that trigger pass-and-arm
 ;;
 ;; Disambiguation: only 'global / 'local count as a leading mode arg —
 ;; other symbols (e.g. 'modifiers) start the keyword tail.
@@ -101,16 +101,16 @@
                (or (eq? (car args) 'global) (eq? (car args) 'local)))
         (values (car args) (cadr args) (cddr args))
         (values #f (car args) (cdr args)))))
-    (let loop ((rest tail) (mod-mask 0) (passthrough '()))
+    (let loop ((rest tail) (mod-mask 0) (arm-bundle-ids '()))
       (cond
         ((null? rest)
          (register-hotkey! keycode
                            (make-leader-handler keycode mode)
                            mod-mask
-                           passthrough))
+                           arm-bundle-ids))
         ((eq? (car rest) 'modifiers)
-         (loop (cddr rest) (modifier-symbols->mask (cadr rest)) passthrough))
-        ((eq? (car rest) 'passthrough-when-frontmost)
+         (loop (cddr rest) (modifier-symbols->mask (cadr rest)) arm-bundle-ids))
+        ((eq? (car rest) 'arm-when-frontmost)
          (loop (cddr rest) mod-mask (cadr rest)))
         (else
          (error "set-leader!: unknown keyword" (car rest)))))))

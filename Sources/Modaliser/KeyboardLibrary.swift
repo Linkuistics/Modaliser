@@ -7,7 +7,7 @@ import LispKit
 ///
 /// Provides: start-keyboard-capture!, stop-keyboard-capture!,
 /// register-hotkey!, unregister-hotkey!, register-all-keys!, unregister-all-keys!,
-/// keycode->char
+/// set-arm-delay!, keycode->char
 ///
 /// Also exports key code constants (F17, F18, ESCAPE, etc.) and
 /// modifier flag constants (MOD-CMD, MOD-SHIFT, MOD-ALT, MOD-CTRL).
@@ -45,6 +45,9 @@ final class KeyboardLibrary: NativeLibrary {
         self.define(Procedure("unregister-hotkey!", unregisterHotkeyFunction))
         self.define(Procedure("register-all-keys!", registerAllKeysFunction))
         self.define(Procedure("unregister-all-keys!", unregisterAllKeysFunction))
+
+        // Arm-window tuning (pass-and-arm leader)
+        self.define(Procedure("set-arm-delay!", setArmDelayFunction))
 
         // Key mapping
         self.define(Procedure("keycode->char", keycodeToCharFunction))
@@ -144,7 +147,7 @@ final class KeyboardLibrary: NativeLibrary {
         }
         let modifierMask: UInt64 =
             argList.count >= 3 ? UInt64(try argList[2].asInt64()) : 0
-        let passthrough: [String] =
+        let armBundleIds: [String] =
             argList.count >= 4 ? try schemeListToStrings(argList[3]) : []
 
         let normalizedFlags = CGEventFlags(rawValue: modifierMask)
@@ -157,7 +160,7 @@ final class KeyboardLibrary: NativeLibrary {
             handler: { [weak self] in
                 self?.fireHotkeyHandler(handler, evaluator: evaluator, registry: registry)
             },
-            passthroughBundleIds: passthrough
+            armBundleIds: armBundleIds
         )
         handlerRegistry.hotkeyHandlers[key] = entry
         return .void
@@ -304,6 +307,19 @@ final class KeyboardLibrary: NativeLibrary {
     /// (unregister-all-keys!) → void
     private func unregisterAllKeysFunction() -> Expr {
         handlerRegistry.catchAllHandler = nil
+        return .void
+    }
+
+    // MARK: - Arm-window tuning
+
+    /// (set-arm-delay! seconds) → void
+    ///
+    /// Sets how long the registry stays armed after a pass-and-arm trigger.
+    /// A second trigger within this window cancels the remote (sends Escape)
+    /// and enters the local modal; any other key disarms and passes through.
+    private func setArmDelayFunction(_ secondsExpr: Expr) throws -> Expr {
+        let seconds = try secondsExpr.asDouble(coerce: true)
+        handlerRegistry.armWindow = seconds
         return .void
     }
 

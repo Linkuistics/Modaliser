@@ -4,10 +4,10 @@
 ;; DSL functions and native libraries are auto-imported.
 
 ;; Leader keys
-(set-leader! 'global F18 'passthrough-when-frontmost '("com.p5sys.jump.mac.viewer"))
+(set-leader! 'global F18 'arm-when-frontmost '("com.p5sys.jump.mac.viewer"))
 (set-leader! 'global F18 'modifiers '(shift))
 
-(set-leader! 'local F17 'passthrough-when-frontmost '("com.p5sys.jump.mac.viewer"))
+(set-leader! 'local F17 'arm-when-frontmost '("com.p5sys.jump.mac.viewer"))
 (set-leader! 'local F17 'modifiers '(shift))
 
 (set-overlay-delay! 0.3)
