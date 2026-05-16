@@ -308,9 +308,9 @@ Macros around the macOS Accessibility API for cases where Scheme needs to round-
 | `(ax-find-elements bundle-id role)` | Walk the AX tree of `bundle-id`'s focused window. Returns a list of alists `((handle . N) (x . N) (y . N) (w . N) (h . N))` for every descendant whose AXRole equals `role`, sorted top-to-bottom then left-to-right. Returns `()` if the app isn't running |
 | `(ax-click-handle handle)` | Activate the handle's owning app and synthesize a left-click at the centre of the handle's frame. Cursor position is saved and warped back. No-op for stale handles |
 
-### AX hint flows -- `lib/ax-hints.scm`
+### AX hint flows -- `(modaliser ax-hints)`
 
-Auto-loaded. Generic primitives for "see a chip, type a letter, focus that thing" UX over any AX-introspectable app — used by the bundled iTerm tree and reusable for any other app.
+Importable via `(import (modaliser ax-hints))`. Generic primitives for "see a chip, type a letter, focus that thing" UX over any AX-introspectable app — used by `(modaliser apps iterm)` and reusable for any other app.
 
 | Function/Variable | Description |
 |-------------------|-------------|
