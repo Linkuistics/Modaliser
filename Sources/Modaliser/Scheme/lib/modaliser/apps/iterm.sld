@@ -191,10 +191,18 @@
     ;; like 'com.googlecode.iterm2/nvim. Returns #f if no variant applies.
     ;; Side-effect: rebuilds the iTerm tree so subsequent lookups see the
     ;; current pane layout.
-    (define (iterm-context-suffix-handler bundle-id)
+    ;;
+    ;; Accepts the same trailing opts as iterm-rebuild-tree! ('pane-labels,
+    ;; 'hint-options, 'pane-range-label, 'sticky-mode-id). They are forwarded
+    ;; to the rebuild call so per-press registrations honour the user's
+    ;; customisation rather than reverting to the library's neutral
+    ;; defaults. iterm-register! captures opts in a closure for this
+    ;; reason; users composing their own handler can pass opts at call
+    ;; site too.
+    (define (iterm-context-suffix-handler bundle-id . opts)
       (cond
         ((equal? bundle-id "com.googlecode.iterm2")
-         (iterm-rebuild-tree!)
+         (apply iterm-rebuild-tree! opts)
          (let ((cmd (focused-terminal-foreground-command)))
            (cond
              ((not cmd) #f)
@@ -207,7 +215,9 @@
 
     ;; One-stop convenience: register the dynamic iTerm tree, the sticky
     ;; focus mode, and install the context-suffix handler. Pass
-    ;; 'install-context-suffix? #f if you compose your own handler.
+    ;; 'install-context-suffix? #f if you compose your own handler — your
+    ;; handler can then call (iterm-context-suffix-handler bid …opts) to
+    ;; delegate the iTerm branch.
     (define (iterm-register! . opts)
       (let* ((alist (apply props->alist opts))
              (install? (alist-ref alist 'install-context-suffix? #t))
@@ -225,4 +235,6 @@
         (apply iterm-rebuild-tree! forwarded)
         (apply iterm-focus-mode-register! forwarded)
         (when install?
-          (set-local-context-suffix! iterm-context-suffix-handler))))))
+          (set-local-context-suffix!
+            (lambda (bundle-id)
+              (apply iterm-context-suffix-handler bundle-id forwarded))))))))
