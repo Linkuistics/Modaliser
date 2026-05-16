@@ -12,8 +12,10 @@
           ;; Phase D: replace with SRFI 69 or (scheme hash-table) names
           make-hashtable hashtable-set! hashtable-ref
           string-hash
-          ;; Phase D: replace with SRFI 13 (string-contains / string-trim)
-          string-split string-trim)
+          ;; Phase D: replace with SRFI 13 (string-contains, string-trim);
+          ;; SRFI 13 has no ? predicate variant, so string-contains? becomes
+          ;; a tiny shim (if (string-contains h n) #t #f) at that point.
+          string-split string-trim string-contains?)
   (import (scheme base)
           (scheme file)
           (scheme write)

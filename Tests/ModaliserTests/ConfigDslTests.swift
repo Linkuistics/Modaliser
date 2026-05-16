@@ -49,14 +49,14 @@ struct ConfigDslTests {
         """)
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
+        try engine.evaluate("(import (modaliser terminal))")
+        try engine.evaluate("(import (modaliser ax-hints))")
         let files = [
-            "lib/terminal.scm",
             "ui/dom.scm",
             "ui/css.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
             "lib/web-search.scm",
-            "lib/ax-hints.scm",
         ]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))

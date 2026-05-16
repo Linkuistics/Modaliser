@@ -15,15 +15,13 @@
         (modaliser event-dispatch)
         (modaliser dsl))
 
-;; ─── Plain .scm modules (Phase C/D will library-ize these) ────────
+;; ─── Plain .scm modules (Phase D will library-ize the remaining ones) ────────
 
-(include "lib/terminal.scm")
 (include "ui/dom.scm")
 (include "ui/css.scm")
 (include "ui/overlay.scm")
 (include "ui/chooser.scm")
 (include "lib/web-search.scm")
-(include "lib/ax-hints.scm")
 
 ;; ─── App setup ────────────────────────────────────────────────────
 
