@@ -42,10 +42,10 @@ struct DynamicChooserTests {
             """)
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
         let files = [
             "ui/dom.scm",
             "ui/css.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
             "lib/dsl.scm",
@@ -75,7 +75,7 @@ struct DynamicChooserTests {
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Chooser should be open
-        #expect(try engine.evaluate("chooser-open?") == .true)
+        #expect(try engine.evaluate("(chooser-open?)") == .true)
         // Items should be empty (no static source)
         #expect(try engine.evaluate("(length chooser-items)").asInt64() == 0)
         // Dynamic search callback should be set
@@ -233,7 +233,7 @@ struct DynamicChooserTests {
             """)
 
         // on-select should receive the correct item
-        #expect(try engine.evaluate("chooser-open?") == .false)
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
         #expect(try engine.evaluate("(cdr (assoc 'text selected-item))").asString() == "Second")
     }
 
@@ -278,7 +278,7 @@ struct DynamicChooserTests {
         try engine.evaluate("(modal-handle-key \"a\")")
 
         // Chooser should be open with items cached
-        #expect(try engine.evaluate("chooser-open?") == .true)
+        #expect(try engine.evaluate("(chooser-open?)") == .true)
         #expect(try engine.evaluate("(length chooser-items)").asInt64() == 2)
         // Dynamic search should NOT be set
         #expect(try engine.evaluate("chooser-dynamic-search") == .false)

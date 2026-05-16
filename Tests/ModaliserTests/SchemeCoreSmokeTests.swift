@@ -81,7 +81,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         #expect(try engine.evaluate("(procedure? key)") == .true)
@@ -96,7 +96,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -113,7 +113,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -131,7 +131,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -153,7 +153,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -173,7 +173,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -195,7 +195,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -221,7 +221,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -243,7 +243,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -261,7 +261,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -288,7 +288,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -322,7 +322,7 @@ struct SchemeCoreSmokeTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
 
         try engine.evaluate("""
@@ -346,7 +346,7 @@ struct SchemeCoreSmokeTests {
 
     private func loadCore(_ engine: SchemeEngine, _ schemePath: String) throws {
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
     }
 

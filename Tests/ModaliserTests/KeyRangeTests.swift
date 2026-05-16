@@ -38,10 +38,10 @@ struct KeyRangeTests {
               (set! webview-eval-calls (cons (cons id js) webview-eval-calls)))
             """)
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
         let files = [
             "ui/dom.scm",
             "ui/css.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
             "lib/dsl.scm",

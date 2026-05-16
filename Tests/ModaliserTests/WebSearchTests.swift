@@ -49,10 +49,10 @@ struct WebSearchTests {
             """)
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
         let files = [
             "ui/dom.scm",
             "ui/css.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
             "lib/dsl.scm",

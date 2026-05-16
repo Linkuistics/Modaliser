@@ -17,10 +17,10 @@ struct OverlayRenderTests {
             throw SchemeTestError.noSchemeDir
         }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
         let files = [
             "ui/dom.scm",
             "ui/css.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "lib/dsl.scm",
         ]
@@ -421,10 +421,10 @@ struct OverlayRenderTests {
             (define (webview-eval id js) (set! last-eval-js js))
             """)
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
         let files = [
             "ui/dom.scm",
             "ui/css.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "lib/dsl.scm",
         ]

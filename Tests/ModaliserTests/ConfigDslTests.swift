@@ -21,8 +21,8 @@ struct ConfigDslTests {
                   (modaliser keymap)
                   (modaliser state-machine))
         """)
+        try engine.evaluate("(import (modaliser event-dispatch))")
         let files = [
-            "core/event-dispatch.scm",
             "lib/dsl.scm",
         ]
         for file in files {
@@ -56,11 +56,11 @@ struct ConfigDslTests {
                   (modaliser keymap)
                   (modaliser state-machine))
         """)
+        try engine.evaluate("(import (modaliser event-dispatch))")
         let files = [
             "lib/terminal.scm",
             "ui/dom.scm",
             "ui/css.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
             "lib/dsl.scm",

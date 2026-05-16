@@ -15,7 +15,8 @@ struct EndToEndSchemeModalTests {
         }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        let files = ["lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -38,7 +39,8 @@ struct EndToEndSchemeModalTests {
         }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        let files = ["lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -64,7 +66,8 @@ struct EndToEndSchemeModalTests {
         guard let schemePath = engine.schemeDirectoryPath else { return }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        let files = ["lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -94,7 +97,8 @@ struct EndToEndSchemeModalTests {
         guard let schemePath = engine.schemeDirectoryPath else { return }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        let files = ["lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -117,7 +121,8 @@ struct EndToEndSchemeModalTests {
         guard let schemePath = engine.schemeDirectoryPath else { return }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        let files = ["lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -157,7 +162,8 @@ struct EndToEndSchemeModalTests {
         }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        let files = ["lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -170,7 +176,7 @@ struct EndToEndSchemeModalTests {
               (key "t" "Tabs" (lambda () 'plain)))
             (define-tree "com.googlecode.iterm2/zellij"
               (key "z" "Zellij" (lambda () 'zellij)))
-            (define (local-context-suffix bundle-id) "/zellij")
+            (set-local-context-suffix! (lambda (bundle-id) "/zellij"))
             """)
 
         let resolved = try engine.evaluate(
@@ -196,7 +202,8 @@ struct EndToEndSchemeModalTests {
         }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        let files = ["lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -263,8 +270,11 @@ struct EndToEndSchemeModalTests {
 
         // Install Scheme-level stubs for the two environmental probes, then
         // mirror the exact body of local-context-suffix from the user
-        // config. If the shape ever diverges, this test will drift from the
-        // real behavior — keep it in sync with config.scm.
+        // config. NOTE: production user configs must install via
+        // (set-local-context-suffix! …) because the real procedure lives
+        // inside the (modaliser event-dispatch) library; this test stays
+        // at top level only because it doesn't import event-dispatch and
+        // exercises the procedure standalone.
         try engine.evaluate("""
             (define mock-fg #f)
             (define mock-focused-nvim #f)

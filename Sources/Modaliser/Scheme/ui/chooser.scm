@@ -15,7 +15,8 @@
 ;; ─── Chooser State ──────────────────────────────────────────
 
 (define chooser-webview-id "modaliser-chooser")
-(define chooser-open? #f)
+;; chooser-open? is now a thunk exported from (modaliser state-machine).
+;; Use (set-chooser-open! v) to mutate and (chooser-open?) to read.
 (define chooser-items '())           ;; raw items from source (list of alists)
 (define chooser-item-texts '())      ;; display texts extracted from items
 (define chooser-filtered '())        ;; filtered results: ((index display-text (matched-indices...)) ...)
@@ -249,7 +250,7 @@
                               (fuzzy-filter "" texts)
                               texts))))
     ;; Set chooser state
-    (set! chooser-open? #t)
+    (set-chooser-open! #t)
     (set! chooser-items items)
     (set! chooser-item-texts texts)
     (set! chooser-filtered initial-visible)
@@ -280,11 +281,13 @@
     ;; JS DOMContentLoaded sends "ready" → triggers async search to populate results.
     (chooser-load-skeleton)))
 
-;; (close-chooser) — close the chooser and reset state.
-(define (close-chooser)
-  (when chooser-open?
+;; (chooser-close-impl) — close the chooser and reset state.
+;; Installed via (set-close-chooser! chooser-close-impl) at load time;
+;; close-chooser in (modaliser state-machine) delegates here.
+(define (chooser-close-impl)
+  (when (chooser-open?)
     (webview-close chooser-webview-id)
-    (set! chooser-open? #f)
+    (set-chooser-open! #f)
     (set! chooser-items '())
     (set! chooser-item-texts '())
     (set! chooser-filtered '())
@@ -323,7 +326,7 @@
 ;; Push updated results to the chooser WebView via JS DOM update.
 ;; Only updates the results list and footer — the input field stays intact.
 (define (chooser-update-results)
-  (when chooser-open?
+  (when (chooser-open?)
     (let* ((results-html (render-results-inner-html chooser-filtered chooser-selected-index))
            (item-count (length chooser-filtered))
            (footer-text (string-append (number->string item-count)
@@ -338,7 +341,7 @@
 ;; Load page skeleton — search input + empty results + JS.
 ;; JS DOMContentLoaded sends "ready" which triggers async search.
 (define (chooser-load-skeleton)
-  (when chooser-open?
+  (when (chooser-open?)
     (let* ((prompt (alist-ref chooser-selector-node 'prompt "Select..."))
            (css (string-append overlay-base-css
                                (if (string=? overlay-custom-css "")
@@ -368,7 +371,7 @@
 
 ;; Full HTML replacement — used for action panel toggle.
 (define (chooser-update-html)
-  (when chooser-open?
+  (when (chooser-open?)
     (let* ((prompt (alist-ref chooser-selector-node 'prompt "Select..."))
            (actions (alist-ref chooser-selector-node 'actions '())))
       (webview-set-html! chooser-webview-id
@@ -399,7 +402,7 @@
 ;; Formats as JSON and calls JS updateResults() directly,
 ;; reusing the same rendering path as the static fuzzy-match pipeline.
 (define (chooser-push-results items)
-  (when chooser-open?
+  (when (chooser-open?)
     (set! chooser-items items)
     (set! chooser-selected-index 0)
     ;; Update chooser-filtered so action panel toggle renders correctly
@@ -513,6 +516,7 @@
 
 ;; Install chooser implementation into the state-machine.
 (set-open-chooser! chooser-open-impl)
+(set-close-chooser! chooser-close-impl)
 
 ;; ─── File Indexing ──────────────────────────────────────────
 ;; index-files is a Swift native function in (modaliser app).

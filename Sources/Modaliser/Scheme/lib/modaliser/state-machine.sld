@@ -35,6 +35,7 @@
     overlay-open? show-overlay update-overlay hide-overlay open-chooser
     set-overlay-open! set-show-overlay! set-update-overlay!
     set-hide-overlay! set-open-chooser!
+    chooser-open? set-chooser-open! close-chooser set-close-chooser!
     ;; Host header
     host-header-name host-header-background host-header-foreground
     host-header-separator-color
@@ -282,6 +283,16 @@
 (define (set-update-overlay! fn) (set! update-overlay-impl fn))
 (define (set-hide-overlay!   fn) (set! hide-overlay-impl   fn))
 (define (set-open-chooser!   fn) (set! open-chooser-impl   fn))
+
+;; %chooser-open?-flag is private; chooser-open? exported as a thunk
+;; for the same LispKit-snapshotting reason as overlay-open? above.
+(define %chooser-open?-flag #f)
+(define (chooser-open?) %chooser-open?-flag)
+(define (set-chooser-open! v) (set! %chooser-open?-flag v))
+
+(define close-chooser-impl (lambda () (if #f #f)))
+(define (close-chooser) (close-chooser-impl))
+(define (set-close-chooser! fn) (set! close-chooser-impl fn))
 
 ;; ─── Modal State ────────────────────────────────────────────────
 

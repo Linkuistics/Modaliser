@@ -14,7 +14,7 @@
 (include "ui/dom.scm")
 (include "ui/css.scm")
 (import (modaliser state-machine))
-(include "core/event-dispatch.scm")
+(import (modaliser event-dispatch))
 (include "ui/overlay.scm")
 (include "ui/chooser.scm")
 (include "lib/dsl.scm")

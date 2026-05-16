@@ -35,10 +35,10 @@ struct ChooserRenderTests {
             """)
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
         let files = [
             "ui/dom.scm",
             "ui/css.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
             "lib/dsl.scm",
@@ -202,7 +202,7 @@ struct ChooserRenderTests {
 
     @Test func chooserStateInitializedCorrectly() throws {
         let engine = try loadAllModules()
-        #expect(try engine.evaluate("chooser-open?") == .false)
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
         #expect(try engine.evaluate("chooser-items") == .null)
     }
 
