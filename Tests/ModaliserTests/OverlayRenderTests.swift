@@ -16,12 +16,10 @@ struct OverlayRenderTests {
             Issue.record("Scheme directory not found")
             throw SchemeTestError.noSchemeDir
         }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         let files = [
-            "lib/util.scm",
-            "core/keymap.scm",
             "ui/dom.scm",
             "ui/css.scm",
-            "core/state-machine.scm",
             "core/event-dispatch.scm",
             "ui/overlay.scm",
             "lib/dsl.scm",
@@ -192,7 +190,7 @@ struct OverlayRenderTests {
 
     @Test func overlayStartsClosed() throws {
         let engine = try loadOverlay()
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
     }
 
     @Test func setHostHeaderStoresAllThreeFields() throws {
@@ -365,10 +363,10 @@ struct OverlayRenderTests {
         try engine.evaluate("(define (register-all-keys! h) #t)")
         try engine.evaluate("(define (unregister-all-keys!) #t)")
         try engine.evaluate("(modal-enter (lookup-tree \"global\") 0)")
-        let len = try engine.evaluate("(length modal-root-segments)")
+        let len = try engine.evaluate("(length (modal-root-segments))")
         #expect(len == .fixnum(2))
-        #expect(try engine.evaluate("(list-ref modal-root-segments 0)").asString() == "box")
-        #expect(try engine.evaluate("(list-ref modal-root-segments 1)").asString() == "Global")
+        #expect(try engine.evaluate("(list-ref (modal-root-segments) 0)").asString() == "box")
+        #expect(try engine.evaluate("(list-ref (modal-root-segments) 1)").asString() == "Global")
     }
 
     @Test func modalExitPreservesRootSegmentsForChooserHandoff() throws {
@@ -382,9 +380,9 @@ struct OverlayRenderTests {
         try engine.evaluate("(define (unregister-all-keys!) #t)")
         try engine.evaluate("(modal-enter (lookup-tree \"global\") 0)")
         try engine.evaluate("(modal-exit)")
-        #expect(try engine.evaluate("(length modal-root-segments)") == .fixnum(2))
-        #expect(try engine.evaluate("(list-ref modal-root-segments 0)").asString() == "box")
-        #expect(try engine.evaluate("(list-ref modal-root-segments 1)").asString() == "Global")
+        #expect(try engine.evaluate("(length (modal-root-segments))") == .fixnum(2))
+        #expect(try engine.evaluate("(list-ref (modal-root-segments) 0)").asString() == "box")
+        #expect(try engine.evaluate("(list-ref (modal-root-segments) 1)").asString() == "Global")
     }
 
     @Test func renderOverlayHtmlPrependsHostSegment() throws {
@@ -422,12 +420,10 @@ struct OverlayRenderTests {
             (define last-eval-js #f)
             (define (webview-eval id js) (set! last-eval-js js))
             """)
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         let files = [
-            "lib/util.scm",
-            "core/keymap.scm",
             "ui/dom.scm",
             "ui/css.scm",
-            "core/state-machine.scm",
             "core/event-dispatch.scm",
             "ui/overlay.scm",
             "lib/dsl.scm",
@@ -440,9 +436,9 @@ struct OverlayRenderTests {
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))))
             """)
-        try engine.evaluate("(set! overlay-open? #t)")
+        try engine.evaluate("(set-overlay-open! #t)")
         // push-overlay-update reads modal-root-segments — set it manually for the test.
-        try engine.evaluate("(set! modal-root-segments '(\"my-server\" \"Global\"))")
+        try engine.evaluate("(set-modal-root-segments! '(\"my-server\" \"Global\"))")
         try engine.evaluate("(push-overlay-update (lookup-tree \"global\") '(\"w\"))")
         let js = try engine.evaluate("last-eval-js").asString()
         #expect(js.contains("rootSegments"))

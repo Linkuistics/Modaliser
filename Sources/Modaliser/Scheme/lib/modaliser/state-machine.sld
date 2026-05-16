@@ -1,3 +1,53 @@
+;; (modaliser state-machine) — Modal navigation state machine.
+;;
+;; Hosts the tree registry, modal-* state, and the overlay/chooser hook
+;; setters (see Task 4 for why setters instead of define-redefinition).
+
+(define-library (modaliser state-machine)
+  (export
+    ;; Tree registry
+    register-tree! lookup-tree
+    ;; Node predicates
+    command? group? selector? range-command?
+    ;; Node accessors
+    node-key node-label node-action node-children node-range-keys
+    node-on-enter node-on-leave node-sticky? node-exit-on-unknown?
+    node-display-name
+    run-on-enter run-on-leave
+    find-child navigate-to-path
+    ;; Sticky helpers
+    deepest-sticky-on-path in-sticky-context? any-on-path?
+    exit-on-unknown-context?
+    modal-reset-to-sticky-ancestor
+    ;; Modal state
+    modal-active? modal-current-node modal-root-node modal-current-path
+    modal-leader-keycode modal-overlay-generation modal-overlay-delay
+    modal-root-segments set-modal-root-segments! modal-stack
+    modal-current-context modal-apply-context!
+    ;; Modal lifecycle
+    modal-enter modal-exit modal-step-back modal-handle-key
+    modal-show-overlay-now modal-show-overlay-delayed
+    enter-mode!
+    set-overlay-delay!
+    ;; Key handler hook (installed by event-dispatch after it defines modal-key-handler)
+    set-modal-key-handler!
+    ;; Overlay/chooser hooks
+    overlay-open? show-overlay update-overlay hide-overlay open-chooser
+    set-overlay-open! set-show-overlay! set-update-overlay!
+    set-hide-overlay! set-open-chooser!
+    ;; Host header
+    host-header-name host-header-background host-header-foreground
+    host-header-separator-color
+    set-host-header! host-header-css
+    ;; Breadcrumb
+    resolve-app-segments compute-root-segments compute-tree-root-segments)
+  (import (scheme base)
+          (modaliser util)
+          (modaliser app)
+          (modaliser keyboard)
+          (modaliser lifecycle))
+  (begin
+
 ;; core/state-machine.scm — Modal navigation state machine
 ;;
 ;; Manages command tree registration, lookup, and modal navigation.
@@ -189,6 +239,17 @@
        (loop (cdr children) (car children)))
       (else (loop (cdr children) range-hit)))))
 
+;; ─── Key handler hook ──────────────────────────────────────────
+;;
+;; modal-key-handler is defined in core/event-dispatch.scm which is
+;; include-loaded after this library. Since library-internal bindings
+;; are lexically scoped, modal-enter cannot reference the global name
+;; directly. Instead, a mutable cell holds the handler; event-dispatch.scm
+;; installs it via (set-modal-key-handler! ...) after defining it.
+
+(define modal-key-handler-cell (lambda (kc mods) #f))
+(define (set-modal-key-handler! h) (set! modal-key-handler-cell h))
+
 ;; ─── Overlay/chooser hooks ────────────────────────────────────
 ;;
 ;; In the include-based loader, ui/overlay.scm and ui/chooser.scm
@@ -198,8 +259,14 @@
 ;; Instead we expose setters so the UI code installs its hooks by
 ;; mutation. Same runtime effect, library-clean shape.
 
-(define overlay-open? #f)
-(define (set-overlay-open! v) (set! overlay-open? v))
+;; %overlay-open?-flag is the private mutable cell.
+;; overlay-open? is exported as a *procedure* (thunk) so that closures
+;; compiled in importing scopes (e.g. ui/overlay.scm) always call through
+;; and see the live value — LispKit snapshots the value of mutable imports
+;; at compile time, but procedure calls are always dynamically dispatched.
+(define %overlay-open?-flag #f)
+(define (overlay-open?) %overlay-open?-flag)
+(define (set-overlay-open! v) (set! %overlay-open?-flag v))
 
 (define show-overlay-impl   (lambda (node path) (if #f #f)))
 (define update-overlay-impl (lambda (node path) (if #f #f)))
@@ -225,7 +292,11 @@
 (define modal-leader-keycode #f)
 (define modal-overlay-generation 0) ;; generation counter for delayed overlay show
 (define modal-overlay-delay 1.0)    ;; seconds before overlay appears (0 = immediate)
-(define modal-root-segments '())     ;; breadcrumb root: host? + scope segments
+;; modal-root-segments is exported as a *procedure* (thunk) for the same reason
+;; as overlay-open?: LispKit snapshots '() at compile time in importing scopes.
+(define %modal-root-segments '())    ;; breadcrumb root: host? + scope segments
+(define (modal-root-segments) %modal-root-segments)
+(define (set-modal-root-segments! v) (set! %modal-root-segments v))
 
 ;; Stack of saved modal contexts, most-recent first. Pushed by enter-mode!
 ;; when it switches into a mode from inside an already-active modal so
@@ -240,7 +311,7 @@
         (cons 'current-node  modal-current-node)
         (cons 'current-path  modal-current-path)
         (cons 'leader-kc     modal-leader-keycode)
-        (cons 'root-segments modal-root-segments)))
+        (cons 'root-segments (modal-root-segments))))
 
 ;; Restore a context onto the active modal variables.
 (define (modal-apply-context! ctx)
@@ -248,7 +319,7 @@
   (set! modal-current-node  (cdr (assoc 'current-node  ctx)))
   (set! modal-current-path  (cdr (assoc 'current-path  ctx)))
   (set! modal-leader-keycode (cdr (assoc 'leader-kc    ctx)))
-  (set! modal-root-segments (cdr (assoc 'root-segments ctx))))
+  (set-modal-root-segments! (cdr (assoc 'root-segments ctx))))
 
 ;; (set-overlay-delay! seconds) — set the which-key overlay delay.
 ;; 0 shows the overlay immediately; typical values are 0.3–1.0 seconds.
@@ -300,9 +371,9 @@
     (set! modal-current-node tree)
     (set! modal-current-path '())
     (set! modal-leader-keycode leader-kc)
-    (set! modal-root-segments
+    (set-modal-root-segments!
       (compute-tree-root-segments tree))
-    (register-all-keys! modal-key-handler)
+    (register-all-keys! modal-key-handler-cell)
     (if (node-sticky? tree)
       (modal-show-overlay-now)
       (modal-show-overlay-delayed))))
@@ -330,14 +401,14 @@
       ((not modal-active?)
        (modal-enter tree #f))
       (else
-       (when overlay-open?
+       (when (overlay-open?)
          (run-on-leave modal-current-node))
        (set! modal-stack (cons (modal-current-context) modal-stack))
        (set! modal-root-node tree)
        (set! modal-current-node tree)
        (set! modal-current-path '())
        (set! modal-leader-keycode #f)
-       (set! modal-root-segments (compute-tree-root-segments tree))
+       (set-modal-root-segments! (compute-tree-root-segments tree))
        ;; Always show immediately on mode switch — the caller's overlay
        ;; was up, so no flash of "nothing" between the two modes.
        (modal-show-overlay-now)))))
@@ -350,7 +421,7 @@
 ;; before the overlay's display delay elapses produces zero hook fires.
 (define (modal-exit)
   (when modal-active?
-    (when (and modal-current-node overlay-open?)
+    (when (and modal-current-node (overlay-open?))
       (run-on-leave modal-current-node))
     (set! modal-overlay-generation (+ modal-overlay-generation 1))
     (unregister-all-keys!)
@@ -436,14 +507,14 @@
         (cond
           ((and (eq? target-node modal-current-node)
                 (equal? target-path modal-current-path))
-           (when overlay-open?
+           (when (overlay-open?)
              (update-overlay modal-root-node modal-current-path)))
           (else
-           (when overlay-open?
+           (when (overlay-open?)
              (run-on-leave modal-current-node))
            (set! modal-current-node target-node)
            (set! modal-current-path target-path)
-           (when overlay-open?
+           (when (overlay-open?)
              (run-on-enter modal-current-node)
              (update-overlay modal-root-node modal-current-path))))))))
 
@@ -507,13 +578,13 @@
        ;; overlay shows gets neither leave nor enter; the eventual
        ;; overlay-show callback will fire on-enter for whatever the
        ;; current node is at that moment.
-       (when overlay-open?
+       (when (overlay-open?)
          (run-on-leave modal-current-node))
        (set! modal-current-node child)
        (set! modal-current-path
          (append modal-current-path (list char)))
        (cond
-         (overlay-open?
+         ((overlay-open?)
           (run-on-enter child)
           (update-overlay modal-root-node modal-current-path))
          (else
@@ -547,11 +618,11 @@
        ((not (in-sticky-context?))
         (if #f #f))
        ((not (null? modal-stack))
-        (when overlay-open?
+        (when (overlay-open?)
           (run-on-leave modal-current-node))
         (modal-apply-context! (car modal-stack))
         (set! modal-stack (cdr modal-stack))
-        (when overlay-open?
+        (when (overlay-open?)
           (run-on-enter modal-current-node)
           (show-overlay modal-root-node modal-current-path)))
        (else
@@ -560,10 +631,10 @@
      (let* ((new-path (reverse (cdr (reverse modal-current-path))))
             (new-node (navigate-to-path modal-root-node new-path))
             (leaving  modal-current-node))
-       (when overlay-open? (run-on-leave leaving))
+       (when (overlay-open?) (run-on-leave leaving))
        (set! modal-current-path new-path)
        (set! modal-current-node new-node)
-       (when overlay-open? (run-on-enter new-node))
+       (when (overlay-open?) (run-on-enter new-node))
        (update-overlay modal-root-node modal-current-path)))))
 
 ;; Navigate from root following a list of key strings.
@@ -677,3 +748,5 @@
                (list display)))
       (else
        (compute-root-segments (or (alist-ref tree 'scope #f) ""))))))
+
+))

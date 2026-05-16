@@ -158,7 +158,7 @@
                            (if (string=? result "") "" ",")
                            "\"" (js-escape-overlay (car xs)) "\""))))
                "]")))
-         (segments-json (string-list->json modal-root-segments))
+         (segments-json (string-list->json (modal-root-segments)))
          (path-json     (string-list->json (path-labels node path)))
          (sticky?       (and (deepest-sticky-on-path node path) #t))
          (entries-json
@@ -208,7 +208,7 @@
 
 ;; (overlay-show-impl node path) — create panel if needed, render content
 (define (overlay-show-impl node path)
-  (unless overlay-open?
+  (unless (overlay-open?)
     (webview-create overlay-webview-id
       (list (cons 'width overlay-panel-width)
             (cons 'height overlay-panel-height)
@@ -219,16 +219,16 @@
     (webview-on-message overlay-webview-id overlay-message-handler)
     (set-overlay-open! #t))
   (webview-set-html! overlay-webview-id
-    (render-overlay-html node modal-root-segments path)))
+    (render-overlay-html node (modal-root-segments) path)))
 
 ;; (overlay-update-impl node path) — update content via JS (no page reload)
 (define (overlay-update-impl node path)
-  (when overlay-open?
+  (when (overlay-open?)
     (push-overlay-update node path)))
 
 ;; (overlay-hide-impl) — close the panel
 (define (overlay-hide-impl)
-  (when overlay-open?
+  (when (overlay-open?)
     (webview-close overlay-webview-id)
     (set-overlay-open! #f)))
 

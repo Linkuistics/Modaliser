@@ -41,12 +41,10 @@ struct OverlayIntegrationTests {
                 (when h (h msg))))
             """)
 
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         let files = [
-            "lib/util.scm",
-            "core/keymap.scm",
             "ui/dom.scm",
             "ui/css.scm",
-            "core/state-machine.scm",
             "core/event-dispatch.scm",
             "ui/overlay.scm",
             "lib/dsl.scm",
@@ -55,7 +53,7 @@ struct OverlayIntegrationTests {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
         // Disable overlay delay for synchronous testing
-        try engine.evaluate("(set! modal-overlay-delay 0)")
+        try engine.evaluate("(set-overlay-delay! 0)")
         return engine
     }
 
@@ -68,15 +66,15 @@ struct OverlayIntegrationTests {
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
 
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
 
         try engine.evaluate("(modal-exit)")
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
     }
 
     @Test func modalExitClosesOverlay() throws {
@@ -87,10 +85,10 @@ struct OverlayIntegrationTests {
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         try engine.evaluate("(modal-exit)")
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
     }
 
     @Test func groupNavigationUpdatesOverlay() throws {
@@ -103,16 +101,16 @@ struct OverlayIntegrationTests {
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         // Navigate into group
         try engine.evaluate("(modal-handle-key \"w\")")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
 
         // Verify we can render the current overlay content (path should be ("w"))
         let html = try engine.evaluate("""
-            (render-overlay-html modal-root-node modal-root-segments modal-current-path)
+            (render-overlay-html modal-root-node (modal-root-segments) modal-current-path)
             """).asString()
         #expect(html.contains("Center"))
         #expect(html.contains("Maximize"))
@@ -129,11 +127,11 @@ struct OverlayIntegrationTests {
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         try engine.evaluate("(modal-handle-key \"s\")")
         #expect(try engine.evaluate("action-fired") == .true)
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
@@ -151,13 +149,13 @@ struct OverlayIntegrationTests {
 
         // Step back to root
         try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
         #expect(try engine.evaluate("(null? modal-current-path)") == .true)
 
         // Overlay should now show root entries again
         let html = try engine.evaluate("""
-            (render-overlay-html modal-root-node modal-root-segments modal-current-path)
+            (render-overlay-html modal-root-node (modal-root-segments) modal-current-path)
             """).asString()
         #expect(html.contains("Safari"))
         #expect(html.contains("Windows"))
@@ -176,10 +174,10 @@ struct OverlayIntegrationTests {
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
 
         try engine.evaluate("(modal-exit)")
@@ -198,18 +196,18 @@ struct OverlayIntegrationTests {
 
         // Enter modal directly
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
 
         // 'w' → navigate into group, overlay updates
         try engine.evaluate("(modal-key-handler 13 0)")  // 'w'
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
 
         // 'c' → execute action, overlay closes
         try engine.evaluate("(modal-key-handler 8 0)")   // 'c'
         #expect(try engine.evaluate("test-result") == .symbol(engine.context.symbols.intern("centered")))
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
@@ -221,11 +219,11 @@ struct OverlayIntegrationTests {
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         // Toggle off via F18 through modal-key-handler
         try engine.evaluate("(modal-key-handler F18 0)")
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
@@ -237,10 +235,10 @@ struct OverlayIntegrationTests {
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         try engine.evaluate("(modal-key-handler ESCAPE 0)")
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
@@ -254,11 +252,11 @@ struct OverlayIntegrationTests {
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         // Press 'x' which has no binding → modal and overlay both stay.
         try engine.evaluate("(modal-key-handler 7 0)")  // keycode 7 = 'x'
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
 
         try engine.evaluate("(modal-exit)")
@@ -291,7 +289,7 @@ struct OverlayIntegrationTests {
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
 
         // Simulate the Swift side sending a cancel message for an outside click.
@@ -299,7 +297,7 @@ struct OverlayIntegrationTests {
             (webview-dispatch-message "modaliser-overlay" '((type . "cancel")))
             """)
 
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 

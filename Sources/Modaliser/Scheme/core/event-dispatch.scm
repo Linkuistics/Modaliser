@@ -34,6 +34,10 @@
            (modal-handle-key effective) #t)
          (begin (modal-exit) #t))))))
 
+;; Install modal-key-handler into the state-machine library's dispatch cell.
+;; (modaliser state-machine) must be imported before this file is evaluated.
+(set-modal-key-handler! modal-key-handler)
+
 ;; Hook: given the focused app's bundle ID, return a suffix string like
 ;; "/zellij" to try a more specific tree first, or #f to use the plain
 ;; bundle-id tree. User configs override this with their own definition.

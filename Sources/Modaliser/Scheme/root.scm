@@ -13,7 +13,7 @@
 (include "core/keymap.scm")
 (include "ui/dom.scm")
 (include "ui/css.scm")
-(include "core/state-machine.scm")
+(import (modaliser state-machine))
 (include "core/event-dispatch.scm")
 (include "ui/overlay.scm")
 (include "ui/chooser.scm")

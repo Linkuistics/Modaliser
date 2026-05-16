@@ -34,12 +34,10 @@ struct ChooserRenderTests {
               (set! webview-on-message-calls (cons (cons id handler) webview-on-message-calls)))
             """)
 
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         let files = [
-            "lib/util.scm",
-            "core/keymap.scm",
             "ui/dom.scm",
             "ui/css.scm",
-            "core/state-machine.scm",
             "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
@@ -222,7 +220,7 @@ struct ChooserRenderTests {
     @Test func renderChooserHtmlBreadcrumbIncludesPrompt() throws {
         let engine = try loadAllModules()
         // The breadcrumb consumes modal-root-segments + (list prompt)
-        try engine.evaluate("(set! modal-root-segments '(\"Global\"))")
+        try engine.evaluate("(set-modal-root-segments! '(\"Global\"))")
         let html = try engine.evaluate("""
             (render-chooser-html "Find app…" '() "" 0 #f '())
             """).asString()
@@ -238,7 +236,7 @@ struct ChooserRenderTests {
         // drop it so the chooser header reads "Global » Find app"
         // instead of "Global » Find app…".
         let engine = try loadAllModules()
-        try engine.evaluate("(set! modal-root-segments '(\"Global\"))")
+        try engine.evaluate("(set-modal-root-segments! '(\"Global\"))")
         let html = try engine.evaluate("""
             (render-chooser-html "Find app…" '() "" 0 #f '())
             """).asString()
@@ -259,7 +257,7 @@ struct ChooserRenderTests {
     @Test func renderChooserHtmlPrependsHostSegment() throws {
         let engine = try loadAllModules()
         try engine.evaluate(
-            "(set! modal-root-segments '(\"my-server\" \"Global\"))")
+            "(set-modal-root-segments! '(\"my-server\" \"Global\"))")
         let html = try engine.evaluate("""
             (render-chooser-html "Find app…" '() "" 0 #f '())
             """).asString()
@@ -272,7 +270,7 @@ struct ChooserRenderTests {
         let engine = try loadAllModules()
         try engine.evaluate(
             "(set-host-header! 'name \"x\" 'background \"#abc\" 'foreground \"#def\")")
-        try engine.evaluate("(set! modal-root-segments '(\"x\" \"Global\"))")
+        try engine.evaluate("(set-modal-root-segments! '(\"x\" \"Global\"))")
         let html = try engine.evaluate("""
             (render-chooser-html "Find app…" '() "" 0 #f '())
             """).asString()

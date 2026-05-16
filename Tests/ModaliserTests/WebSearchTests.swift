@@ -48,12 +48,10 @@ struct WebSearchTests {
               (set! opened-urls (cons url opened-urls)))
             """)
 
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         let files = [
-            "lib/util.scm",
-            "core/keymap.scm",
             "ui/dom.scm",
             "ui/css.scm",
-            "core/state-machine.scm",
             "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",

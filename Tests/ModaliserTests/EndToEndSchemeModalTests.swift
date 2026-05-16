@@ -14,8 +14,8 @@ struct EndToEndSchemeModalTests {
             return
         }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -37,8 +37,8 @@ struct EndToEndSchemeModalTests {
             return
         }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -63,8 +63,8 @@ struct EndToEndSchemeModalTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -93,8 +93,8 @@ struct EndToEndSchemeModalTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -116,8 +116,8 @@ struct EndToEndSchemeModalTests {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -156,8 +156,8 @@ struct EndToEndSchemeModalTests {
             return
         }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -195,8 +195,8 @@ struct EndToEndSchemeModalTests {
             return
         }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        let files = ["core/event-dispatch.scm", "lib/dsl.scm"]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }

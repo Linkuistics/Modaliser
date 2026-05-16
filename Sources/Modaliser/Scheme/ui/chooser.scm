@@ -148,7 +148,7 @@
          (item-count (length visible-items))
          (footer-text (string-append (number->string item-count)
                         (if (= item-count 1) " item" " items")))
-         (segments (append modal-root-segments
+         (segments (append (modal-root-segments)
                            (list (chooser-prompt-segment prompt))))
          (body
            (div '((class . "chooser"))
@@ -346,7 +346,7 @@
                                  (string-append "\n" overlay-custom-css))
                                "\n"
                                (host-header-css)))
-           (segments (append modal-root-segments
+           (segments (append (modal-root-segments)
                              (list (chooser-prompt-segment prompt))))
            (html (html-document
                    (make-raw-html
