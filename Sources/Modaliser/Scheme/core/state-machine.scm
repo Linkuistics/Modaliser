@@ -383,15 +383,14 @@
 ;; Hooks only fire if the overlay was visible — same gating as the descent
 ;; case in modal-handle-key.
 ;;
-;; At the root (path empty): transient trees exit the modal (today's
-;; behavior); in sticky context, stepping back is a no-op — there's no
-;; level to retreat to, and the only way out of sticky is Escape.
+;; At the root (path empty) there's no level left to retreat to, so this
+;; exits the modal — including sticky modes (backspace is a "go back one"
+;; that bottoms out by leaving the mode altogether). Escape exits from any
+;; depth in one shot; backspace unwinds gradually.
 (define (modal-step-back)
   (cond
     ((null? modal-current-path)
-     (if (in-sticky-context?)
-       (void)
-       (modal-exit)))
+     (modal-exit))
     (else
      (let* ((new-path (reverse (cdr (reverse modal-current-path))))
             (new-node (navigate-to-path modal-root-node new-path))
