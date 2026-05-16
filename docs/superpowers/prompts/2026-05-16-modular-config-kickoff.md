@@ -15,7 +15,7 @@ A human will hand this file (or a reference to it) to a fresh Claude Code sessio
 1. Read the spec and this kickoff file.
 2. Pick the next phase to execute — by default, the first one not yet committed on `main`. Check `git log --oneline main` for `feat(modular-config)`-prefixed commits to determine status.
 3. Open a worktree for the work (use `superpowers:using-git-worktrees`). Branch name: `phase-<letter>-<short-name>`, e.g. `phase-a-lookup-path`.
-4. Invoke `superpowers:writing-plans` to draft a detailed per-phase plan in `docs/superpowers/plans/2026-MM-DD-modular-config-phase-<letter>-<name>.md`. The plan covers files to touch, task-by-task TDD steps, and explicit verification commands — same format as the existing `2026-05-01-host-header.md`.
+4. Invoke `superpowers:writing-plans` to draft a detailed per-phase plan in `docs/superpowers/plans/2026-MM-DD-modular-config-phase-<letter>-<name>.md`. The plan covers files to touch, task-by-task TDD steps, and explicit verification commands.
 5. Get the human's approval on the plan (or proceed if they've delegated it).
 6. Invoke `superpowers:subagent-driven-development` to execute the plan. Tasks within a phase are often parallelizable (DSL refactor + matching test updates are one example); the skill handles dispatch.
 7. Verify with `superpowers:verification-before-completion`: build cleanly, tests pass, sample user-config scenarios still work.
