@@ -56,7 +56,9 @@
 
 ;; ─── Tree Registry ──────────────────────────────────────────────
 
-(define tree-registry (make-hashtable string-hash string=?))
+;; SRFI 69 make-hash-table is (equality hash) — opposite order to
+;; LispKit's (lispkit hashtable) make-hashtable. Easy to miss.
+(define tree-registry (make-hash-table string=? string-hash))
 
 ;; Register a command tree for a scope.
 ;; scope: symbol or string (e.g. 'global or "com.apple.Safari")
@@ -120,12 +122,12 @@
                  (acc (if sticky       (cons (cons 'sticky #t)                 acc) acc))
                  (acc (if exit-unk     (cons (cons 'exit-on-unknown #t)        acc) acc))
                  (acc (if display-name (cons (cons 'display-name display-name) acc) acc)))
-            (hashtable-set! tree-registry scope-str acc)))))))
+            (hash-table-set! tree-registry scope-str acc)))))))
 
 ;; Look up a tree by scope. Returns #f if not found.
 (define (lookup-tree scope)
   (let ((scope-str (if (symbol? scope) (symbol->string scope) scope)))
-    (hashtable-ref tree-registry scope-str #f)))
+    (hash-table-ref/default tree-registry scope-str #f)))
 
 ;; ─── Node Predicates ────────────────────────────────────────────
 

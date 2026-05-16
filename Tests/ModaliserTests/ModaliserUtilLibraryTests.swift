@@ -85,4 +85,24 @@ struct ModaliserUtilLibraryTests {
         #expect(try engine.evaluate("(string-trim \"nochange\")").asString() == "nochange")
         #expect(try engine.evaluate("(string-trim \"\")").asString() == "")
     }
+
+    @Test func hashTableMakeAndSetAndRef() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        try engine.evaluate("(define ht (make-hash-table string=? string-hash))")
+        try engine.evaluate("(hash-table-set! ht \"alpha\" 1)")
+        try engine.evaluate("(hash-table-set! ht \"beta\" 2)")
+        #expect(try engine.evaluate("(hash-table-ref/default ht \"alpha\" #f)") == .fixnum(1))
+        #expect(try engine.evaluate("(hash-table-ref/default ht \"beta\" #f)") == .fixnum(2))
+        #expect(try engine.evaluate("(hash-table-ref/default ht \"missing\" #f)") == .false)
+    }
+
+    @Test func hashTableOverwriteOnRepeatSet() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        try engine.evaluate("(define ht (make-hash-table string=? string-hash))")
+        try engine.evaluate("(hash-table-set! ht \"k\" 1)")
+        try engine.evaluate("(hash-table-set! ht \"k\" 2)")
+        #expect(try engine.evaluate("(hash-table-ref/default ht \"k\" #f)") == .fixnum(2))
+    }
 }
