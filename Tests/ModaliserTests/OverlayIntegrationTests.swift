@@ -165,7 +165,9 @@ struct OverlayIntegrationTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func stepBackFromRootClosesOverlay() throws {
+    @Test func stepBackFromRootIsNoOp() throws {
+        // Backspace at the root is purely a stand-still — overlay and
+        // modal both stay open. (Escape is the dedicated exit.)
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define-tree 'global
@@ -176,8 +178,10 @@ struct OverlayIntegrationTests {
         #expect(try engine.evaluate("overlay-open?") == .true)
 
         try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("overlay-open?") == .false)
-        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
     }
 
     // MARK: - Full flow via keyboard simulation
@@ -239,7 +243,9 @@ struct OverlayIntegrationTests {
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
-    @Test func unmatchedKeyClosesOverlay() throws {
+    @Test func unmatchedKeyIsNoOp() throws {
+        // Unknown keys are forgiving: swallowed without dismissing the
+        // modal or closing the overlay. Escape is the sole exit key.
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define-tree 'global
@@ -249,10 +255,12 @@ struct OverlayIntegrationTests {
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         #expect(try engine.evaluate("overlay-open?") == .true)
 
-        // Press 'x' which has no binding → should exit and close overlay
+        // Press 'x' which has no binding → modal and overlay both stay.
         try engine.evaluate("(modal-key-handler 7 0)")  // keycode 7 = 'x'
-        #expect(try engine.evaluate("overlay-open?") == .false)
-        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("overlay-open?") == .true)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
     }
 
     @Test func modalExitIsIdempotent() throws {

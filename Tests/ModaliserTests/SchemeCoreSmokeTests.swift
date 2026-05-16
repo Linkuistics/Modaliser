@@ -224,7 +224,10 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func modalStepBackFromRootExits() throws {
+    @Test func modalStepBackAtRootIsNoOp() throws {
+        // Backspace is purely tree-navigational: at the root there's no
+        // parent to retreat to, so it's a stand-still — for transient
+        // trees and sticky trees alike. Escape is the sole exit key.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
@@ -241,7 +244,9 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-step-back)")
 
-        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
     }
 
     // MARK: - DSL integration
@@ -329,7 +334,9 @@ struct SchemeCoreSmokeTests {
         #expect(try engine.evaluate("which-tree") == .symbol(engine.context.symbols.intern("safari")))
     }
 
-    @Test func modalNoBindingExits() throws {
+    @Test func modalNoBindingIsNoOp() throws {
+        // Unknown keys are swallowed — never dismiss the modal. Escape
+        // is the sole exit; this applies to transient and sticky alike.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
@@ -346,7 +353,9 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-handle-key \"x\")")
 
-        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
     }
 
     // MARK: - Sticky modes
@@ -405,11 +414,9 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func stickyBackspaceAtRootExitsMode() throws {
-        // Backspace is "go back one level"; at the topmost level there's
-        // nothing left to retreat to, so it exits the modal — even from a
-        // sticky mode. Escape is the one-shot exit-from-any-depth; this
-        // is the gradual unwind.
+    @Test func stickyBackspaceAtRootIsNoOp() throws {
+        // Backspace at the sticky root has nothing to retreat to and does
+        // nothing — same rule as transient trees. Escape is the only exit.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try loadCore(engine, schemePath)
@@ -422,7 +429,9 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
         try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
     }
 
     @Test func nestedStickyResetsToDeepest() throws {
