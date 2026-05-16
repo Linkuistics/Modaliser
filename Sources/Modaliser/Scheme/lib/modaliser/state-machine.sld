@@ -56,8 +56,8 @@
 
 ;; ─── Tree Registry ──────────────────────────────────────────────
 
-;; SRFI 69 make-hash-table is (equality hash) — opposite order to
-;; LispKit's (lispkit hashtable) make-hashtable. Easy to miss.
+;; SRFI 69's make-hash-table takes (equality hash) — opposite order
+;; to LispKit's make-hashtable, which took (hash equality). Easy to miss.
 (define tree-registry (make-hash-table string=? string-hash))
 
 ;; Register a command tree for a scope.

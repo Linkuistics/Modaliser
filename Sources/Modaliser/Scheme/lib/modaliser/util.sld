@@ -1,7 +1,7 @@
 ;; (modaliser util) — Shared utility functions used across other
 ;; (modaliser …) libraries. Pure Scheme except for the centralised
 ;; SRFI 69 hashtable re-exports below. After Phase D this library
-;; imports only (scheme …) and (srfi …); no (lispkit …).
+;; imports only (scheme …) and (srfi …); no host-specific libraries.
 
 (define-library (modaliser util)
   (export alist-ref
