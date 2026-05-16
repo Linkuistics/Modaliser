@@ -321,12 +321,40 @@
           (key "j" "Focus Down"  (keystroke '(cmd alt) "down"))
           (key "k" "Focus Up"    (keystroke '(cmd alt) "up"))
           (key "l" "Focus Right" (keystroke '(cmd alt) "right"))
+          (key "m" "Pane Mode (sticky)"
+            (lambda () (enter-mode! 'iterm-panes)))
           (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
           (group "x" "Split"
             (key "h" "Split Left"  (keystroke '(cmd ctrl shift) "h"))
             (key "j" "Split Down"  (keystroke '(cmd ctrl shift) "j"))
             (key "k" "Split Up"    (keystroke '(cmd ctrl shift) "k"))
             (key "l" "Split Right" (keystroke '(cmd ctrl shift) "l"))))))))
+
+;; ─── iTerm sticky pane mode ──────────────────────────────────────
+;;
+;; A persistent modal: while active, hjkl move pane focus and "x h/j/k/l"
+;; splits in a direction without exiting. Escape exits to insert mode;
+;; Backspace steps back one level (e.g. out of the Split subgroup). The
+;; nested (group "x" 'sticky #t ...) keeps the user in Split after a split
+;; fires — useful for laying out a grid of panes in quick succession.
+;;
+;; Entered from the regular F17 iTerm tree via `m`. The per-app iTerm tree
+;; itself stays transient (one-keypress launcher) so this is purely additive.
+(define-tree 'iterm-panes
+  'sticky #t
+  'display-name "iTerm Panes"
+  (key "h" "Focus Left"  (keystroke '(cmd alt) "left"))
+  (key "j" "Focus Down"  (keystroke '(cmd alt) "down"))
+  (key "k" "Focus Up"    (keystroke '(cmd alt) "up"))
+  (key "l" "Focus Right" (keystroke '(cmd alt) "right"))
+  (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
+  (key "c" "Copy Mode"   (keystroke '(cmd shift) "c"))
+  (group "x" "Split"
+    'sticky #t
+    (key "h" "Split Left"  (keystroke '(cmd ctrl shift) "h"))
+    (key "j" "Split Down"  (keystroke '(cmd ctrl shift) "j"))
+    (key "k" "Split Up"    (keystroke '(cmd ctrl shift) "k"))
+    (key "l" "Split Right" (keystroke '(cmd ctrl shift) "l"))))
 
 ;; Dispatcher hook. For iTerm, refresh the dynamic tree (panes may have
 ;; changed) then probe the pane to pick a tree variant.

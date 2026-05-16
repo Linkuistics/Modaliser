@@ -93,12 +93,20 @@
 ;; root-segments: breadcrumb root (e.g. ("my-server" "Global"))
 ;; node: the registered root tree node (provides children navigation only)
 ;; path: navigation path from root, e.g. ("w" "m")
+;;
+;; When the current navigation point is in sticky context (the root or any
+;; ancestor on the path is sticky), the .overlay div gets a "sticky" class
+;; so users can theme the persistent mode indicator distinctly. Default
+;; styling in base.css gives it an accented border using the host color
+;; when set, otherwise a darker neutral.
 (define (render-overlay-body root-segments node path)
   (let* ((current  (if (null? path) node (navigate-to-path node path)))
          (children (if current (node-children current) '()))
          (sorted   (sort-children children))
-         (segments (append root-segments (path-labels node path))))
-    (div '((class . "overlay"))
+         (segments (append root-segments (path-labels node path)))
+         (sticky?  (and (deepest-sticky-on-path node path) #t))
+         (cls      (if sticky? "overlay sticky" "overlay")))
+    (div (list (cons 'class cls))
       (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons '((class . "overlay-entries"))
                       (map render-entry sorted))))))
@@ -153,6 +161,7 @@
                "]")))
          (segments-json (string-list->json modal-root-segments))
          (path-json     (string-list->json (path-labels node path)))
+         (sticky?       (and (deepest-sticky-on-path node path) #t))
          (entries-json
            (string-append "["
              (let loop ((items sorted) (result ""))
@@ -173,6 +182,7 @@
     (webview-eval overlay-webview-id
       (string-append "updateOverlay({\"rootSegments\":" segments-json
         ",\"path\":" path-json
+        ",\"sticky\":" (if sticky? "true" "false")
         ",\"entries\":" entries-json "})"))))
 
 ;; Escape string for embedding in JSON/JS string literal.

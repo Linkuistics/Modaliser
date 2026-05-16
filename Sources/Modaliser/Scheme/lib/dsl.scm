@@ -13,33 +13,36 @@
 ;; (group k label [keyword value]... . children) → group alist
 ;;
 ;; Optional leading keyword/value pairs. Recognized keywords:
-;;   'on-enter THUNK  — called when modal navigates into this group
-;;   'on-leave THUNK  — called when modal navigates out of this group
+;;   'on-enter THUNK   — called when modal navigates into this group
+;;   'on-leave THUNK   — called when modal navigates out of this group
+;;   'sticky    BOOL   — firing a command leaf at or below this group
+;;                       returns navigation to this group instead of
+;;                       exiting the modal. Composes with sticky ancestors:
+;;                       the deepest sticky group on the current path wins.
+;;                       See register-tree!'s 'sticky doc for full semantics.
 ;;
 ;; Args after the keyword pairs are children. Disambiguation: a child node
 ;; is always a pair whose first element is a pair (alist starting with
 ;; (kind . ...)); a keyword is a bare symbol. So leading bare symbols start
 ;; the keyword tail and the first non-symbol begins the children.
 (define (group k label . rest)
-  (let loop ((args rest) (on-enter #f) (on-leave #f))
+  (let loop ((args rest) (on-enter #f) (on-leave #f) (sticky #f))
     (cond
       ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
        (case (car args)
-         ((on-enter) (loop (cddr args) (cadr args) on-leave))
-         ((on-leave) (loop (cddr args) on-enter (cadr args)))
+         ((on-enter) (loop (cddr args) (cadr args) on-leave sticky))
+         ((on-leave) (loop (cddr args) on-enter (cadr args) sticky))
+         ((sticky)   (loop (cddr args) on-enter on-leave (cadr args)))
          (else (error "group: unknown keyword" (car args)))))
       (else
-        (let ((base (list (cons 'kind 'group)
+        (let* ((acc (list (cons 'kind 'group)
                           (cons 'key k)
                           (cons 'label label)
-                          (cons 'children args))))
-          (let* ((with-leave (if on-leave
-                               (cons (cons 'on-leave on-leave) base)
-                               base))
-                 (with-enter (if on-enter
-                               (cons (cons 'on-enter on-enter) with-leave)
-                               with-leave)))
-            with-enter))))))
+                          (cons 'children args)))
+               (acc (if on-leave (cons (cons 'on-leave on-leave) acc) acc))
+               (acc (if on-enter (cons (cons 'on-enter on-enter) acc) acc))
+               (acc (if sticky   (cons (cons 'sticky #t)         acc) acc)))
+          acc)))))
 
 ;; (selector k label . props) → selector alist
 (define (selector k label . props)
