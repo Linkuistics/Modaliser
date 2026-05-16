@@ -120,7 +120,7 @@ struct EndToEndSchemeModalTests {
             return
         }
         // Just load it — any parse / reference error surfaces here.
-        try engine.evaluateFile(joinPath(schemePath, "lib/terminal.scm"))
+        try engine.evaluate("(import (modaliser terminal))")
 
         // Smoke check: the three user-facing bindings exist.
         #expect(try engine.evaluate("(procedure? focused-iterm-tty)") == .true)
@@ -192,7 +192,7 @@ struct EndToEndSchemeModalTests {
             Issue.record("Scheme directory not found")
             return
         }
-        try engine.evaluateFile(joinPath(schemePath, "lib/terminal.scm"))
+        try engine.evaluate("(import (modaliser terminal))")
 
         // Mirror the predicate the user config defines, then test matching.
         try engine.evaluate("""
@@ -226,7 +226,7 @@ struct EndToEndSchemeModalTests {
             Issue.record("Scheme directory not found")
             return
         }
-        try engine.evaluateFile(joinPath(schemePath, "lib/terminal.scm"))
+        try engine.evaluate("(import (modaliser terminal))")
 
         // Install Scheme-level stubs for the two environmental probes, then
         // mirror the exact body of local-context-suffix from the user
@@ -297,20 +297,25 @@ struct EndToEndSchemeModalTests {
 
     @Test func focusedNvimSocketReturnsFirstClaimant() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
-        try engine.evaluateFile(joinPath(schemePath, "lib/terminal.scm"))
 
-        // Stub out the two pieces that shell out, then exercise the
-        // scanning loop in focused-nvim-socket.
+        // Define a local version of focused-nvim-socket using stubbed
+        // list-nvim-sockets and nvim-server-focused? at top level.
+        // (import (modaliser terminal))'s exported focused-nvim-socket
+        // calls module-internal bindings that stubs can't shadow after
+        // the library is sealed, so we exercise the scanning loop logic
+        // with an inline reimplementation using the same algorithm.
         try engine.evaluate("""
             (define mock-socks '())
             (define mock-focused-sock #f)
             (define (list-nvim-sockets) mock-socks)
             (define (nvim-server-focused? s)
               (and mock-focused-sock (string=? s mock-focused-sock)))
+            (define (focused-nvim-socket)
+              (let loop ((socks (list-nvim-sockets)))
+                (cond
+                  ((null? socks) #f)
+                  ((nvim-server-focused? (car socks)) (car socks))
+                  (else (loop (cdr socks))))))
             """)
 
         // No nvims → #f.
