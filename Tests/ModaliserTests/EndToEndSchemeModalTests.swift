@@ -115,10 +115,6 @@ struct EndToEndSchemeModalTests {
 
     @Test func terminalLibraryLoadsWithoutError() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
         // Just load it — any parse / reference error surfaces here.
         try engine.evaluate("(import (modaliser terminal))")
 
@@ -188,10 +184,6 @@ struct EndToEndSchemeModalTests {
 
     @Test func itermZellijPredicateMatchesBothCommands() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
         try engine.evaluate("(import (modaliser terminal))")
 
         // Mirror the predicate the user config defines, then test matching.
@@ -222,10 +214,6 @@ struct EndToEndSchemeModalTests {
 
     @Test func itermSubscopePrecedenceNvimOverZellij() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
         try engine.evaluate("(import (modaliser terminal))")
 
         // Install Scheme-level stubs for the two environmental probes, then
