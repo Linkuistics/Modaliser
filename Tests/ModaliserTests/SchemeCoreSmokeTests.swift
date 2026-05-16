@@ -224,10 +224,10 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func modalStepBackAtRootIsNoOp() throws {
-        // Backspace is purely tree-navigational: at the root there's no
-        // parent to retreat to, so it's a stand-still — for transient
-        // trees and sticky trees alike. Escape is the sole exit key.
+    @Test func modalStepBackFromRootExits() throws {
+        // Backspace gradually unwinds: at the root there's nothing left
+        // to step back into, so it exits the modal — for transient and
+        // sticky trees alike. Escape is the one-shot exit-from-any-depth.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
@@ -244,9 +244,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-step-back)")
 
-        #expect(try engine.evaluate("modal-active?") == .true)
-
-        try engine.evaluate("(modal-exit)")
+        #expect(try engine.evaluate("modal-active?") == .false)
     }
 
     // MARK: - DSL integration
@@ -414,9 +412,10 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func stickyBackspaceAtRootIsNoOp() throws {
-        // Backspace at the sticky root has nothing to retreat to and does
-        // nothing — same rule as transient trees. Escape is the only exit.
+    @Test func stickyBackspaceAtRootExits() throws {
+        // Backspace at the sticky root has nothing to retreat to and
+        // exits the modal — same rule as transient trees. Escape is the
+        // one-shot exit-from-any-depth; backspace unwinds gradually.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try loadCore(engine, schemePath)
@@ -429,9 +428,7 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
         try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("modal-active?") == .true)
-
-        try engine.evaluate("(modal-exit)")
+        #expect(try engine.evaluate("modal-active?") == .false)
     }
 
     @Test func nestedStickyResetsToDeepest() throws {
@@ -548,5 +545,78 @@ struct SchemeCoreSmokeTests {
             "(eq? modal-root-node (lookup-tree \"panes\"))") == .true)
 
         try engine.evaluate("(modal-exit)")
+    }
+
+    @Test func exitOnUnknownDismissesAtRoot() throws {
+        // 'exit-on-unknown #t on the tree root means typing a non-binding
+        // key dismisses the modal — the opposite of the default forgiving
+        // behaviour. Targets sticky focus-movement modes (e.g. iTerm pane
+        // mode) where the next non-pane keypress should reach the app.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              'exit-on-unknown #t
+              (key "h" "Left" (lambda () 'ok)))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-handle-key \"z\")")  // unknown
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
+
+    @Test func exitOnUnknownIsInheritedByDescendants() throws {
+        // The flag set on the root applies inside any subgroup on the
+        // current path — typing a non-binding key in the Split subgroup
+        // of an exit-on-unknown root still dismisses.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              'exit-on-unknown #t
+              (group "x" "Split"
+                (key "h" "Split Left" (lambda () 'ok))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-handle-key \"x\")")
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-handle-key \"z\")")  // unknown inside Split
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
+
+    @Test func exitOnUnknownOnSubgroupOnly() throws {
+        // The flag on a subgroup only activates once the user is at or
+        // below that subgroup — at the root (where the parent doesn't
+        // have the flag), unknown keys are still swallowed.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              (key "h" "Root H" (lambda () 'ok))
+              (group "x" "Strict"
+                'exit-on-unknown #t
+                (key "h" "Strict H" (lambda () 'ok))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        // Unknown at root: tree default is forgiving → swallowed.
+        try engine.evaluate("(modal-handle-key \"z\")")
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        // Descend into Strict; unknown there dismisses.
+        try engine.evaluate("(modal-handle-key \"x\")")
+        try engine.evaluate("(modal-handle-key \"z\")")
+        #expect(try engine.evaluate("modal-active?") == .false)
     }
 }
