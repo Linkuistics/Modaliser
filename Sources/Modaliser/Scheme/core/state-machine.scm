@@ -327,14 +327,16 @@
 ;; Handle a character key press while modal is active.
 ;; Side-effecting: directly calls actions, updates overlay, etc.
 ;;
-;; Sticky context overrides two transient defaults:
-;;   * Unknown key — normally exits the modal; in sticky context it is
-;;     swallowed (typing past a stale binding shouldn't drop the mode).
-;;   * Command leaf — normally exits then runs the action; in sticky
-;;     context, runs the action then resets navigation to the deepest
-;;     sticky ancestor so the next key starts from that level. If the
-;;     action itself exited the modal (e.g. via enter-mode!), don't
-;;     touch the navigation state.
+;; Forgiving keymap: an unknown key is swallowed, never exits the modal.
+;; Escape is the sole exit (see modal-key-handler), so the user can't
+;; accidentally drop a launcher tree or a sticky mode with a stray
+;; keypress past a stale binding.
+;;
+;; Sticky context only changes the *command-leaf* branch: instead of
+;; exiting then firing the action (transient launcher behaviour), it
+;; fires the action and resets navigation to the deepest sticky ancestor
+;; so the next key starts from that level. If the action itself exited
+;; the modal (e.g. via enter-mode!), the reset is skipped.
 ;;
 ;; Selectors still exit the modal: the chooser owns input focus, so a
 ;; sticky context can't survive its lifecycle in v1.
@@ -342,9 +344,7 @@
   (let ((child (find-child modal-current-node char)))
     (cond
       ((not child)
-       (if (in-sticky-context?)
-         (void)
-         (modal-exit)))
+       (void))
       ((command? child)
        (let ((action (node-action child))
              (sticky? (in-sticky-context?)))
@@ -377,20 +377,21 @@
        (modal-exit)
        (open-chooser child))
       (else
-       (modal-exit)))))
+       (void)))))
 
 ;; Step back one level in the navigation path.
 ;; Hooks only fire if the overlay was visible — same gating as the descent
 ;; case in modal-handle-key.
 ;;
-;; At the root (path empty) there's no level left to retreat to, so this
-;; exits the modal — including sticky modes (backspace is a "go back one"
-;; that bottoms out by leaving the mode altogether). Escape exits from any
-;; depth in one shot; backspace unwinds gradually.
+;; Purely tree-navigational: at depth > 0 retreats to the parent group;
+;; at the root (path empty) it's a no-op. The same applies to transient
+;; and sticky trees alike — Escape is the one and only "exit" key, so
+;; backspace can't accidentally drop the user out of any modal. Hitting
+;; backspace past the root is a forgiving stand-still.
 (define (modal-step-back)
   (cond
     ((null? modal-current-path)
-     (modal-exit))
+     (void))
     (else
      (let* ((new-path (reverse (cdr (reverse modal-current-path))))
             (new-node (navigate-to-path modal-root-node new-path))
