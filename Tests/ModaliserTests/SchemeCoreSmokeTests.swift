@@ -224,10 +224,10 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func modalStepBackFromRootExits() throws {
-        // Backspace gradually unwinds: at the root there's nothing left
-        // to step back into, so it exits the modal — for transient and
-        // sticky trees alike. Escape is the one-shot exit-from-any-depth.
+    @Test func modalStepBackAtRootIsNoOp() throws {
+        // Backspace is purely navigational: at the root there's no parent
+        // to retreat to, so it's a stand-still. Exit is owned by Escape
+        // and 'exit-on-unknown; backspace never drops a modal.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
@@ -244,7 +244,9 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-step-back)")
 
-        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
     }
 
     // MARK: - DSL integration
@@ -412,10 +414,10 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func stickyBackspaceAtRootExits() throws {
-        // Backspace at the sticky root has nothing to retreat to and
-        // exits the modal — same rule as transient trees. Escape is the
-        // one-shot exit-from-any-depth; backspace unwinds gradually.
+    @Test func stickyBackspaceAtRootIsNoOp() throws {
+        // Backspace is purely navigational — never exits. Even at the
+        // sticky root, backspace is a stand-still. Use Escape to exit,
+        // or 'exit-on-unknown to make stray keys dismiss.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try loadCore(engine, schemePath)
@@ -428,7 +430,9 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
         try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
     }
 
     @Test func nestedStickyResetsToDeepest() throws {

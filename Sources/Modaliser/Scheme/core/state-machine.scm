@@ -23,10 +23,9 @@
 ;;                         overlay shows immediately on entry. Any (group ...)
 ;;                         child can also carry its own 'sticky #t; the
 ;;                         reset target is always the *deepest* sticky group
-;;                         on the path. Escape always fully exits the modal;
-;;                         Backspace steps back one level (and at root,
-;;                         exits — sticky modes use Escape for one-shot
-;;                         exit, Backspace for gradual unwind).
+;;                         on the path. Escape fully exits the modal from
+;;                         any depth; Backspace navigates back one level
+;;                         (no-op at root — never exits).
 ;;   'exit-on-unknown BOOL — unrecognised keys dismiss the modal instead
 ;;                         of being swallowed. Inherited by descendants:
 ;;                         if any group on the current path has it, an
@@ -429,15 +428,16 @@
 ;; Hooks only fire if the overlay was visible — same gating as the descent
 ;; case in modal-handle-key.
 ;;
-;; Tree-navigational gradual unwind: at depth > 0 retreats to the parent
-;; group; at the root (path empty) there's nothing left to retreat to, so
-;; it exits the modal. The same rule applies to transient and sticky
-;; trees uniformly — a sticky mode is exited by backspacing all the way
-;; out, or by pressing Escape (the one-shot exit-from-any-depth).
+;; Purely tree-navigational: at depth > 0 retreats to the parent group;
+;; at the root (path empty) it's a no-op — never exits. Backspace's job
+;; is "go back in the tree"; exit is owned by Escape (one-shot exit-from-
+;; any-depth) and 'exit-on-unknown (opt-in dismissal on stray keys). This
+;; separation means Backspace at any depth always navigates and can't
+;; accidentally drop a modal the user wanted to keep.
 (define (modal-step-back)
   (cond
     ((null? modal-current-path)
-     (modal-exit))
+     (void))
     (else
      (let* ((new-path (reverse (cdr (reverse modal-current-path))))
             (new-node (navigate-to-path modal-root-node new-path))
