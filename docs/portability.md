@@ -2,8 +2,9 @@
 
 Modaliser's *configuration language* is portable Scheme — the same
 `config.scm` and the same `(modaliser …)` library set work on any
-R7RS Scheme implementation that ships SRFI 69 and has implementations
-of Modaliser's native libraries available. The current build runs on
+[R7RS](https://small.r7rs.org/) Scheme implementation that ships
+SRFI 69 and has implementations of Modaliser's native libraries
+available. The current build runs on
 LispKit; a future Chez or Racket build would swap out the
 `Sources/Modaliser/` Swift sources but leave
 `Sources/Modaliser/Scheme/lib/modaliser/` untouched.
@@ -21,7 +22,8 @@ user-shipped `.sld` file may import from:
    serious R7RS host provides:
    - `(scheme base)` — core forms, numbers, lists, strings, ports.
    - `(scheme bitwise)` — `bitwise-and`, `bitwise-or`, `arithmetic-shift`.
-     Used by `(modaliser dsl)` for modifier-mask construction.
+     Used by `(modaliser dsl)` and `(modaliser keymap)` for
+     modifier-mask construction.
    - `(scheme char)` — `char-whitespace?` and friends.
    - `(scheme file)` — `open-input-file`, `file-exists?`.
    - `(scheme write)` — `display`, `write`, `newline`.
@@ -38,11 +40,12 @@ user-shipped `.sld` file may import from:
      `window-actions`, `space-switching`, `apps/iterm`, `apps/safari`,
      `apps/chrome`) port verbatim across hosts.
    - *Native* libraries (`shell`, `app`, `keyboard`, `window`,
-     `webview`, `input`, `accessibility`, `hints`, `fuzzy-match`,
-     `http`, `pasteboard`, `lifecycle`, `clipboard-history`) are
-     Swift implementations bound under `(modaliser …)` names. A port
-     to a different host would re-implement these in whatever the host
-     uses, keeping the same names and signatures.
+     `webview`, `input`, `accessibility`, `hints`, `fuzzy`,
+     `http`, `pasteboard`, `lifecycle`, `clipboard-history`,
+     `library-path`) are Swift implementations bound under
+     `(modaliser …)` names. A port to a different host would
+     re-implement these in whatever the host uses, keeping the same
+     names and signatures.
 
 ## What's intentionally *not* portable
 
@@ -97,6 +100,15 @@ The script greps `Sources/Modaliser/Scheme/lib/modaliser/` for
 `(lispkit ` and exits non-zero if it finds anything. Run it before
 opening a PR that touches the library tree. CI is the long-term
 home for this check.
+
+**Scope.** The audit covers only `.sld` files under
+`Sources/Modaliser/Scheme/lib/modaliser/`. The `.scm` files under
+`Sources/Modaliser/Scheme/ui/` and `Sources/Modaliser/Scheme/lib/`
+(loaded via `(include …)`) are out of scope by design — those are
+the internal modules the "What's intentionally *not* portable"
+section enumerates. If you `(include …)` such a file into your own
+library, the portability check won't catch any `(lispkit …)`
+bindings you pick up that way.
 
 ## See also
 
