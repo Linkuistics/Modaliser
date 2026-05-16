@@ -9,7 +9,7 @@ final class SchemeEngine {
     /// The resolved path to the Scheme directory, if found.
     private(set) var schemeDirectoryPath: String?
 
-    init() throws {
+    init(userConfigDir: String? = nil) throws {
         let delegate = ModaliserContextDelegate()
         context = LispKitContext(
             delegate: delegate,
@@ -34,8 +34,20 @@ final class SchemeEngine {
         if let schemePath = schemeDirectoryPath {
             _ = context.fileHandler.addSearchPath(schemePath)
             try evaluate("(define *scheme-directory* \"\(schemePath)\")")
+            // Prepend the bundled Modaliser stdlib root so (import (modaliser …))
+            // resolves to files under <scheme>/lib/. Auto-added LispKit
+            // R7RS+SRFI root remains last on the list.
+            let bundledLibRoot = (schemePath as NSString).appendingPathComponent("lib")
+            _ = context.fileHandler.prependLibrarySearchPath(bundledLibRoot)
             NSLog("SchemeEngine: Scheme directory at %@", schemePath)
         }
+
+        // Prepend the user-config root LAST, so it ends up FIRST on the
+        // library search path — user libraries shadow bundled ones.
+        // Missing path is silently skipped by prependLibrarySearchPath.
+        let resolvedUserConfigDir = userConfigDir
+            ?? NSString(string: "~/.config/modaliser").expandingTildeInPath
+        _ = context.fileHandler.prependLibrarySearchPath(resolvedUserConfigDir)
 
 
         // Register primitive libraries
