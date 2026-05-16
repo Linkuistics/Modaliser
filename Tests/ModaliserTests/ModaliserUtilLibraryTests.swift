@@ -27,4 +27,16 @@ struct ModaliserUtilLibraryTests {
             "(equal? (props->alist 'a 1 'b 2) '((a . 1) (b . 2)))"
         ) == .true)
     }
+
+    @Test func stringContainsPredicateMatches() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        #expect(try engine.evaluate("(string-contains? \"hello world\" \"world\")") == .true)
+    }
+
+    @Test func stringContainsPredicateMisses() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        #expect(try engine.evaluate("(string-contains? \"hello world\" \"xyz\")") == .false)
+    }
 }

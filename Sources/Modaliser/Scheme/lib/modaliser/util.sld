@@ -13,7 +13,7 @@
           make-hashtable hashtable-set! hashtable-ref
           string-hash
           ;; Phase D: replace with SRFI 13 (string-contains / string-trim)
-          string-split string-trim)
+          string-split string-trim string-contains?)
   (import (scheme base)
           (scheme file)
           (scheme write)
