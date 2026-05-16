@@ -189,6 +189,29 @@
 (define modal-overlay-delay 1.0)    ;; seconds before overlay appears (0 = immediate)
 (define modal-root-segments '())     ;; breadcrumb root: host? + scope segments
 
+;; Stack of saved modal contexts, most-recent first. Pushed by enter-mode!
+;; when it switches into a mode from inside an already-active modal so
+;; backspace at the new mode's root can pop back to the caller (e.g. an
+;; iTerm launcher tree → focus mode → backspace → launcher reappears).
+;; Cleared by modal-exit so an Escape from any depth fully tears down.
+(define modal-stack '())
+
+;; Snapshot the current modal context for the stack.
+(define (modal-current-context)
+  (list (cons 'root-node     modal-root-node)
+        (cons 'current-node  modal-current-node)
+        (cons 'current-path  modal-current-path)
+        (cons 'leader-kc     modal-leader-keycode)
+        (cons 'root-segments modal-root-segments)))
+
+;; Restore a context onto the active modal variables.
+(define (modal-apply-context! ctx)
+  (set! modal-root-node     (cdr (assoc 'root-node     ctx)))
+  (set! modal-current-node  (cdr (assoc 'current-node  ctx)))
+  (set! modal-current-path  (cdr (assoc 'current-path  ctx)))
+  (set! modal-leader-keycode (cdr (assoc 'leader-kc    ctx)))
+  (set! modal-root-segments (cdr (assoc 'root-segments ctx))))
+
 ;; (set-overlay-delay! seconds) — set the which-key overlay delay.
 ;; 0 shows the overlay immediately; typical values are 0.3–1.0 seconds.
 (define (set-overlay-delay! seconds)
@@ -246,12 +269,17 @@
       (modal-show-overlay-now)
       (modal-show-overlay-delayed))))
 
-;; (enter-mode! id) — enter a registered sticky tree from anywhere.
+;; (enter-mode! id) — enter a registered tree as a new modal context.
 ;; Intended use is from inside the action thunk of a leader-tree leaf, e.g.
 ;;   (key "p" "Pane Mode" (lambda () (enter-mode! 'iterm-panes)))
-;; If a modal is already active (the launcher hasn't exited yet because
-;; the action is being invoked from inside modal-handle-key's pre-action
-;; modal-exit window), exit it first.
+;;
+;; If a modal is already active when this is called (the typical case —
+;; the action ran from inside modal-handle-key, which now defers the
+;; transient post-action exit so the calling context is still alive),
+;; the current context is *pushed* onto modal-stack and the new tree
+;; becomes active without unregistering the catch-all key handler.
+;; Backspace at the root of the new tree (when sticky) pops the stack
+;; back to the calling context — see modal-step-back.
 ;;
 ;; Leader-kc is #f — the mode isn't bound to a leader hotkey, so the
 ;; "leader toggles modal off" branch in modal-key-handler simply doesn't
@@ -261,9 +289,20 @@
     (cond
       ((not tree)
        (error "enter-mode!: no tree registered for" id))
+      ((not modal-active?)
+       (modal-enter tree #f))
       (else
-       (when modal-active? (modal-exit))
-       (modal-enter tree #f)))))
+       (when overlay-open?
+         (run-on-leave modal-current-node))
+       (set! modal-stack (cons (modal-current-context) modal-stack))
+       (set! modal-root-node tree)
+       (set! modal-current-node tree)
+       (set! modal-current-path '())
+       (set! modal-leader-keycode #f)
+       (set! modal-root-segments (compute-tree-root-segments tree))
+       ;; Always show immediately on mode switch — the caller's overlay
+       ;; was up, so no flash of "nothing" between the two modes.
+       (modal-show-overlay-now)))))
 
 ;; Exit modal mode. Deregisters catch-all and hides overlay.
 ;; Idempotent: a second call after the modal is already inactive is a no-op.
@@ -282,7 +321,10 @@
     (set! modal-current-node #f)
     (set! modal-root-node #f)
     (set! modal-current-path '())
-    (set! modal-leader-keycode #f)))
+    (set! modal-leader-keycode #f)
+    ;; Clear the entire stack — exit is a full teardown regardless of
+    ;; depth. Escape from a stacked mode unwinds all callers at once.
+    (set! modal-stack '())))
 ;; modal-root-segments is intentionally NOT reset here. A selector key in
 ;; the modal calls (modal-exit) before (open-chooser ...), and the chooser
 ;; reads modal-root-segments to render its breadcrumb. The next modal-enter
@@ -378,10 +420,18 @@
 ;; explicit Escape first.
 ;;
 ;; Sticky context only changes the *command-leaf* branch: instead of
-;; exiting then firing the action (transient launcher behaviour), it
-;; fires the action and resets navigation to the deepest sticky ancestor
-;; so the next key starts from that level. If the action itself exited
-;; the modal (e.g. via enter-mode!), the reset is skipped.
+;; exiting after firing the action (transient launcher behaviour), it
+;; resets navigation to the deepest sticky ancestor so the next key
+;; starts from that level.
+;;
+;; In both transient and sticky branches the action runs *before* the
+;; cleanup decision, and the cleanup is conditional on the modal state
+;; not having been changed by the action. This lets (enter-mode! ...)
+;; inside the action push the calling context onto modal-stack — if we
+;; exited or reset to a stale tree first, that push would be against
+;; the wrong context (or impossible). Detection is by root-node identity:
+;; if modal-root-node still matches the one we saw before the action,
+;; the action didn't switch modes, and we proceed with cleanup.
 ;;
 ;; Selectors still exit the modal: the chooser owns input focus, so a
 ;; sticky context can't survive its lifecycle in v1.
@@ -394,15 +444,13 @@
          (void)))
       ((command? child)
        (let ((action (node-action child))
-             (sticky? (in-sticky-context?)))
-         (cond
-           (sticky?
-            (when action (action))
-            (when modal-active?
-              (modal-reset-to-sticky-ancestor)))
-           (else
-            (modal-exit)
-            (when action (action))))))
+             (sticky? (in-sticky-context?))
+             (root-before modal-root-node))
+         (when action (action))
+         (when (and modal-active? (eq? modal-root-node root-before))
+           (cond
+             (sticky? (modal-reset-to-sticky-ancestor))
+             (else    (modal-exit))))))
       ((group? child)
        ;; Hooks pair with overlay visibility — fire transitions only when
        ;; the user actually sees the change. Fast descent before the
@@ -430,21 +478,34 @@
 ;; Hooks only fire if the overlay was visible — same gating as the descent
 ;; case in modal-handle-key.
 ;;
-;; Tree-navigational with an asymmetric root rule:
+;; Tree-navigational, with stack-aware behaviour at the root:
 ;;   * At depth > 0 — retreat to the parent group.
-;;   * At the root of a *sticky* tree — exit the modal ("back out of the
-;;     sticky group"). Sticky modes are something the user explicitly
-;;     entered, so the natural next-back is to leave them.
-;;   * At the root of a transient launcher — no-op. There's no "outside"
-;;     to back into; the user keeps the launcher open until they pick a
-;;     leaf or press Escape.
-;; Escape remains the one-shot exit-from-any-depth.
+;;   * At the root of a *sticky* tree:
+;;       - if modal-stack is non-empty, pop the caller context — i.e.
+;;         "back out of the sticky group" returns to the tree that
+;;         invoked (enter-mode!). The user descends through their
+;;         modal hierarchy in reverse.
+;;       - else, exit the modal (no caller to return to).
+;;   * At the root of a transient launcher — no-op. Transient trees have
+;;     no "outside" to back into; the user keeps the launcher until
+;;     they pick a leaf or press Escape.
+;; Escape remains the one-shot exit-from-any-depth, regardless of stack.
 (define (modal-step-back)
   (cond
     ((null? modal-current-path)
-     (if (in-sticky-context?)
-       (modal-exit)
-       (void)))
+     (cond
+       ((not (in-sticky-context?))
+        (void))
+       ((not (null? modal-stack))
+        (when overlay-open?
+          (run-on-leave modal-current-node))
+        (modal-apply-context! (car modal-stack))
+        (set! modal-stack (cdr modal-stack))
+        (when overlay-open?
+          (run-on-enter modal-current-node)
+          (show-overlay modal-root-node modal-current-path)))
+       (else
+        (modal-exit))))
     (else
      (let* ((new-path (reverse (cdr (reverse modal-current-path))))
             (new-node (navigate-to-path modal-root-node new-path))
