@@ -49,8 +49,6 @@
           (modaliser lifecycle))
   (begin
 
-;; core/state-machine.scm — Modal navigation state machine
-;;
 ;; Manages command tree registration, lookup, and modal navigation.
 ;; All trees are stored in a hash table keyed by scope string.
 ;; Navigation is side-effecting: modal-handle-key directly executes
@@ -242,11 +240,12 @@
 
 ;; ─── Key handler hook ──────────────────────────────────────────
 ;;
-;; modal-key-handler is defined in core/event-dispatch.scm which is
-;; include-loaded after this library. Since library-internal bindings
-;; are lexically scoped, modal-enter cannot reference the global name
-;; directly. Instead, a mutable cell holds the handler; event-dispatch.scm
-;; installs it via (set-modal-key-handler! ...) after defining it.
+;; modal-key-handler is defined in (modaliser event-dispatch), which
+;; depends on this library. Since library-internal bindings are
+;; lexically scoped, modal-enter cannot reference the cross-library
+;; name directly. Instead, a mutable cell holds the handler;
+;; (modaliser event-dispatch) installs it via (set-modal-key-handler! …)
+;; once its own body has run.
 
 (define modal-key-handler-cell (lambda (kc mods) #f))
 (define (set-modal-key-handler! h) (set! modal-key-handler-cell h))
@@ -265,6 +264,14 @@
 ;; compiled in importing scopes (e.g. ui/overlay.scm) always call through
 ;; and see the live value — LispKit snapshots the value of mutable imports
 ;; at compile time, but procedure calls are always dynamically dispatched.
+;;
+;; Rule of thumb for new mutable exports from this library: if a value
+;; will be READ inside a closure that lives in a different library or
+;; that's compiled by an `(import (modaliser state-machine))` consumer,
+;; you MUST use this thunk pattern. Bare-variable mutable exports
+;; (e.g. modal-active?, modal-stack below) survive only because every
+;; read happens at top level in include-spliced .scm files, which use
+;; dynamic binding lookup. When in doubt, use the thunk pattern.
 (define %overlay-open?-flag #f)
 (define (overlay-open?) %overlay-open?-flag)
 (define (set-overlay-open! v) (set! %overlay-open?-flag v))

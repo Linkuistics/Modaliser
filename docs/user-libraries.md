@@ -65,10 +65,35 @@ Then from `~/.config/modaliser/config.scm`:
 
 When Modaliser starts, it logs `hello from example/hello` to Console.
 
+## What `(modaliser …)` libraries you can import
+
+Phase B published the foundational set. From a user `.sld` or
+`config.scm` you can:
+
+```scheme
+(import (modaliser dsl))            ; key, key-range, group, selector,
+                                    ; action, define-tree, set-leader!,
+                                    ; modifier-symbols->mask
+(import (modaliser state-machine))  ; lookup-tree, modal-* introspection,
+                                    ; set-host-header!, set-overlay-delay!
+(import (modaliser event-dispatch)) ; set-local-context-suffix!
+(import (modaliser util))           ; alist-ref, props->alist, string-join,
+                                    ; read-file-text, log
+(import (modaliser keymap))         ; has-cmd?, has-shift?, has-alt?,
+                                    ; has-ctrl?
+```
+
+Plus the native `(modaliser shell)`, `(modaliser app)`,
+`(modaliser keyboard)`, etc. — those were already importable.
+
 ## What's not in this phase
 
-The `(modaliser …)` prefix is reserved for libraries Modaliser ships.
-In this phase the prefix is wired up but no `(modaliser …)` libraries
-are published yet — that comes in later phases (DSL wrapping, stdlib
-carve-out). For now, all DSL forms (`key`, `group`, `define-tree`, …)
-remain top-level globals exactly as before.
+The opt-in stdlib of per-app trees and helpers — `(modaliser apps iterm)`,
+`(modaliser apps safari)`, `(modaliser window-actions)`,
+`(modaliser space-switching)`, `(modaliser leader)` — is Phase C work.
+Until then, copy the relevant block out of the bundled
+`default-config.scm` and adapt it inline.
+
+The user-facing tree under `ui/` (overlay rendering, chooser) is still
+`include`-style and not yet importable as `(modaliser …)` libraries —
+also Phase C.

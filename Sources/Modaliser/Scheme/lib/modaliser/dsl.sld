@@ -12,7 +12,10 @@
 (define-library (modaliser dsl)
   (export key key-range group selector action
           define-tree set-theme!
-          modifier-symbols->mask set-leader!)
+          modifier-symbols->mask set-leader!
+          ;; Re-exported from (modaliser state-machine) so user configs
+          ;; can do a single (import (modaliser dsl)) for the common case.
+          set-host-header! set-overlay-delay!)
   (import (scheme base)
           (scheme bitwise)
           (modaliser state-machine)
@@ -20,10 +23,8 @@
           (modaliser keyboard))
   (begin
 
-;; lib/dsl.scm — User-facing DSL functions
-;;
-;; Pure Scheme replacements for the Swift ModaliserDSLLibrary.
-;; These produce alist nodes for the command tree.
+;; Pure Scheme node constructors for the command tree. These produce
+;; alist nodes consumed by the modal state machine.
 
 ;; (key k label action) → command alist
 (define (key k label action)

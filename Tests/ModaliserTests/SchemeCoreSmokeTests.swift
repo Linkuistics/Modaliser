@@ -11,58 +11,6 @@ private func joinPath(_ base: String, _ component: String) -> String {
 struct SchemeCoreSmokeTests {
 
     // MARK: - Module loading
-    //
-    // These tests exercise the legacy include-file loader path
-    // (lib/util.scm, core/keymap.scm). The same procedures are also
-    // available via the import-style libraries (modaliser util) and
-    // (modaliser keymap) — both paths coexist by design until the
-    // legacy .scm files are deleted in a later phase.
-
-    @Test func utilModuleLoads() throws {
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        // Verify functions are defined
-        #expect(try engine.evaluate("(procedure? alist-ref)") == .true)
-        #expect(try engine.evaluate("(procedure? props->alist)") == .true)
-    }
-
-    @Test func alistRefWorks() throws {
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-
-        #expect(try engine.evaluate("(alist-ref '((a . 1) (b . 2)) 'a)") == .fixnum(1))
-        #expect(try engine.evaluate("(alist-ref '((a . 1) (b . 2)) 'b)") == .fixnum(2))
-        #expect(try engine.evaluate("(alist-ref '((a . 1)) 'c)") == .false)
-        #expect(try engine.evaluate("(alist-ref '((a . 1)) 'c 99)") == .fixnum(99))
-    }
-
-    @Test func propsToAlistWorks() throws {
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-
-        let result = try engine.evaluate("(props->alist 'a 1 'b 2)")
-        // Should be ((a . 1) (b . 2))
-        #expect(try engine.evaluate("(cdr (assoc 'a (props->alist 'a 1 'b 2)))") == .fixnum(1))
-        #expect(try engine.evaluate("(cdr (assoc 'b (props->alist 'a 1 'b 2)))") == .fixnum(2))
-    }
-
-    @Test func keymapModuleLoads() throws {
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-
-        #expect(try engine.evaluate("(procedure? has-cmd?)") == .true)
-        #expect(try engine.evaluate("(procedure? has-shift?)") == .true)
-        #expect(try engine.evaluate("(procedure? has-alt?)") == .true)
-        #expect(try engine.evaluate("(procedure? has-ctrl?)") == .true)
-    }
 
     @Test func stateMachineModuleLoads() throws {
         let engine = try SchemeEngine()

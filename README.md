@@ -340,9 +340,15 @@ End-to-end pattern (from `default-config.scm`):
         (list (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return")) ...)))))
 
 ;; Re-fire on every leader press so the tree tracks live layout changes.
-(define (local-context-suffix bundle-id)
-  (when (equal? bundle-id "com.googlecode.iterm2") (rebuild-iterm-tree!))
-  #f)
+;; Install via (set-local-context-suffix! …) — the procedure lives
+;; inside the (modaliser event-dispatch) library, so a plain
+;; (define (local-context-suffix …) …) at the top level would only
+;; shadow the public name without replacing the library's internal
+;; dispatch cell, leaving subscope routing silently inoperative.
+(set-local-context-suffix!
+  (lambda (bundle-id)
+    (when (equal? bundle-id "com.googlecode.iterm2") (rebuild-iterm-tree!))
+    #f))
 
 (rebuild-iterm-tree!)  ;; pre-register so lookups succeed before first leader
 ```

@@ -6,7 +6,7 @@
 ;; Depends on: ui/chooser.scm (chooser-push-results),
 ;;             (modaliser http) (http-get),
 ;;             (modaliser app) (open-url),
-;;             lib/util.scm (alist-ref, log)
+;;             (modaliser util) (alist-ref, log)
 
 ;; ─── URL Encoding ───────────────────────────────────────────
 
