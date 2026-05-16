@@ -348,4 +348,194 @@ struct SchemeCoreSmokeTests {
 
         #expect(try engine.evaluate("modal-active?") == .false)
     }
+
+    // MARK: - Sticky modes
+    //
+    // Each test loads the core layer fresh because the global tree-registry
+    // and modal-* state survive across evaluates within a single engine,
+    // and we want isolated trees per scenario.
+
+    private func loadCore(_ engine: SchemeEngine, _ schemePath: String) throws {
+        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
+        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+    }
+
+    @Test func stickyTreeReArmsAfterCommand() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define fire-count 0)
+            (define-tree 'panes
+              'sticky #t
+              (key "h" "Left" (lambda () (set! fire-count (+ fire-count 1)))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-handle-key \"h\")")
+        try engine.evaluate("(modal-handle-key \"h\")")
+        try engine.evaluate("(modal-handle-key \"h\")")
+
+        #expect(try engine.evaluate("fire-count") == .fixnum(3))
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate("(null? modal-current-path)") == .true)
+
+        try engine.evaluate("(modal-exit)")
+    }
+
+    @Test func stickyTreeSwallowsUnknownKey() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              (key "h" "Left" (lambda () 'ok)))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-handle-key \"z\")") // unknown
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
+    }
+
+    @Test func stickyBackspaceAtRootIsNoOp() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              (key "h" "Left" (lambda () 'ok)))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-step-back)")
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
+    }
+
+    @Test func nestedStickyResetsToDeepest() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define split-count 0)
+            (define-tree 'panes
+              'sticky #t
+              (group "x" "Split"
+                'sticky #t
+                (key "h" "Split Left"
+                  (lambda () (set! split-count (+ split-count 1))))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-handle-key \"x\")")
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"x\"))") == .true)
+
+        try engine.evaluate("(modal-handle-key \"h\")")
+        try engine.evaluate("(modal-handle-key \"h\")")
+        #expect(try engine.evaluate("split-count") == .fixnum(2))
+        // Nested sticky: after firing, we're back inside "x", not at root.
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"x\"))") == .true)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
+    }
+
+    @Test func nestedStickyBackspaceStepsToParent() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              (group "x" "Split"
+                'sticky #t
+                (key "h" "Split Left" (lambda () 'ok))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-handle-key \"x\")")
+        try engine.evaluate("(modal-step-back)")
+
+        // From sticky subgroup, backspace steps to parent (mode root).
+        #expect(try engine.evaluate("(null? modal-current-path)") == .true)
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        try engine.evaluate("(modal-exit)")
+    }
+
+    @Test func transientTreeStillExitsAfterCommand() throws {
+        // Regression: only sticky context should re-arm. Plain trees keep
+        // today's one-shot launcher behavior.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'global
+              (key "s" "Safari" (lambda () 'ok)))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-handle-key \"s\")")
+
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
+
+    @Test func enterModeByIdEntersStickyTree() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              'display-name "Pane Mode"
+              (key "h" "Left" (lambda () 'ok)))
+            """)
+
+        try engine.evaluate("(enter-mode! 'panes)")
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate("(member \"Pane Mode\" modal-root-segments)") != .false)
+
+        try engine.evaluate("(modal-exit)")
+    }
+
+    @Test func enterModeExitsExistingModalFirst() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              (key "h" "Left" (lambda () 'ok)))
+            (define-tree 'global
+              (key "s" "Safari" (lambda () 'ok)))
+            """)
+
+        // Enter the global (non-sticky) modal first.
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        #expect(try engine.evaluate("modal-active?") == .true)
+
+        // enter-mode! should switch us cleanly into the sticky panes mode.
+        try engine.evaluate("(enter-mode! 'panes)")
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"panes\"))") == .true)
+
+        try engine.evaluate("(modal-exit)")
+    }
 }

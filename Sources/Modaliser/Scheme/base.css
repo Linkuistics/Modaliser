@@ -58,6 +58,16 @@ body {
   box-shadow: var(--overlay-shadow);
 }
 
+/* Persistent mode indicator. Added when the current navigation point is
+ * in a sticky tree / subgroup (see render-overlay-body and overlay.js).
+ * The accent picks up the host header color if the user set one — the
+ * mode then visually inherits its instance identity — falling back to a
+ * darker neutral. Users can override via custom CSS in their config. */
+.overlay.sticky {
+  border-width: 2px;
+  border-color: var(--color-host-bg, rgba(80, 80, 80, 1));
+}
+
 /* ─── Header / Breadcrumb ──────────────────────────────────── */
 
 .overlay-header,

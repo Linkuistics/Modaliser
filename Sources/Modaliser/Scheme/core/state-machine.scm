@@ -14,8 +14,21 @@
 ;; rest:  optional leading keyword/value pairs followed by child nodes.
 ;;
 ;; Recognized keywords (mirror the (group ...) DSL):
-;;   'on-enter THUNK  — runs when the modal navigates into this tree
-;;   'on-leave THUNK  — runs when the modal navigates out of this tree
+;;   'on-enter THUNK     — runs when the modal navigates into this tree
+;;   'on-leave THUNK     — runs when the modal navigates out of this tree
+;;   'sticky      BOOL   — root is a sticky group: firing a command leaf
+;;                         resets navigation to the nearest sticky ancestor
+;;                         instead of exiting the modal. Unknown keys are
+;;                         ignored (no accidental exit on typo) and the
+;;                         overlay shows immediately on entry. Any (group ...)
+;;                         child can also carry its own 'sticky #t; the
+;;                         reset target is always the *deepest* sticky group
+;;                         on the path. Escape always fully exits the modal;
+;;                         Backspace steps back one level (no-op at root).
+;;   'display-name STR   — overrides the breadcrumb scope segment. For
+;;                         non-bundle-ID scopes (mode IDs) the auto-resolution
+;;                         in resolve-app-segments would otherwise surface
+;;                         the raw scope string.
 ;;
 ;; Children are alist nodes produced by (key ...), (group ...), (selector ...).
 ;; Disambiguation: a child node's car is a pair; a keyword is a bare symbol.
@@ -25,25 +38,27 @@
 ;; not from a baked-in root label.
 (define (register-tree! scope . rest)
   (let ((scope-str (if (symbol? scope) (symbol->string scope) scope)))
-    (let loop ((args rest) (on-enter #f) (on-leave #f))
+    (let loop ((args rest)
+               (on-enter #f) (on-leave #f)
+               (sticky #f) (display-name #f))
       (cond
         ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
          (case (car args)
-           ((on-enter) (loop (cddr args) (cadr args) on-leave))
-           ((on-leave) (loop (cddr args) on-enter (cadr args)))
+           ((on-enter)     (loop (cddr args) (cadr args) on-leave sticky display-name))
+           ((on-leave)     (loop (cddr args) on-enter (cadr args) sticky display-name))
+           ((sticky)       (loop (cddr args) on-enter on-leave (cadr args) display-name))
+           ((display-name) (loop (cddr args) on-enter on-leave sticky (cadr args)))
            (else (error "register-tree!: unknown keyword" (car args)))))
         (else
-          (let* ((base (list (cons 'kind 'group)
-                             (cons 'key "")
-                             (cons 'scope scope-str)
-                             (cons 'children args)))
-                 (with-leave (if on-leave
-                               (cons (cons 'on-leave on-leave) base)
-                               base))
-                 (with-enter (if on-enter
-                               (cons (cons 'on-enter on-enter) with-leave)
-                               with-leave)))
-            (hashtable-set! tree-registry scope-str with-enter)))))))
+          (let* ((acc (list (cons 'kind 'group)
+                            (cons 'key "")
+                            (cons 'scope scope-str)
+                            (cons 'children args)))
+                 (acc (if on-leave     (cons (cons 'on-leave on-leave)         acc) acc))
+                 (acc (if on-enter     (cons (cons 'on-enter on-enter)         acc) acc))
+                 (acc (if sticky       (cons (cons 'sticky #t)                 acc) acc))
+                 (acc (if display-name (cons (cons 'display-name display-name) acc) acc)))
+            (hashtable-set! tree-registry scope-str acc)))))))
 
 ;; Look up a tree by scope. Returns #f if not found.
 (define (lookup-tree scope)
@@ -111,6 +126,20 @@
   (let ((thunk (node-on-leave node)))
     (when thunk (thunk))))
 
+;; Is this group node sticky? (Either set via 'sticky #t on a tree root
+;; or on a (group ...) child.)
+(define (node-sticky? node)
+  (let ((entry (assoc 'sticky node)))
+    (and entry (cdr entry))))
+
+;; (node-display-name node) → string or #f
+;; Optional human label for a tree root, used as the breadcrumb scope
+;; segment in place of an auto-resolved app name. Set via 'display-name
+;; on register-tree!. Returns #f for plain children (only roots use this).
+(define (node-display-name node)
+  (let ((entry (assoc 'display-name node)))
+    (and entry (cdr entry))))
+
 (define (find-child node key)
   (let loop ((children (node-children node)))
     (cond
@@ -174,10 +203,15 @@
               (show-overlay modal-root-node modal-current-path))))))))
 
 ;; Enter modal mode with the given tree and leader keycode.
-;; Registers the catch-all key handler and schedules delayed overlay show.
-;; on-enter for the root tree is NOT fired here — it fires inside the
-;; overlay-show callback, so quick keypresses that race past the delay
-;; never trigger the hooks (no overlay, no hint chips, no flash).
+;; Registers the catch-all key handler. For ordinary transient trees the
+;; overlay show is delayed (quick muscle-memory presses produce no UI);
+;; sticky-root trees show the overlay immediately because the overlay is
+;; the mode indicator — the user must always know they're in a mode.
+;;
+;; on-enter for the root tree is NOT fired synchronously here in the
+;; delayed-show path — it fires inside the overlay-show callback, so quick
+;; keypresses that race past the delay never trigger the hooks (no overlay,
+;; no hint chips, no flash). In the immediate-show path it fires now.
 (define (modal-enter tree leader-kc)
   (when tree
     (set! modal-active? #t)
@@ -186,10 +220,30 @@
     (set! modal-current-path '())
     (set! modal-leader-keycode leader-kc)
     (set! modal-root-segments
-      (compute-root-segments
-        (or (alist-ref tree 'scope #f) "")))
+      (compute-tree-root-segments tree))
     (register-all-keys! modal-key-handler)
-    (modal-show-overlay-delayed)))
+    (if (node-sticky? tree)
+      (modal-show-overlay-now)
+      (modal-show-overlay-delayed))))
+
+;; (enter-mode! id) — enter a registered sticky tree from anywhere.
+;; Intended use is from inside the action thunk of a leader-tree leaf, e.g.
+;;   (key "p" "Pane Mode" (lambda () (enter-mode! 'iterm-panes)))
+;; If a modal is already active (the launcher hasn't exited yet because
+;; the action is being invoked from inside modal-handle-key's pre-action
+;; modal-exit window), exit it first.
+;;
+;; Leader-kc is #f — the mode isn't bound to a leader hotkey, so the
+;; "leader toggles modal off" branch in modal-key-handler simply doesn't
+;; match (it's guarded by an `and` on modal-leader-keycode).
+(define (enter-mode! id)
+  (let ((tree (lookup-tree id)))
+    (cond
+      ((not tree)
+       (error "enter-mode!: no tree registered for" id))
+      (else
+       (when modal-active? (modal-exit))
+       (modal-enter tree #f)))))
 
 ;; Exit modal mode. Deregisters catch-all and hides overlay.
 ;; Idempotent: a second call after the modal is already inactive is a no-op.
@@ -214,17 +268,94 @@
 ;; reads modal-root-segments to render its breadcrumb. The next modal-enter
 ;; overwrites it, so staleness can't leak into a new session.
 
+;; (deepest-sticky-on-path root path) → (node . path-to-it) or #f
+;;
+;; Walks from ROOT following PATH, returning the deepest group on that
+;; walk whose 'sticky flag is true, paired with the key-path from root to
+;; it. The root itself is eligible (counts as taken-path '()).
+;;
+;; Used by modal-handle-key to decide:
+;;   1. whether we're "in sticky context" (any sticky ancestor exists) and
+;;      should therefore swallow unknown keys / re-arm after a leaf fires,
+;;   2. which ancestor to reset to after a leaf fires — always the deepest,
+;;      so nested sticky subgroups stay sticky in their own right.
+(define (deepest-sticky-on-path root path)
+  (let loop ((node root) (remaining path) (taken '()) (best #f))
+    (let ((best* (if (node-sticky? node) (cons node taken) best)))
+      (if (null? remaining)
+        best*
+        (let ((child (find-child node (car remaining))))
+          (if child
+            (loop child (cdr remaining)
+                  (append taken (list (car remaining)))
+                  best*)
+            best*))))))
+
+;; True iff the current navigation point has any sticky ancestor (or the
+;; current group itself is sticky). Cheap path walk; called per keypress.
+(define (in-sticky-context?)
+  (and modal-active?
+       (deepest-sticky-on-path modal-root-node modal-current-path)
+       #t))
+
+;; Reset navigation to the deepest sticky group on the current path,
+;; refreshing the overlay. Fires on-leave for the group we're leaving
+;; (if any) and on-enter for the sticky target — same gating as descend.
+;; If the current node is already the deepest sticky (nothing to leave),
+;; only the overlay is refreshed so a re-fired leaf still updates state
+;; that downstream subscribers care about.
+(define (modal-reset-to-sticky-ancestor)
+  (let ((target (deepest-sticky-on-path
+                  modal-root-node modal-current-path)))
+    (when target
+      (let ((target-node (car target))
+            (target-path (cdr target)))
+        (cond
+          ((and (eq? target-node modal-current-node)
+                (equal? target-path modal-current-path))
+           (when overlay-open?
+             (update-overlay modal-root-node modal-current-path)))
+          (else
+           (when overlay-open?
+             (run-on-leave modal-current-node))
+           (set! modal-current-node target-node)
+           (set! modal-current-path target-path)
+           (when overlay-open?
+             (run-on-enter modal-current-node)
+             (update-overlay modal-root-node modal-current-path))))))))
+
 ;; Handle a character key press while modal is active.
 ;; Side-effecting: directly calls actions, updates overlay, etc.
+;;
+;; Sticky context overrides two transient defaults:
+;;   * Unknown key — normally exits the modal; in sticky context it is
+;;     swallowed (typing past a stale binding shouldn't drop the mode).
+;;   * Command leaf — normally exits then runs the action; in sticky
+;;     context, runs the action then resets navigation to the deepest
+;;     sticky ancestor so the next key starts from that level. If the
+;;     action itself exited the modal (e.g. via enter-mode!), don't
+;;     touch the navigation state.
+;;
+;; Selectors still exit the modal: the chooser owns input focus, so a
+;; sticky context can't survive its lifecycle in v1.
 (define (modal-handle-key char)
   (let ((child (find-child modal-current-node char)))
     (cond
       ((not child)
-       (modal-exit))
+       (if (in-sticky-context?)
+         (void)
+         (modal-exit)))
       ((command? child)
-       (let ((action (node-action child)))
-         (modal-exit)
-         (when action (action))))
+       (let ((action (node-action child))
+             (sticky? (in-sticky-context?)))
+         (cond
+           (sticky?
+            (when action (action))
+            (when modal-active?
+              (modal-reset-to-sticky-ancestor)))
+           (else
+            (modal-exit)
+            (when action (action))))))
       ((group? child)
        ;; Hooks pair with overlay visibility — fire transitions only when
        ;; the user actually sees the change. Fast descent before the
@@ -251,17 +382,25 @@
 ;; Step back one level in the navigation path.
 ;; Hooks only fire if the overlay was visible — same gating as the descent
 ;; case in modal-handle-key.
+;;
+;; At the root (path empty): transient trees exit the modal (today's
+;; behavior); in sticky context, stepping back is a no-op — there's no
+;; level to retreat to, and the only way out of sticky is Escape.
 (define (modal-step-back)
-  (if (null? modal-current-path)
-    (modal-exit)
-    (let* ((new-path (reverse (cdr (reverse modal-current-path))))
-           (new-node (navigate-to-path modal-root-node new-path))
-           (leaving  modal-current-node))
-      (when overlay-open? (run-on-leave leaving))
-      (set! modal-current-path new-path)
-      (set! modal-current-node new-node)
-      (when overlay-open? (run-on-enter new-node))
-      (update-overlay modal-root-node modal-current-path))))
+  (cond
+    ((null? modal-current-path)
+     (if (in-sticky-context?)
+       (void)
+       (modal-exit)))
+    (else
+     (let* ((new-path (reverse (cdr (reverse modal-current-path))))
+            (new-node (navigate-to-path modal-root-node new-path))
+            (leaving  modal-current-node))
+       (when overlay-open? (run-on-leave leaving))
+       (set! modal-current-path new-path)
+       (set! modal-current-node new-node)
+       (when overlay-open? (run-on-enter new-node))
+       (update-overlay modal-root-node modal-current-path)))))
 
 ;; Navigate from root following a list of key strings.
 (define (navigate-to-path root path)
@@ -360,3 +499,17 @@
                        (list "Global")
                        (resolve-app-segments scope-str))))
     (append host-prefix scope-segs)))
+
+;; (compute-tree-root-segments tree) → list of strings
+;;
+;; Like compute-root-segments but uses the tree's 'display-name when set
+;; (so registered modes show a human label instead of the raw mode-id).
+;; Falls back to scope-string resolution otherwise. Called by modal-enter.
+(define (compute-tree-root-segments tree)
+  (let ((display (node-display-name tree)))
+    (cond
+      (display
+       (append (if host-header-name (list host-header-name) '())
+               (list display)))
+      (else
+       (compute-root-segments (or (alist-ref tree 'scope #f) ""))))))

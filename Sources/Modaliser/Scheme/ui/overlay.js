@@ -34,6 +34,19 @@ function escapeHtml(str) {
 // not the raw keys — so the breadcrumb reads "Global » Windows" not
 // "Global » w".
 function updateOverlay(data) {
+  // Toggle the .sticky class on the root .overlay element so users can
+  // theme the persistent mode indicator distinctly. The flag is sent by
+  // push-overlay-update on every change so descending into / popping out
+  // of a sticky subgroup updates the styling live.
+  var root = document.querySelector('.overlay');
+  if (root) {
+    if (data.sticky) {
+      root.classList.add('sticky');
+    } else {
+      root.classList.remove('sticky');
+    }
+  }
+
   // Update breadcrumb header
   var header = document.querySelector('.overlay-header');
   if (header) {
