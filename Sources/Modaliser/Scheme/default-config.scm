@@ -48,6 +48,14 @@
     (key "r" "Reload"
       (lambda () (relaunch!))))
 
+  ;; Switch to macOS Space 1..9 via the system's Ctrl+digit shortcut.
+  ;; Requires "Mission Control → Switch to Desktop N" enabled in
+  ;; System Settings → Keyboard → Keyboard Shortcuts. Listed as a single
+  ;; "1..9 Space <n>" entry in the overlay rather than nine separate rows.
+  (key-range "1..9" "Space <n>"
+    '("1" "2" "3" "4" "5" "6" "7" "8" "9")
+    (lambda (k) (send-keystroke '(ctrl) k)))
+
   ;; Google search
   (selector "g" "Google Search"
     'prompt "Search Google…"
@@ -277,32 +285,45 @@
       "whose id is \"" session-id "\" to select' "
       "2>/dev/null")))
 
-;; Build (key ...) bindings for each labelled pane. We resolve the
-;; session UUID for each pane up-front via its AX walk-order index
-;; (the 'idx field set by ax-find-elements-named), so the action thunk
-;; closes over a stable UUID rather than recomputing the mapping at
-;; pick time. If the AppleScript call returns fewer UUIDs than AX
-;; found scroll areas — the orderings shouldn't diverge but if they
-;; somehow do, e.g. an iTerm window with non-tab content — bindings
-;; for the unmapped panes are dropped; nothing claims a chip without
-;; a target.
+;; Build a single (key-range ...) node covering every labelled pane.
+;; Resolves each pane's session UUID up-front via its AX walk-order index
+;; (the 'idx field set by ax-find-elements-named); the dispatch closure
+;; reads from the resulting (label . uuid) alist so the action varies per
+;; key while the overlay collapses all panes into a single "a..p Pane <n>"
+;; row. If the AppleScript call returns fewer UUIDs than AX found scroll
+;; areas — orderings shouldn't diverge but it can happen with non-tab
+;; content — those panes are dropped from the range; nothing claims a
+;; chip without a target. Returns a 0- or 1-element list so the caller's
+;; (append (iterm-pane-bindings …) …) keeps splicing cleanly.
 (define (iterm-pane-bindings labelled-panes session-ids)
-  (let loop ((ps labelled-panes) (acc '()))
-    (if (null? ps)
-      (reverse acc)
-      (let* ((entry (car ps))
-             (label (car entry))
-             (pane  (cdr entry))
-             (idx   (cdr (assoc 'idx pane)))
-             (sid   (and (< idx (length session-ids))
-                         (list-ref session-ids idx))))
-        (loop (cdr ps)
-              (if sid
-                (cons (key label
-                           (string-append "Pane " label)
-                           (lambda () (iterm-select-session-by-id sid)))
-                      acc)
-                acc))))))
+  (let loop ((ps labelled-panes) (label->sid '()) (keys '()))
+    (cond
+      ((null? ps)
+       (cond
+         ((null? keys) '())
+         (else
+           (let* ((alist  label->sid)
+                  (ks     (reverse keys))
+                  (first  (car ks))
+                  (last   (car (reverse ks)))
+                  (display (string-append first ".." last)))
+             (list
+               (key-range display "Pane <n>"
+                 ks
+                 (lambda (k)
+                   (let ((entry (assoc k alist)))
+                     (when entry
+                       (iterm-select-session-by-id (cdr entry)))))))))))
+      (else
+        (let* ((entry (car ps))
+               (label (car entry))
+               (pane  (cdr entry))
+               (idx   (cdr (assoc 'idx pane)))
+               (sid   (and (< idx (length session-ids))
+                           (list-ref session-ids idx))))
+          (loop (cdr ps)
+                (if sid (cons (cons label sid) label->sid) label->sid)
+                (if sid (cons label keys)                  keys)))))))
 
 (define (rebuild-iterm-tree!)
   (let* ((raw-panes (ax-find-elements-named

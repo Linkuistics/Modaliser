@@ -103,14 +103,22 @@ body {
 
 /* ─── Entry List ───────────────────────────────────────────── */
 
+/* The entry list is a 3-column grid; each <li> uses display:contents so
+ * its three child spans become direct grid items of the <ul>. That way
+ * the key/arrow/label columns share a single set of column tracks across
+ * all rows, so a wide entry (e.g. a "1..9" range-command) widens the key
+ * column for every row — keeping the arrow column aligned regardless of
+ * whether a particular row's key is one character or several. */
 .overlay-entries {
   list-style: none;
+  display: grid;
+  grid-template-columns: minmax(1.8em, auto) auto 1fr;
+  column-gap: 4px;
+  align-items: baseline;
 }
 
 .overlay-entry {
-  display: flex;
-  align-items: baseline;
-  padding: 1px 0;
+  display: contents;
 }
 
 /* ─── Key Badge ────────────────────────────────────────────── */
@@ -118,23 +126,22 @@ body {
 .entry-key {
   color: var(--color-key);
   font-weight: 600;
-  min-width: 1.8em;
   text-align: left;
-  flex-shrink: 0;
+  padding: 1px 0;
 }
 
 /* ─── Arrow ────────────────────────────────────────────────── */
 
 .entry-arrow {
   color: var(--color-arrow);
-  margin: 0 4px;
-  flex-shrink: 0;
+  padding: 1px 0;
 }
 
 /* ─── Label ────────────────────────────────────────────────── */
 
 .entry-label {
   color: var(--color-label);
+  padding: 1px 0;
 }
 
 .entry-label.group-label {
