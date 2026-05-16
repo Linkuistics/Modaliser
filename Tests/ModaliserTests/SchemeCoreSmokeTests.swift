@@ -414,10 +414,10 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func stickyBackspaceAtRootIsNoOp() throws {
-        // Backspace is purely navigational — never exits. Even at the
-        // sticky root, backspace is a stand-still. Use Escape to exit,
-        // or 'exit-on-unknown to make stray keys dismiss.
+    @Test func stickyBackspaceAtRootExits() throws {
+        // Sticky modes are entered explicitly, so backspace at their root
+        // "backs out of the sticky group" — exits the modal. Transient
+        // launchers don't have an "outside" and stay no-op at root.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try loadCore(engine, schemePath)
@@ -430,9 +430,36 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
         try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
 
-        try engine.evaluate("(modal-exit)")
+    @Test func nestedStickyBackspaceUnwindsThenExits() throws {
+        // From a sticky subgroup, backspace pops to the parent (today's
+        // existing behaviour). From the sticky root, the next backspace
+        // exits the mode — gradual unwind, two backspaces from inside
+        // Split to fully leave.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              (group "x" "Split"
+                'sticky #t
+                (key "h" "Split Left" (lambda () 'ok))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-handle-key \"x\")")
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"x\"))") == .true)
+
+        try engine.evaluate("(modal-step-back)")
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate("(null? modal-current-path)") == .true)
+
+        try engine.evaluate("(modal-step-back)")
+        #expect(try engine.evaluate("modal-active?") == .false)
     }
 
     @Test func nestedStickyResetsToDeepest() throws {
