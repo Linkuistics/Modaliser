@@ -25,7 +25,9 @@
 ;;                         reset target is always the *deepest* sticky group
 ;;                         on the path. Escape fully exits the modal from
 ;;                         any depth; Backspace navigates back one level
-;;                         (no-op at root — never exits).
+;;                         and at the root of a sticky tree exits ("back
+;;                         out of the sticky group"). Transient launcher
+;;                         trees treat root-backspace as a no-op.
 ;;   'exit-on-unknown BOOL — unrecognised keys dismiss the modal instead
 ;;                         of being swallowed. Inherited by descendants:
 ;;                         if any group on the current path has it, an
@@ -428,16 +430,21 @@
 ;; Hooks only fire if the overlay was visible — same gating as the descent
 ;; case in modal-handle-key.
 ;;
-;; Purely tree-navigational: at depth > 0 retreats to the parent group;
-;; at the root (path empty) it's a no-op — never exits. Backspace's job
-;; is "go back in the tree"; exit is owned by Escape (one-shot exit-from-
-;; any-depth) and 'exit-on-unknown (opt-in dismissal on stray keys). This
-;; separation means Backspace at any depth always navigates and can't
-;; accidentally drop a modal the user wanted to keep.
+;; Tree-navigational with an asymmetric root rule:
+;;   * At depth > 0 — retreat to the parent group.
+;;   * At the root of a *sticky* tree — exit the modal ("back out of the
+;;     sticky group"). Sticky modes are something the user explicitly
+;;     entered, so the natural next-back is to leave them.
+;;   * At the root of a transient launcher — no-op. There's no "outside"
+;;     to back into; the user keeps the launcher open until they pick a
+;;     leaf or press Escape.
+;; Escape remains the one-shot exit-from-any-depth.
 (define (modal-step-back)
   (cond
     ((null? modal-current-path)
-     (void))
+     (if (in-sticky-context?)
+       (modal-exit)
+       (void)))
     (else
      (let* ((new-path (reverse (cdr (reverse modal-current-path))))
             (new-node (navigate-to-path modal-root-node new-path))
