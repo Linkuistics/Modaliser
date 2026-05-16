@@ -95,6 +95,18 @@
        (let ((kind (assoc 'kind node)))
          (and kind (eq? (cdr kind) 'selector)))))
 
+;; Range-command: one node bound to multiple keys, displayed as a single
+;; overlay row. Action is a 1-arg function called with the matched key.
+(define (range-command? node)
+  (and (pair? node)
+       (let ((kind (assoc 'kind node)))
+         (and kind (eq? (cdr kind) 'range-command)))))
+
+;; List of keys a range-command binds. Empty for non-range nodes.
+(define (node-range-keys node)
+  (let ((entry (assoc 'keys node)))
+    (if entry (cdr entry) '())))
+
 ;; ─── Node Helpers ───────────────────────────────────────────────
 
 (define (node-children node)
@@ -160,13 +172,22 @@
   (let ((entry (assoc 'display-name node)))
     (and entry (cdr entry))))
 
+;; Find the child that handles KEY. Specific bindings (key …) always win
+;; over a range-command that lists KEY among its keys — letting a literal
+;; binding carve a slot out of an existing range. Range matches are taken
+;; in declaration order if multiple ranges include KEY (first wins).
 (define (find-child node key)
-  (let loop ((children (node-children node)))
+  (let loop ((children (node-children node)) (range-hit #f))
     (cond
-      ((null? children) #f)
-      ((equal? (node-key (car children)) key)
+      ((null? children) range-hit)
+      ((and (not (range-command? (car children)))
+            (equal? (node-key (car children)) key))
        (car children))
-      (else (loop (cdr children))))))
+      ((and (not range-hit)
+            (range-command? (car children))
+            (member key (node-range-keys (car children))))
+       (loop (cdr children) (car children)))
+      (else (loop (cdr children) range-hit)))))
 
 ;; ─── Overlay Hooks (overridden by ui/overlay.scm) ───────────────
 ;; These stubs allow state-machine.scm to be loaded and tested
@@ -447,6 +468,18 @@
              (sticky? (in-sticky-context?))
              (root-before modal-root-node))
          (when action (action))
+         (when (and modal-active? (eq? modal-root-node root-before))
+           (cond
+             (sticky? (modal-reset-to-sticky-ancestor))
+             (else    (modal-exit))))))
+      ((range-command? child)
+       ;; Same cleanup semantics as a plain command leaf; only the call
+       ;; shape differs — the action receives the matched key so it can
+       ;; vary per-key (e.g. "switch to space N").
+       (let ((action (node-action child))
+             (sticky? (in-sticky-context?))
+             (root-before modal-root-node))
+         (when action (action char))
          (when (and modal-active? (eq? modal-root-node root-before))
            (cond
              (sticky? (modal-reset-to-sticky-ancestor))

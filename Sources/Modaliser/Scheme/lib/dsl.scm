@@ -10,6 +10,30 @@
         (cons 'label label)
         (cons 'action action)))
 
+;; (key-range display-key label keys action-fn) → range-command alist
+;;
+;; Binds multiple keys to a single shared action, displayed as one row in the
+;; overlay. Useful for sequences like "1..9 Space <n>" or "a..p Pane <n>"
+;; where listing every key would clutter the overlay.
+;;
+;;   display-key : string shown in the overlay's key column (e.g. "1..9").
+;;                 Purely cosmetic — the actual dispatch keys are in `keys`.
+;;   label       : string shown in the overlay's label column (e.g.
+;;                 "Space <n>"). The <n> is literal text, not a placeholder
+;;                 the system substitutes — readers infer "n varies per key".
+;;   keys        : non-empty list of single-char key strings to bind. A
+;;                 sibling (key …) for the same character wins, so a literal
+;;                 binding can override one slot of a range.
+;;   action-fn   : (lambda (matched-key) ...) — invoked with the actual key
+;;                 string that fired the binding, so the action can vary per
+;;                 key (e.g. switch space N) while sharing one closure.
+(define (key-range display-key label keys action-fn)
+  (list (cons 'kind 'range-command)
+        (cons 'key display-key)
+        (cons 'keys keys)
+        (cons 'label label)
+        (cons 'action action-fn)))
+
 ;; (group k label [keyword value]... . children) → group alist
 ;;
 ;; Optional leading keyword/value pairs. Recognized keywords:
