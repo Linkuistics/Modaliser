@@ -228,9 +228,9 @@
 
 ;; ─── Chooser Lifecycle ──────────────────────────────────────
 
-;; (open-chooser selector-node) — open the chooser for a selector.
+;; (chooser-open-impl selector-node) — open the chooser for a selector.
 ;; Calls the source function, renders initial results, sets up message handler.
-(define (open-chooser selector-node)
+(define (chooser-open-impl selector-node)
   (let* ((source-fn (alist-ref selector-node 'source #f))
          (file-roots (alist-ref selector-node 'file-roots #f))
          (dynamic-search-fn (alist-ref selector-node 'dynamic-search #f))
@@ -510,6 +510,9 @@
         (if (eq? (alist-ref act 'key #f) key-val)
           act
           (loop (cdr acts)))))))
+
+;; Install chooser implementation into the state-machine.
+(set-open-chooser! chooser-open-impl)
 
 ;; ─── File Indexing ──────────────────────────────────────────
 ;; index-files is a Swift native function in (modaliser app).

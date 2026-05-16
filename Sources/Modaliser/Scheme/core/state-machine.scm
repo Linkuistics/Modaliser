@@ -189,15 +189,32 @@
        (loop (cdr children) (car children)))
       (else (loop (cdr children) range-hit)))))
 
-;; ─── Overlay Hooks (overridden by ui/overlay.scm) ───────────────
-;; These stubs allow state-machine.scm to be loaded and tested
-;; independently. When overlay.scm loads, it redefines these.
+;; ─── Overlay/chooser hooks ────────────────────────────────────
+;;
+;; In the include-based loader, ui/overlay.scm and ui/chooser.scm
+;; redefined the stub bindings below to install their real impls.
+;; That pattern doesn't survive library encapsulation — once
+;; state-machine becomes a library, its define bindings are hermetic.
+;; Instead we expose setters so the UI code installs its hooks by
+;; mutation. Same runtime effect, library-clean shape.
 
 (define overlay-open? #f)
-(define (show-overlay node path) (void))
-(define (update-overlay node path) (void))
-(define (hide-overlay) (void))
-(define (open-chooser selector-node) (void))
+(define (set-overlay-open! v) (set! overlay-open? v))
+
+(define show-overlay-impl   (lambda (node path) (if #f #f)))
+(define update-overlay-impl (lambda (node path) (if #f #f)))
+(define hide-overlay-impl   (lambda ()          (if #f #f)))
+(define open-chooser-impl   (lambda (sel)       (if #f #f)))
+
+(define (show-overlay   node path) (show-overlay-impl node path))
+(define (update-overlay node path) (update-overlay-impl node path))
+(define (hide-overlay)             (hide-overlay-impl))
+(define (open-chooser selector-node) (open-chooser-impl selector-node))
+
+(define (set-show-overlay!   fn) (set! show-overlay-impl   fn))
+(define (set-update-overlay! fn) (set! update-overlay-impl fn))
+(define (set-hide-overlay!   fn) (set! hide-overlay-impl   fn))
+(define (set-open-chooser!   fn) (set! open-chooser-impl   fn))
 
 ;; ─── Modal State ────────────────────────────────────────────────
 
@@ -462,7 +479,7 @@
       ((not child)
        (if (exit-on-unknown-context?)
          (modal-exit)
-         (void)))
+         (if #f #f)))
       ((command? child)
        (let ((action (node-action child))
              (sticky? (in-sticky-context?))
@@ -505,7 +522,7 @@
        (modal-exit)
        (open-chooser child))
       (else
-       (void)))))
+       (if #f #f)))))
 
 ;; Step back one level in the navigation path.
 ;; Hooks only fire if the overlay was visible — same gating as the descent
@@ -528,7 +545,7 @@
     ((null? modal-current-path)
      (cond
        ((not (in-sticky-context?))
-        (void))
+        (if #f #f))
        ((not (null? modal-stack))
         (when overlay-open?
           (run-on-leave modal-current-node))
