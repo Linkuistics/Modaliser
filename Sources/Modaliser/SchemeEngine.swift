@@ -41,6 +41,8 @@ final class SchemeEngine {
         // Register primitive libraries
         try context.libraries.register(libraryType: LifecycleLibrary.self)
         try context.environment.import(LifecycleLibrary.name)
+        try context.libraries.register(libraryType: LibraryPathLibrary.self)
+        try context.environment.import(LibraryPathLibrary.name)
         try context.libraries.register(libraryType: KeyboardLibrary.self)
         try context.environment.import(KeyboardLibrary.name)
         try context.libraries.register(libraryType: WebViewLibrary.self)
