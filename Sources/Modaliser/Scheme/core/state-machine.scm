@@ -24,7 +24,17 @@
 ;;                         child can also carry its own 'sticky #t; the
 ;;                         reset target is always the *deepest* sticky group
 ;;                         on the path. Escape always fully exits the modal;
-;;                         Backspace steps back one level (no-op at root).
+;;                         Backspace steps back one level (and at root,
+;;                         exits — sticky modes use Escape for one-shot
+;;                         exit, Backspace for gradual unwind).
+;;   'exit-on-unknown BOOL — unrecognised keys dismiss the modal instead
+;;                         of being swallowed. Inherited by descendants:
+;;                         if any group on the current path has it, an
+;;                         unknown key exits. Useful for sticky focus-
+;;                         movement modes (e.g. iTerm pane navigation)
+;;                         where typing a non-binding key should hand
+;;                         control back to the underlying app instead of
+;;                         forcing an explicit Escape.
 ;;   'display-name STR   — overrides the breadcrumb scope segment. For
 ;;                         non-bundle-ID scopes (mode IDs) the auto-resolution
 ;;                         in resolve-app-segments would otherwise surface
@@ -40,14 +50,15 @@
   (let ((scope-str (if (symbol? scope) (symbol->string scope) scope)))
     (let loop ((args rest)
                (on-enter #f) (on-leave #f)
-               (sticky #f) (display-name #f))
+               (sticky #f) (display-name #f) (exit-unk #f))
       (cond
         ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
          (case (car args)
-           ((on-enter)     (loop (cddr args) (cadr args) on-leave sticky display-name))
-           ((on-leave)     (loop (cddr args) on-enter (cadr args) sticky display-name))
-           ((sticky)       (loop (cddr args) on-enter on-leave (cadr args) display-name))
-           ((display-name) (loop (cddr args) on-enter on-leave sticky (cadr args)))
+           ((on-enter)        (loop (cddr args) (cadr args) on-leave sticky display-name exit-unk))
+           ((on-leave)        (loop (cddr args) on-enter (cadr args) sticky display-name exit-unk))
+           ((sticky)          (loop (cddr args) on-enter on-leave (cadr args) display-name exit-unk))
+           ((display-name)    (loop (cddr args) on-enter on-leave sticky (cadr args) exit-unk))
+           ((exit-on-unknown) (loop (cddr args) on-enter on-leave sticky display-name (cadr args)))
            (else (error "register-tree!: unknown keyword" (car args)))))
         (else
           (let* ((acc (list (cons 'kind 'group)
@@ -57,6 +68,7 @@
                  (acc (if on-leave     (cons (cons 'on-leave on-leave)         acc) acc))
                  (acc (if on-enter     (cons (cons 'on-enter on-enter)         acc) acc))
                  (acc (if sticky       (cons (cons 'sticky #t)                 acc) acc))
+                 (acc (if exit-unk     (cons (cons 'exit-on-unknown #t)        acc) acc))
                  (acc (if display-name (cons (cons 'display-name display-name) acc) acc)))
             (hashtable-set! tree-registry scope-str acc)))))))
 
@@ -130,6 +142,13 @@
 ;; or on a (group ...) child.)
 (define (node-sticky? node)
   (let ((entry (assoc 'sticky node)))
+    (and entry (cdr entry))))
+
+;; Does this group declare that unknown keys should exit the modal?
+;; Opt-in (default forgiving). Inherited by descendants via path walk;
+;; see exit-on-unknown-context?.
+(define (node-exit-on-unknown? node)
+  (let ((entry (assoc 'exit-on-unknown node)))
     (and entry (cdr entry))))
 
 ;; (node-display-name node) → string or #f
@@ -298,6 +317,29 @@
        (deepest-sticky-on-path modal-root-node modal-current-path)
        #t))
 
+;; (any-on-path? root path pred) → bool
+;;
+;; Walk from ROOT along PATH; return #t if PRED holds on any visited
+;; group (including ROOT and the final current node). Used by callers
+;; that need ancestor-inherited flags (e.g. exit-on-unknown).
+(define (any-on-path? root path pred)
+  (let loop ((node root) (remaining path))
+    (cond
+      ((pred node) #t)
+      ((null? remaining) #f)
+      (else
+       (let ((child (find-child node (car remaining))))
+         (if child
+           (loop child (cdr remaining))
+           #f))))))
+
+;; True iff the current path has 'exit-on-unknown set on any ancestor
+;; (or the current group itself). Unknown keys in that context exit the
+;; modal instead of being swallowed.
+(define (exit-on-unknown-context?)
+  (and modal-active?
+       (any-on-path? modal-root-node modal-current-path node-exit-on-unknown?)))
+
 ;; Reset navigation to the deepest sticky group on the current path,
 ;; refreshing the overlay. Fires on-leave for the group we're leaving
 ;; (if any) and on-enter for the sticky target — same gating as descend.
@@ -327,10 +369,12 @@
 ;; Handle a character key press while modal is active.
 ;; Side-effecting: directly calls actions, updates overlay, etc.
 ;;
-;; Forgiving keymap: an unknown key is swallowed, never exits the modal.
-;; Escape is the sole exit (see modal-key-handler), so the user can't
-;; accidentally drop a launcher tree or a sticky mode with a stray
-;; keypress past a stale binding.
+;; Default keymap is forgiving: unknown keys are swallowed, never drop
+;; the modal. Groups can opt back into dismissal by setting
+;; 'exit-on-unknown #t — typing a non-binding key then exits the modal,
+;; useful for sticky focus-movement modes (iTerm pane mode) where the
+;; user's next typing should reach the underlying app without an
+;; explicit Escape first.
 ;;
 ;; Sticky context only changes the *command-leaf* branch: instead of
 ;; exiting then firing the action (transient launcher behaviour), it
@@ -344,7 +388,9 @@
   (let ((child (find-child modal-current-node char)))
     (cond
       ((not child)
-       (void))
+       (if (exit-on-unknown-context?)
+         (modal-exit)
+         (void)))
       ((command? child)
        (let ((action (node-action child))
              (sticky? (in-sticky-context?)))
@@ -383,15 +429,15 @@
 ;; Hooks only fire if the overlay was visible — same gating as the descent
 ;; case in modal-handle-key.
 ;;
-;; Purely tree-navigational: at depth > 0 retreats to the parent group;
-;; at the root (path empty) it's a no-op. The same applies to transient
-;; and sticky trees alike — Escape is the one and only "exit" key, so
-;; backspace can't accidentally drop the user out of any modal. Hitting
-;; backspace past the root is a forgiving stand-still.
+;; Tree-navigational gradual unwind: at depth > 0 retreats to the parent
+;; group; at the root (path empty) there's nothing left to retreat to, so
+;; it exits the modal. The same rule applies to transient and sticky
+;; trees uniformly — a sticky mode is exited by backspacing all the way
+;; out, or by pressing Escape (the one-shot exit-from-any-depth).
 (define (modal-step-back)
   (cond
     ((null? modal-current-path)
-     (void))
+     (modal-exit))
     (else
      (let* ((new-path (reverse (cdr (reverse modal-current-path))))
             (new-node (navigate-to-path modal-root-node new-path))

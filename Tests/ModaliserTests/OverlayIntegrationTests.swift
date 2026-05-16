@@ -165,9 +165,10 @@ struct OverlayIntegrationTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func stepBackFromRootIsNoOp() throws {
-        // Backspace at the root is purely a stand-still — overlay and
-        // modal both stay open. (Escape is the dedicated exit.)
+    @Test func stepBackFromRootClosesOverlay() throws {
+        // Backspace at the root has nothing left to retreat to, so it
+        // exits the modal — overlay closes too. Escape is the one-shot
+        // exit-from-any-depth; this is the gradual unwind.
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define-tree 'global
@@ -178,10 +179,8 @@ struct OverlayIntegrationTests {
         #expect(try engine.evaluate("overlay-open?") == .true)
 
         try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("overlay-open?") == .true)
-        #expect(try engine.evaluate("modal-active?") == .true)
-
-        try engine.evaluate("(modal-exit)")
+        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("modal-active?") == .false)
     }
 
     // MARK: - Full flow via keyboard simulation

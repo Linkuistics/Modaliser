@@ -333,15 +333,19 @@
 ;; ─── iTerm sticky pane mode ──────────────────────────────────────
 ;;
 ;; A persistent modal: while active, hjkl move pane focus and "x h/j/k/l"
-;; splits in a direction without exiting. Escape exits to insert mode;
-;; Backspace steps back one level (e.g. out of the Split subgroup). The
-;; nested (group "x" 'sticky #t ...) keeps the user in Split after a split
-;; fires — useful for laying out a grid of panes in quick succession.
+;; splits in a direction without exiting. 'exit-on-unknown means typing
+;; any non-binding character (e.g. starting to type into the terminal
+;; again) drops the mode cleanly — no need to press Escape first.
+;; Escape still exits in one shot from any depth; Backspace steps back
+;; one level (out of Split → root → exit). The nested (group "x" ...) is
+;; itself sticky so a string of splits stays inside Split until you
+;; explicitly back out.
 ;;
 ;; Entered from the regular F17 iTerm tree via `m`. The per-app iTerm tree
 ;; itself stays transient (one-keypress launcher) so this is purely additive.
 (define-tree 'iterm-panes
   'sticky #t
+  'exit-on-unknown #t
   'display-name "iTerm Panes"
   (key "h" "Focus Left"  (keystroke '(cmd alt) "left"))
   (key "j" "Focus Down"  (keystroke '(cmd alt) "down"))

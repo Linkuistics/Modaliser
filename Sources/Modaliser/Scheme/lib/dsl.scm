@@ -13,35 +13,44 @@
 ;; (group k label [keyword value]... . children) → group alist
 ;;
 ;; Optional leading keyword/value pairs. Recognized keywords:
-;;   'on-enter THUNK   — called when modal navigates into this group
-;;   'on-leave THUNK   — called when modal navigates out of this group
-;;   'sticky    BOOL   — firing a command leaf at or below this group
-;;                       returns navigation to this group instead of
-;;                       exiting the modal. Composes with sticky ancestors:
-;;                       the deepest sticky group on the current path wins.
-;;                       See register-tree!'s 'sticky doc for full semantics.
+;;   'on-enter THUNK        — called when modal navigates into this group
+;;   'on-leave THUNK        — called when modal navigates out of this group
+;;   'sticky          BOOL  — firing a command leaf at or below this group
+;;                            returns navigation to this group instead of
+;;                            exiting the modal. Composes with sticky
+;;                            ancestors: the deepest sticky group on the
+;;                            current path wins. See register-tree!'s
+;;                            'sticky doc for full semantics.
+;;   'exit-on-unknown BOOL  — unrecognised keys at or below this group
+;;                            dismiss the modal instead of being swallowed.
+;;                            Useful for sticky focus-movement modes where
+;;                            typing a non-binding key should hand control
+;;                            back to the underlying app.
 ;;
 ;; Args after the keyword pairs are children. Disambiguation: a child node
 ;; is always a pair whose first element is a pair (alist starting with
 ;; (kind . ...)); a keyword is a bare symbol. So leading bare symbols start
 ;; the keyword tail and the first non-symbol begins the children.
 (define (group k label . rest)
-  (let loop ((args rest) (on-enter #f) (on-leave #f) (sticky #f))
+  (let loop ((args rest) (on-enter #f) (on-leave #f)
+             (sticky #f) (exit-unk #f))
     (cond
       ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
        (case (car args)
-         ((on-enter) (loop (cddr args) (cadr args) on-leave sticky))
-         ((on-leave) (loop (cddr args) on-enter (cadr args) sticky))
-         ((sticky)   (loop (cddr args) on-enter on-leave (cadr args)))
+         ((on-enter)        (loop (cddr args) (cadr args) on-leave sticky exit-unk))
+         ((on-leave)        (loop (cddr args) on-enter (cadr args) sticky exit-unk))
+         ((sticky)          (loop (cddr args) on-enter on-leave (cadr args) exit-unk))
+         ((exit-on-unknown) (loop (cddr args) on-enter on-leave sticky (cadr args)))
          (else (error "group: unknown keyword" (car args)))))
       (else
         (let* ((acc (list (cons 'kind 'group)
                           (cons 'key k)
                           (cons 'label label)
                           (cons 'children args)))
-               (acc (if on-leave (cons (cons 'on-leave on-leave) acc) acc))
-               (acc (if on-enter (cons (cons 'on-enter on-enter) acc) acc))
-               (acc (if sticky   (cons (cons 'sticky #t)         acc) acc)))
+               (acc (if on-leave (cons (cons 'on-leave on-leave)  acc) acc))
+               (acc (if on-enter (cons (cons 'on-enter on-enter)  acc) acc))
+               (acc (if sticky   (cons (cons 'sticky #t)          acc) acc))
+               (acc (if exit-unk (cons (cons 'exit-on-unknown #t) acc) acc)))
           acc)))))
 
 ;; (selector k label . props) → selector alist
