@@ -650,4 +650,120 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-handle-key \"z\")")
         #expect(try engine.evaluate("modal-active?") == .false)
     }
+
+    // MARK: - Modal stack via enter-mode!
+
+    @Test func enterModeFromTransientLeafPushesCaller() throws {
+        // Classic flow: leader → transient launcher → leaf calls
+        // enter-mode! → sticky mode active. Backspace at the sticky root
+        // pops back to the launcher rather than exiting entirely.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              (key "h" "Left" (lambda () 'ok)))
+            (define-tree 'launcher
+              (key "p" "Pane Mode" (lambda () (enter-mode! 'panes))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("(modal-handle-key \"p\")")
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"panes\"))") == .true)
+        #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
+
+        // Backspace at sticky root pops back to the launcher.
+        try engine.evaluate("(modal-step-back)")
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"launcher\"))") == .true)
+        #expect(try engine.evaluate("(null? modal-stack)") == .true)
+
+        try engine.evaluate("(modal-exit)")
+    }
+
+    @Test func enterModeFromFreshStateDoesNotPush() throws {
+        // enter-mode! with no active modal is a fresh entry. The stack
+        // stays empty; backspace at sticky root exits (no caller to pop).
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              (key "h" "Left" (lambda () 'ok)))
+            """)
+
+        try engine.evaluate("(enter-mode! 'panes)")
+        #expect(try engine.evaluate("(null? modal-stack)") == .true)
+
+        try engine.evaluate("(modal-step-back)")
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
+
+    @Test func escapeClearsTheEntireStack() throws {
+        // Escape (= modal-exit) tears down everything, even with pushed
+        // callers — the user can never be stuck in a half-exited stack.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'panes
+              'sticky #t
+              (key "h" "Left" (lambda () 'ok)))
+            (define-tree 'launcher
+              (key "p" "Pane Mode" (lambda () (enter-mode! 'panes))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("(modal-handle-key \"p\")")
+        #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
+
+        try engine.evaluate("(modal-exit)")
+        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("(null? modal-stack)") == .true)
+    }
+
+    @Test func nestedEnterModeBuildsStack() throws {
+        // enter-mode! from inside an already-stacked sticky mode pushes
+        // again. Backspace then unwinds one level at a time.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'b
+              'sticky #t
+              (key "x" "Noop" (lambda () 'ok)))
+            (define-tree 'a
+              'sticky #t
+              (key "n" "Next" (lambda () (enter-mode! 'b))))
+            (define-tree 'launcher
+              (key "p" "Mode A" (lambda () (enter-mode! 'a))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("(modal-handle-key \"p\")")  // launcher → a
+        try engine.evaluate("(modal-handle-key \"n\")")  // a → b
+        #expect(try engine.evaluate("(length modal-stack)") == .fixnum(2))
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"b\"))") == .true)
+
+        try engine.evaluate("(modal-step-back)")  // b → a
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"a\"))") == .true)
+        #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
+
+        try engine.evaluate("(modal-step-back)")  // a → launcher
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"launcher\"))") == .true)
+        #expect(try engine.evaluate("(null? modal-stack)") == .true)
+
+        try engine.evaluate("(modal-exit)")
+    }
 }
