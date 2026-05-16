@@ -1,23 +1,27 @@
 ;; root.scm — Modaliser application entry point
 ;;
 ;; This is the only file loaded by Swift. It bootstraps the entire
-;; application by including modules, then setting up the app lifecycle.
-;;
-;; (include) is an R7RS special form that splices file contents into
-;; the current compilation scope — definitions are global.
+;; application by importing the (modaliser …) libraries, then
+;; including the .scm modules that haven't been library-ized yet.
+;; The library exports cascade into the top-level environment for the
+;; included files and the user's config.scm to see. Phases C/D will
+;; continue carving the included files into libraries.
 
-;; ─── Load modules ─────────────────────────────────────────────────
+;; ─── Modaliser libraries ──────────────────────────────────────────
 
-(include "lib/util.scm")
+(import (modaliser util)
+        (modaliser keymap)
+        (modaliser state-machine)
+        (modaliser event-dispatch)
+        (modaliser dsl))
+
+;; ─── Plain .scm modules (Phase C/D will library-ize these) ────────
+
 (include "lib/terminal.scm")
-(include "core/keymap.scm")
 (include "ui/dom.scm")
 (include "ui/css.scm")
-(include "core/state-machine.scm")
-(include "core/event-dispatch.scm")
 (include "ui/overlay.scm")
 (include "ui/chooser.scm")
-(include "lib/dsl.scm")
 (include "lib/web-search.scm")
 (include "lib/ax-hints.scm")
 

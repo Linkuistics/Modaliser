@@ -42,16 +42,14 @@ struct ChooserIntegrationTests {
               (set! webview-eval-calls (cons (cons id js) webview-eval-calls)))
             """)
 
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
         let files = [
-            "lib/util.scm",
-            "core/keymap.scm",
             "ui/dom.scm",
             "ui/css.scm",
-            "core/state-machine.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
-            "lib/dsl.scm",
         ]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
@@ -89,7 +87,7 @@ struct ChooserIntegrationTests {
         // Modal should be exited
         #expect(try engine.evaluate("modal-active?") == .false)
         // Chooser should be open
-        #expect(try engine.evaluate("chooser-open?") == .true)
+        #expect(try engine.evaluate("(chooser-open?)") == .true)
         // WebView should be created with activating=true
         #expect(try engine.evaluate("(not (null? webview-create-calls))") == .true)
     }
@@ -194,7 +192,7 @@ struct ChooserIntegrationTests {
             """)
 
         // on-select should have been called with the Chrome item
-        #expect(try engine.evaluate("chooser-open?") == .false)
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
         #expect(try engine.evaluate("test-selected") != .false)
         let text = try engine.evaluate("(cdr (assoc 'text test-selected))").asString()
         #expect(text == "Chrome")
@@ -216,11 +214,11 @@ struct ChooserIntegrationTests {
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
-        #expect(try engine.evaluate("chooser-open?") == .true)
+        #expect(try engine.evaluate("(chooser-open?)") == .true)
 
         // Cancel via message handler
         try engine.evaluate("(close-chooser)")
-        #expect(try engine.evaluate("chooser-open?") == .false)
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
     }
 
     // MARK: - Trigger key closes chooser
@@ -241,12 +239,12 @@ struct ChooserIntegrationTests {
         // Open chooser via selector
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
-        #expect(try engine.evaluate("chooser-open?") == .true)
+        #expect(try engine.evaluate("(chooser-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .false)
 
         // Invoke the leader handler — should close the chooser, not open modal
         try engine.evaluate("((make-leader-handler F18 'global))")
-        #expect(try engine.evaluate("chooser-open?") == .false)
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
@@ -308,7 +306,7 @@ struct ChooserIntegrationTests {
             """)
 
         #expect(try engine.evaluate("secondary-fired") == .true)
-        #expect(try engine.evaluate("chooser-open?") == .false)
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
     }
 
     // MARK: - Message handler routing
@@ -335,7 +333,7 @@ struct ChooserIntegrationTests {
 
         // Test select message with originalIndex
         try engine.evaluate("(chooser-message-handler (list (cons 'type \"select\") (cons 'originalIndex 1)))")
-        #expect(try engine.evaluate("chooser-open?") == .false)
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
         #expect(try engine.evaluate("(cdr (assoc 'text test-selected))").asString() == "Beta")
     }
 
@@ -370,14 +368,14 @@ struct ChooserIntegrationTests {
         // 'a' → open chooser
         try engine.evaluate("(modal-key-handler 0 0)")  // keycode 0 = 'a'
         #expect(try engine.evaluate("modal-active?") == .false)
-        #expect(try engine.evaluate("chooser-open?") == .true)
+        #expect(try engine.evaluate("(chooser-open?)") == .true)
 
         // Select Chrome (originalIndex 1) via message handler
         try engine.evaluate("""
             (chooser-message-handler (list (cons 'type "select") (cons 'originalIndex 1)))
             """)
 
-        #expect(try engine.evaluate("chooser-open?") == .false)
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
         let selected = try engine.evaluate("(cdr (assoc 'text test-result))").asString()
         #expect(selected == "Chrome")
     }

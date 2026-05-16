@@ -1,7 +1,30 @@
-;; lib/dsl.scm — User-facing DSL functions
+;; (modaliser dsl) — User-facing DSL.
 ;;
-;; Pure Scheme replacements for the Swift ModaliserDSLLibrary.
-;; These produce alist nodes for the command tree.
+;; This is the surface user configs import:
+;;
+;;   (import (modaliser dsl))
+;;
+;; Then write (key …), (group …), (selector …), (action …),
+;; (define-tree …), (set-leader! …) etc. directly in their config.scm
+;; or in their own .sld libraries. The library is portable: imports
+;; only (scheme …) and other (modaliser …) — no (lispkit …).
+
+(define-library (modaliser dsl)
+  (export key key-range group selector action
+          define-tree set-theme!
+          modifier-symbols->mask set-leader!
+          ;; Re-exported from (modaliser state-machine) so user configs
+          ;; can do a single (import (modaliser dsl)) for the common case.
+          set-host-header! set-overlay-delay!)
+  (import (scheme base)
+          (scheme bitwise)
+          (modaliser state-machine)
+          (modaliser event-dispatch)
+          (modaliser keyboard))
+  (begin
+
+;; Pure Scheme node constructors for the command tree. These produce
+;; alist nodes consumed by the modal state machine.
 
 ;; (key k label action) → command alist
 (define (key k label action)
@@ -102,7 +125,7 @@
 
 ;; (set-theme! . args) → no-op stub for backward compatibility
 ;; Theming moves to CSS in Phase 3.
-(define (set-theme! . args) (void))
+(define (set-theme! . args) (if #f #f))
 
 ;; Convert a list of modifier symbols (e.g. '(shift ctrl)) to the integer
 ;; bitmask expected by register-hotkey!. Unknown symbols are ignored.
@@ -150,3 +173,5 @@
          (loop (cddr rest) mod-mask (cadr rest)))
         (else
          (error "set-leader!: unknown keyword" (car rest)))))))
+
+)) ;; end begin / define-library

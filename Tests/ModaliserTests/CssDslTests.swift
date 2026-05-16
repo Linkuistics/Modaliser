@@ -16,7 +16,7 @@ struct CssDslTests {
             Issue.record("Scheme directory not found")
             throw SchemeTestError.noSchemeDir
         }
-        try engine.evaluateFile(joinPath(schemePath, "lib/util.scm"))
+        try engine.evaluate("(import (modaliser util))")
         try engine.evaluateFile(joinPath(schemePath, "ui/css.scm"))
         return engine
     }

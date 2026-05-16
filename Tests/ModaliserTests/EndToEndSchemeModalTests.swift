@@ -9,16 +9,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func hotkeyHandlersRegistered() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (set-leader! 'global F18)
@@ -32,16 +26,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func f18ThenSExecutesAction() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define test-result #f)
@@ -61,13 +49,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func f18ThenGroupThenCommand() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define test-result #f)
@@ -91,13 +76,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func f18ToggleExits() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -114,13 +96,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func escapeExitsModal() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -151,16 +130,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func localContextSuffixRoutesToSuffixedTree() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         // Register a plain tree and a /zellij variant, then override the hook
         // to return the suffix unconditionally. resolve-app-tree should pick
@@ -170,7 +143,7 @@ struct EndToEndSchemeModalTests {
               (key "t" "Tabs" (lambda () 'plain)))
             (define-tree "com.googlecode.iterm2/zellij"
               (key "z" "Zellij" (lambda () 'zellij)))
-            (define (local-context-suffix bundle-id) "/zellij")
+            (set-local-context-suffix! (lambda (bundle-id) "/zellij"))
             """)
 
         let resolved = try engine.evaluate(
@@ -190,16 +163,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func localContextSuffixFallsBackWhenHookReturnsFalse() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
 
-        let files = ["lib/util.scm", "core/keymap.scm", "core/state-machine.scm",
-                     "core/event-dispatch.scm", "lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree "com.googlecode.iterm2"
@@ -263,8 +230,11 @@ struct EndToEndSchemeModalTests {
 
         // Install Scheme-level stubs for the two environmental probes, then
         // mirror the exact body of local-context-suffix from the user
-        // config. If the shape ever diverges, this test will drift from the
-        // real behavior — keep it in sync with config.scm.
+        // config. NOTE: production user configs must install via
+        // (set-local-context-suffix! …) because the real procedure lives
+        // inside the (modaliser event-dispatch) library; this test stays
+        // at top level only because it doesn't import event-dispatch and
+        // exercises the procedure standalone.
         try engine.evaluate("""
             (define mock-fg #f)
             (define mock-focused-nvim #f)

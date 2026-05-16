@@ -12,20 +12,13 @@ struct ConfigDslTests {
 
     private func loadDsl() throws -> SchemeEngine {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            throw SchemeTestError.noSchemeDir
-        }
-        let files = [
-            "lib/util.scm",
-            "core/keymap.scm",
-            "core/state-machine.scm",
-            "core/event-dispatch.scm",
-            "lib/dsl.scm",
-        ]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("""
+          (import (modaliser util)
+                  (modaliser keymap)
+                  (modaliser state-machine))
+        """)
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
         return engine
     }
 
@@ -49,17 +42,19 @@ struct ConfigDslTests {
             (define (webview-on-message id handler) #t)
             (define (webview-eval id js) #t)
             """)
+        try engine.evaluate("""
+          (import (modaliser util)
+                  (modaliser keymap)
+                  (modaliser state-machine))
+        """)
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
         let files = [
-            "lib/util.scm",
             "lib/terminal.scm",
-            "core/keymap.scm",
             "ui/dom.scm",
             "ui/css.scm",
-            "core/state-machine.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
-            "lib/dsl.scm",
             "lib/web-search.scm",
             "lib/ax-hints.scm",
         ]
@@ -165,7 +160,7 @@ struct ConfigDslTests {
         // Pressing 'f' hits the selector — currently exits modal (chooser is Phase 4)
         try engine.evaluate("(modal-handle-key \"f\")")
         #expect(try engine.evaluate("modal-active?") == .false)
-        #expect(try engine.evaluate("overlay-open?") == .false)
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
     }
 
     @Test func selectorInGroupNavigationWorks() throws {

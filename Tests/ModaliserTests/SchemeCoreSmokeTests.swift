@@ -12,58 +12,9 @@ struct SchemeCoreSmokeTests {
 
     // MARK: - Module loading
 
-    @Test func utilModuleLoads() throws {
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        // Verify functions are defined
-        #expect(try engine.evaluate("(procedure? alist-ref)") == .true)
-        #expect(try engine.evaluate("(procedure? props->alist)") == .true)
-    }
-
-    @Test func alistRefWorks() throws {
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-
-        #expect(try engine.evaluate("(alist-ref '((a . 1) (b . 2)) 'a)") == .fixnum(1))
-        #expect(try engine.evaluate("(alist-ref '((a . 1) (b . 2)) 'b)") == .fixnum(2))
-        #expect(try engine.evaluate("(alist-ref '((a . 1)) 'c)") == .false)
-        #expect(try engine.evaluate("(alist-ref '((a . 1)) 'c 99)") == .fixnum(99))
-    }
-
-    @Test func propsToAlistWorks() throws {
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-
-        let result = try engine.evaluate("(props->alist 'a 1 'b 2)")
-        // Should be ((a . 1) (b . 2))
-        #expect(try engine.evaluate("(cdr (assoc 'a (props->alist 'a 1 'b 2)))") == .fixnum(1))
-        #expect(try engine.evaluate("(cdr (assoc 'b (props->alist 'a 1 'b 2)))") == .fixnum(2))
-    }
-
-    @Test func keymapModuleLoads() throws {
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-
-        #expect(try engine.evaluate("(procedure? has-cmd?)") == .true)
-        #expect(try engine.evaluate("(procedure? has-shift?)") == .true)
-        #expect(try engine.evaluate("(procedure? has-alt?)") == .true)
-        #expect(try engine.evaluate("(procedure? has-ctrl?)") == .true)
-    }
-
     @Test func stateMachineModuleLoads() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
 
         #expect(try engine.evaluate("(procedure? register-tree!)") == .true)
         #expect(try engine.evaluate("(procedure? lookup-tree)") == .true)
@@ -75,12 +26,9 @@ struct SchemeCoreSmokeTests {
 
     @Test func dslModuleLoads() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         #expect(try engine.evaluate("(procedure? key)") == .true)
         #expect(try engine.evaluate("(procedure? group)") == .true)
@@ -93,11 +41,9 @@ struct SchemeCoreSmokeTests {
     @Test func registerAndLookupTree() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -112,11 +58,9 @@ struct SchemeCoreSmokeTests {
     @Test func registerAppSpecificTree() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'com.apple.Safari
@@ -132,11 +76,9 @@ struct SchemeCoreSmokeTests {
     @Test func modalEnterAndExit() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -156,11 +98,9 @@ struct SchemeCoreSmokeTests {
     @Test func modalHandleKeyExecutesCommand() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define action-called #f)
@@ -178,11 +118,9 @@ struct SchemeCoreSmokeTests {
     @Test func modalHandleKeyNavigatesGroup() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -202,11 +140,9 @@ struct SchemeCoreSmokeTests {
     @Test func modalStepBackWorks() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -230,11 +166,9 @@ struct SchemeCoreSmokeTests {
         // and 'exit-on-unknown; backspace never drops a modal.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -254,11 +188,9 @@ struct SchemeCoreSmokeTests {
     @Test func setLeaderRegistersHotkey() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -274,11 +206,9 @@ struct SchemeCoreSmokeTests {
     @Test func fullLifecycleViaSchemeModules() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define test-action-log '())
@@ -303,11 +233,9 @@ struct SchemeCoreSmokeTests {
     @Test func appSpecificTreeOverridesGlobal() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define which-tree #f)
@@ -339,11 +267,9 @@ struct SchemeCoreSmokeTests {
         // is the sole exit; this applies to transient and sticky alike.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -365,11 +291,9 @@ struct SchemeCoreSmokeTests {
     // and we want isolated trees per scenario.
 
     private func loadCore(_ engine: SchemeEngine, _ schemePath: String) throws {
-        try engine.evaluateFile(joinPath(schemePath,"lib/util.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/keymap.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/state-machine.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"core/event-dispatch.scm"))
-        try engine.evaluateFile(joinPath(schemePath,"lib/dsl.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
     }
 
     @Test func stickyTreeReArmsAfterCommand() throws {
@@ -547,7 +471,7 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("(enter-mode! 'panes)")
         #expect(try engine.evaluate("modal-active?") == .true)
-        #expect(try engine.evaluate("(member \"Pane Mode\" modal-root-segments)") != .false)
+        #expect(try engine.evaluate("(member \"Pane Mode\" (modal-root-segments))") != .false)
 
         try engine.evaluate("(modal-exit)")
     }

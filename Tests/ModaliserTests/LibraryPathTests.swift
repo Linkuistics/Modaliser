@@ -30,15 +30,10 @@ struct LibraryPathTests {
                                                 withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
 
-        // Use (lispkit base) — LispKit's native-registered base — rather than
-        // (scheme base), so the test doesn't depend on resolving
-        // Libraries/scheme/base.sld via Bundle(identifier: "net.objecthub.LispKit"),
-        // which is nil under swift test. (lispkit base) provides define and
-        // string literals just like (scheme base) does.
         let libBody = """
         (define-library (foo bar)
           (export greet)
-          (import (lispkit base))
+          (import (scheme base))
           (begin
             (define (greet) "hello-from-foo-bar")))
         """

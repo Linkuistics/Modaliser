@@ -1,7 +1,25 @@
-;; core/event-dispatch.scm — Keyboard event dispatch
+;; (modaliser event-dispatch) — Keyboard event dispatch into the modal
+;; state machine. The catch-all key handler installed by modal-enter
+;; lives here, as does the leader-key handler factory.
 ;;
-;; The modal key handler that processes all keys while modal is active.
-;; This replaces Swift's KeyEventDispatcher and SchemeModalBridge.
+;; modal-key-handler is installed into the state-machine via the
+;; set-modal-key-handler! setter — Task 5 introduced that hook so
+;; state-machine could be hermetic while event-dispatch was still an
+;; include. Now that event-dispatch is itself a library, the install
+;; runs at library-load time.
+
+(define-library (modaliser event-dispatch)
+  (export modal-key-handler
+          local-context-suffix
+          set-local-context-suffix!
+          resolve-app-tree
+          make-leader-handler)
+  (import (scheme base)
+          (modaliser keymap)
+          (modaliser keyboard)
+          (modaliser app)
+          (modaliser state-machine))
+  (begin
 
 ;; The catch-all key handler. Registered via (register-all-keys!) when
 ;; modal mode is entered, deregistered when it exits.
@@ -36,8 +54,10 @@
 
 ;; Hook: given the focused app's bundle ID, return a suffix string like
 ;; "/zellij" to try a more specific tree first, or #f to use the plain
-;; bundle-id tree. User configs override this with their own definition.
-(define (local-context-suffix bundle-id) #f)
+;; bundle-id tree. User configs override this via (set-local-context-suffix! fn).
+(define local-context-suffix-impl (lambda (bundle-id) #f))
+(define (local-context-suffix bundle-id) (local-context-suffix-impl bundle-id))
+(define (set-local-context-suffix! fn) (set! local-context-suffix-impl fn))
 
 ;; Resolve the per-app tree for a bundle ID, preferring a context-suffixed
 ;; variant (e.g. "com.googlecode.iterm2/zellij") when the suffix hook
@@ -63,7 +83,7 @@
 (define (make-leader-handler leader-kc mode)
   (lambda ()
     (cond
-      (chooser-open?
+      ((chooser-open?)
        (close-chooser))
       (modal-active?
        (modal-exit))
@@ -76,3 +96,9 @@
                                 (lookup-tree "global"))))))
          (when tree
            (modal-enter tree leader-kc)))))))
+
+;; Install modal-key-handler into the state-machine library's dispatch cell.
+;; Runs at library-load time, after modal-key-handler is defined above.
+(set-modal-key-handler! modal-key-handler)
+
+)) ;; end begin / define-library

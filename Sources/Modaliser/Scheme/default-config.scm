@@ -383,19 +383,24 @@
 
 ;; Dispatcher hook. For iTerm, refresh the dynamic tree (panes may have
 ;; changed) then probe the pane to pick a tree variant.
-(define (local-context-suffix bundle-id)
-  (cond
-    ((equal? bundle-id "com.googlecode.iterm2")
-     (rebuild-iterm-tree!)
-     (let ((cmd (focused-terminal-foreground-command)))
-       (cond
-         ((not cmd) #f)
-         ((string-contains? cmd "nvim") "/nvim")
-         ((or (string-contains? cmd "zellij")
-              (string-contains? cmd "zj"))
-          (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
-         (else #f))))
-    (else #f)))
+;;
+;; Installs via (set-local-context-suffix! …) — the library's internal
+;; cell, not a top-level redefinition. A plain (define …) at the top
+;; level would silently fail to override the library's binding chain.
+(set-local-context-suffix!
+  (lambda (bundle-id)
+    (cond
+      ((equal? bundle-id "com.googlecode.iterm2")
+       (rebuild-iterm-tree!)
+       (let ((cmd (focused-terminal-foreground-command)))
+         (cond
+           ((not cmd) #f)
+           ((string-contains? cmd "nvim") "/nvim")
+           ((or (string-contains? cmd "zellij")
+                (string-contains? cmd "zj"))
+            (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
+           (else #f))))
+      (else #f))))
 
 ;; Pre-register the iTerm tree at load time so lookups don't return #f
 ;; before the first leader press. Cheap when iTerm isn't running (the AX

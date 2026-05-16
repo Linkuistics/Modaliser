@@ -14,7 +14,6 @@
 ;; ─── Overlay State ────────────────────────────────────────────
 
 (define overlay-webview-id "modaliser-overlay")
-(define overlay-open? #f)
 (define overlay-custom-css "")
 
 ;; ─── CSS Theming ─────────────────────────────────────────
@@ -159,7 +158,7 @@
                            (if (string=? result "") "" ",")
                            "\"" (js-escape-overlay (car xs)) "\""))))
                "]")))
-         (segments-json (string-list->json modal-root-segments))
+         (segments-json (string-list->json (modal-root-segments)))
          (path-json     (string-list->json (path-labels node path)))
          (sticky?       (and (deepest-sticky-on-path node path) #t))
          (entries-json
@@ -207,9 +206,9 @@
   (when (equal? (alist-ref msg 'type "") "cancel")
     (modal-exit)))
 
-;; (show-overlay node path) — create panel if needed, render content
-(define (show-overlay node path)
-  (unless overlay-open?
+;; (overlay-show-impl node path) — create panel if needed, render content
+(define (overlay-show-impl node path)
+  (unless (overlay-open?)
     (webview-create overlay-webview-id
       (list (cons 'width overlay-panel-width)
             (cons 'height overlay-panel-height)
@@ -218,17 +217,22 @@
             (cons 'transparent #t)
             (cons 'shadow #t)))
     (webview-on-message overlay-webview-id overlay-message-handler)
-    (set! overlay-open? #t))
+    (set-overlay-open! #t))
   (webview-set-html! overlay-webview-id
-    (render-overlay-html node modal-root-segments path)))
+    (render-overlay-html node (modal-root-segments) path)))
 
-;; (update-overlay node path) — update content via JS (no page reload)
-(define (update-overlay node path)
-  (when overlay-open?
+;; (overlay-update-impl node path) — update content via JS (no page reload)
+(define (overlay-update-impl node path)
+  (when (overlay-open?)
     (push-overlay-update node path)))
 
-;; (hide-overlay) — close the panel
-(define (hide-overlay)
-  (when overlay-open?
+;; (overlay-hide-impl) — close the panel
+(define (overlay-hide-impl)
+  (when (overlay-open?)
     (webview-close overlay-webview-id)
-    (set! overlay-open? #f)))
+    (set-overlay-open! #f)))
+
+;; Install overlay implementations into the state-machine.
+(set-show-overlay!   overlay-show-impl)
+(set-update-overlay! overlay-update-impl)
+(set-hide-overlay!   overlay-hide-impl)

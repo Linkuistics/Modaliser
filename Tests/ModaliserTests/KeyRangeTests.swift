@@ -37,16 +37,14 @@ struct KeyRangeTests {
             (define (webview-eval id js)
               (set! webview-eval-calls (cons (cons id js) webview-eval-calls)))
             """)
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
         let files = [
-            "lib/util.scm",
-            "core/keymap.scm",
             "ui/dom.scm",
             "ui/css.scm",
-            "core/state-machine.scm",
-            "core/event-dispatch.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
-            "lib/dsl.scm",
         ]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))

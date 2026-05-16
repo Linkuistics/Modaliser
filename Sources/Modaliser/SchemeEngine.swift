@@ -1,6 +1,48 @@
 import Foundation
 import LispKit
 
+/// Locate LispKit's bundled R7RS+SRFI Libraries directory for use under
+/// `swift test`. Returns nil if not found — under the installed .app build
+/// LispKit's own Bundle(identifier:) lookup succeeds and this fallback is
+/// unnecessary.
+///
+/// Under `swift test` the process is `swiftpm-testing-helper` so
+/// `arguments[0]` does not point into the project tree. Instead we walk
+/// from the current working directory (which `swift test` sets to the
+/// package root) and from the executable location as a secondary strategy.
+private func locateLispKitLibrariesFallback() -> String? {
+    let suffix = ".build/checkouts/swift-lispkit/Sources/LispKit/Resources/Libraries"
+    // Primary: walk up from current working directory.
+    // `swift test` sets CWD to the package root, so the checkout is
+    // directly at <cwd>/<suffix>.
+    var dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .resolvingSymlinksInPath()
+    for _ in 0..<8 {
+        let candidate = dir.appendingPathComponent(suffix).path
+        if FileManager.default.fileExists(atPath: candidate) {
+            return candidate
+        }
+        let parent = dir.deletingLastPathComponent()
+        if parent.path == dir.path { break } // not found under CWD tree; try arguments[0] below
+        dir = parent
+    }
+    // Secondary: walk up from the executable (useful for `swift build` runs
+    // and any context where CWD differs from the package root).
+    dir = URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
+        .resolvingSymlinksInPath()
+        .deletingLastPathComponent()
+    for _ in 0..<8 {
+        let candidate = dir.appendingPathComponent(suffix).path
+        if FileManager.default.fileExists(atPath: candidate) {
+            return candidate
+        }
+        let parent = dir.deletingLastPathComponent()
+        if parent.path == dir.path { return nil }
+        dir = parent
+    }
+    return nil
+}
+
 /// Wraps a LispKit context for evaluating Scheme code.
 /// Provides the bridge between Swift and the Scheme configuration layer.
 final class SchemeEngine {
@@ -49,6 +91,15 @@ final class SchemeEngine {
             ?? NSString(string: "~/.config/modaliser").expandingTildeInPath
         _ = context.fileHandler.prependLibrarySearchPath(resolvedUserConfigDir)
 
+        // Fallback: under `swift test` LispKit's own Bundle(identifier:)
+        // lookup is nil, so the bundled R7RS+SRFI Libraries/ directory
+        // never gets added to the library search path. Locate it via the
+        // SPM checkout and append it (lowest precedence so a real LispKit
+        // path or user override stays in front). No-op in .app builds
+        // where the bundle resolves.
+        if let lispKitLibs = locateLispKitLibrariesFallback() {
+            _ = context.fileHandler.addLibrarySearchPath(lispKitLibs)
+        }
 
         // Register primitive libraries
         try context.libraries.register(libraryType: LifecycleLibrary.self)
