@@ -1,196 +1,149 @@
-
 ;; Modaliser configuration
 ;; This file is evaluated by the Scheme engine at startup.
 ;; DSL functions and native libraries are auto-imported.
 
 ;; Leader keys
 (set-leader! 'global F18 'arm-when-frontmost '("com.p5sys.jump.mac.viewer"))
-(set-leader! 'global F18 'modifiers '(shift))
-
 (set-leader! 'local F17 'arm-when-frontmost '("com.p5sys.jump.mac.viewer"))
-(set-leader! 'local F17 'modifiers '(shift))
 
 (set-overlay-delay! 0.3)
 
+(define the-color "dodgerblue")
+
 (set-host-header!
-  'name            (run-shell "hostname -s")
-  'background      "steelblue"
-  'foreground      "white")
+    'name            (run-shell "hostname -s")
+    'background      the-color
+    'foreground      "white")
 
 ;; Helper: open a URL
 (define (open-url-action url)
-  (lambda () (open-url url)))
+    (lambda () (open-url url)))
 
 ;; Helper: send a keystroke to the focused app
 (define (keystroke mods key-name)
-  (lambda () (send-keystroke mods key-name)))
+    (lambda () (send-keystroke mods key-name)))
 
 ;; ─── Global command tree ────────────────────────────────────────────────
 
 (define-tree 'global
 
-  ;; Quick-launch keys
-  (key "c" "ChatGPT"
-    (lambda () (launch-app "ChatGPT")))
-  (key "i" "iTerm"
-    (lambda () (launch-app "iTerm")))
-  (key "j" "Jump Desktop"
-    (lambda () (launch-app "Jump Desktop")))
-  (key "n" "Notes"
-    (lambda () (launch-app "Notes")))
-  (key "s" "Safari"
-    (lambda () (launch-app "Safari")))
-  (group "," "Settings"
-    (key "e" "Edit"
-      (lambda ()
-        (run-shell
-          "/usr/bin/open -a Zed \"$HOME/.config/modaliser/config.scm\" || /usr/bin/open \"$HOME/.config/modaliser/config.scm\"")))
-    (key "r" "Reload"
-      (lambda () (relaunch!))))
+    (group "," "Settings"
+        (key "e" "Edit"
+        (lambda ()
+            (run-shell
+            "/usr/bin/open -a Zed \"$HOME/.config/modaliser/config.scm\" || /usr/bin/open \"$HOME/.config/modaliser/config.scm\"")))
+        (key "r" "Reload"
+        (lambda () (relaunch!))))
 
-  ;; Switch to macOS Space 1..9 via the system's Ctrl+digit shortcut.
-  ;; Requires "Mission Control → Switch to Desktop N" enabled in
-  ;; System Settings → Keyboard → Keyboard Shortcuts. Listed as a single
-  ;; "1..9 Space <n>" entry in the overlay rather than nine separate rows.
-  (key-range "1..9" "Space <n>"
-    '("1" "2" "3" "4" "5" "6" "7" "8" "9")
-    (lambda (k) (send-keystroke '(ctrl) k)))
+    ;; Switch to macOS Space 1..9 via the system's Ctrl+digit shortcut.
+    ;; Requires "Mission Control → Switch to Desktop N" enabled in
+    ;; System Settings → Keyboard → Keyboard Shortcuts.
+    (key-range "1.." "Goto Space <n>"
+        '("1" "2" "3" "4" "5" "6" "7" "8" "9")
+        (lambda (k) (send-keystroke '(ctrl) k)))
 
-  ;; Google search
-  (selector "g" "Google Search"
-    'prompt "Search Google…"
-    'dynamic-search web-search-handler
-    'on-select web-search-on-select)
+    (key "b" "Browser - Dia"
+        (lambda () (launch-app "Dia")))
+    (key "e" "Editor - Zed"
+        (lambda () (launch-app "Zed")))
+    (key "t" "Terminal - iTerm"
+        (lambda () (launch-app "iTerm")))
 
-  ;; Find group
-  (group "f" "Find"
-    (selector "a" "Find Apps"
-      'prompt "Find app…"
-      'source find-installed-apps
-      'on-select activate-app
-      'remember "apps"
-      'id-field "bundleId"
-      'actions
-        (list
-          (action "Open" 'description "Launch or focus" 'key 'primary
-            'run (lambda (c) (activate-app c)))
-          (action "Show in Finder" 'description "Reveal in Finder" 'key 'secondary
-            'run (lambda (c) (reveal-in-finder c)))
-          (action "Copy Path" 'description "Copy full path to clipboard"
-            'run (lambda (c) (set-clipboard! (cdr (assoc 'path c)))))
-          (action "Copy Bundle ID" 'description "Copy app bundle identifier"
-            'run (lambda (c) (set-clipboard! (cdr (assoc 'bundleId c)))))))
+    (key "j" "Jump Desktop"
+        (lambda () (launch-app "Jump Desktop")))
 
-    (key "e" "Emoji & Symbols"
-      (open-url-action "raycast://extensions/raycast/emoji-symbols/search-emoji-symbols"))
-
-    (selector "f" "Find File"
-      'prompt "Find file…"
-      'file-roots (list "~")
-      'on-select (lambda (c) (run-shell (string-append "/usr/bin/open \"" (cdr (assoc 'path c)) "\"")))
-      'actions
-        (list
-          (action "Open" 'description "Open with default app" 'key 'primary
-            'run (lambda (c) (run-shell (string-append "/usr/bin/open \"" (cdr (assoc 'path c)) "\""))))
-          (action "Show in Finder" 'description "Reveal in Finder" 'key 'secondary
-            'run (lambda (c) (reveal-in-finder c)))
-          (action "Copy Path" 'description "Copy full path to clipboard"
-            'run (lambda (c) (set-clipboard! (cdr (assoc 'path c)))))
-          (action "Open in Zed" 'description "Open file in Zed editor"
-            'run (lambda (c) (open-with "Zed" (cdr (assoc 'path c)))))))
-
-    (key "m" "Menu Items"
-      (open-url-action "raycast://extensions/raycast/navigation/search-menu-items"))
-
-    (selector "w" "Window"
-        'prompt "Find window…"
-        'source list-windows
-        'on-select focus-window
-        'actions
-        (list
-            (action "Focus" 'description "Switch to window" 'key 'primary
-            'run (lambda (c) (focus-window c))))))
-
-  ;; Open application group
-  (group "a" " Applications"
-    (group "c" "C"
-      (key "h" "ChatGPT"
+    (key "c" "ChatGPT"
         (lambda () (launch-app "ChatGPT")))
-      (key "l" "Claude"
+    (key "C" "Claude Desktop"
         (lambda () (launch-app "Claude")))
-      (key "o" "Codex"
-        (lambda () (launch-app "Codex")))
-      (key "r" "Chrome"
-        (lambda () (launch-app "Google Chrome")))
-    )
-    (key "i" "iTerm"
-      (lambda () (launch-app "iTerm")))
-    (group "m" "M"
-      (key "a" "Mail"
+
+    (key "m" "Mail"
         (lambda () (launch-app "Mail")))
-      (key "e" "Messages"
-        (lambda () (launch-app "Messages")))
-    )
     (key "n" "Notes"
         (lambda () (launch-app "Notes")))
-    (key "o" "Obsidian"
-      (lambda () (launch-app "Obsidian")))
-    (group "s" "S"
-      (key "a" "Safari"
-        (lambda () (launch-app "Safari")))
-      (key "i" "Signal"
-           (lambda () (launch-app "Signal")))
-      (key "l" "Slack"
-        (lambda () (launch-app "Slack")))
-    )
-    (key "t" "Telegram"
-      (lambda () (launch-app "Telegram")))
-    (group "z" "Z"
-      (key "e" "Zed"
-        (lambda () (launch-app "Zed")))
-      (key "o" "Zotero"
-        (lambda () (launch-app "Zotero")))
-    )
-  )
 
-  ;; Window management group
-  (group "w" "Windows"
-    (key "d" "First Third"
-      (lambda () (move-window 0 0 1/3 1)))
-    (key "D" "First Third Top"
-      (lambda () (move-window 0 0 1/3 1/2)))
-    (key "C" "First Third Bottom"
-      (lambda () (move-window 0 1/2 1/3 1/2)))
-    (key "f" "Center Third"
-      (lambda () (move-window 1/3 0 1/3 1)))
-    (key "F" "Center Third Top"
-      (lambda () (move-window 1/3 0 1/3 1/2)))
-    (key "V" "Center Third Bottom"
-      (lambda () (move-window 1/3 1/2 1/3 1/2)))
-    (key "g" "Last Third"
-      (lambda () (move-window 2/3 0 1/3 1)))
-    (key "G" "Last Third Top"
-      (lambda () (move-window 2/3 0 1/3 1/2)))
-    (key "B" "Last Third Bottom"
-      (lambda () (move-window 2/3 1/2 1/3 1/2)))
-    (key "e" "First Two Thirds"
-      (lambda () (move-window 0 0 2/3 1)))
-    (key "t" "Last Two Thirds"
-      (lambda () (move-window 1/3 0 2/3 1)))
-    (key "c" "Center"
-      (lambda () (center-window)))
-    (key "m" "Maximise"
-      (lambda () (toggle-fullscreen)))
-    (key "r" "Restore"
-      (lambda () (restore-window)))
-    (selector "s" "Switch Window"
-      'prompt "Select window…"
-      'source list-windows
-      'on-select focus-window
-      'actions
+    (key "o" "Obsidian"
+        (lambda () (launch-app "Obsidian")))
+
+    (key "z" "Zotero"
+        (lambda () (launch-app "Zotero")))
+
+    ;; Google search
+    (selector "g" "Google Search"
+        'prompt "Search Google…"
+        'dynamic-search web-search-handler
+        'on-select web-search-on-select)
+
+    (selector "a" "Applications"
+        'prompt "Find app…"
+        'source find-installed-apps
+        'on-select activate-app
+        'remember "apps"
+        'id-field "bundleId"
+        'actions
+            (list
+            (action "Open" 'description "Launch or focus" 'key 'primary
+                'run (lambda (c) (activate-app c)))
+            (action "Show in Finder" 'description "Reveal in Finder" 'key 'secondary
+                'run (lambda (c) (reveal-in-finder c)))
+            (action "Copy Path" 'description "Copy full path to clipboard"
+                'run (lambda (c) (set-clipboard! (cdr (assoc 'path c)))))
+            (action "Copy Bundle ID" 'description "Copy app bundle identifier"
+                'run (lambda (c) (set-clipboard! (cdr (assoc 'bundleId c)))))))
+
+    (selector "f" "Files"
+        'prompt "File…"
+        'file-roots (list "~")
+        'on-select (lambda (c) (run-shell (string-append "/usr/bin/open \"" (cdr (assoc 'path c)) "\"")))
+        'actions
         (list
-          (action "Focus" 'description "Switch to window" 'key 'primary
-            'run (lambda (c) (focus-window c)))))))
+            (action "Open" 'description "Open with default app" 'key 'primary
+            'run (lambda (c) (run-shell (string-append "/usr/bin/open \"" (cdr (assoc 'path c)) "\""))))
+            (action "Show in Finder" 'description "Reveal in Finder" 'key 'secondary
+            'run (lambda (c) (reveal-in-finder c)))
+            (action "Copy Path" 'description "Copy full path to clipboard"
+            'run (lambda (c) (set-clipboard! (cdr (assoc 'path c)))))
+            (action "Open in Zed" 'description "Open file in Zed editor"
+            'run (lambda (c) (open-with "Zed" (cdr (assoc 'path c)))))))
+
+    ;; Window management group
+    (group "w" "Windows"
+        (key "d" "First Third"
+            (lambda () (move-window 0 0 1/3 1)))
+        (key "D" "First Third Top"
+            (lambda () (move-window 0 0 1/3 1/2)))
+        (key "C" "First Third Bottom"
+            (lambda () (move-window 0 1/2 1/3 1/2)))
+        (key "f" "Center Third"
+            (lambda () (move-window 1/3 0 1/3 1)))
+        (key "F" "Center Third Top"
+            (lambda () (move-window 1/3 0 1/3 1/2)))
+        (key "V" "Center Third Bottom"
+            (lambda () (move-window 1/3 1/2 1/3 1/2)))
+        (key "g" "Last Third"
+            (lambda () (move-window 2/3 0 1/3 1)))
+        (key "G" "Last Third Top"
+            (lambda () (move-window 2/3 0 1/3 1/2)))
+        (key "B" "Last Third Bottom"
+            (lambda () (move-window 2/3 1/2 1/3 1/2)))
+        (key "e" "First Two Thirds"
+            (lambda () (move-window 0 0 2/3 1)))
+        (key "t" "Last Two Thirds"
+            (lambda () (move-window 1/3 0 2/3 1)))
+        (key "c" "Center"
+            (lambda () (center-window)))
+        (key "m" "Maximise"
+            (lambda () (toggle-fullscreen)))
+        (key "r" "Restore"
+            (lambda () (restore-window)))
+        (selector "s" "Select Window"
+            'prompt "Select window…"
+            'source list-windows
+            'on-select focus-window
+            'actions
+            (list
+                (action "Focus" 'description "Select window" 'key 'primary
+                'run (lambda (c) (focus-window c)))))))
 
 ;; ─── App-local command trees ────────────────────────────────────────────
 
@@ -236,7 +189,7 @@
 ;; scroll area; iTerm reports focus state but ignores focus writes.)
 
 (define iterm-pane-labels
-  (list "a" "s" "d" "f" "g" ";" "q" "w" "e" "r" "t" "y" "u" "i" "o" "p"))
+  (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
 
 ;; Iterm-tuned chip appearance: large, red-on-white, soft border. Override
 ;; any subset by editing here — defaults in lib/ax-hints.scm are smaller.
@@ -246,10 +199,10 @@
         (cons 'font-size 56)
         (cons 'padding 16)
         (cons 'corner-radius 8)
-        (cons 'color "#cc0000")
-        (cons 'background "#ffffff")
+        (cons 'color "white")
+        (cons 'background the-color)
         (cons 'border-width 1)
-        (cons 'border-color "#cc0000")))
+        (cons 'border-color "black")))
 
 ;; Query iTerm for the UUIDs of every session in the focused window's
 ;; current tab, in iTerm's enumeration order. Returns a list of strings
@@ -289,12 +242,12 @@
 ;; Resolves each pane's session UUID up-front via its AX walk-order index
 ;; (the 'idx field set by ax-find-elements-named); the dispatch closure
 ;; reads from the resulting (label . uuid) alist so the action varies per
-;; key while the overlay collapses all panes into a single "a..p Pane <n>"
-;; row. If the AppleScript call returns fewer UUIDs than AX found scroll
-;; areas — orderings shouldn't diverge but it can happen with non-tab
-;; content — those panes are dropped from the range; nothing claims a
-;; chip without a target. Returns a 0- or 1-element list so the caller's
-;; (append (iterm-pane-bindings …) …) keeps splicing cleanly.
+;; key while the overlay collapses all panes into a single
+;; "1..N Pane <n>" row. The display-key tracks the actual bound count, so
+;; a 3-pane window reads "1..3" rather than the full label list. If the
+;; AppleScript call returns fewer UUIDs than AX found scroll areas, those
+;; panes are dropped from the range. Returns a 0- or 1-element list so
+;; the caller's (append (iterm-pane-bindings …) …) keeps splicing cleanly.
 (define (iterm-pane-bindings labelled-panes session-ids)
   (let loop ((ps labelled-panes) (label->sid '()) (keys '()))
     (cond
@@ -306,9 +259,9 @@
                   (ks     (reverse keys))
                   (first  (car ks))
                   (last   (car (reverse ks)))
-                  (display (string-append first ".." last)))
+                  (display (string-append first "..")))
              (list
-               (key-range display "Pane <n>"
+               (key-range display "Focus Pane <n>"
                  ks
                  (lambda (k)
                    (let ((entry (assoc k alist)))
@@ -326,81 +279,58 @@
                 (if sid (cons label keys)                  keys)))))))
 
 (define (rebuild-iterm-tree!)
-  (let* ((raw-panes (ax-find-elements-named
-                      "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
+  (let* ((raw-panes (ax-find-elements-named "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
          (panes (label-pairs iterm-pane-labels raw-panes))
          (session-ids (iterm-list-session-ids)))
     (apply define-tree 'com.googlecode.iterm2
-      'on-enter (lambda ()
-                  (hints-show (ax-target-hints panes iterm-pane-hint-options)))
-      'on-leave (lambda () (hints-hide))
-      (append
-        (iterm-pane-bindings panes session-ids)
-        (list
-          (key "c" "Select (Copy Mode)" (keystroke '(cmd shift) "c"))
-          (key "h" "Focus Left"  (keystroke '(cmd alt) "left"))
-          (key "j" "Focus Down"  (keystroke '(cmd alt) "down"))
-          (key "k" "Focus Up"    (keystroke '(cmd alt) "up"))
-          (key "l" "Focus Right" (keystroke '(cmd alt) "right"))
-          (key "m" "Pane Mode (sticky)"
-            (lambda () (enter-mode! 'iterm-panes)))
-          (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
-          (group "x" "Split"
-            (key "h" "Split Left"  (keystroke '(cmd ctrl shift) "h"))
-            (key "j" "Split Down"  (keystroke '(cmd ctrl shift) "j"))
-            (key "k" "Split Up"    (keystroke '(cmd ctrl shift) "k"))
-            (key "l" "Split Right" (keystroke '(cmd ctrl shift) "l"))))))))
+        'on-enter (lambda () (hints-show (ax-target-hints panes iterm-pane-hint-options)))
+        'on-leave (lambda () (hints-hide))
+        (append
+            (iterm-pane-bindings panes session-ids)
+            (list
+                (key "c" "Copy Mode" (keystroke '(cmd shift) "c"))
+                (key "f" "Focus" (lambda () (enter-mode! 'iterm-panes-focus)))
+                (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
+                (group "x" "Split"
+                    (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
+                    (key "j" "Down"  (keystroke '(cmd ctrl shift) "j"))
+                    (key "k" "Up"    (keystroke '(cmd ctrl shift) "k"))
+                    (key "l" "Right" (keystroke '(cmd ctrl shift) "l"))))))))
 
 ;; ─── iTerm sticky pane mode ──────────────────────────────────────
 ;;
 ;; A persistent modal: while active, hjkl move pane focus and "x h/j/k/l"
-;; splits in a direction without exiting. 'exit-on-unknown means typing
-;; any non-binding character (e.g. starting to type into the terminal
-;; again) drops the mode cleanly — no need to press Escape first.
-;; Escape still exits in one shot from any depth; Backspace steps back
-;; one level (out of Split → root → exit). The nested (group "x" ...) is
-;; itself sticky so a string of splits stays inside Split until you
-;; explicitly back out.
+;; splits in a direction without exiting. Escape exits to insert mode;
+;; Backspace steps back one level (e.g. out of the Split subgroup). The
+;; nested (group "x" 'sticky #t ...) keeps the user in Split after a split
+;; fires — useful for laying out a grid of panes in quick succession.
 ;;
-;; Entered from the regular F17 iTerm tree via `m`. The per-app iTerm tree
-;; itself stays transient (one-keypress launcher) so this is purely additive.
-(define-tree 'iterm-panes
-  'sticky #t
-  'exit-on-unknown #t
-  'display-name "iTerm Panes"
-  (key "h" "Focus Left"  (keystroke '(cmd alt) "left"))
-  (key "j" "Focus Down"  (keystroke '(cmd alt) "down"))
-  (key "k" "Focus Up"    (keystroke '(cmd alt) "up"))
-  (key "l" "Focus Right" (keystroke '(cmd alt) "right"))
-  (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
-  (key "c" "Copy Mode"   (keystroke '(cmd shift) "c"))
-  (group "x" "Split"
+;; Entered from the regular F17 iTerm tree via `p`. The bundled per-app
+;; tree stays transient (one keypress launcher) so this is purely additive.
+(define-tree 'iterm-panes-focus
     'sticky #t
-    (key "h" "Split Left"  (keystroke '(cmd ctrl shift) "h"))
-    (key "j" "Split Down"  (keystroke '(cmd ctrl shift) "j"))
-    (key "k" "Split Up"    (keystroke '(cmd ctrl shift) "k"))
-    (key "l" "Split Right" (keystroke '(cmd ctrl shift) "l"))))
+    'exit-on-unknown #t
+    'display-name "Focus"
+    (key "h" "Left"  (keystroke '(cmd alt) "left"))
+    (key "j" "Down"  (keystroke '(cmd alt) "down"))
+    (key "k" "Up"    (keystroke '(cmd alt) "up"))
+    (key "l" "Right" (keystroke '(cmd alt) "right")))
 
 ;; Dispatcher hook. For iTerm, refresh the dynamic tree (panes may have
 ;; changed) then probe the pane to pick a tree variant.
-;;
-;; Installs via (set-local-context-suffix! …) — the library's internal
-;; cell, not a top-level redefinition. A plain (define …) at the top
-;; level would silently fail to override the library's binding chain.
-(set-local-context-suffix!
-  (lambda (bundle-id)
-    (cond
-      ((equal? bundle-id "com.googlecode.iterm2")
-       (rebuild-iterm-tree!)
-       (let ((cmd (focused-terminal-foreground-command)))
-         (cond
-           ((not cmd) #f)
-           ((string-contains? cmd "nvim") "/nvim")
-           ((or (string-contains? cmd "zellij")
-                (string-contains? cmd "zj"))
-            (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
-           (else #f))))
-      (else #f))))
+(define (local-context-suffix bundle-id)
+  (cond
+    ((equal? bundle-id "com.googlecode.iterm2")
+     (rebuild-iterm-tree!)
+     (let ((cmd (focused-terminal-foreground-command)))
+       (cond
+         ((not cmd) #f)
+         ((string-contains? cmd "nvim") "/nvim")
+         ((or (string-contains? cmd "zellij")
+              (string-contains? cmd "zj"))
+          (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
+         (else #f))))
+    (else #f)))
 
 ;; Pre-register the iTerm tree at load time so lookups don't return #f
 ;; before the first leader press. Cheap when iTerm isn't running (the AX
