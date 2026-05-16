@@ -41,11 +41,11 @@ struct ChooserRenderTests {
             "ui/css.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
-            "lib/dsl.scm",
         ]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
+        try engine.evaluate("(import (modaliser dsl))")
         return engine
     }
 

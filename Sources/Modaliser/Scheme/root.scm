@@ -17,7 +17,7 @@
 (import (modaliser event-dispatch))
 (include "ui/overlay.scm")
 (include "ui/chooser.scm")
-(include "lib/dsl.scm")
+(import (modaliser dsl))
 (include "lib/web-search.scm")
 (include "lib/ax-hints.scm")
 

@@ -12,22 +12,13 @@ struct ConfigDslTests {
 
     private func loadDsl() throws -> SchemeEngine {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            throw SchemeTestError.noSchemeDir
-        }
         try engine.evaluate("""
           (import (modaliser util)
                   (modaliser keymap)
                   (modaliser state-machine))
         """)
         try engine.evaluate("(import (modaliser event-dispatch))")
-        let files = [
-            "lib/dsl.scm",
-        ]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser dsl))")
         return engine
     }
 
@@ -57,13 +48,13 @@ struct ConfigDslTests {
                   (modaliser state-machine))
         """)
         try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
         let files = [
             "lib/terminal.scm",
             "ui/dom.scm",
             "ui/css.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
-            "lib/dsl.scm",
             "lib/web-search.scm",
             "lib/ax-hints.scm",
         ]

@@ -9,17 +9,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func hotkeyHandlersRegistered() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch))")
-        let files = ["lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (set-leader! 'global F18)
@@ -33,17 +26,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func f18ThenSExecutesAction() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch))")
-        let files = ["lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define test-result #f)
@@ -63,14 +49,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func f18ThenGroupThenCommand() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch))")
-        let files = ["lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define test-result #f)
@@ -94,14 +76,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func f18ToggleExits() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch))")
-        let files = ["lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -118,14 +96,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func escapeExitsModal() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch))")
-        let files = ["lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree 'global
@@ -156,17 +130,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func localContextSuffixRoutesToSuffixedTree() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch))")
-        let files = ["lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser dsl))")
 
         // Register a plain tree and a /zellij variant, then override the hook
         // to return the suffix unconditionally. resolve-app-tree should pick
@@ -196,17 +163,10 @@ struct EndToEndSchemeModalTests {
 
     @Test func localContextSuffixFallsBackWhenHookReturnsFalse() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            return
-        }
 
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch))")
-        let files = ["lib/dsl.scm"]
-        for file in files {
-            try engine.evaluateFile(joinPath(schemePath, file))
-        }
+        try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define-tree "com.googlecode.iterm2"
