@@ -1,7 +1,7 @@
 ;; (modaliser util) — Shared utility functions used across other
 ;; (modaliser …) libraries. Pure Scheme except for the centralised
-;; LispKit re-exports below, which Phase D will replace with portable
-;; equivalents (SRFI 69 / (scheme hash-table); SRFI 13 string ops).
+;; SRFI 69 hashtable re-exports below. After Phase D this library
+;; imports only (scheme …) and (srfi …); no host-specific libraries.
 
 (define-library (modaliser util)
   (export alist-ref
@@ -9,20 +9,19 @@
           string-join
           read-file-text
           log
-          ;; Phase D: replace with SRFI 69 or (scheme hash-table) names
-          make-hashtable hashtable-set! hashtable-ref
+          ;; SRFI 69 hashtable surface (re-exported for callers that
+          ;; import (modaliser util) and don't want to depend on
+          ;; (srfi 69) by name).
+          make-hash-table hash-table-set! hash-table-ref/default
           string-hash
-          ;; Phase D: replace with SRFI 13 (string-contains, string-trim);
-          ;; SRFI 13 has no ? predicate variant, so string-contains? becomes
-          ;; a tiny shim (if (string-contains h n) #t #f) at that point.
+          ;; Local string helpers (no SRFI 13 in LispKit's bundle,
+          ;; so we implement these on (scheme base) directly).
           string-split string-trim string-contains?)
   (import (scheme base)
           (scheme file)
           (scheme write)
-          ;; Phase D: drop in favour of SRFI 69 / (scheme hash-table)
-          (lispkit hashtable)
-          ;; Phase D: drop in favour of SRFI 13 / (scheme char)
-          (lispkit string))
+          (scheme char)
+          (srfi 69))
   (begin
 
     (define (alist-ref alist key . default)
@@ -61,4 +60,61 @@
 
     (define (log . args)
       (for-each display args)
-      (newline))))
+      (newline))
+
+    ;; ─── Local string ops ───────────────────────────────────────
+    ;; Implemented on (scheme base) only; no SRFI 13 needed.
+
+    (define (string-index-of haystack needle start)
+      ;; Returns the index of the first match of needle in haystack at
+      ;; or after start, or #f if not found. Naive O(n*m) scan — fine
+      ;; for the short strings we split on (paths, command output).
+      (let ((hlen (string-length haystack))
+            (nlen (string-length needle)))
+        (if (zero? nlen)
+          start
+          (let outer ((i start))
+            (cond
+              ((> (+ i nlen) hlen) #f)
+              ((let inner ((j 0))
+                 (cond
+                   ((= j nlen) #t)
+                   ((char=? (string-ref haystack (+ i j))
+                            (string-ref needle j))
+                    (inner (+ j 1)))
+                   (else #f)))
+               i)
+              (else (outer (+ i 1))))))))
+
+    (define (string-contains? haystack needle)
+      (if (string-index-of haystack needle 0) #t #f))
+
+    (define (string-split str sep)
+      ;; Split str on every occurrence of the literal string sep.
+      ;; Matches the input/output shape the existing callers rely on:
+      ;;   (string-split "a/b/c" "/") => ("a" "b" "c")
+      ;;   (string-split "abc" "/")   => ("abc")
+      ;;   (string-split "" "/")      => ("")
+      (let ((slen (string-length str))
+            (seplen (string-length sep)))
+        (if (zero? seplen)
+          (list str)
+          (let loop ((start 0) (acc '()))
+            (let ((hit (string-index-of str sep start)))
+              (if hit
+                (loop (+ hit seplen)
+                      (cons (substring str start hit) acc))
+                (reverse (cons (substring str start slen) acc))))))))
+
+    (define (string-trim str)
+      ;; Strip leading/trailing whitespace (per char-whitespace?).
+      (let ((len (string-length str)))
+        (let scan-left ((i 0))
+          (cond
+            ((= i len) "")
+            ((char-whitespace? (string-ref str i)) (scan-left (+ i 1)))
+            (else
+              (let scan-right ((j (- len 1)))
+                (if (char-whitespace? (string-ref str j))
+                  (scan-right (- j 1))
+                  (substring str i (+ j 1))))))))) ))

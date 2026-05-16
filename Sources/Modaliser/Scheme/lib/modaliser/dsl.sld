@@ -7,7 +7,7 @@
 ;; Then write (key …), (group …), (selector …), (action …),
 ;; (define-tree …), (set-leader! …) etc. directly in their config.scm
 ;; or in their own .sld libraries. The library is portable: imports
-;; only (scheme …) and other (modaliser …) — no (lispkit …).
+;; only (scheme …) and other (modaliser …) — no host-specific libraries.
 
 (define-library (modaliser dsl)
   (export key key-range group selector action
