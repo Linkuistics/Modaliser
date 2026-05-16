@@ -132,12 +132,30 @@ Customisation example:
 See the bundled `default-config.scm` (copied to your config dir on
 first run) for an end-to-end example that combines all of these.
 
-## What's not in this phase
+## What lives outside the library tree
 
-The user-facing tree under `ui/` (overlay rendering, chooser) and the
-Google web-search helper are still `include`-style and not yet
-importable as `(modaliser …)` libraries. The bundled `default-config.scm`
-seed still uses them — `web-search-handler`, `find-installed-apps`,
-the file-chooser selector — but it references them as top-level
-bindings rather than as imports. Phase D will library-ize chooser /
-overlay / web-search and the seed will switch to explicit `(import …)`.
+The user-facing tree under `Sources/Modaliser/Scheme/ui/` (overlay
+rendering, chooser) and the Google web-search helper at
+`Sources/Modaliser/Scheme/lib/web-search.scm` are loaded by
+`root.scm` via `(include …)` rather than `(import …)`. They expose
+their bindings (`web-search-handler`, `web-search-on-select`,
+`find-installed-apps`, `activate-app`, `reveal-in-finder`,
+`open-with`) at the top level so the bundled `default-config.scm`
+seed can use them without an `(import …)` line.
+
+These modules are intentionally *not* exposed as `(modaliser …)`
+libraries: they lean on LispKit-specific bindings (WebView, JSON) and
+the spec's Phase D non-goal explicitly keeps them that way — only
+the user-facing **library** surface needs to be portable, not every
+internal `.scm` file. See [`docs/portability.md`](portability.md)
+for the formal portability contract.
+
+If you want to use any of those top-level helpers from your own
+`(import …)`-based config, you have two options:
+
+1. Reference them directly — they're in scope after `root.scm` runs,
+   so `config.scm` can call `web-search-handler` without any
+   `(import …)`. (The seed config does this.) Your config becomes
+   host-specific to that extent.
+2. Re-implement the helper in pure Scheme inside your own library
+   and import that instead.
