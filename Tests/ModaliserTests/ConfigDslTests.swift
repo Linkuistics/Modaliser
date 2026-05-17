@@ -338,4 +338,49 @@ struct ConfigDslTests {
             try engine.evaluate("(set-leader! 'global F18 'frob 1)")
         }
     }
+
+    @Test func keyStoresStickyTargetOption() throws {
+        let engine = try loadDsl()
+        try engine.evaluate("(define k (key \"h\" \"Left\" (lambda () 'ok) 'sticky-target 'iterm-panes-focus))")
+        #expect(try engine.evaluate("(eq? (node-sticky-target k) 'iterm-panes-focus)") == .true)
+    }
+
+    @Test func keyWithoutStickyTargetReturnsFalse() throws {
+        let engine = try loadDsl()
+        try engine.evaluate("(define k (key \"h\" \"Left\" (lambda () 'ok)))")
+        #expect(try engine.evaluate("(node-sticky-target k)") == .false)
+    }
+
+    @Test func keyRejectsUnknownTrailingKeyword() throws {
+        let engine = try loadDsl()
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(key \"h\" \"Left\" (lambda () 'ok) 'frob 1)")
+        }
+    }
+
+    @Test func stickyTargetKeyTransitionsModalIntoNamedMode() throws {
+        // After firing a sticky-target key's action, modal-handle-key
+        // should leave the modal active and reset its root to the named
+        // sticky mode tree — so subsequent presses act inside that mode
+        // without another leader.
+        let engine = try loadAllModules()
+        try engine.evaluate("""
+            (define fired '())
+            (define-tree 'iterm-focus-test
+              'sticky #t
+              'display-name "Focus"
+              (key "h" "Left" (lambda () (set! fired (cons 'left fired)))))
+            (define-tree 'transient-test
+              (key "h" "Focus Left"
+                (lambda () (set! fired (cons 'transient-left fired)))
+                'sticky-target 'iterm-focus-test))
+            """)
+        try engine.evaluate("(modal-enter (lookup-tree \"transient-test\") F18)")
+        try engine.evaluate("(modal-handle-key \"h\")")
+        // The transient action fired
+        #expect(try engine.evaluate("(equal? (car fired) 'transient-left)") == .true)
+        // Modal is still active, now rooted at the sticky tree
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"iterm-focus-test\"))") == .true)
+    }
 }

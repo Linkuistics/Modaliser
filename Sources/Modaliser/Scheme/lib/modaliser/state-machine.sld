@@ -12,7 +12,7 @@
     ;; Node accessors
     node-key node-label node-action node-children node-range-keys
     node-on-enter node-on-leave node-sticky? node-exit-on-unknown?
-    node-display-name
+    node-display-name node-sticky-target
     run-on-enter run-on-leave
     find-child navigate-to-path
     ;; Sticky helpers
@@ -222,6 +222,15 @@
 ;; on register-tree!. Returns #f for plain children (only roots use this).
 (define (node-display-name node)
   (let ((entry (assoc 'display-name node)))
+    (and entry (cdr entry))))
+
+;; (node-sticky-target node) → symbol or #f
+;; The mode-id to (enter-mode!) into after firing a command's action;
+;; set via 'sticky-target on (key …). Drives both runtime behaviour
+;; (modal-handle-key transitions into that mode instead of cleaning up)
+;; and overlay rendering (the cell gets a sticky marker).
+(define (node-sticky-target node)
+  (let ((entry (assoc 'sticky-target node)))
     (and entry (cdr entry))))
 
 ;; Find the child that handles KEY. Specific bindings (key …) always win
@@ -573,14 +582,23 @@
          (modal-exit)
          (if #f #f)))
       ((command? child)
-       (let ((action (node-action child))
-             (sticky? (in-sticky-context?))
-             (root-before modal-root-node))
+       (let ((action        (node-action child))
+             (sticky-target (node-sticky-target child))
+             (sticky?       (in-sticky-context?))
+             (root-before   modal-root-node))
          (when action (action))
-         (when (and modal-active? (eq? modal-root-node root-before))
-           (cond
-             (sticky? (modal-reset-to-sticky-ancestor))
-             (else    (modal-exit))))))
+         ;; 'sticky-target wins over the default transient/sticky cleanup:
+         ;; the binding declared explicit modal continuity, so transition
+         ;; into that mode regardless of the surrounding tree's stickiness.
+         ;; Skip if the action already mutated the modal root (its own
+         ;; (enter-mode! …) won).
+         (cond
+           ((and sticky-target modal-active? (eq? modal-root-node root-before))
+            (enter-mode! sticky-target))
+           ((and modal-active? (eq? modal-root-node root-before))
+            (cond
+              (sticky? (modal-reset-to-sticky-ancestor))
+              (else    (modal-exit)))))))
       ((range-command? child)
        ;; Same cleanup semantics as a plain command leaf; only the call
        ;; shape differs — the action receives the matched key so it can
