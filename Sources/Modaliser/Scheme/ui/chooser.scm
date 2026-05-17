@@ -147,8 +147,17 @@
                              "\n"
                              (host-header-css)))
          (item-count (length visible-items))
+         ;; Footer text: item count + navigation hints. Sigils — ⎋ exit,
+         ;; ⏎ choose, ↑↓ select — match the printed key glyphs. Backspace
+         ;; isn't shown because it doesn't apply in the chooser context
+         ;; (delete-in-input belongs to the input field; "back" up a tree
+         ;; is the overlay's concern). Kept in sync with the JS dynamic
+         ;; update path in push-chooser-update.
          (footer-text (string-append (number->string item-count)
-                        (if (= item-count 1) " item" " items")))
+                        (if (= item-count 1) " item" " items")
+                        " \xb7; \x238b; exit"
+                        " \xb7; \x23ce; choose"
+                        " \xb7; \x2191;\x2193; select"))
          (segments (append (modal-root-segments)
                            (list (chooser-prompt-segment prompt))))
          (body
@@ -329,8 +338,14 @@
   (when (chooser-open?)
     (let* ((results-html (render-results-inner-html chooser-filtered chooser-selected-index))
            (item-count (length chooser-filtered))
+           ;; Mirrors the initial-render footer in render-chooser-html so
+           ;; dynamic re-renders keep the navigation hints alongside the
+           ;; count.
            (footer-text (string-append (number->string item-count)
-                          (if (= item-count 1) " item" " items")))
+                          (if (= item-count 1) " item" " items")
+                          " \xb7; \x238b; exit"
+                          " \xb7; \x23ce; choose"
+                          " \xb7; \x2191;\x2193; select"))
            (js (string-append
                  "document.querySelector('.chooser-results').innerHTML = '"
                  (js-escape results-html) "';"

@@ -64,7 +64,20 @@ struct OverlayRenderTests {
         #expect(html.contains("entry-arrow"))
     }
 
-    @Test func renderOverlayHtmlIncludesFooterWithEscBackspaceHints() throws {
+    /// Returns the inner text of the overlay-footer div, or nil if missing.
+    private func extractFooter(_ html: String) -> String? {
+        let marker = "class=\"overlay-footer\">"
+        guard let start = html.range(of: marker)?.upperBound,
+              let end = html.range(of: "</div>", range: start..<html.endIndex)?.lowerBound
+        else { return nil }
+        return String(html[start..<end])
+    }
+
+    @Test func renderOverlayFooterAtRootOmitsBackspaceHint() throws {
+        // At the root of a tree, backspace doesn't apply (transient roots
+        // are a no-op for back, sticky roots only pop modal-stack in the
+        // uncommon enter-mode! caller case), so the hint is omitted.
+        // Sigils: ⎋ (U+238B) for escape, ⌫ (U+232B) for backspace.
         let engine = try loadOverlay()
         try engine.evaluate("""
             (define-tree 'global
@@ -73,10 +86,25 @@ struct OverlayRenderTests {
         let html = try engine.evaluate("""
             (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
-        // Footer is rendered after the entries; small font is base.css's job.
-        #expect(html.contains("class=\"overlay-footer\""))
-        #expect(html.contains("esc"))
-        #expect(html.contains("backspace"))
+        let footer = try #require(extractFooter(html))
+        #expect(footer.contains("\u{238B}"))
+        #expect(!footer.contains("\u{232B}"))
+    }
+
+    @Test func renderOverlayFooterInGroupShowsBackspaceHint() throws {
+        // Below the root, backspace navigates back up — surface the hint.
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (define-tree 'global
+              (group "w" "Windows"
+                (key "c" "Center" (lambda () 'ok))))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("Global") '("w"))
+            """).asString()
+        let footer = try #require(extractFooter(html))
+        #expect(footer.contains("\u{238B}"))
+        #expect(footer.contains("\u{232B}"))
     }
 
     @Test func renderOverlayHtmlPaintsStickyMarkerOnTaggedKeys() throws {
