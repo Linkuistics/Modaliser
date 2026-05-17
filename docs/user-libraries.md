@@ -101,9 +101,9 @@ zero-arg.
                                      ; iterm-register!
 (import (modaliser apps safari))     ; safari-tree, safari-register!
 (import (modaliser apps chrome))     ; chrome-tree, chrome-register!
-(import (modaliser window-actions))  ; window-actions-group,
+(import (modaliser window-actions))  ; window-actions,
                                      ; window-actions-register!
-(import (modaliser space-switching)) ; spaces-range-binding,
+(import (modaliser space-switching)) ; switch-space-actions,
                                      ; spaces-1-9-register!
 (import (modaliser leader))          ; set-global-leader!,
                                      ; set-local-leader!, set-leaders!

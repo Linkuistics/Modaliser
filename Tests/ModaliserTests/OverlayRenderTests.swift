@@ -64,6 +64,38 @@ struct OverlayRenderTests {
         #expect(html.contains("entry-arrow"))
     }
 
+    @Test func renderOverlayHtmlIncludesFooterWithEscBackspaceHints() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (define-tree 'global
+              (key "s" "Safari" (lambda () 'ok)))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("Global") '())
+            """).asString()
+        // Footer is rendered after the entries; small font is base.css's job.
+        #expect(html.contains("class=\"overlay-footer\""))
+        #expect(html.contains("esc"))
+        #expect(html.contains("backspace"))
+    }
+
+    @Test func renderOverlayHtmlPaintsStickyMarkerOnTaggedKeys() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (define-tree 'global
+              (key "h" "Focus Left" (lambda () 'ok)
+                'sticky-target 'iterm-panes-focus)
+              (key "c" "Copy" (lambda () 'ok)))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("Global") '())
+            """).asString()
+        // The sticky-target leaf gets a marker; plain keys don't.
+        #expect(html.contains("entry-sticky-marker"))
+        // The marker character (↻) is U+21BB
+        #expect(html.contains("\u{21BB}"))
+    }
+
     @Test func renderOverlayHtmlSortsEntriesByKey() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""

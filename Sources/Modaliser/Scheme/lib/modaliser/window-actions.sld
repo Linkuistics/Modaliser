@@ -6,7 +6,7 @@
 ;;
 ;;   (import (modaliser dsl) (modaliser window-actions))
 ;;   (define-tree 'global
-;;     (window-actions-group)
+;;     (window-actions)
 ;;     (key "i" "iTerm" (lambda () (launch-app "iTerm"))))
 ;;
 ;; The convenience (window-actions-register!) registers a standalone
@@ -14,7 +14,7 @@
 ;; window helpers under a dedicated leader (a separate tree-scope).
 
 (define-library (modaliser window-actions)
-  (export window-actions-group
+  (export window-actions
           window-actions-register!)
   (import (scheme base)
           (modaliser dsl)
@@ -22,7 +22,7 @@
           (modaliser window))
   (begin
 
-    (define (window-actions-group . opts)
+    (define (window-actions . opts)
       (let* ((alist        (apply props->alist opts))
              (group-key    (alist-ref alist 'key "w"))
              (group-label  (alist-ref alist 'label "Windows"))
@@ -76,4 +76,4 @@
     (define (window-actions-register! . opts)
       (let* ((alist (apply props->alist opts))
              (scope (alist-ref alist 'tree-scope 'global)))
-        (define-tree scope (apply window-actions-group opts))))))
+        (define-tree scope (apply window-actions opts))))))

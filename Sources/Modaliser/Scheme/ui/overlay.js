@@ -69,6 +69,12 @@ function updateOverlay(data) {
       var displayKey = e.key === ' ' ? '\u2423' : escapeHtml(e.key);
       var labelClass = e.isGroup ? 'entry-label group-label' : 'entry-label';
       var displayLabel = e.isGroup ? escapeHtml(e.label) + ' \u2026' : escapeHtml(e.label);
+      // Sticky-target leaves get a \u21bb marker after the label (kept in sync
+      // with render-entry in overlay.scm). The marker is a child span so
+      // base.css can style it independently of the surrounding label text.
+      if (e.isSticky) {
+        displayLabel += ' <span class="entry-sticky-marker">\u21bb</span>';
+      }
       html += '<li class="overlay-entry">';
       html += '<span class="entry-key">' + displayKey + '</span>';
       html += '<span class="entry-arrow">\u2192</span>';

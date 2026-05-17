@@ -1,27 +1,27 @@
 ;; (modaliser launchers) — Application and file launcher selectors.
 ;;
 ;; Reusable selector factories for the two most common leader entries:
-;;   • applications-selector — Spotlight-style app finder with MRU memory
+;;   • find-application-action — Spotlight-style app finder with MRU memory
 ;;     and primary/secondary actions (open, reveal in Finder, copy path,
 ;;     copy bundle ID).
-;;   • files-selector — file picker rooted at the user's home, with
+;;   • find-file-action — file picker rooted at the user's home, with
 ;;     primary/secondary actions and an "Open in editor" action.
 ;;
 ;; Quick start:
 ;;   (import (modaliser launchers))
 ;;   (define-tree 'global
-;;     (applications-selector)
-;;     (files-selector)
+;;     (find-application-action)
+;;     (find-file-action)
 ;;     …)
 ;;
 ;; Both factories accept keyword-style options with defaults that match
-;; the bundled seed. Same shape as window-actions-group: a single
+;; the bundled seed. Same shape as window-actions: a single
 ;; factory returning a composable node, no side effects until placed
 ;; inside a define-tree.
 
 (define-library (modaliser launchers)
-  (export applications-selector
-          files-selector)
+  (export find-application-action
+          find-file-action)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
@@ -39,7 +39,7 @@
     ;;   'remember      — MRU bucket name; #f disables MRU (default "apps")
     ;;   'extra-actions — list of (action …) nodes appended to the defaults
 
-    (define (applications-selector . opts)
+    (define (find-application-action . opts)
       (let* ((alist    (apply props->alist opts))
              (key-     (alist-ref alist 'key "a"))
              (label    (alist-ref alist 'label "Applications"))
@@ -82,7 +82,7 @@
     ;;                    (default "Zed")
     ;;   'extra-actions — list of (action …) nodes appended to the defaults
 
-    (define (files-selector . opts)
+    (define (find-file-action . opts)
       (let* ((alist      (apply props->alist opts))
              (key-       (alist-ref alist 'key "f"))
              (label      (alist-ref alist 'label "Files"))

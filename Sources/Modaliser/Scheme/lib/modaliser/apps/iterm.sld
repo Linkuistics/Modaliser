@@ -10,9 +10,12 @@
 ;;   (iterm-register!)
 ;;
 ;; Defaults mirror the bundled seed: digit pane labels 1..0, transient
-;; tree with "c Copy Mode", "f Focus" (enters sticky hjkl mode), "z
-;; Toggle Zoom", and a "x Split" group. The sticky 'iterm-panes-focus
-;; tree contains only Cmd+Alt+arrow hjkl focus moves.
+;; tree with "c Copy Mode"; "h/j/k/l Focus <dir>" (each fires the
+;; corresponding Cmd+Alt+arrow keystroke AND transitions into the
+;; sticky 'iterm-panes-focus mode, so subsequent hjkl presses keep
+;; moving without another leader press); "z Toggle Zoom"; and a "x
+;; Split" group. The sticky 'iterm-panes-focus tree contains only the
+;; Cmd+Alt+arrow hjkl focus moves.
 ;;
 ;; If you've already installed your own (set-local-context-suffix! …),
 ;; pass 'install-context-suffix? #f and call iterm-context-suffix-handler
@@ -172,8 +175,19 @@
             (iterm-pane-bindings panes session-ids range-label)
             (list
               (key "c" "Copy Mode" (keystroke '(cmd shift) "c"))
-              (key "f" "Focus"
-                (lambda () (enter-mode! sticky-id)))
+              ;; hjkl: focus-move AND transition into the sticky focus
+              ;; mode in a single press. First leader → h moves left and
+              ;; lands the user in 'iterm-panes-focus, so subsequent hjkl
+              ;; keys keep moving without another leader. The overlay
+              ;; paints a ↻ marker on each (via 'sticky-target).
+              (key "h" "Focus Left"  (keystroke '(cmd alt) "left")
+                'sticky-target sticky-id)
+              (key "j" "Focus Down"  (keystroke '(cmd alt) "down")
+                'sticky-target sticky-id)
+              (key "k" "Focus Up"    (keystroke '(cmd alt) "up")
+                'sticky-target sticky-id)
+              (key "l" "Focus Right" (keystroke '(cmd alt) "right")
+                'sticky-target sticky-id)
               (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
               (group "x" "Split"
                 (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
@@ -182,7 +196,8 @@
                 (key "l" "Right" (keystroke '(cmd ctrl shift) "l"))))))))
 
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
-    ;; the transient tree via "f" or via (enter-mode! 'iterm-panes-focus).
+    ;; the transient tree via any of its hjkl keys (each carries a
+    ;; 'sticky-target → here) or via (enter-mode! 'iterm-panes-focus).
     (define (iterm-focus-mode-tree)
       (list
         (key "h" "Left"  (keystroke '(cmd alt) "left"))

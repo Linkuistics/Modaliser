@@ -26,12 +26,30 @@
 ;; Pure Scheme node constructors for the command tree. These produce
 ;; alist nodes consumed by the modal state machine.
 
-;; (key k label action) → command alist
-(define (key k label action)
-  (list (cons 'kind 'command)
-        (cons 'key k)
-        (cons 'label label)
-        (cons 'action action)))
+;; (key k label action [keyword value]...) → command alist
+;;
+;; Optional trailing keyword/value pairs:
+;;   'sticky-target MODE-ID — after running `action`, transition modal
+;;                            navigation into the sticky tree registered
+;;                            under MODE-ID (a symbol). Equivalent to
+;;                            having the action end with
+;;                            (enter-mode! MODE-ID), but declarative so
+;;                            the overlay renders a marker on the cell.
+;;                            Composes with sticky ancestors (overrides
+;;                            transient/sticky cleanup on this command).
+(define (key k label action . opts)
+  (let loop ((rest opts) (acc (list (cons 'kind 'command)
+                                    (cons 'key k)
+                                    (cons 'label label)
+                                    (cons 'action action))))
+    (cond
+      ((null? rest) acc)
+      ((or (null? (cdr rest)) (not (symbol? (car rest))))
+       (error "key: expected trailing keyword/value pairs" rest))
+      ((eq? (car rest) 'sticky-target)
+       (loop (cddr rest) (cons (cons 'sticky-target (cadr rest)) acc)))
+      (else
+       (error "key: unknown keyword" (car rest))))))
 
 ;; (key-range display-key label keys action-fn) → range-command alist
 ;;

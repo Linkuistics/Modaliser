@@ -202,7 +202,7 @@
 ;; Drop-in selector node for the global tree:
 ;;
 ;;   (define-tree 'global
-;;     (google-search-selector)
+;;     (google-search-action)
 ;;     …)
 ;;
 ;; Same shape as (modaliser launchers) factories: keyword opts, sensible
@@ -216,7 +216,7 @@
 ;;   'key    — leader key (default "g")
 ;;   'label  — overlay label (default "Google Search")
 ;;   'prompt — chooser prompt (default "Search Google…")
-(define (google-search-selector . opts)
+(define (google-search-action . opts)
   (let* ((alist  (apply props->alist opts))
          (key-   (alist-ref alist 'key "g"))
          (label  (alist-ref alist 'label "Google Search"))

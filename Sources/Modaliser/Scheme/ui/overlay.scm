@@ -60,20 +60,34 @@
                       (if (string=? result "") "" sep)
                       (html-escape (car segs)))))))))))
 
-;; Render an entry for a single child node.
+;; Render an entry for a single child node. Cells whose binding carries
+;; 'sticky-target (declarative "after this action, enter that mode") get
+;; an inline ↻ marker after the label so users see at a glance that the
+;; key keeps them inside the focus mode rather than returning to the
+;; underlying app. Same marker is painted via overlay.js on dynamic
+;; updates — see push-overlay-update and the JS side.
 (define (render-entry child)
   (let* ((k (node-key child))
          (label (node-label child))
          (is-group (group? child))
+         (sticky-target (and (command? child) (node-sticky-target child)))
          (display-key (if (equal? k " ") "\x2423;" k))
          (display-label (if is-group
                           (string-append label " \x2026;")
                           label))
          (label-class (if is-group "entry-label group-label" "entry-label")))
-    (li '((class . "overlay-entry"))
-      (span '((class . "entry-key")) display-key)
-      (span '((class . "entry-arrow")) "\x2192;")
-      (span (list (cons 'class label-class)) display-label))))
+    (if sticky-target
+      (li '((class . "overlay-entry"))
+        (span '((class . "entry-key")) display-key)
+        (span '((class . "entry-arrow")) "\x2192;")
+        (span (list (cons 'class label-class))
+          (make-raw-html
+            (string-append (html-escape display-label)
+              " <span class=\"entry-sticky-marker\">\x21bb;</span>"))))
+      (li '((class . "overlay-entry"))
+        (span '((class . "entry-key")) display-key)
+        (span '((class . "entry-arrow")) "\x2192;")
+        (span (list (cons 'class label-class)) display-label)))))
 
 ;; (path-labels root path) → list of strings
 ;; Walks `path` (list of key chars) from `root`, collecting the label of
@@ -98,6 +112,13 @@
 ;; so users can theme the persistent mode indicator distinctly. Default
 ;; styling in base.css gives it an accented border using the host color
 ;; when set, otherwise a darker neutral.
+;; Static footer text — pinned at the bottom of every overlay so users
+;; can see escape/back semantics without consulting docs. Distinct from
+;; the entry list (smaller font, border-top in base.css). Context-aware
+;; variants (e.g. dimming backspace at the root of a transient tree)
+;; are a follow-up; the static line is correct in the common case.
+(define overlay-footer-text "esc: cancel \xb7; backspace: back")
+
 (define (render-overlay-body root-segments node path)
   (let* ((current  (if (null? path) node (navigate-to-path node path)))
          (children (if current (node-children current) '()))
@@ -108,7 +129,8 @@
     (div (list (cons 'class cls))
       (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons '((class . "overlay-entries"))
-                      (map render-entry sorted))))))
+                      (map render-entry sorted)))
+      (div '((class . "overlay-footer")) overlay-footer-text))))
 
 ;; Sort children alphabetically by key (insertion sort)
 (define (sort-children children)
@@ -169,13 +191,18 @@
                  (let* ((item (car items))
                         (k (node-key item))
                         (lbl (node-label item))
-                        (is-grp (group? item)))
+                        (is-grp (group? item))
+                        (is-sticky-leaf
+                          (and (command? item)
+                               (node-sticky-target item)
+                               #t)))
                    (loop (cdr items)
                          (string-append result
                            (if (string=? result "") "" ",")
                            "{\"key\":\"" (js-escape-overlay k)
                            "\",\"label\":\"" (js-escape-overlay lbl)
                            "\",\"isGroup\":" (if is-grp "true" "false")
+                           ",\"isSticky\":" (if is-sticky-leaf "true" "false")
                            "}")))))
              "]")))
     (webview-eval overlay-webview-id
