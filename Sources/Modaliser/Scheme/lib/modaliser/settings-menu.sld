@@ -7,7 +7,7 @@
 ;; Quick start:
 ;;   (import (modaliser settings-menu))
 ;;   (define-tree 'global
-;;     (settings-menu-group)
+;;     (settings-actions)
 ;;     …)
 ;;
 ;; Options (all keyword-style, all optional):
@@ -25,7 +25,7 @@
 ;; a single factory returning a composable group node.
 
 (define-library (modaliser settings-menu)
-  (export settings-menu-group)
+  (export settings-actions)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
@@ -36,7 +36,7 @@
     (define default-config-path
       "$HOME/.config/modaliser/config.scm")
 
-    (define (settings-menu-group . opts)
+    (define (settings-actions . opts)
       (let* ((alist       (apply props->alist opts))
              (group-key   (alist-ref alist 'key ","))
              (group-label (alist-ref alist 'label "Settings"))

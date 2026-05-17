@@ -45,7 +45,7 @@
 
 (define-tree 'global
 
-  (settings-menu-group)
+  (settings-actions)
 
   (switch-space-actions)
 
