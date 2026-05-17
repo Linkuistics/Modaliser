@@ -170,6 +170,15 @@ body {
   border-top: 1px solid var(--color-separator);
 }
 
+/* Footer-hint sigils (escape, backspace, return, arrows). Bumped above
+ * the surrounding footer body so the glyphs read clearly: footer text
+ * sits at (--font-size - 2px); sigils sit at (--font-size), i.e. +2px
+ * / +2pt, and bold. Same rule serves both overlay and chooser footers. */
+.sigil {
+  font-size: var(--font-size);
+  font-weight: 700;
+}
+
 /* ═══════════════════════════════════════════════════════════ */
 /* Chooser                                                     */
 /* ═══════════════════════════════════════════════════════════ */

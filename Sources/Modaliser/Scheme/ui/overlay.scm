@@ -125,6 +125,26 @@
 ;; modal-stack in the uncommon enter-mode! caller case), so the hint is
 ;; omitted there to avoid advertising a binding that wouldn't do
 ;; anything useful from the user's perspective.
+;; Sigil glyphs are wrapped in <span class="sigil"> so base.css can bump
+;; their font-size + weight above the surrounding footer body — the raw
+;; glyphs are too small at the footer's default size.
+(define overlay-sigil-escape "<span class=\"sigil\">\x238b;</span>")
+(define overlay-sigil-back   "<span class=\"sigil\">\x232b;</span>")
+
+(define overlay-footer-html-root
+  (string-append overlay-sigil-escape " cancel"))
+(define overlay-footer-html-deep
+  (string-append overlay-sigil-escape " cancel \xb7; "
+                 overlay-sigil-back " back"))
+
+(define (footer-html-for-path path)
+  (if (null? path) overlay-footer-html-root overlay-footer-html-deep))
+
+;; Plain-text equivalents — push-overlay-update sends one of these
+;; through the JSON footer channel; overlay.js sets innerHTML so the
+;; sigil spans render the same way on dynamic re-renders as on the
+;; initial paint. (Kept around as plain text in case a non-HTML consumer
+;; ever wants the bare sigils.)
 (define overlay-footer-text-root "\x238b; cancel")
 (define overlay-footer-text-deep "\x238b; cancel \xb7; \x232b; back")
 
@@ -142,7 +162,8 @@
       (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons '((class . "overlay-entries"))
                       (map render-entry sorted)))
-      (div '((class . "overlay-footer")) (footer-text-for-path path)))))
+      (div '((class . "overlay-footer"))
+        (make-raw-html (footer-html-for-path path))))))
 
 ;; Sort children alphabetically by key (insertion sort)
 (define (sort-children children)
@@ -221,7 +242,7 @@
       (string-append "updateOverlay({\"rootSegments\":" segments-json
         ",\"path\":" path-json
         ",\"sticky\":" (if sticky? "true" "false")
-        ",\"footer\":\"" (js-escape-overlay (footer-text-for-path path)) "\""
+        ",\"footer\":\"" (js-escape-overlay (footer-html-for-path path)) "\""
         ",\"entries\":" entries-json "})"))))
 
 ;; Escape string for embedding in JSON/JS string literal.
