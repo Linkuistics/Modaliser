@@ -148,6 +148,18 @@ body {
   color: var(--color-group);
 }
 
+/* Sticky-target marker. Painted on (key …) leaves declared with
+ * 'sticky-target — the cell both fires its action and transitions the
+ * modal into the named sticky mode, so users can chain hjkl moves
+ * without re-pressing the leader. The accent picks up the host header
+ * colour so the marker reads as "mode persistence" rather than "this
+ * is the answer to a different question". */
+.entry-sticky-marker {
+  color: var(--color-host-bg, var(--color-group));
+  font-size: calc(var(--font-size) - 1px);
+  margin-left: 6px;
+}
+
 /* ─── Footer ───────────────────────────────────────────────── */
 
 .overlay-footer {
