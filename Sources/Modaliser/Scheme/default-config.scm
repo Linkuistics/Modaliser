@@ -23,6 +23,7 @@
         (prefix (modaliser launchers)       launcher:)
         (prefix (modaliser window-actions)  window:)
         (prefix (modaliser space-switching) space:)
+        (prefix (modaliser web-search)      web-search:)
         (prefix (modaliser apps safari)     safari:)
         (prefix (modaliser apps iterm)      iterm:))
 
@@ -70,12 +71,7 @@
   (key "o" "Obsidian" (lambda () (launch-app "Obsidian")))
   (key "z" "Zotero"   (lambda () (launch-app "Zotero")))
 
-  ;; Google Search still lives at top-level in lib/web-search.scm (the
-  ;; legacy flat include) so its name isn't prefixable yet — when
-  ;; ui/chooser.scm is carved into (modaliser chooser), web-search can
-  ;; become a real (modaliser web-search) library and `google-search-action`
-  ;; will move to e.g. `web-search:google`.
-  (google-search-action)
+  (web-search:google)
 
   (launcher:find-application)
   (launcher:find-file)

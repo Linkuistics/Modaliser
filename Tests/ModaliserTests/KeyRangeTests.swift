@@ -40,8 +40,8 @@ struct KeyRangeTests {
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
+        try engine.evaluate("(import (modaliser dom))")
         let files = [
-            "ui/dom.scm",
             "ui/css.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",

@@ -51,16 +51,18 @@ struct ConfigDslTests {
         try engine.evaluate("(import (modaliser dsl))")
         try engine.evaluate("(import (modaliser terminal))")
         try engine.evaluate("(import (modaliser ax-hints))")
+        try engine.evaluate("(import (modaliser dom))")
+        try engine.evaluate("(import (modaliser web-search))")
         let files = [
-            "ui/dom.scm",
             "ui/css.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
-            "lib/web-search.scm",
         ]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
+        // Wire the chooser-push injection (mirrors root.scm).
+        try engine.evaluate("(set-chooser-push! chooser-push-results)")
         return engine
     }
 
