@@ -94,36 +94,40 @@ that registers the tree under a sensible default scope. Builders
 accept alist-style keyword options; the simplest call is always
 zero-arg.
 
+The factory libraries use bare-name exports (`register!`, `actions`,
+`tree`, `find-application`, …). Import them with R7RS's `prefix`
+modifier so call sites read as `<lib>:<verb>` and bare names from
+different libraries don't collide:
+
 ```scheme
-(import (modaliser apps iterm))      ; iterm-rebuild-tree!,
-                                     ; iterm-focus-mode-register!,
-                                     ; iterm-context-suffix-handler,
-                                     ; iterm-register!
-(import (modaliser apps safari))     ; safari-tree, safari-register!
-(import (modaliser apps chrome))     ; chrome-tree, chrome-register!
-(import (modaliser window-actions))  ; window-actions,
-                                     ; window-actions-register!
-(import (modaliser space-switching)) ; switch-space-actions,
-                                     ; spaces-1-9-register!
-(import (modaliser leader))          ; set-global-leader!,
-                                     ; set-local-leader!, set-leaders!
-(import (modaliser ax-hints))        ; ax-find-labelled,
-                                     ; ax-target-bindings,
-                                     ; ax-target-hints, label-pairs,
-                                     ; default-hint-options
-(import (modaliser terminal))        ; focused-terminal-foreground-command,
-                                     ; focused-nvim-socket,
-                                     ; nvim-remote-send / nvim-remote-expr,
-                                     ; modaliser-tool-path
+(import (prefix (modaliser apps iterm)      iterm:)    ; iterm:register!,
+                                                       ; iterm:rebuild-tree!,
+                                                       ; iterm:focus-mode-register!,
+                                                       ; iterm:context-suffix-handler
+        (prefix (modaliser apps safari)     safari:)   ; safari:tree, safari:register!
+        (prefix (modaliser apps chrome)     chrome:)   ; chrome:tree, chrome:register!
+        (prefix (modaliser window-actions)  window:)   ; window:actions, window:register!
+        (prefix (modaliser space-switching) space:)    ; space:switch-actions, space:register!
+        (prefix (modaliser launchers)       launcher:) ; launcher:find-application,
+                                                       ; launcher:find-file
+        (prefix (modaliser settings-menu)   settings:) ; settings:actions
+        (modaliser leader)                             ; set-global-leader!,
+                                                       ; set-local-leader!, set-leaders!
+        (modaliser ax-hints)                           ; ax-find-labelled, …
+        (modaliser terminal))                          ; focused-terminal-foreground-command, …
 ```
+
+Foundational libraries (`leader`, `ax-hints`, `terminal`, `dsl`,
+`util`, …) keep unique long names and are imported unprefixed because
+they're the vocabulary that runs throughout the config.
 
 Customisation example:
 
 ```scheme
-(import (modaliser apps safari))
-(safari-register!)                              ; defaults
+(import (prefix (modaliser apps safari) safari:))
+(safari:register!)                              ; defaults
 
-(safari-register!                               ; or customised
+(safari:register!                               ; or customised
   'extra-bindings
     (list (key "/" "Search"
             (lambda () (send-keystroke '(cmd) "f")))))

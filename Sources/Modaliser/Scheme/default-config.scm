@@ -5,6 +5,11 @@
 ;; theme colour and which library factories to splice into the global
 ;; tree. Tweak freely; restart Modaliser (or use the "," → "r" reload
 ;; binding) to see your changes.
+;;
+;; The (modaliser …) factory libraries use bare-name exports (`register!`,
+;; `actions`, `tree`, etc.); imports are prefix-style so the call sites
+;; read as `<lib>:<verb>` — see https://small.r7rs.org for the `prefix`
+;; import modifier.
 
 (import (modaliser dsl)
         (modaliser keyboard)
@@ -14,12 +19,12 @@
         (modaliser pasteboard)
         (modaliser lifecycle)
         (modaliser leader)
-        (modaliser settings-menu)
-        (modaliser launchers)
-        (modaliser window-actions)
-        (modaliser space-switching)
-        (modaliser apps safari)
-        (modaliser apps iterm))
+        (prefix (modaliser settings-menu)   settings:)
+        (prefix (modaliser launchers)       launcher:)
+        (prefix (modaliser window-actions)  window:)
+        (prefix (modaliser space-switching) space:)
+        (prefix (modaliser apps safari)     safari:)
+        (prefix (modaliser apps iterm)      iterm:))
 
 ;; ─── Theme ───────────────────────────────────────────────────────
 
@@ -45,9 +50,9 @@
 
 (define-tree 'global
 
-  (settings-actions)
+  (settings:actions)
 
-  (switch-space-actions)
+  (space:switch-actions)
 
   ;; Quick-launch keys
   (key "b" "Browser - Dia"    (lambda () (launch-app "Dia")))
@@ -65,18 +70,24 @@
   (key "o" "Obsidian" (lambda () (launch-app "Obsidian")))
   (key "z" "Zotero"   (lambda () (launch-app "Zotero")))
 
+  ;; Google Search still lives at top-level in lib/web-search.scm (the
+  ;; legacy flat include) so its name isn't prefixable yet — when
+  ;; ui/chooser.scm is carved into (modaliser chooser), web-search can
+  ;; become a real (modaliser web-search) library and `google-search-action`
+  ;; will move to e.g. `web-search:google`.
   (google-search-action)
-  (find-application-action)
-  (find-file-action)
-  (window-actions))
+
+  (launcher:find-application)
+  (launcher:find-file)
+  (window:actions))
 
 ;; ─── Per-app trees (F17 when that app is focused) ────────────────
 
-(safari-register!)
+(safari:register!)
 
 ;; iTerm: dynamic-pane tree + sticky 'iterm-panes-focus mode + context-
 ;; suffix handler. Only the chip background needs threading through;
 ;; everything else (label set, font, padding, etc.) defaults inside
 ;; the library.
-(iterm-register!
+(iterm:register!
   'hint-options (list (cons 'background the-color)))

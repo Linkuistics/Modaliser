@@ -1,11 +1,13 @@
 ;; (modaliser apps safari) — minimal Safari per-app tree.
 ;;
-;;   (safari-register!)                 ; defaults
-;;   (safari-register! 'extra-bindings (list (key "/" "Search" …)))
+;; Recommended import is prefix-style (bare exports collide with peers):
+;;   (import (prefix (modaliser apps safari) safari:))
+;;   (safari:register!)                 ; defaults
+;;   (safari:register! 'extra-bindings (list (key "/" "Search" …)))
 
 (define-library (modaliser apps safari)
-  (export safari-tree
-          safari-register!)
+  (export tree
+          register!)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
@@ -15,7 +17,7 @@
     (define (keystroke mods key-name)
       (lambda () (send-keystroke mods key-name)))
 
-    (define (safari-tree . opts)
+    (define (tree . opts)
       (let* ((alist (apply props->alist opts))
              (extra (alist-ref alist 'extra-bindings '())))
         (append
@@ -29,5 +31,5 @@
               (key "f" "Find on Page"      (keystroke '(cmd) "f"))))
           extra)))
 
-    (define (safari-register! . opts)
-      (apply define-tree 'com.apple.Safari (apply safari-tree opts)))))
+    (define (register! . opts)
+      (apply define-tree 'com.apple.Safari (apply tree opts)))))

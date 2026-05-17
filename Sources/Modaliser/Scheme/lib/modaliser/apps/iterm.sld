@@ -5,9 +5,10 @@
 ;; layout. Pane chips are painted while the overlay is visible; each
 ;; chip's digit focuses that pane by UUID (race-free, no event injection).
 ;;
-;; Quick start:
-;;   (import (modaliser apps iterm))
-;;   (iterm-register!)
+;; Quick start (prefix-style import — recommended; bare exports like
+;; `register!`, `tree`, etc. collide with peer libraries):
+;;   (import (prefix (modaliser apps iterm) iterm:))
+;;   (iterm:register!)
 ;;
 ;; Defaults mirror the bundled seed: digit pane labels 1..0, transient
 ;; tree with "c Copy Mode"; "h/j/k/l Focus <dir>" (each fires the
@@ -18,7 +19,7 @@
 ;; Cmd+Alt+arrow hjkl focus moves.
 ;;
 ;; If you've already installed your own (set-local-context-suffix! …),
-;; pass 'install-context-suffix? #f and call iterm-context-suffix-handler
+;; pass 'install-context-suffix? #f and call context-suffix-handler
 ;; from inside your own composed handler.
 ;;
 ;; Pane selection bridges AX → iTerm AppleScript by walk-order index:
@@ -32,13 +33,13 @@
 ;; source needs no escaping.
 
 (define-library (modaliser apps iterm)
-  (export iterm-rebuild-tree!
-          iterm-focus-mode-tree
-          iterm-focus-mode-register!
-          iterm-context-suffix-handler
-          iterm-register!
-          iterm-default-pane-labels
-          iterm-default-hint-options)
+  (export rebuild-tree!
+          focus-mode-tree
+          focus-mode-register!
+          context-suffix-handler
+          register!
+          default-pane-labels
+          default-chip-options)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -52,13 +53,13 @@
           (modaliser terminal))
   (begin
 
-    (define iterm-default-pane-labels
+    (define default-pane-labels
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
 
     ;; iTerm-tuned chip appearance: large, neutral defaults so the library
     ;; has no theme coupling. Seeds typically override 'background to
     ;; their host-header colour for a consistent look.
-    (define iterm-default-hint-options
+    (define default-chip-options
       (list (cons 'offset-x-frac 0.02)
             (cons 'offset-y-frac 0.02)
             (cons 'font-size 56)
@@ -144,7 +145,7 @@
     ;; defaults — user keys win, missing keys fall back to defaults.
     ;; Pass '() (or omit 'hint-options entirely) to take all defaults.
     (define (merge-hint-options overrides)
-      (let loop ((rest iterm-default-hint-options) (acc '()))
+      (let loop ((rest default-chip-options) (acc '()))
         (cond
           ((null? rest) (append (reverse acc) overrides))
           (else
@@ -156,9 +157,9 @@
     ;; Rebuild and re-register the 'com.googlecode.iterm2 tree from
     ;; the current iTerm pane layout. Cheap when iTerm isn't running
     ;; (AX returns empty, no panes contribute to the range).
-    (define (iterm-rebuild-tree! . opts)
+    (define (rebuild-tree! . opts)
       (let* ((alist        (apply props->alist opts))
-             (labels       (alist-ref alist 'pane-labels iterm-default-pane-labels))
+             (labels       (alist-ref alist 'pane-labels default-pane-labels))
              (hint-overrides (alist-ref alist 'hint-options '()))
              (hint-options (merge-hint-options hint-overrides))
              (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
@@ -198,14 +199,14 @@
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
     ;; the transient tree via any of its hjkl keys (each carries a
     ;; 'sticky-target → here) or via (enter-mode! 'iterm-panes-focus).
-    (define (iterm-focus-mode-tree)
+    (define (focus-mode-tree)
       (list
         (key "h" "Left"  (keystroke '(cmd alt) "left"))
         (key "j" "Down"  (keystroke '(cmd alt) "down"))
         (key "k" "Up"    (keystroke '(cmd alt) "up"))
         (key "l" "Right" (keystroke '(cmd alt) "right"))))
 
-    (define (iterm-focus-mode-register! . opts)
+    (define (focus-mode-register! . opts)
       (let* ((alist     (apply props->alist opts))
              (id        (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
              (disp-name (alist-ref alist 'display-name "Focus")))
@@ -213,7 +214,7 @@
           'sticky #t
           'exit-on-unknown #t
           'display-name disp-name
-          (iterm-focus-mode-tree))))
+          (focus-mode-tree))))
 
     ;; Variant string for the focused iTerm pane, used by the
     ;; (modaliser event-dispatch) dispatcher to select sub-tree variants
@@ -221,17 +222,17 @@
     ;; Side-effect: rebuilds the iTerm tree so subsequent lookups see the
     ;; current pane layout.
     ;;
-    ;; Accepts the same trailing opts as iterm-rebuild-tree! ('pane-labels,
+    ;; Accepts the same trailing opts as rebuild-tree! ('pane-labels,
     ;; 'hint-options, 'pane-range-label, 'sticky-mode-id). They are forwarded
     ;; to the rebuild call so per-press registrations honour the user's
     ;; customisation rather than reverting to the library's neutral
-    ;; defaults. iterm-register! captures opts in a closure for this
+    ;; defaults. register! captures opts in a closure for this
     ;; reason; users composing their own handler can pass opts at call
     ;; site too.
-    (define (iterm-context-suffix-handler bundle-id . opts)
+    (define (context-suffix-handler bundle-id . opts)
       (cond
         ((equal? bundle-id "com.googlecode.iterm2")
-         (apply iterm-rebuild-tree! opts)
+         (apply rebuild-tree! opts)
          (let ((cmd (focused-terminal-foreground-command)))
            (cond
              ((not cmd) #f)
@@ -245,9 +246,9 @@
     ;; One-stop convenience: register the dynamic iTerm tree, the sticky
     ;; focus mode, and install the context-suffix handler. Pass
     ;; 'install-context-suffix? #f if you compose your own handler — your
-    ;; handler can then call (iterm-context-suffix-handler bid …opts) to
+    ;; handler can then call (context-suffix-handler bid …opts) to
     ;; delegate the iTerm branch.
-    (define (iterm-register! . opts)
+    (define (register! . opts)
       (let* ((alist (apply props->alist opts))
              (install? (alist-ref alist 'install-context-suffix? #t))
              (forwarded
@@ -255,15 +256,15 @@
                  (cond
                    ((null? kvs) (reverse acc))
                    ((null? (cdr kvs))
-                    (error "iterm-register!: odd keyword/value list"))
+                    (error "register!: odd keyword/value list"))
                    ((eq? (car kvs) 'install-context-suffix?)
                     (loop (cddr kvs) acc))
                    (else
                     (loop (cddr kvs)
                           (cons (cadr kvs) (cons (car kvs) acc))))))))
-        (apply iterm-rebuild-tree! forwarded)
-        (apply iterm-focus-mode-register! forwarded)
+        (apply rebuild-tree! forwarded)
+        (apply focus-mode-register! forwarded)
         (when install?
           (set-local-context-suffix!
             (lambda (bundle-id)
-              (apply iterm-context-suffix-handler bundle-id forwarded))))))))
+              (apply context-suffix-handler bundle-id forwarded))))))))
