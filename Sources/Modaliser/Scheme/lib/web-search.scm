@@ -196,3 +196,32 @@
 (define (web-search-on-select item)
   (let ((url (alist-ref item 'search-url #f)))
     (when url (open-url url))))
+
+;; ─── Selector factory ────────────────────────────────────────
+;;
+;; Drop-in selector node for the global tree:
+;;
+;;   (define-tree 'global
+;;     (google-search-selector)
+;;     …)
+;;
+;; Same shape as (modaliser launchers) factories: keyword opts, sensible
+;; defaults matching the bundled seed. Lives here rather than in a real
+;; (modaliser …) library because the dynamic-search callback depends on
+;; chooser-push-results (defined in ui/chooser.scm, still a flat include).
+;; Carving chooser into a library would lift this up to a real library;
+;; the surface stays the same.
+;;
+;; Options:
+;;   'key    — leader key (default "g")
+;;   'label  — overlay label (default "Google Search")
+;;   'prompt — chooser prompt (default "Search Google…")
+(define (google-search-selector . opts)
+  (let* ((alist  (apply props->alist opts))
+         (key-   (alist-ref alist 'key "g"))
+         (label  (alist-ref alist 'label "Google Search"))
+         (prompt (alist-ref alist 'prompt "Search Google…")))
+    (selector key- label
+      'prompt prompt
+      'dynamic-search web-search-handler
+      'on-select web-search-on-select)))

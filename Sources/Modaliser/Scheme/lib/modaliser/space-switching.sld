@@ -8,8 +8,12 @@
 ;; "1..9 Goto Space <n>". Splice into your tree:
 ;;
 ;;   (define-tree 'global
-;;     (spaces-range-binding 'display-key "1..")
+;;     (spaces-range-binding)
 ;;     ...)
+;;
+;; The overlay row collapses to "1.. Goto Space <n>" by default — the
+;; open-ended ".." matches the seed's compact look. Override with
+;; 'display-key for a closed range (e.g. "1..9").
 
 (define-library (modaliser space-switching)
   (export spaces-range-binding
@@ -23,18 +27,12 @@
     (define default-keys
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9"))
 
-    (define (last-elem lst)
-      (cond
-        ((null? lst) (error "spaces-range-binding: empty keys list"))
-        ((null? (cdr lst)) (car lst))
-        (else (last-elem (cdr lst)))))
-
     (define (spaces-range-binding . opts)
       (let* ((alist        (apply props->alist opts))
              (keys         (alist-ref alist 'keys default-keys))
              (label        (alist-ref alist 'label "Goto Space <n>"))
              (modifiers    (alist-ref alist 'modifiers '(ctrl)))
-             (default-disp (string-append (car keys) ".." (last-elem keys)))
+             (default-disp (string-append (car keys) ".."))
              (display      (alist-ref alist 'display-key default-disp)))
         (key-range display label keys
           (lambda (k) (send-keystroke modifiers k)))))

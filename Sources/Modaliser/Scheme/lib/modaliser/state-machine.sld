@@ -46,7 +46,8 @@
           (modaliser util)
           (modaliser app)
           (modaliser keyboard)
-          (modaliser lifecycle))
+          (modaliser lifecycle)
+          (modaliser shell))
   (begin
 
 ;; Manages command tree registration, lookup, and modal navigation.
@@ -676,34 +677,43 @@
 (define host-header-foreground #f)         ;; CSS colour string or #f
 (define host-header-separator-color #f)    ;; CSS colour string or #f
 
-;; (set-host-header! 'name VAL
+;; (set-host-header! [ 'name            VAL ]
 ;;                   [ 'background      CSS ]
 ;;                   [ 'foreground      CSS ]
 ;;                   [ 'separator-color CSS ])
 ;;
-;; Keyword-style API mirroring set-leader!.  Only 'name is required.
-;; Re-calling overwrites the previous values. All values are whitespace-
-;; trimmed so (run-shell "hostname -s") and similar shell-derived strings
-;; can be passed directly without callers handling the trailing newline.
+;; Keyword-style API mirroring set-leaders!. All keywords are optional:
+;;   'name        defaults to (run-shell "hostname -s")
+;;   'foreground  defaults to "white" when 'background is also supplied
+;;                (the "thread the theme through" use case); otherwise #f
+;;   'background  no default (header recolour only when set)
+;; The seed config typically only overrides 'background to thread the
+;; host-theme colour through. Re-calling overwrites the previous values.
+;; All values are whitespace-trimmed so (run-shell …) outputs can be
+;; passed directly without callers stripping the trailing newline.
 (define (set-host-header! . args)
   (let loop ((rest args)
-             (name #f) (bg #f) (fg #f) (sep #f) (saw-name? #f))
+             (name #f) (bg #f) (fg #f) (sep #f)
+             (saw-name? #f) (saw-fg? #f))
     (cond
       ((null? rest)
-       (unless saw-name?
-         (error "set-host-header!: missing required 'name keyword"))
-       (set! host-header-name (string-trim name))
-       (set! host-header-background (and bg (string-trim bg)))
-       (set! host-header-foreground (and fg (string-trim fg)))
-       (set! host-header-separator-color (and sep (string-trim sep))))
+       (let* ((resolved-name (if saw-name? name (run-shell "hostname -s")))
+              (resolved-fg   (cond
+                               (saw-fg? fg)
+                               (bg      "white")
+                               (else    #f))))
+         (set! host-header-name (string-trim resolved-name))
+         (set! host-header-background (and bg (string-trim bg)))
+         (set! host-header-foreground (and resolved-fg (string-trim resolved-fg)))
+         (set! host-header-separator-color (and sep (string-trim sep)))))
       ((eq? (car rest) 'name)
-       (loop (cddr rest) (cadr rest) bg fg sep #t))
+       (loop (cddr rest) (cadr rest) bg fg sep #t saw-fg?))
       ((eq? (car rest) 'background)
-       (loop (cddr rest) name (cadr rest) fg sep saw-name?))
+       (loop (cddr rest) name (cadr rest) fg sep saw-name? saw-fg?))
       ((eq? (car rest) 'foreground)
-       (loop (cddr rest) name bg (cadr rest) sep saw-name?))
+       (loop (cddr rest) name bg (cadr rest) sep saw-name? #t))
       ((eq? (car rest) 'separator-color)
-       (loop (cddr rest) name bg fg (cadr rest) saw-name?))
+       (loop (cddr rest) name bg fg (cadr rest) saw-name? saw-fg?))
       (else
        (error "set-host-header!: unknown keyword" (car rest))))))
 

@@ -24,8 +24,8 @@
 
     (define (window-actions-group . opts)
       (let* ((alist        (apply props->alist opts))
-             (group-key    (alist-ref alist 'group-key "w"))
-             (group-label  (alist-ref alist 'group-label "Windows"))
+             (group-key    (alist-ref alist 'key "w"))
+             (group-label  (alist-ref alist 'label "Windows"))
              (include-sw?  (alist-ref alist 'include-switcher? #t))
              (extra        (alist-ref alist 'extra-bindings '()))
              (core
