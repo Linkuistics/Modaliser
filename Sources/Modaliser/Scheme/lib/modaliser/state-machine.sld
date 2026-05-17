@@ -22,13 +22,14 @@
     ;; Modal state
     modal-active? modal-current-node modal-root-node modal-current-path
     modal-leader-keycode modal-overlay-generation modal-overlay-delay
+    overlay-target-aspect-ratio
     modal-root-segments set-modal-root-segments! modal-stack
     modal-current-context modal-apply-context!
     ;; Modal lifecycle
     modal-enter modal-exit modal-step-back modal-handle-key
     modal-show-overlay-now modal-show-overlay-delayed
     enter-mode!
-    set-overlay-delay!
+    set-overlay-delay! set-overlay-aspect-ratio!
     ;; Key handler hook (installed by event-dispatch after it defines modal-key-handler)
     set-modal-key-handler!
     ;; Overlay/chooser hooks
@@ -322,6 +323,18 @@
 (define modal-leader-keycode #f)
 (define modal-overlay-generation 0) ;; generation counter for delayed overlay show
 (define modal-overlay-delay 1.0)    ;; seconds before overlay appears (0 = immediate)
+
+;; Target width:height ratio for the multi-column overlay layout. The
+;; overlay renderer picks the column count that gets closest to this
+;; ratio for the current entry count, then trades vertical height for
+;; horizontal width as more items pile up. 1.6 ≈ 16:10, golden-ish.
+;;
+;; Exported as a thunk (procedure) for the same reason as
+;; modal-root-segments: LispKit snapshots variable bindings at import
+;; time, so a value-form import would see 1.6 forever even after the
+;; library's setter mutated %overlay-target-aspect-ratio.
+(define %overlay-target-aspect-ratio 1.6)
+(define (overlay-target-aspect-ratio) %overlay-target-aspect-ratio)
 ;; modal-root-segments is exported as a *procedure* (thunk) for the same reason
 ;; as overlay-open?: LispKit snapshots '() at compile time in importing scopes.
 (define %modal-root-segments '())    ;; breadcrumb root: host? + scope segments
@@ -355,6 +368,12 @@
 ;; 0 shows the overlay immediately; typical values are 0.3–1.0 seconds.
 (define (set-overlay-delay! seconds)
   (set! modal-overlay-delay seconds))
+
+;; (set-overlay-aspect-ratio! ratio) — set the target width:height
+;; ratio used by the overlay renderer to pick a column count. 1.0
+;; is square; larger values prefer wider/shorter layouts.
+(define (set-overlay-aspect-ratio! ratio)
+  (set! %overlay-target-aspect-ratio ratio))
 
 ;; ─── Modal Navigation ──────────────────────────────────────────
 

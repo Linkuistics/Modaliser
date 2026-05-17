@@ -41,6 +41,36 @@
 (define overlay-panel-width 340)
 (define overlay-panel-height 400)
 
+;; Pixel estimates per entry, used to pick a column count that matches
+;; the user's target aspect ratio (overlay-target-aspect-ratio in
+;; (modaliser state-machine)). The monospaced font keeps these stable;
+;; the exact values aren't critical — they only seed the integer search
+;; below, and the user can re-tune via set-overlay-aspect-ratio!.
+(define overlay-col-width-px 200)   ;; key + arrow + label + padding
+(define overlay-row-height-px 22)   ;; font-size 14 × line-height ≈ 1.4 + pad
+
+;; (overlay-column-count item-count) → integer ≥ 1
+;;
+;; Pick the column count N whose resulting overlay shape — N columns of
+;; ceil(item-count / N) rows — comes closest to overlay-target-aspect-ratio.
+;; Integer search over N ∈ [1, item-count]; cheap (≤ item-count
+;; iterations, typically <20). Avoids importing (scheme inexact) — `/`
+;; on integers yields exact rationals which `abs` and `<` handle.
+(define (overlay-column-count item-count)
+  (if (<= item-count 1)
+    1
+    (let loop ((n 1) (best 1) (best-diff #f))
+      (if (> n item-count)
+        best
+        (let* ((rows  (quotient (+ item-count n -1) n))   ;; ceil(item-count/n)
+               (w     (* n overlay-col-width-px))
+               (h     (* rows overlay-row-height-px))
+               (ratio (/ w h))
+               (diff  (abs (- ratio (overlay-target-aspect-ratio)))))
+          (if (or (not best-diff) (< diff best-diff))
+            (loop (+ n 1) n diff)
+            (loop (+ n 1) best best-diff)))))))
+
 ;; ─── Rendering (Pure Functions) ───────────────────────────────
 
 ;; Build a breadcrumb header from a list of segments.
@@ -155,13 +185,21 @@
   (let* ((current  (if (null? path) node (navigate-to-path node path)))
          (children (if current (node-children current) '()))
          (sorted   (sort-children children))
+         (n-items  (length sorted))
+         (n-cols   (overlay-column-count n-items))
          (segments (append root-segments (path-labels node path)))
          (sticky?  (and (deepest-sticky-on-path node path) #t))
-         (cls      (if sticky? "overlay sticky" "overlay")))
+         (cls      (if sticky? "overlay sticky" "overlay"))
+         (entries-attrs
+           (list (cons 'class "overlay-entries")
+                 ;; Pass column count through CSS custom prop — keeps the
+                 ;; default-1 fallback in base.css and lets the same JS
+                 ;; update path tweak the value without touching markup.
+                 (cons 'style (string-append "--overlay-cols: "
+                                             (number->string n-cols))))))
     (div (list (cons 'class cls))
       (render-header-breadcrumb "overlay-header" segments)
-      (apply ul (cons '((class . "overlay-entries"))
-                      (map render-entry sorted)))
+      (apply ul (cons entries-attrs (map render-entry sorted)))
       (div '((class . "overlay-footer"))
         (make-raw-html (footer-html-for-path path))))))
 
@@ -243,6 +281,7 @@
         ",\"path\":" path-json
         ",\"sticky\":" (if sticky? "true" "false")
         ",\"footer\":\"" (js-escape-overlay (footer-html-for-path path)) "\""
+        ",\"cols\":" (number->string (overlay-column-count (length sorted)))
         ",\"entries\":" entries-json "})"))))
 
 ;; Escape string for embedding in JSON/JS string literal.

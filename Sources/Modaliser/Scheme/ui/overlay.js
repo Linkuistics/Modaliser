@@ -69,8 +69,14 @@ function updateOverlay(data) {
     footer.innerHTML = data.footer;
   }
 
-  // Update entry list
+  // Update entry list — column count comes through as data.cols and is
+  // applied as a CSS custom property the entries' .overlay-entries rule
+  // reads via var(--overlay-cols). Mirrors the inline style emitted by
+  // render-overlay-body for the initial paint.
   var ul = document.querySelector('.overlay-entries');
+  if (ul && typeof data.cols === 'number') {
+    ul.style.setProperty('--overlay-cols', String(data.cols));
+  }
   if (ul) {
     var html = '';
     var entries = data.entries;
