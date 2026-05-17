@@ -137,13 +137,27 @@
                     (if sid (cons (cons label sid) label->sid) label->sid)
                     (if sid (cons label keys)                  keys)))))))
 
+    ;; Merge an alist of user overrides into the iTerm hint-option
+    ;; defaults — user keys win, missing keys fall back to defaults.
+    ;; Pass '() (or omit 'hint-options entirely) to take all defaults.
+    (define (merge-hint-options overrides)
+      (let loop ((rest iterm-default-hint-options) (acc '()))
+        (cond
+          ((null? rest) (append (reverse acc) overrides))
+          (else
+            (let ((k (car (car rest))))
+              (if (assoc k overrides)
+                (loop (cdr rest) acc)
+                (loop (cdr rest) (cons (car rest) acc))))))))
+
     ;; Rebuild and re-register the 'com.googlecode.iterm2 tree from
     ;; the current iTerm pane layout. Cheap when iTerm isn't running
     ;; (AX returns empty, no panes contribute to the range).
     (define (iterm-rebuild-tree! . opts)
       (let* ((alist        (apply props->alist opts))
              (labels       (alist-ref alist 'pane-labels iterm-default-pane-labels))
-             (hint-options (alist-ref alist 'hint-options iterm-default-hint-options))
+             (hint-overrides (alist-ref alist 'hint-options '()))
+             (hint-options (merge-hint-options hint-overrides))
              (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
              (sticky-id    (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
              (raw-panes    (ax-find-elements-named
