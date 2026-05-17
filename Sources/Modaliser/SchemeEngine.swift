@@ -1,20 +1,33 @@
 import Foundation
 import LispKit
 
-/// Locate LispKit's bundled R7RS+SRFI Libraries directory for use under
-/// `swift test`. Returns nil if not found — under the installed .app build
-/// LispKit's own Bundle(identifier:) lookup succeeds and this fallback is
-/// unnecessary.
+/// Locate LispKit's bundled R7RS+SRFI Libraries directory.
 ///
-/// Under `swift test` the process is `swiftpm-testing-helper` so
-/// `arguments[0]` does not point into the project tree. Instead we walk
-/// from the current working directory (which `swift test` sets to the
-/// package root) and from the executable location as a secondary strategy.
+/// LispKit's Package.swift `exclude`s its Resources/ directory from SPM
+/// bundling, so neither static nor dynamic linking ships the .sld files
+/// automatically. We probe several locations:
+///
+///   1. Installed .app — `Contents/Resources/LispKitLibraries/` (copied
+///      in by scripts/build-app.sh from the SPM checkout)
+///   2. `swift test` / `swift run` — walk up from CWD looking for
+///      `.build/checkouts/swift-lispkit/Sources/LispKit/Resources/Libraries`
+///   3. Same walk from the executable path (covers `swift build` runs
+///      where CWD ≠ project root)
+///
+/// Returns nil if none found — root.scm will then fail at the first
+/// `(import (modaliser …))` because `(scheme base)` can't be resolved.
 private func locateLispKitLibrariesFallback() -> String? {
+    // 1. Installed .app bundle. Resources are siblings of the main bundle's
+    // Modaliser binary inside Contents/Resources/.
+    if let resourceURL = Bundle.main.resourceURL {
+        let bundled = resourceURL.appendingPathComponent("LispKitLibraries").path
+        if FileManager.default.fileExists(atPath: bundled) {
+            return bundled
+        }
+    }
+
     let suffix = ".build/checkouts/swift-lispkit/Sources/LispKit/Resources/Libraries"
-    // Primary: walk up from current working directory.
-    // `swift test` sets CWD to the package root, so the checkout is
-    // directly at <cwd>/<suffix>.
+    // 2. Walk up from CWD.
     var dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .resolvingSymlinksInPath()
     for _ in 0..<8 {
@@ -23,11 +36,10 @@ private func locateLispKitLibrariesFallback() -> String? {
             return candidate
         }
         let parent = dir.deletingLastPathComponent()
-        if parent.path == dir.path { break } // not found under CWD tree; try arguments[0] below
+        if parent.path == dir.path { break }
         dir = parent
     }
-    // Secondary: walk up from the executable (useful for `swift build` runs
-    // and any context where CWD differs from the package root).
+    // 3. Walk up from the executable.
     dir = URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
         .resolvingSymlinksInPath()
         .deletingLastPathComponent()

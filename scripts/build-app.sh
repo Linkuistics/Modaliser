@@ -25,6 +25,23 @@ if [ -d "$RESOURCE_BUNDLE" ]; then
     echo "Copied resource bundle"
 fi
 
+# Copy LispKit's bundled R7RS+SRFI Libraries. LispKit's Package.swift
+# excludes its Resources/ directory from SPM bundling (it's designed to
+# be loaded via a -r CLI flag in REPL contexts) so we must vendor it
+# explicitly into our .app bundle. SchemeEngine adds this path to the
+# library search path at startup.
+LISPKIT_LIBS_SRC=".build/checkouts/swift-lispkit/Sources/LispKit/Resources/Libraries"
+LISPKIT_LIBS_DST="${APP_BUNDLE}/Contents/Resources/LispKitLibraries"
+if [ -d "$LISPKIT_LIBS_SRC" ]; then
+    rm -rf "$LISPKIT_LIBS_DST"
+    # ditto --noextattr strips the per-file xattrs SPM checkouts carry;
+    # otherwise the later xattr -cr fails on read-only attrs we don't own.
+    /usr/bin/ditto --noextattr --noqtn "$LISPKIT_LIBS_SRC" "$LISPKIT_LIBS_DST"
+    echo "Copied LispKit standard libraries"
+else
+    echo "Warning: LispKit Libraries source not found at $LISPKIT_LIBS_SRC"
+fi
+
 # Generate .icns from source PNG
 ICON_SOURCE="Resources/AppIcon.png"
 ICONSET_DIR="${BUILD_DIR}/AppIcon.iconset"
@@ -49,8 +66,9 @@ else
     echo "Warning: ${ICON_SOURCE} not found, skipping icon generation."
 fi
 
-# Clear quarantine/provenance attributes that prevent launch
-xattr -cr "${APP_BUNDLE}"
+# Clear quarantine/provenance attributes that prevent launch. Some files
+# from SPM checkouts carry xattrs we can't clear (read-only); ignore those.
+xattr -cr "${APP_BUNDLE}" 2>/dev/null || true
 
 echo "Signing ${APP_NAME}.app..."
 # Use "Modaliser Dev" certificate for stable identity across rebuilds.
