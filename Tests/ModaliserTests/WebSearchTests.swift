@@ -14,7 +14,7 @@ private enum WebSearchTestError: Error {
 @Suite("Web Search Module")
 struct WebSearchTests {
 
-    /// Load all modules including web-search.scm with stubs.
+    /// Load all modules including (modaliser web-search) with stubs.
     private func loadAllModules() throws -> SchemeEngine {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else {
@@ -41,26 +41,30 @@ struct WebSearchTests {
               (set! webview-eval-calls (cons (cons id js) webview-eval-calls)))
             """)
 
-        // Stub open-url to capture calls
-        try engine.evaluate("""
-            (define opened-urls '())
-            (define (open-url url)
-              (set! opened-urls (cons url opened-urls)))
-            """)
-
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
+        try engine.evaluate("(import (modaliser dom))")
+        try engine.evaluate("(import (modaliser web-search))")
         let files = [
-            "ui/dom.scm",
             "ui/css.scm",
             "ui/overlay.scm",
             "ui/chooser.scm",
-            "lib/web-search.scm",
         ]
         for file in files {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
+        // Wire the chooser-push injection (mirrors root.scm).
+        try engine.evaluate("(set-chooser-push! chooser-push-results)")
+        // Capture open-url calls. (modaliser web-search) closed over the
+        // (modaliser app) `open-url` at import time, so we inject the
+        // stub through the library's setter rather than rebinding the
+        // top-level name.
+        try engine.evaluate("""
+            (define opened-urls '())
+            (set-web-search-open-url! (lambda (url)
+              (set! opened-urls (cons url opened-urls))))
+            """)
         return engine
     }
 
@@ -171,7 +175,7 @@ struct WebSearchTests {
         // Stub http-get to track calls
         try engine.evaluate("""
             (define http-get-calls '())
-            (set! web-search-fetch (lambda (url callback)
+            (set-web-search-fetch! (lambda (url callback)
               (set! http-get-calls (cons url http-get-calls))))
             """)
 
@@ -206,7 +210,7 @@ struct WebSearchTests {
         // Stub http-get to track calls
         try engine.evaluate("""
             (define http-get-calls '())
-            (set! web-search-fetch (lambda (url callback)
+            (set-web-search-fetch! (lambda (url callback)
               (set! http-get-calls (cons url http-get-calls))))
             """)
 
@@ -271,7 +275,7 @@ struct WebSearchTests {
 
         try engine.evaluate("""
             (define http-get-calls '())
-            (set! web-search-fetch (lambda (url callback)
+            (set-web-search-fetch! (lambda (url callback)
               (set! http-get-calls (cons url http-get-calls))))
             (define-tree 'global
               (selector "g" "Google"
@@ -300,7 +304,7 @@ struct WebSearchTests {
         // Capture the http-get callback so we can call it manually
         try engine.evaluate("""
             (define captured-callbacks '())
-            (set! web-search-fetch (lambda (url callback)
+            (set-web-search-fetch! (lambda (url callback)
               (set! captured-callbacks (cons callback captured-callbacks))))
             """)
 

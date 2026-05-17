@@ -13,15 +13,20 @@
         (modaliser keymap)
         (modaliser state-machine)
         (modaliser event-dispatch)
-        (modaliser dsl))
+        (modaliser dsl)
+        (modaliser dom)
+        (modaliser web-search))
 
 ;; ─── Plain .scm modules (Phase D will library-ize the remaining ones) ────────
 
-(include "ui/dom.scm")
 (include "ui/css.scm")
 (include "ui/overlay.scm")
 (include "ui/chooser.scm")
-(include "lib/web-search.scm")
+
+;; chooser-push-results lives in the flat-included ui/chooser.scm. Wire it
+;; into (modaliser web-search) now that both have loaded — the library
+;; held a no-op placeholder until this point.
+(set-chooser-push! chooser-push-results)
 
 ;; ─── App setup ────────────────────────────────────────────────────
 

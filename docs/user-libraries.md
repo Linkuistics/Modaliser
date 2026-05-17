@@ -111,6 +111,7 @@ different libraries don't collide:
         (prefix (modaliser launchers)       launcher:) ; launcher:find-application,
                                                        ; launcher:find-file
         (prefix (modaliser settings-menu)   settings:) ; settings:actions
+        (prefix (modaliser web-search)      web-search:) ; web-search:google
         (modaliser leader)                             ; set-global-leader!,
                                                        ; set-local-leader!, set-leaders!
         (modaliser ax-hints)                           ; ax-find-labelled, …
@@ -138,14 +139,11 @@ first run) for an end-to-end example that combines all of these.
 
 ## What lives outside the library tree
 
-The user-facing tree under `Sources/Modaliser/Scheme/ui/` (overlay
-rendering, chooser) and the Google web-search helper at
-`Sources/Modaliser/Scheme/lib/web-search.scm` are loaded by
-`root.scm` via `(include …)` rather than `(import …)`. They expose
-their bindings (`web-search-handler`, `web-search-on-select`,
-`find-installed-apps`, `activate-app`, `reveal-in-finder`,
-`open-with`) at the top level so the bundled `default-config.scm`
-seed can use them without an `(import …)` line.
+The remaining UI plumbing under `Sources/Modaliser/Scheme/ui/`
+(`css.scm`, `overlay.scm`, `chooser.scm`) is loaded by `root.scm` via
+`(include …)` rather than `(import …)`. It exposes its bindings at the
+top level so the bundled `default-config.scm` seed can use them
+without an `(import …)` line.
 
 These modules are intentionally *not* exposed as `(modaliser …)`
 libraries: they lean on LispKit-specific bindings (WebView, JSON) and
@@ -158,8 +156,7 @@ If you want to use any of those top-level helpers from your own
 `(import …)`-based config, you have two options:
 
 1. Reference them directly — they're in scope after `root.scm` runs,
-   so `config.scm` can call `web-search-handler` without any
-   `(import …)`. (The seed config does this.) Your config becomes
-   host-specific to that extent.
+   so `config.scm` can call them without any `(import …)`. Your config
+   becomes host-specific to that extent.
 2. Re-implement the helper in pure Scheme inside your own library
    and import that instead.

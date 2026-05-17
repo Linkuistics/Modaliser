@@ -7,17 +7,12 @@ private func joinPath(_ base: String, _ component: String) -> String {
     base.hasSuffix("/") ? base + component : base + "/" + component
 }
 
-@Suite("DOM DSL (ui/dom.scm)")
+@Suite("(modaliser dom) library")
 struct DomDslTests {
 
     private func loadDom() throws -> SchemeEngine {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found")
-            throw SchemeTestError.noSchemeDir
-        }
-        try engine.evaluate("(import (modaliser util))")
-        try engine.evaluateFile(joinPath(schemePath, "ui/dom.scm"))
+        try engine.evaluate("(import (modaliser util) (modaliser dom))")
         return engine
     }
 
