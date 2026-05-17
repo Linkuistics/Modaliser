@@ -9,16 +9,19 @@ struct ModaliserSpaceSwitchingLibraryTests {
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser space-switching))")
         try engine.evaluate("(define n (spaces-range-binding))")
         #expect(try engine.evaluate("(range-command? n)") == .true)
-        #expect(try engine.evaluate("(equal? (cdr (assoc 'key n)) \"1..9\")") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'key n)) \"1..\")") == .true)
         #expect(try engine.evaluate("(equal? (cdr (assoc 'label n)) \"Goto Space <n>\")") == .true)
         #expect(try engine.evaluate("(= (length (cdr (assoc 'keys n))) 9)") == .true)
     }
 
-    @Test func keysOptionOverridesRange() throws {
+    @Test func keysOptionPropagatesToBindingList() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser space-switching))")
         try engine.evaluate("(define n (spaces-range-binding 'keys '(\"1\" \"2\" \"3\")))")
-        #expect(try engine.evaluate("(equal? (cdr (assoc 'key n)) \"1..3\")") == .true)
+        // Display defaults to open-ended "1.." regardless of keys length;
+        // the bound keys list still tracks the override.
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'key n)) \"1..\")") == .true)
+        #expect(try engine.evaluate("(= (length (cdr (assoc 'keys n))) 3)") == .true)
     }
 
     @Test func displayKeyOptionOverridesDefault() throws {
