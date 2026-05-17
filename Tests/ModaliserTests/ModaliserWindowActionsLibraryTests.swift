@@ -13,10 +13,10 @@ struct ModaliserWindowActionsLibraryTests {
         #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Windows\")") == .true)
     }
 
-    @Test func groupBuilderHonoursGroupKeyOption() throws {
+    @Test func groupBuilderHonoursKeyAndLabelOptions() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser window-actions))")
-        try engine.evaluate("(define g (window-actions-group 'group-key \"W\" 'group-label \"Win\"))")
+        try engine.evaluate("(define g (window-actions-group 'key \"W\" 'label \"Win\"))")
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key g)) \"W\")") == .true)
         #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Win\")") == .true)
     }
