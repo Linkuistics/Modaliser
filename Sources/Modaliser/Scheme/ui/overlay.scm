@@ -112,12 +112,24 @@
 ;; so users can theme the persistent mode indicator distinctly. Default
 ;; styling in base.css gives it an accented border using the host color
 ;; when set, otherwise a darker neutral.
-;; Static footer text — pinned at the bottom of every overlay so users
-;; can see escape/back semantics without consulting docs. Distinct from
-;; the entry list (smaller font, border-top in base.css). Context-aware
-;; variants (e.g. dimming backspace at the root of a transient tree)
-;; are a follow-up; the static line is correct in the common case.
-(define overlay-footer-text "esc: cancel \xb7; backspace: back")
+;; Footer text — pinned at the bottom of every overlay so users can see
+;; escape/back semantics without consulting docs. Distinct from the
+;; entry list (smaller font, border-top in base.css).
+;;
+;; Sigils rather than words: ⎋ (U+238B) for escape, ⌫ (U+232B) for
+;; backspace — matches the glyphs printed on most keyboards and stays
+;; readable across the available footer width.
+;;
+;; Backspace is contextual: at the root of a tree it doesn't apply
+;; (transient roots are a no-op for back; sticky roots only pop the
+;; modal-stack in the uncommon enter-mode! caller case), so the hint is
+;; omitted there to avoid advertising a binding that wouldn't do
+;; anything useful from the user's perspective.
+(define overlay-footer-text-root "\x238b; cancel")
+(define overlay-footer-text-deep "\x238b; cancel \xb7; \x232b; back")
+
+(define (footer-text-for-path path)
+  (if (null? path) overlay-footer-text-root overlay-footer-text-deep))
 
 (define (render-overlay-body root-segments node path)
   (let* ((current  (if (null? path) node (navigate-to-path node path)))
@@ -130,7 +142,7 @@
       (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons '((class . "overlay-entries"))
                       (map render-entry sorted)))
-      (div '((class . "overlay-footer")) overlay-footer-text))))
+      (div '((class . "overlay-footer")) (footer-text-for-path path)))))
 
 ;; Sort children alphabetically by key (insertion sort)
 (define (sort-children children)
@@ -209,6 +221,7 @@
       (string-append "updateOverlay({\"rootSegments\":" segments-json
         ",\"path\":" path-json
         ",\"sticky\":" (if sticky? "true" "false")
+        ",\"footer\":\"" (js-escape-overlay (footer-text-for-path path)) "\""
         ",\"entries\":" entries-json "})"))))
 
 ;; Escape string for embedding in JSON/JS string literal.

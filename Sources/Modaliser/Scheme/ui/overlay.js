@@ -59,6 +59,14 @@ function updateOverlay(data) {
     header.innerHTML = '<span class="breadcrumb">' + html + '</span>';
   }
 
+  // Update footer text — backspace hint is omitted at the root because
+  // it doesn't apply there (kept in sync with footer-text-for-path in
+  // overlay.scm).
+  var footer = document.querySelector('.overlay-footer');
+  if (footer && typeof data.footer === 'string') {
+    footer.textContent = data.footer;
+  }
+
   // Update entry list
   var ul = document.querySelector('.overlay-entries');
   if (ul) {

@@ -78,6 +78,26 @@ struct ChooserRenderTests {
                 (list (cons 'text "Chrome") (cons 'bundleId "com.google.Chrome"))))
         """
 
+    @Test func renderChooserHtmlFooterShowsNavigationSigils() throws {
+        // Footer carries item count plus the navigation hints — ⎋ exit,
+        // ⏎ choose, ↑↓ select — so users have the contract visible.
+        // Backspace is intentionally absent (delete-in-input belongs to
+        // the input field; back-up is the overlay's concern).
+        let engine = try loadAllModules()
+        try engine.evaluate(testItemsSetup)
+        let html = try engine.evaluate("""
+            (render-chooser-html "Find app…"
+              '((0 "Safari" ()) (1 "Chrome" ()))
+              "" 0 #f '())
+            """).asString()
+        #expect(html.contains("2 items"))
+        #expect(html.contains("\u{238B}"))   // ⎋ escape
+        #expect(html.contains("\u{23CE}"))   // ⏎ return
+        #expect(html.contains("\u{2191}"))   // ↑ up
+        #expect(html.contains("\u{2193}"))   // ↓ down
+        #expect(!html.contains("\u{232B}"))  // ⌫ backspace omitted
+    }
+
     @Test func renderChooserHtmlShowsItems() throws {
         let engine = try loadAllModules()
         try engine.evaluate(testItemsSetup)
