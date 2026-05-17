@@ -85,22 +85,40 @@ final class SchemeEngine {
 
         // Resolve and register the Scheme directory as a search path
         schemeDirectoryPath = SchemeEngine.resolveSchemeDirectory()
+        let resolvedUserConfigDir = userConfigDir
+            ?? NSString(string: "~/.config/modaliser").expandingTildeInPath
         if let schemePath = schemeDirectoryPath {
             _ = context.fileHandler.addSearchPath(schemePath)
             try evaluate("(define *scheme-directory* \"\(schemePath)\")")
-            // Prepend the bundled Modaliser stdlib root so (import (modaliser …))
-            // resolves to files under <scheme>/lib/. Auto-added LispKit
-            // R7RS+SRFI root remains last on the list.
+            // The bundled lib root is the lowest-precedence prepend — it
+            // serves as a fallback when sys/ hasn't been (or couldn't be)
+            // populated. In dev/test runs sys/ is skipped entirely and the
+            // bundled root is what actually answers (modaliser …) imports.
             let bundledLibRoot = (schemePath as NSString).appendingPathComponent("lib")
             _ = context.fileHandler.prependLibrarySearchPath(bundledLibRoot)
+
+            // Production-only: mirror the bundle's modaliser/ libs into
+            // ~/.config/modaliser/sys/ so users can read them in place.
+            // The check is whether schemePath sits inside an .app bundle
+            // (Contents/Resources/...). Dev runs (Sources/Modaliser/Scheme)
+            // and tests skip sync so we never write into the user's real
+            // config dir from a non-production launch.
+            if SchemeEngine.isProductionBundlePath(schemePath) {
+                let bundleLibModaliser = (bundledLibRoot as NSString)
+                    .appendingPathComponent("modaliser")
+                if let sysRoot = SysSync.sync(
+                    bundleLibModaliserDir: bundleLibModaliser,
+                    userConfigDir: resolvedUserConfigDir) {
+                    _ = context.fileHandler.prependLibrarySearchPath(sysRoot)
+                }
+            }
             NSLog("SchemeEngine: Scheme directory at %@", schemePath)
         }
 
         // Prepend the user-config root LAST, so it ends up FIRST on the
-        // library search path — user libraries shadow bundled ones.
-        // Missing path is silently skipped by prependLibrarySearchPath.
-        let resolvedUserConfigDir = userConfigDir
-            ?? NSString(string: "~/.config/modaliser").expandingTildeInPath
+        // library search path — user libraries shadow bundled ones (and
+        // shadow the synced sys/ copies). Missing path is silently
+        // skipped by prependLibrarySearchPath.
         _ = context.fileHandler.prependLibrarySearchPath(resolvedUserConfigDir)
 
         // Fallback: under `swift test` LispKit's own Bundle(identifier:)
@@ -187,6 +205,14 @@ final class SchemeEngine {
 
         try evaluateFile(rootPath)
         NSLog("SchemeEngine: loaded root.scm")
+    }
+
+    /// True iff `path` lives inside an installed .app bundle's
+    /// Contents/. This is the signal we use to decide whether to mirror
+    /// bundled libraries into ~/.config/modaliser/sys/ — dev runs
+    /// (Sources/Modaliser/Scheme) and tests must never write there.
+    private static func isProductionBundlePath(_ path: String) -> Bool {
+        return path.range(of: ".app/Contents/") != nil
     }
 
     // MARK: - Scheme directory resolution
