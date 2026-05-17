@@ -269,12 +269,36 @@ struct OverlayRenderTests {
         #expect(css.contains("--color-host-fg: #fff"))
     }
 
-    @Test func hostHeaderCssEmitsOnlyTheSetVariable() throws {
+    @Test func backgroundOnlySetsForegroundToWhiteDefault() throws {
+        // Seed-config use case: callers thread the theme through by
+        // supplying 'background; foreground defaults to "white" so the
+        // header reads against the coloured chip without callers having
+        // to spell it out.
         let engine = try loadOverlay()
         try engine.evaluate("(set-host-header! 'name \"x\" 'background \"#abc\")")
         let css = try engine.evaluate("(host-header-css)").asString()
         #expect(css.contains("--color-host-bg: #abc"))
-        #expect(!css.contains("--color-host-fg"))
+        #expect(css.contains("--color-host-fg: white"))
+    }
+
+    @Test func backgroundDefaultForegroundIsOverridable() throws {
+        // Explicit 'foreground wins over the implicit "white" that kicks
+        // in when only 'background is supplied.
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header! 'name \"x\" 'background \"#abc\" 'foreground \"#000\")")
+        let css = try engine.evaluate("(host-header-css)").asString()
+        #expect(css.contains("--color-host-fg: #000"))
+        #expect(!css.contains("--color-host-fg: white"))
+    }
+
+    @Test func nameDefaultsToShellHostname() throws {
+        // With no 'name supplied, the library calls (run-shell "hostname -s")
+        // so the seed config can be a one-liner.
+        let engine = try loadOverlay()
+        try engine.evaluate("(set-host-header!)")
+        let name = try engine.evaluate("host-header-name").asString()
+        #expect(!name.isEmpty)
+        #expect(!name.contains("\n"))
     }
 
     @Test func resolveAppSegmentsResolvesPlainBundleId() throws {
