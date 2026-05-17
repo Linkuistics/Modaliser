@@ -59,16 +59,24 @@ function updateOverlay(data) {
     header.innerHTML = '<span class="breadcrumb">' + html + '</span>';
   }
 
-  // Update footer text — backspace hint is omitted at the root because
-  // it doesn't apply there (kept in sync with footer-text-for-path in
-  // overlay.scm).
+  // Update footer markup — the Scheme side sends HTML (sigils wrapped
+  // in <span class="sigil">) so the dynamic re-render path styles them
+  // the same way as the initial paint. Backspace hint is omitted at the
+  // root because it doesn't apply there (kept in sync with
+  // footer-html-for-path in overlay.scm).
   var footer = document.querySelector('.overlay-footer');
   if (footer && typeof data.footer === 'string') {
-    footer.textContent = data.footer;
+    footer.innerHTML = data.footer;
   }
 
-  // Update entry list
+  // Update entry list — column count comes through as data.cols and is
+  // applied as a CSS custom property the entries' .overlay-entries rule
+  // reads via var(--overlay-cols). Mirrors the inline style emitted by
+  // render-overlay-body for the initial paint.
   var ul = document.querySelector('.overlay-entries');
+  if (ul && typeof data.cols === 'number') {
+    ul.style.setProperty('--overlay-cols', String(data.cols));
+  }
   if (ul) {
     var html = '';
     var entries = data.entries;

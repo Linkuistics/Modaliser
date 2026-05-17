@@ -24,12 +24,44 @@ except `scheme`, `srfi`, or `modaliser` (those have well-known meanings).
 `(import …)` consults this ordered list of roots, first match wins:
 
 1. `~/.config/modaliser/` — your config
-2. `<Modaliser.app>/Contents/Resources/Scheme/lib/` — bundled `(modaliser …)`
-3. The host's R7RS + SRFI directory — auto-registered by LispKit
+2. `~/.config/modaliser/sys/` — the bundled `(modaliser …)` libraries,
+   mirrored here from the .app on every launch so you can read or fork
+   them in place (see ["Bundled libraries under sys/"](#bundled-libraries-under-sys)
+   below)
+3. `<Modaliser.app>/Contents/Resources/Scheme/lib/` — same bundled
+   libraries, kept as a fallback if `sys/` can't be populated
+4. The host's R7RS + SRFI directory — auto-registered by LispKit
 
 User-first ordering means you can shadow any bundled library by
 dropping a same-named file under `~/.config/modaliser/`. Useful for
 local patches; otherwise stay clear of the `modaliser` prefix.
+
+## Bundled libraries under sys/
+
+On launch, Modaliser mirrors the `(modaliser …)` libraries from inside
+its .app bundle into `~/.config/modaliser/sys/modaliser/`. The
+fingerprint (file paths + mtimes) is cached in
+`~/.config/modaliser/sys/.bundle-fingerprint`; if it matches the
+bundle, no file touch happens.
+
+Two reasons to look in `sys/`:
+
+- **Reading**: every bundled library is browsable from your config dir,
+  no `cd` into the .app needed.
+- **Forking a library locally**: copy the file out of `sys/` and into
+  the user-config root (e.g.
+  `cp ~/.config/modaliser/sys/modaliser/launchers.sld ~/.config/modaliser/modaliser/launchers.sld`),
+  then edit your copy. The user-config root shadows `sys/` on the
+  lookup path so your fork wins.
+
+**Don't edit files inside `sys/` directly.** Edits there are silently
+overwritten on the next launch whenever the bundle changes (every
+install / every dev rebuild). The mirror is intentionally treated as
+disposable.
+
+Only Modaliser's own `(modaliser …)` libraries get mirrored — LispKit's
+R7RS + SRFI standard libraries continue to be served from the bundle
+because they're not specific to this app.
 
 ## Extending the path
 

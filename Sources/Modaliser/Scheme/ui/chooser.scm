@@ -138,6 +138,20 @@
       (substring s 0 (- n 1))
       s)))
 
+;; Footer markup helpers — see the comment in render-chooser-html for
+;; why sigils are wrapped in <span class="sigil">. Pure-ish: takes the
+;; item count, returns an HTML string.
+(define chooser-sigil-escape "<span class=\"sigil\">\x238b;</span>")
+(define chooser-sigil-enter  "<span class=\"sigil\">\x23ce;</span>")
+(define chooser-sigil-arrows "<span class=\"sigil\">\x2191;\x2193;</span>")
+
+(define (chooser-footer-html item-count)
+  (string-append (number->string item-count)
+                 (if (= item-count 1) " item" " items")
+                 " \xb7; " chooser-sigil-escape " exit"
+                 " \xb7; " chooser-sigil-enter " choose"
+                 " \xb7; " chooser-sigil-arrows " select"))
+
 (define (render-chooser-html prompt visible-items query selected-index
                              actions-visible? actions)
   (let* ((css (string-append overlay-base-css
@@ -147,17 +161,15 @@
                              "\n"
                              (host-header-css)))
          (item-count (length visible-items))
-         ;; Footer text: item count + navigation hints. Sigils — ⎋ exit,
-         ;; ⏎ choose, ↑↓ select — match the printed key glyphs. Backspace
-         ;; isn't shown because it doesn't apply in the chooser context
-         ;; (delete-in-input belongs to the input field; "back" up a tree
-         ;; is the overlay's concern). Kept in sync with the JS dynamic
-         ;; update path in push-chooser-update.
-         (footer-text (string-append (number->string item-count)
-                        (if (= item-count 1) " item" " items")
-                        " \xb7; \x238b; exit"
-                        " \xb7; \x23ce; choose"
-                        " \xb7; \x2191;\x2193; select"))
+         ;; Footer HTML: item count + navigation hints. Sigils (⎋ ⏎ ↑↓)
+         ;; are wrapped in <span class="sigil"> so base.css bumps them
+         ;; above the surrounding footer body — at the footer's default
+         ;; size the raw glyphs are too small to read at a glance.
+         ;; Backspace isn't shown because it doesn't apply in the chooser
+         ;; context (delete-in-input belongs to the input field; "back"
+         ;; up a tree is the overlay's concern). Kept in sync with the JS
+         ;; dynamic update path in chooser-update-results.
+         (footer-html (chooser-footer-html item-count))
          (segments (append (modal-root-segments)
                            (list (chooser-prompt-segment prompt))))
          (body
@@ -180,7 +192,7 @@
                                    (loop (cdr items) (+ i 1)
                                          (cons (render-chooser-row item source-item i selected-index)
                                                rows)))))))
-             (div '((class . "chooser-footer")) footer-text)
+             (div '((class . "chooser-footer")) (make-raw-html footer-html))
              (if actions-visible?
                (render-action-panel actions chooser-action-index)
                (make-raw-html "")))))
@@ -340,17 +352,13 @@
            (item-count (length chooser-filtered))
            ;; Mirrors the initial-render footer in render-chooser-html so
            ;; dynamic re-renders keep the navigation hints alongside the
-           ;; count.
-           (footer-text (string-append (number->string item-count)
-                          (if (= item-count 1) " item" " items")
-                          " \xb7; \x238b; exit"
-                          " \xb7; \x23ce; choose"
-                          " \xb7; \x2191;\x2193; select"))
+           ;; count. innerHTML — the helper emits sigil <span>s.
+           (footer-html (chooser-footer-html item-count))
            (js (string-append
                  "document.querySelector('.chooser-results').innerHTML = '"
                  (js-escape results-html) "';"
-                 "document.querySelector('.chooser-footer').textContent = '"
-                 (js-escape footer-text) "';")))
+                 "document.querySelector('.chooser-footer').innerHTML = '"
+                 (js-escape footer-html) "';")))
       (webview-eval chooser-webview-id js))))
 
 ;; Load page skeleton — search input + empty results + JS.

@@ -32,6 +32,53 @@ struct OverlayRenderTests {
 
     // MARK: - render-overlay-html (pure)
 
+    // MARK: - Multi-column layout (overlay-column-count)
+
+    /// Defaults: aspect ratio = 1.6, col-width = 200px, row-height = 22px.
+    /// overlay-column-count picks the N that minimises |ratio(N) - target|.
+    /// Each pair below is (item-count, expected-cols).
+    @Test func overlayColumnCountPicksClosestToTargetRatio() throws {
+        let engine = try loadOverlay()
+        let cases: [(Int, Int)] = [
+            (0, 1), (1, 1), (2, 1),   // never more cols than items
+            (5, 1), (10, 1),          // short lists stay one column
+            (20, 2),                  // medium → 2
+            (50, 3),                  // big   → 3
+            (100, 4),                 // huge  → 4
+        ]
+        for (n, want) in cases {
+            let got = try engine.evaluate("(overlay-column-count \(n))").asInt64()
+            #expect(Int(got) == want, "n=\(n): expected \(want) cols, got \(got)")
+        }
+    }
+
+    @Test func renderOverlayBodyEmitsColumnCountStyle() throws {
+        let engine = try loadOverlay()
+        // 20 entries → 2 cols at default 1.6 ratio (see other test).
+        var keys = "abcdefghijklmnopqrst"
+        var bindings = ""
+        for c in keys { bindings += "(key \"\(c)\" \"\(c)\" (lambda () 'ok)) " }
+        try engine.evaluate("(define-tree 'global \(bindings))")
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("Global") '())
+            """).asString()
+        #expect(html.contains("--overlay-cols: 2"),
+                "Expected --overlay-cols: 2 inline on .overlay-entries; got HTML did not match")
+    }
+
+    @Test func overlayColumnCountFollowsTargetAspectRatio() throws {
+        let engine = try loadOverlay()
+        // Wide target → prefer more columns. n=10 at ratio 5.0 should jump
+        // to 2 cols because the wider target needs the extra width.
+        try engine.evaluate("(set-overlay-aspect-ratio! 5.0)")
+        let wide = try engine.evaluate("(overlay-column-count 10)").asInt64()
+        #expect(wide >= 2, "ratio 5.0, n=10 should pick ≥2 cols, got \(wide)")
+        // Tall target → 1 col for everything reasonable.
+        try engine.evaluate("(set-overlay-aspect-ratio! 0.2)")
+        let tall = try engine.evaluate("(overlay-column-count 20)").asInt64()
+        #expect(tall == 1, "ratio 0.2, n=20 should pick 1 col, got \(tall)")
+    }
+
     @Test func renderOverlayHtmlProducesValidDocument() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""

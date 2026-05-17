@@ -103,22 +103,33 @@ body {
 
 /* ─── Entry List ───────────────────────────────────────────── */
 
-/* The entry list is a 3-column grid; each <li> uses display:contents so
- * its three child spans become direct grid items of the <ul>. That way
- * the key/arrow/label columns share a single set of column tracks across
- * all rows, so a wide entry (e.g. a "1..9" range-command) widens the key
- * column for every row — keeping the arrow column aligned regardless of
- * whether a particular row's key is one character or several. */
+/* The entry list is a CSS multi-column container; the column count is
+ * picked by overlay-column-count in overlay.scm to match the user's
+ * target aspect ratio (set-overlay-aspect-ratio! in (modaliser dsl)).
+ * column-fill: auto fills column 1 top-to-bottom before column 2 —
+ * what the user expects from "trade width for height" rather than the
+ * balanced flow of the default.
+ *
+ * Each <li> is its own 3-column mini-grid for key / arrow / label, with
+ * break-inside: avoid so a row never splits across columns. (The 3-col
+ * grid is per-entry rather than shared across all entries — the
+ * trade-off for multi-column flow: each column's widest key sets its
+ * own key-column width, but column 1's key width no longer applies to
+ * column 2. Acceptable: with the keys themselves sorted alphabetically
+ * the visual rhythm across columns stays predictable.) */
 .overlay-entries {
   list-style: none;
-  display: grid;
-  grid-template-columns: minmax(1.8em, auto) auto 1fr;
-  column-gap: 4px;
-  align-items: baseline;
+  column-count: var(--overlay-cols, 1);
+  column-gap: 16px;
+  column-fill: auto;
 }
 
 .overlay-entry {
-  display: contents;
+  display: grid;
+  grid-template-columns: minmax(1.5em, auto) auto 1fr;
+  column-gap: 4px;
+  align-items: baseline;
+  break-inside: avoid;
 }
 
 /* ─── Key Badge ────────────────────────────────────────────── */
@@ -168,6 +179,15 @@ body {
   padding-top: 6px;
   margin-top: 6px;
   border-top: 1px solid var(--color-separator);
+}
+
+/* Footer-hint sigils (escape, backspace, return, arrows). Bumped above
+ * the surrounding footer body so the glyphs read clearly: footer text
+ * sits at (--font-size - 2px); sigils sit at (--font-size), i.e. +2px
+ * / +2pt, and bold. Same rule serves both overlay and chooser footers. */
+.sigil {
+  font-size: var(--font-size);
+  font-weight: 700;
 }
 
 /* ═══════════════════════════════════════════════════════════ */
