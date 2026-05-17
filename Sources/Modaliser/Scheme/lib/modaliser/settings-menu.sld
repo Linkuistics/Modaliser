@@ -21,7 +21,7 @@
 ;;                     in the seed.
 ;;   'extra-bindings — list of additional DSL nodes appended after Reload.
 ;;
-;; Matches the shape of (modaliser window-actions) (window-actions-group):
+;; Matches the shape of (modaliser window-actions) (window-actions):
 ;; a single factory returning a composable group node.
 
 (define-library (modaliser settings-menu)

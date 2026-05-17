@@ -47,7 +47,7 @@
 
   (settings-menu-group)
 
-  (spaces-range-binding)
+  (switch-space-actions)
 
   ;; Quick-launch keys
   (key "b" "Browser - Dia"    (lambda () (launch-app "Dia")))
@@ -65,10 +65,10 @@
   (key "o" "Obsidian" (lambda () (launch-app "Obsidian")))
   (key "z" "Zotero"   (lambda () (launch-app "Zotero")))
 
-  (google-search-selector)
-  (applications-selector)
-  (files-selector)
-  (window-actions-group))
+  (google-search-action)
+  (find-application-action)
+  (find-file-action)
+  (window-actions))
 
 ;; ─── Per-app trees (F17 when that app is focused) ────────────────
 
