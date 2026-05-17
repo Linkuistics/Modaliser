@@ -1,27 +1,28 @@
 ;; (modaliser launchers) — Application and file launcher selectors.
 ;;
 ;; Reusable selector factories for the two most common leader entries:
-;;   • find-application-action — Spotlight-style app finder with MRU memory
+;;   • find-application — Spotlight-style app finder with MRU memory
 ;;     and primary/secondary actions (open, reveal in Finder, copy path,
 ;;     copy bundle ID).
-;;   • find-file-action — file picker rooted at the user's home, with
+;;   • find-file — file picker rooted at the user's home, with
 ;;     primary/secondary actions and an "Open in editor" action.
 ;;
-;; Quick start:
-;;   (import (modaliser launchers))
+;; Quick start (prefix-style import — recommended; the bare exports
+;; are short and collide easily with peer libraries):
+;;   (import (prefix (modaliser launchers) launcher:))
 ;;   (define-tree 'global
-;;     (find-application-action)
-;;     (find-file-action)
+;;     (launcher:find-application)
+;;     (launcher:find-file)
 ;;     …)
 ;;
 ;; Both factories accept keyword-style options with defaults that match
-;; the bundled seed. Same shape as window-actions: a single
+;; the bundled seed. Same shape as (modaliser window-actions): a single
 ;; factory returning a composable node, no side effects until placed
 ;; inside a define-tree.
 
 (define-library (modaliser launchers)
-  (export find-application-action
-          find-file-action)
+  (export find-application
+          find-file)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
@@ -39,7 +40,7 @@
     ;;   'remember      — MRU bucket name; #f disables MRU (default "apps")
     ;;   'extra-actions — list of (action …) nodes appended to the defaults
 
-    (define (find-application-action . opts)
+    (define (find-application . opts)
       (let* ((alist    (apply props->alist opts))
              (key-     (alist-ref alist 'key "a"))
              (label    (alist-ref alist 'label "Applications"))
@@ -82,7 +83,7 @@
     ;;                    (default "Zed")
     ;;   'extra-actions — list of (action …) nodes appended to the defaults
 
-    (define (find-file-action . opts)
+    (define (find-file . opts)
       (let* ((alist      (apply props->alist opts))
              (key-       (alist-ref alist 'key "f"))
              (label      (alist-ref alist 'label "Files"))

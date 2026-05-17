@@ -4,10 +4,10 @@
 ;; config file itself: open it in an editor, or relaunch Modaliser to
 ;; pick up edits. Idiomatic placement is the "," key of the global tree.
 ;;
-;; Quick start:
-;;   (import (modaliser settings-menu))
+;; Quick start (prefix-style import — recommended):
+;;   (import (prefix (modaliser settings-menu) settings:))
 ;;   (define-tree 'global
-;;     (settings-actions)
+;;     (settings:actions)
 ;;     …)
 ;;
 ;; Options (all keyword-style, all optional):
@@ -21,11 +21,11 @@
 ;;                     in the seed.
 ;;   'extra-bindings — list of additional DSL nodes appended after Reload.
 ;;
-;; Matches the shape of (modaliser window-actions) (window-actions):
-;; a single factory returning a composable group node.
+;; Matches the shape of (modaliser window-actions) (actions): a single
+;; factory returning a composable group node.
 
 (define-library (modaliser settings-menu)
-  (export settings-actions)
+  (export actions)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
@@ -36,7 +36,7 @@
     (define default-config-path
       "$HOME/.config/modaliser/config.scm")
 
-    (define (settings-actions . opts)
+    (define (actions . opts)
       (let* ((alist       (apply props->alist opts))
              (group-key   (alist-ref alist 'key ","))
              (group-label (alist-ref alist 'label "Settings"))

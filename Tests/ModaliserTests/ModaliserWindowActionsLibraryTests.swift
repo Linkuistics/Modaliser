@@ -7,7 +7,7 @@ struct ModaliserWindowActionsLibraryTests {
     @Test func groupBuilderReturnsGroupNode() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
-        try engine.evaluate("(define g (window-actions))")
+        try engine.evaluate("(define g (actions))")
         #expect(try engine.evaluate("(group? g)") == .true)
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key g)) \"w\")") == .true)
         #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Windows\")") == .true)
@@ -16,7 +16,7 @@ struct ModaliserWindowActionsLibraryTests {
     @Test func groupBuilderHonoursKeyAndLabelOptions() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser window-actions))")
-        try engine.evaluate("(define g (window-actions 'key \"W\" 'label \"Win\"))")
+        try engine.evaluate("(define g (actions 'key \"W\" 'label \"Win\"))")
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key g)) \"W\")") == .true)
         #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Win\")") == .true)
     }
@@ -25,7 +25,7 @@ struct ModaliserWindowActionsLibraryTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
         try engine.evaluate("""
-          (define g (window-actions 'include-switcher? #f))
+          (define g (actions 'include-switcher? #f))
           (define children (cdr (assoc 'children g)))
           (define has-switcher
             (let loop ((cs children))
@@ -41,7 +41,7 @@ struct ModaliserWindowActionsLibraryTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
         try engine.evaluate("""
-          (define g (window-actions))
+          (define g (actions))
           (define children (cdr (assoc 'children g)))
           (define has-switcher
             (let loop ((cs children))
@@ -56,7 +56,7 @@ struct ModaliserWindowActionsLibraryTests {
     @Test func registerCreatesLookupableTree() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
-        try engine.evaluate("(window-actions-register! 'tree-scope 'wa-test)")
+        try engine.evaluate("(register! 'tree-scope 'wa-test)")
         #expect(try engine.evaluate("(lookup-tree \"wa-test\")") != .false)
     }
 }

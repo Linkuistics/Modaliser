@@ -4,25 +4,25 @@
 ;; plus maximise/restore/center, and (optionally) a window switcher.
 ;; Compose with other groups in your config:
 ;;
-;;   (import (modaliser dsl) (modaliser window-actions))
+;;   (import (modaliser dsl) (prefix (modaliser window-actions) window:))
 ;;   (define-tree 'global
-;;     (window-actions)
+;;     (window:actions)
 ;;     (key "i" "iTerm" (lambda () (launch-app "iTerm"))))
 ;;
-;; The convenience (window-actions-register!) registers a standalone
-;; tree containing only the windows group — useful when you want
-;; window helpers under a dedicated leader (a separate tree-scope).
+;; The convenience (window:register!) registers a standalone tree
+;; containing only the windows group — useful when you want window
+;; helpers under a dedicated leader (a separate tree-scope).
 
 (define-library (modaliser window-actions)
-  (export window-actions
-          window-actions-register!)
+  (export actions
+          register!)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
           (modaliser window))
   (begin
 
-    (define (window-actions . opts)
+    (define (actions . opts)
       (let* ((alist        (apply props->alist opts))
              (group-key    (alist-ref alist 'key "w"))
              (group-label  (alist-ref alist 'label "Windows"))
@@ -73,7 +73,7 @@
         (apply group group-key group-label
                (append core switcher extra))))
 
-    (define (window-actions-register! . opts)
+    (define (register! . opts)
       (let* ((alist (apply props->alist opts))
              (scope (alist-ref alist 'tree-scope 'global)))
-        (define-tree scope (apply window-actions opts))))))
+        (define-tree scope (apply actions opts))))))

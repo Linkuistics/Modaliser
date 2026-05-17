@@ -7,8 +7,9 @@
 ;; Returns a (key-range …) node that displays as one overlay row, e.g.
 ;; "1..9 Goto Space <n>". Splice into your tree:
 ;;
+;;   (import (prefix (modaliser space-switching) space:))
 ;;   (define-tree 'global
-;;     (switch-space-actions)
+;;     (space:switch-actions)
 ;;     ...)
 ;;
 ;; The overlay row collapses to "1.. Goto Space <n>" by default — the
@@ -16,8 +17,8 @@
 ;; 'display-key for a closed range (e.g. "1..9").
 
 (define-library (modaliser space-switching)
-  (export switch-space-actions
-          spaces-1-9-register!)
+  (export switch-actions
+          register!)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
@@ -27,7 +28,7 @@
     (define default-keys
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9"))
 
-    (define (switch-space-actions . opts)
+    (define (switch-actions . opts)
       (let* ((alist        (apply props->alist opts))
              (keys         (alist-ref alist 'keys default-keys))
              (label        (alist-ref alist 'label "Goto Space <n>"))
@@ -37,7 +38,7 @@
         (key-range display label keys
           (lambda (k) (send-keystroke modifiers k)))))
 
-    (define (spaces-1-9-register! . opts)
+    (define (register! . opts)
       (let* ((alist (apply props->alist opts))
              (scope (alist-ref alist 'tree-scope 'global)))
-        (define-tree scope (apply switch-space-actions opts))))))
+        (define-tree scope (apply switch-actions opts))))))
