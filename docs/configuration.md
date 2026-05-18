@@ -89,9 +89,10 @@ Both `(group ...)` and `(define-tree ...)` accept optional leading keyword/value
 | `'on-leave THUNK` | Runs when the modal navigates out of this group/tree (or exits) while the overlay is visible. Paired one-for-one with `on-enter`. |
 | `'sticky BOOL` | Firing a command leaf at or below this group returns navigation to this group instead of exiting the modal. Composes with sticky ancestors. |
 | `'exit-on-unknown BOOL` | Unrecognised keys at or below this group dismiss the modal instead of being swallowed. Useful for sticky focus-movement modes where typing a non-binding key should hand control back to the underlying app. |
-| `'renderer SYMBOL` | Picks an overlay renderer for this group. `'diagram` shows the windows-diagram overlay; default is the standard which-key list. |
-| `'panels LIST` | Renderer-specific: passed to the chosen renderer. The diagram renderer takes a list of panel-specs. |
-| `'dynamic-data-fn THUNK` | Renderer-specific: thunk called on every render to merge live data (e.g. the windows-list with visibility flags) into the renderer payload. |
+| `'renderer SYMBOL` | Picks an overlay renderer for this group. `'blocks` stacks the typed blocks listed under `'blocks` (see [Scheme API → Block libraries](scheme-api.md#block-libraries)); `'diagram` is the older windows-diagram renderer; default is the standard which-key list. |
+| `'blocks LIST` | Renderer-specific (`'blocks` only): ordered list of block specs to stack top-to-bottom. Built via `make-window-diagram-block`, `make-which-key-block`, `make-window-list-block` etc. |
+| `'panels LIST` | Renderer-specific (`'diagram` only — legacy): list of panel-specs. New configs should use `'renderer 'blocks` with `(make-window-diagram-block panel-specs)`. |
+| `'dynamic-data-fn THUNK` | Renderer-specific (`'diagram` only — legacy): thunk called on every render to merge live data into the renderer payload. The `'blocks` renderer instead uses per-block `'on-render-fn` thunks. |
 
 `(key …)` accepts an optional trailing `'sticky-target MODE-ID` to transition the modal into a named sticky mode after firing. The overlay paints a `↻` marker on the cell so users can see which keys are mode-transitions.
 

@@ -300,6 +300,10 @@
 ;; panels (grid cells, center, fill). Used to filter the entries
 ;; passed to custom renderers so panel keys don't appear twice
 ;; (once on the panel, once in the text entries strip).
+;;
+;; Mirrored in (modaliser blocks window-diagram) which serves the
+;; 'blocks renderer; this copy serves the legacy 'diagram renderer
+;; only. If the panel-spec format ever changes, update both.
 (define (panel-bound-keys panels)
   (if (or (not panels) (null? panels))
     '()
