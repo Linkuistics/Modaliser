@@ -112,12 +112,13 @@ struct OverlayRenderTests {
     }
 
     /// Returns the inner text of the overlay-footer div, or nil if missing.
+    /// Tolerates additional modifier classes (e.g. overlay-footer-root).
     private func extractFooter(_ html: String) -> String? {
-        let marker = "class=\"overlay-footer\">"
-        guard let start = html.range(of: marker)?.upperBound,
-              let end = html.range(of: "</div>", range: start..<html.endIndex)?.lowerBound
+        guard let classStart = html.range(of: "class=\"overlay-footer")?.lowerBound,
+              let openClose = html.range(of: "\">", range: classStart..<html.endIndex)?.upperBound,
+              let end = html.range(of: "</div>", range: openClose..<html.endIndex)?.lowerBound
         else { return nil }
-        return String(html[start..<end])
+        return String(html[openClose..<end])
     }
 
     @Test func renderOverlayFooterAtRootOmitsBackspaceHint() throws {
@@ -136,6 +137,24 @@ struct OverlayRenderTests {
         let footer = try #require(extractFooter(html))
         #expect(footer.contains("\u{238B}"))
         #expect(!footer.contains("\u{232B}"))
+        // Root footer carries the right-align modifier class — the class
+        // attribute on the <div> includes overlay-footer-root.
+        #expect(html.contains("class=\"overlay-footer overlay-footer-root\""))
+    }
+
+    @Test func renderOverlayFooterDeepOmitsRootModifier() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+            (define-tree 'global
+              (group "w" "Windows"
+                (key "c" "Center" (lambda () 'ok))))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("Global") '("w"))
+            """).asString()
+        // Deep footer should have the plain class, not the root modifier.
+        #expect(html.contains("class=\"overlay-footer\">"))
+        #expect(!html.contains("class=\"overlay-footer overlay-footer-root\""))
     }
 
     @Test func renderOverlayFooterInGroupShowsBackspaceHint() throws {

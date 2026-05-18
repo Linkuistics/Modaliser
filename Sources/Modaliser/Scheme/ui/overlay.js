@@ -67,6 +67,11 @@ function updateOverlay(data) {
   var footer = document.querySelector('.overlay-footer');
   if (footer && typeof data.footer === 'string') {
     footer.innerHTML = data.footer;
+    // Toggle the right-align modifier so navigating root → deep → root
+    // swaps the class live. Mirrors the conditional class in
+    // render-overlay-body.
+    var atRoot = !data.path || data.path.length === 0;
+    footer.classList.toggle('overlay-footer-root', atRoot);
   }
 
   // Update entry list — column count comes through as data.cols and is
