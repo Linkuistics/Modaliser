@@ -224,10 +224,20 @@ body {
 
 /* The U+232B backspace glyph carries noticeably less ink than the other
  * sigils in Menlo / SF Mono — even at the shared .sigil size it reads
- * smaller than ⎋ ⏎ ↑↓. Bump just this one by another ~10% so it lands
- * in the same visual weight class as its siblings. */
+ * smaller than ⎋ ⏎ ↑↓. Bump just this one further so it lands in the
+ * same visual weight class as its siblings. */
 .sigil-back {
-  font-size: calc(var(--font-size) + 4px);
+  font-size: calc(var(--font-size) + 6px);
+}
+
+/* Per-glyph vertical nudges. In Menlo/SF Mono the escape and arrow
+ * glyphs sit slightly low relative to their cap-height / x-height
+ * neighbours; shift them up 2px so they read as visually centred
+ * against the footer text. The backspace and return glyphs already
+ * sit on the right baseline at the shared .sigil size, no nudge. */
+.sigil-escape,
+.sigil-arrows {
+  transform: translateY(-2px);
 }
 
 /* ═══════════════════════════════════════════════════════════ */

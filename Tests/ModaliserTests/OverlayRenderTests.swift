@@ -175,7 +175,7 @@ struct OverlayRenderTests {
         // can enlarge + bold them — otherwise they render at the footer's
         // (smaller) default and visually disappear. The backspace also
         // carries .sigil-back for its extra +2px size bump.
-        #expect(footer.contains("class=\"sigil\">\u{238B}"))
+        #expect(footer.contains("class=\"sigil sigil-escape\">\u{238B}"))
         #expect(footer.contains("class=\"sigil sigil-back\">\u{232B}"))
     }
 

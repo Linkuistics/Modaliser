@@ -158,7 +158,10 @@
 ;; Sigil glyphs are wrapped in <span class="sigil"> so base.css can bump
 ;; their font-size + weight above the surrounding footer body — the raw
 ;; glyphs are too small at the footer's default size.
-(define overlay-sigil-escape "<span class=\"sigil\">\x238b;</span>")
+;; .sigil-escape nudges ⎋ up 2px — the glyph sits low in Menlo / SF Mono
+;; relative to surrounding cap-height text, so without the nudge it
+;; reads as slightly off-centre.
+(define overlay-sigil-escape "<span class=\"sigil sigil-escape\">\x238b;</span>")
 ;; .sigil-back adds another size bump just for ⌫ — the U+232B glyph
 ;; carries less ink than ⎋ in monospace fonts, so without the boost it
 ;; reads visually smaller than its siblings.
