@@ -141,9 +141,12 @@
 ;; Footer markup helpers — see the comment in render-chooser-html for
 ;; why sigils are wrapped in <span class="sigil">. Pure-ish: takes the
 ;; item count, returns an HTML string.
-(define chooser-sigil-escape "<span class=\"sigil\">\x238b;</span>")
+;; ⎋ and ↑↓ carry their own modifier classes so base.css can nudge
+;; them up 2px — those glyphs sit low in Menlo / SF Mono and read as
+;; off-centre against the surrounding footer text without the shift.
+(define chooser-sigil-escape "<span class=\"sigil sigil-escape\">\x238b;</span>")
 (define chooser-sigil-enter  "<span class=\"sigil\">\x23ce;</span>")
-(define chooser-sigil-arrows "<span class=\"sigil\">\x2191;\x2193;</span>")
+(define chooser-sigil-arrows "<span class=\"sigil sigil-arrows\">\x2191;\x2193;</span>")
 
 ;; Footer markup splits the count (left) from the navigation hints
 ;; (right) into two flex children so base.css can justify-between them.
