@@ -78,7 +78,7 @@ struct BlockListRendererTests {
           ;; Building the JSON payload runs the block's effects.
           (define payload (block-list-payload-json grp))
         """)
-        #expect(try engine.evaluate("(>= counter 1)") == .true)
+        #expect(try engine.evaluate("(= counter 1)") == .true)
         // The effect MUST NOT appear in the serialized JSON (it's a Scheme
         // procedure, not a value the JS side cares about).
         let payload = try engine.evaluate("payload").asString()
