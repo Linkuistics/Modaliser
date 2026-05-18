@@ -414,12 +414,6 @@
                    (loop (cdr bs)
                          (if e (append acc (cdr e)) acc)))))))
          (group-children (node-children current)))
-    ;; Run on-render thunks before serializing.
-    (for-each
-      (lambda (b)
-        (let ((fn (let ((e (assoc 'on-render-fn b))) (and e (cdr e)))))
-          (when (procedure? fn) (fn))))
-      blocks)
     (string-append
       "{\"type\":\"blocks\",\"blocks\":["
       (string-join-comma
@@ -427,16 +421,26 @@
       "]}")))
 
 ;; (block-json b group-children consumed) → JSON object
-;; Dispatch on block 'type:
+;; Runs the block's optional 'on-render-fn FIRST so side-effects (e.g.
+;; chip painting) happen before serialization; its return value — when
+;; a pair/alist — is merged into the spec for serialization. LispKit
+;; doesn't expose set-cdr!, so blocks that need to splice live data
+;; into the payload return it from the thunk rather than mutating their
+;; spec.  Then dispatch on 'type:
 ;;   'which-key — emit segments by partitioning (group-children − consumed).
-;;   other      — block-spec->json (verbatim alist, sans procedures).
+;;   other      — block-spec->json on (spec ∪ dynamic-data).
 (define (block-json b group-children consumed)
-  (let ((type (let ((e (assoc 'type b))) (and e (cdr e)))))
+  (let* ((type (let ((e (assoc 'type b))) (and e (cdr e))))
+         (fn-entry (assoc 'on-render-fn b))
+         (fn (and fn-entry (cdr fn-entry)))
+         (dyn (if (procedure? fn)
+                (let ((r (fn))) (if (pair? r) r '()))
+                '())))
     (cond
       ((eq? type 'which-key)
        (which-key-payload-json group-children consumed))
       (else
-       (block-spec->json b)))))
+       (block-spec->json (append b dyn))))))
 
 ;; (which-key-payload-json children consumed-keys) → JSON object
 ;; Walks `children` once. For each entry:
