@@ -134,8 +134,17 @@ final class HintsLibrary: NativeLibrary {
         let subFontSize = SchemeAlistLookup.lookupFixnum(alist, key: "sub-font-size")
             .map { CGFloat($0) } ?? (fontSize * 0.5)
         if let subLabel, !subLabel.isEmpty {
+            // Use Menlo so the chip's typography matches the overlay panel
+            // (whose CSS specifies "Menlo", "SF Mono", monospace at 14px).
+            // Fallback to the system monospace face if Menlo somehow
+            // isn't installed.
+            let digitFont = NSFont(name: "Menlo Bold", size: fontSize)
+                ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
+            let subTextFont = NSFont(name: "Menlo", size: subFontSize)
+                ?? NSFont.monospacedSystemFont(ofSize: subFontSize, weight: .regular)
+
             let digitField = NSTextField(labelWithString: label)
-            digitField.font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
+            digitField.font = digitFont
             digitField.textColor = color
             digitField.alignment = .center
             digitField.isBezeled = false
@@ -147,7 +156,7 @@ final class HintsLibrary: NativeLibrary {
             paragraph.alignment = .left
             paragraph.lineSpacing = 0
             let subAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: subFontSize, weight: .semibold),
+                .font: subTextFont,
                 .foregroundColor: color,
                 .paragraphStyle: paragraph,
             ]
