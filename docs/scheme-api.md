@@ -30,6 +30,7 @@ The surface user configs spell against.
 | `(key k label action [keyword value]...)` | Define a command. Optional trailing `'sticky-target MODE-ID`. |
 | `(key-range display-key label keys action-fn)` | Bind multiple keys to one shared action, displayed as a single overlay row. `action-fn` receives the matched key. |
 | `(group k label [keyword value]... children...)` | Define a group. See [Configuration](configuration.md#group--define-tree-keywords) for keyword options. |
+| `(category label children...)` | Group children under a render-time label for the which-key block. Transparent to dispatch — keys inside behave identically to direct group children. |
 | `(selector k label props...)` | Define a selector. |
 | `(action name props...)` | Define a selector action. |
 | `(define-tree scope [keyword value]... children...)` | Register a command tree. |
@@ -120,7 +121,7 @@ Bare-name exports — import with `(prefix … window:)`.
 
 | Function | Description |
 |----------|-------------|
-| `(actions [keyword value]...)` | Build the windows group node with `'renderer 'diagram`. Options: `'key`, `'label`, `'panels`, `'chip-options`. |
+| `(actions [keyword value]...)` | Build the windows group with `'renderer 'blocks` and three stacked blocks: `window-diagram` + `which-key` + `window-list` (with chip-painting). Options: `'key`, `'label`, `'panels`, `'chip-options`. |
 | `(register! [keyword value]...)` | Register the actions tree under the given scope (`'tree-scope`, default `'global`). |
 | `(divisions matrix)` | Build a `(panel-spec key-node-list)` pair from a matrix of key strings. |
 | `(center-panel key)` | Build the center-panel pair for the given key. |
@@ -291,6 +292,38 @@ Lower-level primitives behind `(modaliser window-actions)`'s panel layouts. Most
 | `(make-center-panel-spec key)` | Build a center panel-spec (outer frame + inward arrows + key glyph). |
 | `(make-fill-panel-spec key)` | Build a single white-filled cell panel-spec. |
 | `(parse-matrix matrix)` | Walk an array-of-arrays of key strings (or `#f` for empty cells), validate, emit a list of cell alists. |
+
+## Block libraries
+
+A group declared with `'renderer 'blocks 'blocks (list block1 block2 …)` stacks each block top-to-bottom in the overlay. Each block ships as a `.sld + .js + .css` trio under `lib/modaliser/blocks/<type>/`; the `.sld` exports the constructor and registers the JS+CSS via `add-overlay-asset-file!`. The blocks-renderer dispatcher in `ui/overlay.scm` serialises each spec to JSON and routes it to `window.overlayBlockRenderers[type]` on the JS side.
+
+A block spec is an alist with:
+- `'type` (symbol) — block type tag.
+- `'consumed-keys` (list of strings, optional) — keys this block paints; the which-key block excludes these from its rendered entries.
+- `'on-render-fn` (thunk, optional) — runs before serialisation on every render; used by `window-list` to refresh the chip snapshot.
+- block-specific fields (e.g. `'panels` on window-diagram, `'windows` on window-list).
+
+Procedure-valued keys (like `'on-render-fn`) are stripped from the JSON automatically.
+
+### `(modaliser blocks window-diagram)`
+
+| Function | Description |
+|----------|-------------|
+| `(make-window-diagram-block panel-specs)` | Build a window-diagram block spec from a list of panel-spec alists (grid/center/fill — same shape `(modaliser diagram-panel)` produces). Sets `'consumed-keys` from the panel cells so which-key skips them. |
+
+### `(modaliser blocks which-key)`
+
+| Function | Description |
+|----------|-------------|
+| `(make-which-key-block)` | Build a which-key block spec. The payload is derived at render time from the parent group's children, partitioned into misc/category segments preserving source order, excluding keys in any sibling block's `'consumed-keys`. |
+
+### `(modaliser blocks window-list)`
+
+| Function | Description |
+|----------|-------------|
+| `(make-window-list-block [keyword value]...)` | Build a window-list block spec. Options: `'show-chips BOOL` (default `#f`; when `#t`, attaches an `on-render-fn` that paints labelled chips on each window and snapshots the window list into the rendered payload), `'chip-options ALIST` (merged with defaults — `font-size`, `padding`, `color`, `background`, `faded-background`, `offset-x-frac`, `offset-y-frac`, …). |
+| `(window-list-current-labels)` | The list of digit labels assigned to windows by the most recent render. |
+| `(window-list-current-targets)` | The current `((label . window-alist) …)` mapping. `window-actions`'s `focus-by-digit` reads this to resolve a pressed digit to its window. |
 
 ## Overlay assets — `(modaliser overlay-assets)`
 

@@ -1,0 +1,83 @@
+/* window-diagram.css — styles for the window-diagram block.
+ *
+ * Scoped under .block-window-diagram so other blocks don't collide
+ * with .diagram-panel etc. The rules are otherwise lifted verbatim
+ * from lib/modaliser/diagram-panel.css.
+ */
+
+:root {
+  --diagram-line: rgba(0, 0, 0, 0.65);
+  --diagram-cell-bg: #ffffff;
+  --diagram-panel-w: 102px;
+  --diagram-panel-h: 60px;
+}
+
+.block-window-diagram {
+  padding: 8px 0;
+}
+
+.block-window-diagram .diagram-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--diagram-panel-w));
+  gap: 0.5rem 1.6rem;
+  justify-content: start;
+  align-items: center;
+  min-width: calc(3 * var(--diagram-panel-w) + 2 * 1.6rem);
+}
+
+.block-window-diagram .diagram-panel {
+  width: var(--diagram-panel-w);
+  height: var(--diagram-panel-h);
+  border: 0.5px solid var(--diagram-line);
+  background: transparent;
+  position: relative;
+  box-sizing: border-box;
+  display: grid;
+}
+
+.block-window-diagram .diagram-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-key);
+  font-weight: 600;
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  background: transparent;
+}
+.block-window-diagram .diagram-cell.has-key { background: var(--diagram-cell-bg); }
+.block-window-diagram .diagram-cell.left-line { border-left: 0.5px solid var(--diagram-line); }
+.block-window-diagram .diagram-cell.top-line  { border-top:  0.5px solid var(--diagram-line); }
+
+.block-window-diagram .diagram-panel.fill {
+  background: var(--diagram-cell-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-key);
+  font-weight: 600;
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+}
+
+.block-window-diagram .diagram-panel.center svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: var(--diagram-line);
+}
+.block-window-diagram .diagram-panel.center .diagram-inner-fill { fill: var(--diagram-cell-bg); stroke: none; }
+.block-window-diagram .diagram-panel.center .diagram-stroke {
+  stroke: currentColor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  fill: none;
+  stroke-linecap: round;
+}
+.block-window-diagram .diagram-panel.center .diagram-arrow { fill: currentColor; stroke: none; }
+.block-window-diagram .diagram-panel.center .diagram-key {
+  fill: var(--color-key);
+  font-family: var(--font-family);
+  font-size: 14px;
+  font-weight: 600;
+}

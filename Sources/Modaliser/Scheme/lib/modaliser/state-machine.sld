@@ -8,7 +8,7 @@
     ;; Tree registry
     register-tree! lookup-tree
     ;; Node predicates
-    command? group? selector? range-command?
+    command? group? selector? range-command? category? flatten-categories
     ;; Node accessors
     node-key node-label node-action node-children node-range-keys
     node-on-enter node-on-leave node-sticky? node-exit-on-unknown?
@@ -156,6 +156,32 @@
        (let ((kind (assoc 'kind node)))
          (and kind (eq? (cdr kind) 'range-command)))))
 
+;; Category nodes are TRANSPARENT for dispatch — they group group-children
+;; under a label for the which-key renderer but their children are spliced
+;; in-place by find-child via flatten-categories. See dsl.sld's (category …).
+(define (category? node)
+  (and (pair? node)
+       (let ((kind (assoc 'kind node)))
+         (and kind (eq? (cdr kind) 'category)))))
+
+;; (flatten-categories children) → list of non-category nodes
+;; Walks `children` and splices the children of any (category …) node
+;; into the result at the category's source position. Recursive — nested
+;; categories flatten transparently. Used by find-child so dispatch sees
+;; category-wrapped keys as if they were direct group children.
+(define (flatten-categories children)
+  (let loop ((rest children) (acc '()))
+    (cond
+      ((null? rest) (reverse acc))
+      ((category? (car rest))
+       (let ((inner (flatten-categories
+                      (let ((e (assoc 'children (car rest))))
+                        (if e (cdr e) '())))))
+         (loop (cdr rest)
+               (append (reverse inner) acc))))
+      (else
+       (loop (cdr rest) (cons (car rest) acc))))))
+
 ;; List of keys a range-command binds. Empty for non-range nodes.
 (define (node-range-keys node)
   (let ((entry (assoc 'keys node)))
@@ -258,7 +284,7 @@
 ;; binding carve a slot out of an existing range. Range matches are taken
 ;; in declaration order if multiple ranges include KEY (first wins).
 (define (find-child node key)
-  (let loop ((children (node-children node)) (range-hit #f))
+  (let loop ((children (flatten-categories (node-children node))) (range-hit #f))
     (cond
       ((null? children) range-hit)
       ((and (not (range-command? (car children)))

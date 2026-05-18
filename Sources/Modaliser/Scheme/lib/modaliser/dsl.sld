@@ -11,6 +11,7 @@
 
 (define-library (modaliser dsl)
   (export key key-range group selector action
+          category
           define-tree set-theme!
           modifier-symbols->mask set-leader!
           ;; Re-exported from (modaliser state-machine) so user configs
@@ -130,6 +131,18 @@
        ;; Positional child node.
        (loop (cdr args) on-enter on-leave sticky exit-unk extras
              (cons (car args) children))))))
+
+;; (category label . children) → category alist
+;;
+;; Category nodes group a slice of group children under a label for
+;; rendering by the (modaliser blocks which-key) block. The state machine
+;; treats them as TRANSPARENT for dispatch: find-child descends through
+;; category nodes as if their children were hoisted into the parent.
+;; This lets configs add visual grouping without changing key paths.
+(define (category label . children)
+  (list (cons 'kind 'category)
+        (cons 'label label)
+        (cons 'children children)))
 
 ;; (selector k label . props) → selector alist
 (define (selector k label . props)

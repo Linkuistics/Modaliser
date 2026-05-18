@@ -28,16 +28,18 @@ struct ModaliserWindowActionsLibraryTests {
         #expect(try engine.evaluate("(lookup-tree \"wa-test\")") != .false)
     }
 
-    @Test func defaultActionsGroupCarriesDiagramRendererAndPanels() throws {
+    @Test func defaultActionsGroupCarriesBlocksRendererAndPanels() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
         try engine.evaluate("(define g (actions))")
-        #expect(try engine.evaluate("(eq? (node-renderer g) 'diagram)") == .true)
-        try engine.evaluate("(define panels (node-renderer-payload g 'panels))")
-        #expect(try engine.evaluate("(list? panels)") == .true)
+        #expect(try engine.evaluate("(eq? (node-renderer g) 'blocks)") == .true)
+        try engine.evaluate("""
+          (define blocks (node-renderer-payload g 'blocks))
+          (define wd (car blocks))
+          (define panels (cdr (assoc 'panels wd)))
+        """)
         // Six panels: full thirds, half thirds, two two-thirds, fill (m), center (c)
         #expect(try engine.evaluate("(= (length panels) 6)") == .true)
-        // First panel is a grid with cols=3, rows=1
         try engine.evaluate("(define p1 (car panels))")
         #expect(try engine.evaluate("(eq? (cdr (assoc 'type p1)) 'grid)") == .true)
         #expect(try engine.evaluate("(= (cdr (assoc 'cols p1)) 3)") == .true)
@@ -89,14 +91,6 @@ struct ModaliserWindowActionsLibraryTests {
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key k1)) \"d\")") == .true)
     }
 
-    @Test func actionsGroupHasOnEnterAndOnLeaveHooks() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
-        try engine.evaluate("(define g (actions))")
-        #expect(try engine.evaluate("(procedure? (node-on-enter g))") == .true)
-        #expect(try engine.evaluate("(procedure? (node-on-leave g))") == .true)
-    }
-
     @Test func windowRangeBindingExistsWithDisplay1dotdot() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
@@ -110,5 +104,29 @@ struct ModaliserWindowActionsLibraryTests {
                     (else (loop (cdr cs))))))
         """)
         #expect(try engine.evaluate("(and range-node #t)") == .true)
+    }
+
+    @Test func actionsGroupUsesBlocksRendererAfterMigration() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
+        try engine.evaluate("(define g (actions))")
+        #expect(try engine.evaluate("(eq? (node-renderer g) 'blocks)") == .true)
+        // Three blocks: window-diagram, which-key, window-list
+        try engine.evaluate("(define blocks (node-renderer-payload g 'blocks))")
+        #expect(try engine.evaluate("(= (length blocks) 3)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type (list-ref blocks 0))) 'window-diagram)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type (list-ref blocks 1))) 'which-key)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type (list-ref blocks 2))) 'window-list)") == .true)
+    }
+
+    @Test func actionsGroupHasOnLeaveHook() throws {
+        // The migration replaced on-enter (paint-window-chips!) with the
+        // window-list block's on-render-fn; on-leave was kept on the
+        // group to call hints-hide when the overlay closes. This test
+        // guards against silently dropping that hook in a future refactor.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
+        try engine.evaluate("(define g (actions))")
+        #expect(try engine.evaluate("(procedure? (node-on-leave g))") == .true)
     }
 }
