@@ -121,25 +121,28 @@ final class WindowLibrary: NativeLibrary {
         ], symbols: self.context.symbols)
     }
 
-    /// (window-visible-at? wid x y) → #t/#f
-    /// Returns #t when the window with id `wid` is the topmost regular
-    /// app window at screen point (x, y). The window-select chip uses
-    /// this to test whether its anchor sits on its own window's pixels
-    /// (full background) or on top of another window (washed-out
-    /// background). Coordinates are AX top-left origin — same as
-    /// list-current-space-windows returns.
-    private func windowVisibleAtFunction(_ widExpr: Expr, _ xExpr: Expr,
-                                          _ yExpr: Expr) throws -> Expr {
+    /// (window-visible-at? wid pid x y) → #t/#f
+    /// Returns #t when the window with id `wid` (owned by `pid`) is the
+    /// topmost regular app window at screen point (x, y). The window-
+    /// select chip uses this to test whether its center sits on its own
+    /// window's pixels (full background) or on top of another window
+    /// (washed-out background). Coordinates are AX top-left origin —
+    /// same as list-current-space-windows returns.
+    ///
+    /// Matching falls back from strict windowId to owner-PID because
+    /// _AXUIElementGetWindow (the private API WindowCache uses to fill
+    /// each window's id) is observed to disagree with CGWindowList's
+    /// kCGWindowNumber for some apps — the chip would otherwise dull
+    /// even when its own window is genuinely frontmost. Same-app
+    /// windows at the chip's point still count as "your own window."
+    private func windowVisibleAtFunction(_ widExpr: Expr, _ pidExpr: Expr,
+                                          _ xExpr: Expr, _ yExpr: Expr) throws -> Expr {
         let wid = try widExpr.asInt64()
+        let pid = try pidExpr.asInt64()
         let x = try xExpr.asInt64()
         let y = try yExpr.asInt64()
-        // A 0 windowId means WindowCache couldn't resolve a CGWindowID for
-        // this window (private _AXUIElementGetWindow returned an error).
-        // We can't reliably match by ID in that case — bias to "visible"
-        // so the chip isn't falsely dulled. Better a missed dulling than
-        // a wrongly-dulled chip on the user's frontmost window.
-        if wid == 0 {
-            return .true
+        if wid == 0 && pid == 0 {
+            return .true  // No identifiers to match — bias to visible.
         }
         let myPID = Int64(ProcessInfo.processInfo.processIdentifier)
         let pt = CGPoint(x: CGFloat(x), y: CGFloat(y))
@@ -170,9 +173,13 @@ final class WindowLibrary: NativeLibrary {
 
             let rect = CGRect(x: bx, y: by, width: bw, height: bh)
             if rect.contains(pt) {
-                // Topmost window at this point — does it match wid?
+                // Topmost window at this point — match strict id first,
+                // then fall back to same-PID.
                 let entryWid = (entry[kCGWindowNumber as String] as? NSNumber)?.int64Value ?? 0
-                return entryWid == wid ? .true : .false
+                let entryPid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int64Value ?? 0
+                if wid > 0 && entryWid == wid { return .true }
+                if pid > 0 && entryPid == pid { return .true }
+                return .false
             }
         }
         return .true  // No window covers this point.

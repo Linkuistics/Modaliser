@@ -363,13 +363,14 @@
                (map (lambda (lw chip)
                       (let* ((win (cdr lw))
                              (wid (cdr (assoc 'windowId win)))
+                             (pid (cdr (assoc 'ownerPid win)))
                              (cx (cdr (assoc 'x chip)))
                              (cy (cdr (assoc 'y chip)))
                              (cw (cdr (assoc 'w chip)))
                              (ch (cdr (assoc 'h chip)))
                              (test-x (+ cx (quotient cw 2)))
                              (test-y (+ cy (quotient ch 2)))
-                             (visible? (window-visible-at? wid test-x test-y))
+                             (visible? (window-visible-at? wid pid test-x test-y))
                              (styled (if visible?
                                        chip
                                        (chip-with-background chip faded-bg))))
