@@ -16,12 +16,41 @@
 (define overlay-webview-id "modaliser-overlay")
 (define overlay-custom-css "")
 
+;; Library-registered assets — accumulated in load order. Concatenated
+;; between base.css/overlay.js and the user-level set-overlay-css!
+;; override. Each is a list of strings.
+(define overlay-extra-css '())
+(define overlay-extra-js  '())
+
 ;; ─── CSS Theming ─────────────────────────────────────────
 
-;; (set-overlay-css! css-string) — store custom CSS to inject after base.css.
-;; Users call this in their config to override theme variables or add rules.
+;; (set-overlay-css! css-string) — store custom CSS to inject after base.css
+;; and after any add-overlay-asset! 'css contributions. User-level override —
+;; applied LAST so it wins.
 (define (set-overlay-css! css)
   (set! overlay-custom-css css))
+
+;; (add-overlay-asset! kind text) — append a library-level CSS or JS snippet.
+;; kind is 'css or 'js. Order preserved. Multiple calls accumulate.
+(define (add-overlay-asset! kind text)
+  (cond
+    ((eq? kind 'css) (set! overlay-extra-css (append overlay-extra-css (list text))))
+    ((eq? kind 'js)  (set! overlay-extra-js  (append overlay-extra-js  (list text))))
+    (else (error "add-overlay-asset!: kind must be 'css or 'js" kind))))
+
+;; (overlay-assets-concat kind) → string
+;; Concatenate stored snippets for `kind`, separated by newlines.
+(define (overlay-assets-concat kind)
+  (let ((items (case kind ((css) overlay-extra-css)
+                          ((js)  overlay-extra-js)
+                          (else '()))))
+    (let loop ((xs items) (acc ""))
+      (if (null? xs)
+        acc
+        (loop (cdr xs)
+              (if (string=? acc "")
+                (car xs)
+                (string-append acc "\n" (car xs))))))))
 
 ;; ─── CSS Loading ──────────────────────────────────────────────
 
@@ -232,19 +261,23 @@
       (loop (cdr rest) (insert (car rest) sorted)))))
 
 ;; (render-overlay-html node root-segments path) → full HTML document string
-;; Pure function. Includes overlay.js for incremental updates.
+;; Pure function. CSS load order: base.css + library extras + user css.
+;; JS load order: overlay.js + library extras.
 (define (render-overlay-html node root-segments path)
-  (let ((css (string-append overlay-base-css
-                            (if (string=? overlay-custom-css "")
-                              ""
-                              (string-append "\n" overlay-custom-css))
-                            "\n"
-                            (host-header-css))))
+  (let* ((extra-css (overlay-assets-concat 'css))
+         (extra-js  (overlay-assets-concat 'js))
+         (css (string-append overlay-base-css
+                             (if (string=? extra-css "") "" (string-append "\n" extra-css))
+                             (if (string=? overlay-custom-css "") "" (string-append "\n" overlay-custom-css))
+                             "\n"
+                             (host-header-css)))
+         (js  (string-append overlay-js
+                             (if (string=? extra-js "") "" (string-append "\n" extra-js)))))
     (html-document
       (make-raw-html
         (string-append
           (html->string (style-element '() css))
-          (html->string (script-element '() overlay-js))))
+          (html->string (script-element '() js))))
       (render-overlay-body root-segments node path))))
 
 ;; Build JSON for overlay update and push to JS updateOverlay().
