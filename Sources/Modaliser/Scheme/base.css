@@ -120,8 +120,13 @@ body {
 .overlay-entries {
   list-style: none;
   column-count: var(--overlay-cols, 1);
-  column-gap: 16px;
+  column-gap: 28px;
   column-fill: auto;
+  /* Indent the entry list under the header bar so the entries don't
+   * sit flush against the panel edge — gives the content a clear
+   * left/right margin under the breadcrumb above. */
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 .overlay-entry {
@@ -189,6 +194,12 @@ body {
    * which comfortably contains the 16px sigil inline-block. */
   line-height: 1.5;
   padding-top: 6px;
+  /* Match the .overlay-entries indent so the hint text lines up with
+   * the entries above. The border-top stays full-width (no horizontal
+   * padding before it) so the rule visually separates the entire
+   * footer band from the entries band. */
+  padding-left: 12px;
+  padding-right: 12px;
   margin-top: 6px;
   border-top: 1px solid var(--color-separator);
 }
