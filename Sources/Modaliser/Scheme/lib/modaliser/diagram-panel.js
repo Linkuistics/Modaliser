@@ -55,6 +55,18 @@
       class: 'diagram-panel grid',
       style: `grid-template-columns: repeat(${panel.cols}, 1fr); grid-template-rows: repeat(${panel.rows}, 1fr);`
     });
+    // Track which grid positions the spec's cells cover so we can paint
+    // placeholders for the empty ones — without them, an empty column
+    // (e.g. col 3 of the "e e _" two-thirds panel) has no DOM element
+    // and the .left-line border on that boundary never renders.
+    const covered = new Set();
+    for (const cell of panel.cells) {
+      for (let dr = 0; dr < (cell.rowSpan || 1); dr++) {
+        for (let dc = 0; dc < (cell.colSpan || 1); dc++) {
+          covered.add((cell.col + dc) + ',' + (cell.row + dr));
+        }
+      }
+    }
     for (const cell of panel.cells) {
       const c = el('div', {
         class: gridLineClasses(cell),
@@ -62,6 +74,19 @@
         text: cell.key || ''
       });
       div.appendChild(c);
+    }
+    // Empty-cell placeholders carry the same left-line/top-line classes
+    // as keyed cells so the internal grid lines paint on every boundary.
+    // No .has-key class, no key text — they exist only as border anchors.
+    for (let r = 1; r <= panel.rows; r++) {
+      for (let c = 1; c <= panel.cols; c++) {
+        if (covered.has(c + ',' + r)) continue;
+        const placeholder = { col: c, row: r, colSpan: 1, rowSpan: 1, key: null };
+        div.appendChild(el('div', {
+          class: gridLineClasses(placeholder),
+          style: `grid-column: ${c} / span 1; grid-row: ${r} / span 1;`
+        }));
+      }
     }
     return div;
   }
