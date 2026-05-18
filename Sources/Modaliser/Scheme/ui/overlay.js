@@ -101,11 +101,12 @@ window.overlayRenderers.list = function(data) {
       var displayKey = e.key === ' ' ? '\u2423' : escapeHtml(e.key);
       var labelClass = e.isGroup ? 'entry-label group-label' : 'entry-label';
       var displayLabel = e.isGroup ? escapeHtml(e.label) + ' \u2026' : escapeHtml(e.label);
-      // Sticky-target leaves get a \u21bb marker after the label (kept in sync
-      // with render-entry in overlay.scm). The marker is a child span so
-      // base.css can style it independently of the surrounding label text.
+      // Sticky-target leaves get a \u21bb marker BEFORE the label (kept in
+      // sync with render-entry in overlay.scm). Leading position keeps the
+      // markers in a consistent column across rows; trailing position would
+      // drift with label width.
       if (e.isSticky) {
-        displayLabel += ' <span class="entry-sticky-marker">\u21bb</span>';
+        displayLabel = '<span class="entry-sticky-marker">\u21bb</span>' + displayLabel;
       }
       html += '<li class="overlay-entry">';
       html += '<span class="entry-key">' + displayKey + '</span>';

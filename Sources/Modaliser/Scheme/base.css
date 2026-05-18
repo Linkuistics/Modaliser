@@ -182,12 +182,13 @@ body {
    * sense (key glyph, not body text). inline-block + line-height: 1 +
    * vertical-align: middle so the size bump doesn't stretch the entry
    * row. Regular weight (matching .sigil) — bold made it look crowded
-   * next to the entry label. */
+   * next to the entry label. margin-right (not -left): marker leads
+   * the label so markers align in a column across rows. */
   display: inline-block;
   font-size: calc(var(--font-size) + 2px);
   line-height: 1;
   vertical-align: middle;
-  margin-left: 6px;
+  margin-right: 6px;
 }
 
 /* ─── Footer ───────────────────────────────────────────────── */
@@ -208,14 +209,10 @@ body {
   padding-right: 12px;
   margin-top: 6px;
   border-top: 1px solid var(--color-separator);
-}
-
-/* At the root of a tree there's only one hint (⎋ cancel) and the
- * footer has slack on the left — right-align it so the hint hugs the
- * panel edge nearest where the user's eye lands after pressing a key.
- * Deeper paths show two hints that already fill the width, so the
- * default left-align stays for those. */
-.overlay-footer-root {
+  /* Right-align hints across all overlay depths — the cancel/back
+   * sigils anchor the right edge nearest where the user's eye lands
+   * after pressing a key. Same alignment is used by the chooser
+   * (via flex justify-content). */
   text-align: right;
 }
 

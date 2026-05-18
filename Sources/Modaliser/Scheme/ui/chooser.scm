@@ -160,10 +160,12 @@
       (number->string item-count)
       (if (= item-count 1) " item" " items")
     "</span>"
+    ;; Hint order: `⏎ choose · ↑↓ select · ⎋ exit` so exit anchors the
+    ;; right edge — consistent with the overlay footers.
     "<span class=\"chooser-footer-hints\">"
-      chooser-sigil-escape " exit"
-      " \xb7; " chooser-sigil-enter " choose"
+      chooser-sigil-enter " choose"
       " \xb7; " chooser-sigil-arrows " select"
+      " \xb7; " chooser-sigil-escape " exit"
     "</span>"))
 
 (define (render-chooser-html prompt visible-items query selected-index

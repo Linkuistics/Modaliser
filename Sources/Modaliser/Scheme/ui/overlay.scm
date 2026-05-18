@@ -106,10 +106,10 @@
 
 ;; Render an entry for a single child node. Cells whose binding carries
 ;; 'sticky-target (declarative "after this action, enter that mode") get
-;; an inline ↻ marker after the label so users see at a glance that the
-;; key keeps them inside the focus mode rather than returning to the
-;; underlying app. Same marker is painted via overlay.js on dynamic
-;; updates — see push-overlay-update and the JS side.
+;; an inline ↻ marker BEFORE the label so the markers align vertically
+;; across rows (trailing position varies with label width). Same marker
+;; is painted via overlay.js on dynamic updates — see push-overlay-update
+;; and the JS side.
 (define (render-entry child)
   (let* ((k (node-key child))
          (label (node-label child))
@@ -126,8 +126,8 @@
         (span '((class . "entry-arrow")) "\x2192;")
         (span (list (cons 'class label-class))
           (make-raw-html
-            (string-append (html-escape display-label)
-              " <span class=\"entry-sticky-marker\">\x21bb;</span>"))))
+            (string-append "<span class=\"entry-sticky-marker\">\x21bb;</span>"
+                           (html-escape display-label)))))
       (li '((class . "overlay-entry"))
         (span '((class . "entry-key")) display-key)
         (span '((class . "entry-arrow")) "\x2192;")
@@ -183,9 +183,12 @@
 
 (define overlay-footer-html-root
   (string-append overlay-sigil-escape " cancel"))
+;; Deep paths show two hints. Order is `⌫ back · ⎋ cancel` so cancel
+;; sits rightmost — consistent with the chooser and root footer where
+;; cancel/exit always anchors the right edge.
 (define overlay-footer-html-deep
-  (string-append overlay-sigil-escape " cancel \xb7; "
-                 overlay-sigil-back " back"))
+  (string-append overlay-sigil-back " back \xb7; "
+                 overlay-sigil-escape " cancel"))
 
 (define (footer-html-for-path path)
   (if (null? path) overlay-footer-html-root overlay-footer-html-deep))
