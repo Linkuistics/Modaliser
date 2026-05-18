@@ -189,7 +189,11 @@
     (div (list (cons 'class cls))
       (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons entries-attrs (map render-entry sorted)))
-      (div '((class . "overlay-footer"))
+      ;; Root-only modifier class lets CSS right-align the lone ⎋ hint
+      ;; (kept in sync with the deep/root branch in footer-html-for-path).
+      (div (list (cons 'class (if (null? path)
+                                "overlay-footer overlay-footer-root"
+                                "overlay-footer")))
         (make-raw-html (footer-html-for-path path))))))
 
 ;; Sort children alphabetically by key (insertion sort)

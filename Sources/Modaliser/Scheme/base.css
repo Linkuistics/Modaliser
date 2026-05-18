@@ -176,9 +176,22 @@ body {
 .overlay-footer {
   color: var(--color-header);
   font-size: calc(var(--font-size) - 2px);
+  /* Explicit line-height so the larger sigil glyphs sit inside it
+   * rather than stretching the row. 1.5 × 12px = 18px line box,
+   * which comfortably contains the 16px sigil inline-block. */
+  line-height: 1.5;
   padding-top: 6px;
   margin-top: 6px;
   border-top: 1px solid var(--color-separator);
+}
+
+/* At the root of a tree there's only one hint (⎋ cancel) and the
+ * footer has slack on the left — right-align it so the hint hugs the
+ * panel edge nearest where the user's eye lands after pressing a key.
+ * Deeper paths show two hints that already fill the width, so the
+ * default left-align stays for those. */
+.overlay-footer-root {
+  text-align: right;
 }
 
 /* Footer-hint sigils (escape, backspace, return, arrows). Bumped well
@@ -188,10 +201,17 @@ body {
  * weight matters as much as the size — some glyphs (U+232B backspace
  * especially) carry less visual ink than others (U+238B escape) at the
  * same font-size, so without the bold they read as smaller siblings.
- * Same rule serves both overlay and chooser footers. */
+ *
+ * inline-block + line-height: 1 + vertical-align: middle keeps the
+ * larger glyph from stretching the parent's line box and centers each
+ * sigil optically against the surrounding text. Same rule serves both
+ * overlay and chooser footers. */
 .sigil {
+  display: inline-block;
   font-size: calc(var(--font-size) + 2px);
   font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 /* ═══════════════════════════════════════════════════════════ */
@@ -303,6 +323,9 @@ body {
 .chooser-footer {
   color: var(--color-header);
   font-size: calc(var(--font-size) - 2px);
+  /* Match the overlay footer's explicit line-height so the 16px sigil
+   * inline-blocks don't stretch the row. */
+  line-height: 1.5;
   padding: 4px 12px;
   border-top: 1px solid var(--color-separator);
 }
