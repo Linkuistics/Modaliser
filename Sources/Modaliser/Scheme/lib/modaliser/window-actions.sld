@@ -28,6 +28,7 @@
           (modaliser dsl)
           (modaliser util)
           (modaliser window)
+          (modaliser hints)
           (modaliser diagram-panel))
   (begin
 
@@ -91,14 +92,62 @@
         (divisions '(("m")))                        ; maximise (single cell)
         (center-panel "c")))                        ; center
 
-    ;; Stub window-range for 1.. — Task 9 replaces this with a dynamic
-    ;; per-leader-press rebuild. Here it's a no-op key-range so the
-    ;; default actions group has the right shape and the renderer has
-    ;; an entry to display.
-    (define (stub-window-range)
+    ;; Per-launch state: the current set of window alists the chip
+    ;; digits map to. Set by paint-window-chips! on every leader press;
+    ;; read by the focus action.
+    (define current-window-targets '())
+
+    (define default-window-labels
+      (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
+
+    ;; (paint-window-chips!) → ()
+    ;; Side-effect: paints a chip on each current-space window at its
+    ;; top-left corner and updates current-window-targets so the focus
+    ;; action can look up the window alist by digit.
+    (define (paint-window-chips!)
+      (let* ((ws (list-current-space-windows))
+             (labels (let loop ((lbls default-window-labels) (xs ws) (acc '()))
+                       (cond
+                         ((or (null? lbls) (null? xs)) (reverse acc))
+                         (else (loop (cdr lbls) (cdr xs)
+                                     (cons (cons (car lbls) (car xs)) acc))))))
+             (chips (map
+                      (lambda (lw)
+                        (let* ((lbl (car lw))
+                               (w (cdr lw))
+                               (x (cdr (assoc 'x w)))
+                               (y (cdr (assoc 'y w))))
+                          (list (cons 'label lbl)
+                                (cons 'x x) (cons 'y y)
+                                (cons 'w 52) (cons 'h 52)
+                                (cons 'color "white")
+                                (cons 'background "dodgerblue")
+                                (cons 'font-size 32)
+                                (cons 'padding 10)
+                                (cons 'corner-radius 6)
+                                (cons 'border-width 1)
+                                (cons 'border-color "black"))))
+                      labels)))
+        (set! current-window-targets labels)
+        (hints-show chips)))
+
+    (define (hide-window-chips!)
+      (hints-hide))
+
+    ;; (focus-by-digit digit-str) → ()
+    ;; Look up the window for the given label and call focus-window.
+    (define (focus-by-digit d)
+      (let ((entry (assoc d current-window-targets)))
+        (when entry
+          (focus-window (cdr entry)))))
+
+    ;; Dynamic window-range for 1.. — paint-window-chips! refreshes
+    ;; current-window-targets on every leader press into the group, so
+    ;; the same digit labels map to whichever windows are visible now.
+    (define (window-range)
       (key-range "1.." "Window <n>"
-        (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0")
-        (lambda (k) #t)))
+        default-window-labels
+        (lambda (k) (focus-by-digit k))))
 
     ;; (actions . opts) → group node with 'renderer 'diagram
     (define (actions . opts)
@@ -119,12 +168,14 @@
                      (list
                        (action "Focus" 'description "Select window" 'key 'primary
                          'run (lambda (c) (focus-window c)))))
-                 (stub-window-range)
+                 (window-range)
                  (key "r" "Restore" (lambda () (restore-window)))))
              (children (append panel-keys text-entries)))
         (apply group group-key group-label
                'renderer 'diagram
                'panels panel-specs
+               'on-enter (lambda () (paint-window-chips!))
+               'on-leave (lambda () (hide-window-chips!))
                children)))
 
     (define (register! . opts)

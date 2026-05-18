@@ -88,4 +88,27 @@ struct ModaliserWindowActionsLibraryTests {
         try engine.evaluate("(define k1 (car keys))")
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key k1)) \"d\")") == .true)
     }
+
+    @Test func actionsGroupHasOnEnterAndOnLeaveHooks() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
+        try engine.evaluate("(define g (actions))")
+        #expect(try engine.evaluate("(procedure? (node-on-enter g))") == .true)
+        #expect(try engine.evaluate("(procedure? (node-on-leave g))") == .true)
+    }
+
+    @Test func windowRangeBindingExistsWithDisplay1dotdot() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
+        try engine.evaluate("""
+          (define g (actions))
+          (define children (cdr (assoc 'children g)))
+          (define range-node
+            (let loop ((cs children))
+              (cond ((null? cs) #f)
+                    ((equal? (cdr (assoc 'key (car cs))) "1..") (car cs))
+                    (else (loop (cdr cs))))))
+        """)
+        #expect(try engine.evaluate("(and range-node #t)") == .true)
+    }
 }
