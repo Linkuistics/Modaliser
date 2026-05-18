@@ -102,31 +102,91 @@
     (define default-window-labels
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
 
-    ;; iTerm-style ratio-based chip placement: chip top-left sits at a
-    ;; fractional offset inside each window's bounds (so chips stay clear
-    ;; of macOS traffic-light controls), and chip size is derived from
-    ;; font + 2×padding. Same option shape (modaliser ax-hints) consumes.
+    ;; iTerm-style ratio-based chip placement (chip top-left sits at a
+    ;; fractional inset from each window's top-left corner) plus app-name
+    ;; label so the user can disambiguate occluded windows. Chip width
+    ;; scales with label length; height stays at font + 2×padding.
     (define default-window-chip-options
       (list (cons 'offset-x-frac 0.05)
             (cons 'offset-y-frac 0.05)
-            (cons 'font-size 32)
-            (cons 'padding 10)
+            (cons 'font-size 20)
+            (cons 'padding 8)
             (cons 'corner-radius 6)
             (cons 'color "white")
             (cons 'background "dodgerblue")
             (cons 'border-width 1)
-            (cons 'border-color "black")))
+            (cons 'border-color "black")
+            ;; App-name truncation budget. macOS app names are usually
+            ;; short ("Safari", "Mail") but a few are long ("Microsoft
+            ;; Excel"); cap so chips don't blow past their window's width.
+            (cons 'app-name-max-chars 16)))
+
+    ;; (truncate-with-ellipsis s n) → string of length ≤ n
+    ;; Trims to n-1 chars + … when over budget. The ellipsis is one
+    ;; character wide visually so the total reads as n chars.
+    (define (truncate-with-ellipsis s n)
+      (if (> (string-length s) n)
+        (string-append (substring s 0 (- n 1)) "\x2026;")
+        s))
+
+    ;; (window-chip-for label window opts) → chip alist for hints-show
+    ;; Places the chip at the ratio-based offset inside the window and
+    ;; sizes its width from the label length (chip-w = font * ~0.62 per
+    ;; char + 2*padding). Matches the iTerm pattern's offset semantics
+    ;; without forcing a square chip (windows need wider chips so the
+    ;; app name fits).
+    (define (window-chip-for label win opts)
+      (let* ((wx (cdr (assoc 'x win)))
+             (wy (cdr (assoc 'y win)))
+             (ww (cdr (assoc 'w win)))
+             (wh (cdr (assoc 'h win)))
+             (font-size (cdr (assoc 'font-size opts)))
+             (padding (cdr (assoc 'padding opts)))
+             (offx (cdr (assoc 'offset-x-frac opts)))
+             (offy (cdr (assoc 'offset-y-frac opts)))
+             (chip-x (+ wx (exact (round (* ww offx)))))
+             (chip-y (+ wy (exact (round (* wh offy)))))
+             (label-chars (string-length label))
+             ;; 0.62 ≈ average char-width / point-size for the system
+             ;; semibold sans face. Slightly generous so the label has
+             ;; breathing room before the right edge.
+             (chip-w (+ (exact (round (* font-size 0.62 label-chars)))
+                        (* 2 padding)))
+             (chip-h (+ font-size (* 2 padding))))
+        (list (cons 'label label)
+              (cons 'x chip-x) (cons 'y chip-y)
+              (cons 'w chip-w) (cons 'h chip-h)
+              (cons 'font-size font-size)
+              (cons 'padding padding)
+              (cons 'corner-radius (cdr (assoc 'corner-radius opts)))
+              (cons 'color (cdr (assoc 'color opts)))
+              (cons 'background (cdr (assoc 'background opts)))
+              (cons 'border-width (cdr (assoc 'border-width opts)))
+              (cons 'border-color (cdr (assoc 'border-color opts))))))
 
     ;; (paint-window-chips!) → ()
-    ;; Paint a numbered chip on each current-space window using the same
-    ;; ax-target-hints placement helper iTerm panes use. label-pairs
-    ;; trims to min(labels, windows) so a single-window space gets only
-    ;; "1", a two-window space "1" and "2", etc. — labels never skip.
+    ;; Paint a "<digit> <App>" chip on each visible window. The app name
+    ;; lets the user pick the right window when several are occluded —
+    ;; the digit alone (which the iTerm pane chips can rely on because
+    ;; panes are always visible) isn't enough when windows hide behind
+    ;; each other. label-pairs trims to min(labels, windows) so a single-
+    ;; window space gets only "1", a two-window space "1" and "2", etc.
     (define (paint-window-chips!)
       (let* ((ws (list-current-space-windows))
-             (labelled (label-pairs default-window-labels ws)))
+             (labelled (label-pairs default-window-labels ws))
+             (max-app-chars (cdr (assoc 'app-name-max-chars
+                                        default-window-chip-options)))
+             (chips
+               (map (lambda (lw)
+                      (let* ((digit (car lw))
+                             (win (cdr lw))
+                             (app-raw (cdr (assoc 'subText win)))
+                             (app (truncate-with-ellipsis app-raw max-app-chars))
+                             (label (string-append digit " " app)))
+                        (window-chip-for label win default-window-chip-options)))
+                    labelled)))
         (set! current-window-targets labelled)
-        (hints-show (ax-target-hints labelled default-window-chip-options))))
+        (hints-show chips)))
 
     (define (hide-window-chips!)
       (hints-hide))
