@@ -11,16 +11,16 @@
 ;;   (hide-overlay)             — close WebView
 ;;   (render-overlay-html node path) — pure: returns HTML document string
 
+;; Library-registered assets (add-overlay-asset!, overlay-assets-concat)
+;; live in (modaliser overlay-assets) so renderer libraries can register
+;; CSS/JS at library-import time without depending on this side-effecting
+;; top-level file being loaded.
+(import (modaliser overlay-assets))
+
 ;; ─── Overlay State ────────────────────────────────────────────
 
 (define overlay-webview-id "modaliser-overlay")
 (define overlay-custom-css "")
-
-;; Library-registered assets — accumulated in load order. Concatenated
-;; between base.css/overlay.js and the user-level set-overlay-css!
-;; override. Each is a list of strings.
-(define overlay-extra-css '())
-(define overlay-extra-js  '())
 
 ;; ─── CSS Theming ─────────────────────────────────────────
 
@@ -30,27 +30,12 @@
 (define (set-overlay-css! css)
   (set! overlay-custom-css css))
 
-;; (add-overlay-asset! kind text) — append a library-level CSS or JS snippet.
-;; kind is 'css or 'js. Order preserved. Multiple calls accumulate.
-(define (add-overlay-asset! kind text)
-  (cond
-    ((eq? kind 'css) (set! overlay-extra-css (append overlay-extra-css (list text))))
-    ((eq? kind 'js)  (set! overlay-extra-js  (append overlay-extra-js  (list text))))
-    (else (error "add-overlay-asset!: kind must be 'css or 'js" kind))))
-
-;; (overlay-assets-concat kind) → string
-;; Concatenate stored snippets for `kind`, separated by newlines.
-(define (overlay-assets-concat kind)
-  (let ((items (case kind ((css) overlay-extra-css)
-                          ((js)  overlay-extra-js)
-                          (else '()))))
-    (let loop ((xs items) (acc ""))
-      (if (null? xs)
-        acc
-        (loop (cdr xs)
-              (if (string=? acc "")
-                (car xs)
-                (string-append acc "\n" (car xs))))))))
+;; Wire the asset-file resolver so library-registered file assets
+;; (add-overlay-asset-file!) get read from the right place. A library
+;; begin block can't see *scheme-directory* (it's a top-level binding),
+;; so the library pushes relative paths and we resolve them here.
+(overlay-assets-set-resolver!
+  (lambda (rel) (string-append *scheme-directory* "/" rel)))
 
 ;; ─── CSS Loading ──────────────────────────────────────────────
 
@@ -259,12 +244,24 @@
 ;; push-overlay-update sends for incremental updates.
 (define (render-overlay-custom cls segments current renderer path)
   (let* ((payload-json (custom-renderer-payload-json current renderer))
-         (body-attrs (list (cons 'class "overlay-custom-body")
-                           (cons 'data-renderer (symbol->string renderer))
-                           (cons 'data-payload payload-json))))
+         ;; data-payload is single-quoted so the inner JSON's double
+         ;; quotes don't need HTML entity-encoding. JS reads via
+         ;; getAttribute('data-payload') + JSON.parse, which sees the
+         ;; literal string either way; keeping it un-escaped makes
+         ;; the rendered HTML easier to grep in tests.
+         ;; Single quotes don't appear inside the JSON we emit
+         ;; (js-escape-overlay covers \, ", newline). Replace any
+         ;; that do creep in (e.g. apostrophe in a label) with the
+         ;; HTML entity so they don't close the attribute early.
+         (payload-attr-safe (string-replace-apos payload-json))
+         (custom-body-html
+           (string-append
+             "<div class=\"overlay-custom-body\""
+             " data-renderer=\"" (html-escape (symbol->string renderer)) "\""
+             " data-payload='" payload-attr-safe "'></div>")))
     (div (list (cons 'class cls))
       (render-header-breadcrumb "overlay-header" segments)
-      (div body-attrs (make-raw-html ""))
+      (make-raw-html custom-body-html)
       (div (list (cons 'class (if (null? path)
                                 "overlay-footer overlay-footer-root"
                                 "overlay-footer")))
@@ -454,6 +451,20 @@
         ",\"cols\":" (number->string (overlay-column-count (length sorted)))
         ",\"keyCh\":" (number->string (max-key-chars sorted))
         ",\"entries\":" entries-json "})"))))
+
+;; Escape apostrophes in a string for safe embedding inside a
+;; single-quoted HTML attribute. Used by render-overlay-custom so
+;; a JSON payload containing a label like "it's" doesn't close the
+;; data-payload attribute prematurely.
+(define (string-replace-apos str)
+  (let loop ((chars (string->list str)) (result '()))
+    (if (null? chars)
+      (list->string (reverse result))
+      (let ((c (car chars)))
+        (loop (cdr chars)
+              (if (char=? c #\')
+                (append '(#\; #\9 #\3 #\# #\&) result)
+                (cons c result)))))))
 
 ;; Escape string for embedding in JSON/JS string literal.
 (define (js-escape-overlay str)

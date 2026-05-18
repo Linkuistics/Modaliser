@@ -28,7 +28,9 @@
           make-fill-panel-spec
           parse-matrix)
   (import (scheme base)
-          (scheme cxr))
+          (scheme cxr)
+          (modaliser util)
+          (modaliser overlay-assets))
   (begin
 
     ;; ─── Panel-spec constructors ───────────────────────────────
@@ -126,4 +128,19 @@
                     (cons 'row min-r)
                     (cons 'col-span (+ (- max-c min-c) 1))
                     (cons 'row-span (+ (- max-r min-r) 1)))))
-          keys)))))
+          keys)))
+
+    ;; ─── Asset registration ──────────────────────────────────
+    ;;
+    ;; Reads sibling .css and .js and pushes them into the overlay's
+    ;; asset registry. Runs once when the library is imported. The
+    ;; overlay concatenates extras into the panel HTML the next time
+    ;; render-overlay-html runs.
+
+    ;; Register the .css and .js sitting next to this .sld file.
+    ;; We push relative paths only — a library's begin block doesn't
+    ;; see the top-level *scheme-directory* binding, so the actual
+    ;; read happens lazily through overlay-assets-set-resolver! which
+    ;; overlay.scm wires up against *scheme-directory*.
+    (add-overlay-asset-file! 'css "lib/modaliser/diagram-panel.css")
+    (add-overlay-asset-file! 'js  "lib/modaliser/diagram-panel.js")))
