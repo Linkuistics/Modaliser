@@ -55,7 +55,7 @@ struct OverlayRenderTests {
     @Test func renderOverlayBodyEmitsColumnCountStyle() throws {
         let engine = try loadOverlay()
         // 20 entries → 2 cols at default 1.6 ratio (see other test).
-        var keys = "abcdefghijklmnopqrst"
+        let keys = "abcdefghijklmnopqrst"
         var bindings = ""
         for c in keys { bindings += "(key \"\(c)\" \"\(c)\" (lambda () 'ok)) " }
         try engine.evaluate("(define-tree 'global \(bindings))")
@@ -64,6 +64,39 @@ struct OverlayRenderTests {
             """).asString()
         #expect(html.contains("--overlay-cols: 2"),
                 "Expected --overlay-cols: 2 inline on .overlay-entries; got HTML did not match")
+    }
+
+    @Test func renderOverlayBodyEmitsKeyChFromWidestKey() throws {
+        let engine = try loadOverlay()
+        // "abc" is a 3-char display-key — widest among the entries; the
+        // grid first track is pinned to 3ch so the arrow column aligns
+        // across all entries regardless of which CSS-multi-column column
+        // they land in.
+        try engine.evaluate("""
+            (define-tree 'global
+              (key "a" "Apple" (lambda () 'ok))
+              (key "abc" "Three-char" (lambda () 'ok)))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("Global") '())
+            """).asString()
+        #expect(html.contains("--entry-key-ch: 3"),
+                "Expected --entry-key-ch: 3 (widest key 'abc'); got HTML did not match")
+    }
+
+    @Test func renderOverlayBodyKeyChClampsToTwo() throws {
+        let engine = try loadOverlay()
+        // All single-char keys — the clamp keeps the key column at 2ch
+        // for breathing room before the arrow track.
+        try engine.evaluate("""
+            (define-tree 'global
+              (key "a" "Apple" (lambda () 'ok))
+              (key "b" "Banana" (lambda () 'ok)))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "global") '("Global") '())
+            """).asString()
+        #expect(html.contains("--entry-key-ch: 2"))
     }
 
     @Test func overlayColumnCountFollowsTargetAspectRatio() throws {

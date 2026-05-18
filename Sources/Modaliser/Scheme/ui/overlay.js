@@ -74,13 +74,17 @@ function updateOverlay(data) {
     footer.classList.toggle('overlay-footer-root', atRoot);
   }
 
-  // Update entry list — column count comes through as data.cols and is
-  // applied as a CSS custom property the entries' .overlay-entries rule
-  // reads via var(--overlay-cols). Mirrors the inline style emitted by
+  // Update entry list — column count and key-column width come through
+  // as data.cols and data.keyCh and are applied as CSS custom properties
+  // the entries' .overlay-entries rule reads via var(--overlay-cols)
+  // and var(--entry-key-ch). Mirrors the inline style emitted by
   // render-overlay-body for the initial paint.
   var ul = document.querySelector('.overlay-entries');
   if (ul && typeof data.cols === 'number') {
     ul.style.setProperty('--overlay-cols', String(data.cols));
+  }
+  if (ul && typeof data.keyCh === 'number') {
+    ul.style.setProperty('--entry-key-ch', String(data.keyCh));
   }
   if (ul) {
     var html = '';
