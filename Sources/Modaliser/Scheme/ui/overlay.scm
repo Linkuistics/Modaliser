@@ -172,11 +172,12 @@
 ;; backspace — matches the glyphs printed on most keyboards and stays
 ;; readable across the available footer width.
 ;;
-;; Backspace is contextual: at the root of a tree it doesn't apply
-;; (transient roots are a no-op for back; sticky roots only pop the
-;; modal-stack in the uncommon enter-mode! caller case), so the hint is
-;; omitted there to avoid advertising a binding that wouldn't do
-;; anything useful from the user's perspective.
+;; Backspace is contextual: it always navigates up a level when the path
+;; is non-empty, and at the root of a sticky tree it pops the modal-stack
+;; back to the caller (e.g. iTerm local nav pops back into the main
+;; iTerm tree). Only suppress the hint when backspace is truly a no-op —
+;; at the root of a transient tree, or at the root of a sticky tree with
+;; no caller pushed on the stack.
 ;; Sigil glyphs are wrapped in <span class="sigil"> so base.css can bump
 ;; their font-size + weight above the surrounding footer body — the raw
 ;; glyphs are too small at the footer's default size.
@@ -198,8 +199,21 @@
   (string-append overlay-sigil-back " back \xb7; "
                  overlay-sigil-escape " cancel"))
 
+;; (back-available-for-path? path) → #t when backspace navigates somewhere
+;; — mirrors modal-step-back's conditions exactly so the hint advertises
+;; the actual binding behaviour. The path is the live modal navigation
+;; path (always equals modal-current-path at render time), so we can
+;; read the modal stack state directly.
+(define (back-available-for-path? path)
+  (cond
+    ((not (null? path)) #t)
+    ((and (in-sticky-context?) (not (null? modal-stack))) #t)
+    (else #f)))
+
 (define (footer-html-for-path path)
-  (if (null? path) overlay-footer-html-root overlay-footer-html-deep))
+  (if (back-available-for-path? path)
+    overlay-footer-html-deep
+    overlay-footer-html-root))
 
 ;; (max-key-chars children) → integer ≥ 2
 ;; The widest key string among `children` in characters, used to pin
