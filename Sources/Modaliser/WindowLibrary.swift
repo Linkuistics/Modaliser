@@ -135,6 +135,13 @@ final class WindowLibrary: NativeLibrary {
     /// kCGWindowNumber for some apps — the chip would otherwise dull
     /// even when its own window is genuinely frontmost. Same-app
     /// windows at the chip's point still count as "your own window."
+    ///
+    /// Translucent windows (alpha < 1.0) are skipped on the way down —
+    /// dimming utilities like HazeOver draw a full-screen overlay
+    /// between focused and unfocused windows. The user still sees their
+    /// target through the tint, so the overlay shouldn't count as
+    /// occluding. The target itself is matched first regardless of
+    /// alpha, so a translucent target window still reads as visible.
     private func windowVisibleAtFunction(_ widExpr: Expr, _ pidExpr: Expr,
                                           _ xExpr: Expr, _ yExpr: Expr) throws -> Expr {
         let wid = try widExpr.asInt64()
@@ -154,16 +161,6 @@ final class WindowLibrary: NativeLibrary {
         }
 
         for entry in list {
-            // Skip our own panels (overlay, hint chips themselves, etc.).
-            // Don't filter by layer — some user apps create their main
-            // window at a non-zero layer (floating utilities, etc.) and
-            // we'd miss them, falsely classifying their chip as occluded.
-            // The CG list is already front-to-back; trust the order.
-            if let ownerPID = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int64Value,
-               ownerPID == myPID {
-                continue
-            }
-
             guard let bounds = entry[kCGWindowBounds as String] as? [String: Any],
                   let bx = (bounds["X"] as? NSNumber)?.doubleValue,
                   let by = (bounds["Y"] as? NSNumber)?.doubleValue,
@@ -172,15 +169,26 @@ final class WindowLibrary: NativeLibrary {
             else { continue }
 
             let rect = CGRect(x: bx, y: by, width: bw, height: bh)
-            if rect.contains(pt) {
-                // Topmost window at this point — match strict id first,
-                // then fall back to same-PID.
-                let entryWid = (entry[kCGWindowNumber as String] as? NSNumber)?.int64Value ?? 0
-                let entryPid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int64Value ?? 0
-                if wid > 0 && entryWid == wid { return .true }
-                if pid > 0 && entryPid == pid { return .true }
-                return .false
-            }
+            if !rect.contains(pt) { continue }
+
+            let entryWid = (entry[kCGWindowNumber as String] as? NSNumber)?.int64Value ?? 0
+            let entryPid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int64Value ?? 0
+
+            // Skip our own panels (overlay, hint chips, etc.).
+            if entryPid == myPID { continue }
+
+            // Target match wins regardless of what's drawn on top of it —
+            // a translucent overlay still leaves the target visible.
+            if wid > 0 && entryWid == wid { return .true }
+            if pid > 0 && entryPid == pid { return .true }
+
+            // Skip translucent overlays (HazeOver-style dimmers, f.lux
+            // blue-light filters, screen-tint utilities). They sit above
+            // unfocused windows in z-order but don't pixel-occlude.
+            let alpha = (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1.0
+            if alpha < 1.0 { continue }
+
+            return .false
         }
         return .true  // No window covers this point.
     }
