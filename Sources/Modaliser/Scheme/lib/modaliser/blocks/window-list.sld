@@ -244,41 +244,32 @@
     ;; alist->json reads the cell at serialization time, so set! between
     ;; render() and the spec being built isn't a race — block-list-
     ;; payload-json calls on-render-fn FIRST, then serializes.
+    ;; on-render-fn protocol:
+    ;;   The block-list renderer (ui/overlay.scm) calls (fn) before
+    ;;   serializing each block. The return value — if a pair/alist —
+    ;;   is merged into the block's JSON, overriding any spec-level
+    ;;   entries with the same key. For pure side-effect thunks the
+    ;;   return value is ignored.
+    ;;
+    ;;   We use this to splice the current windows snapshot into the
+    ;;   block payload at serialize time. LispKit doesn't expose
+    ;;   set-cdr!, so live in-place mutation isn't an option — the
+    ;;   thunk-resolver pattern is the documented fallback.
     (define (make-window-list-block . opts)
       (let* ((alist (apply props->alist opts))
              (show-chips? (alist-ref alist 'show-chips #f))
              (chip-overrides (alist-ref alist 'chip-options '()))
              (chip-opts (merge-chip-options chip-overrides)))
-        (let ((base
-                (list (cons 'type 'window-list)
-                      ;; Carry windows as a thunk-resolved value. We can't
-                      ;; bake the snapshot into the spec since the spec is
-                      ;; constructed once at group-build time. Instead the
-                      ;; on-render-fn updates current-windows-data and the
-                      ;; serializer pulls it via assoc each render — but
-                      ;; alist->json reads the cell value as of serialize
-                      ;; time, so we use a wrapper that resolves at JSON
-                      ;; build time. The simplest mechanism: list a sentinel
-                      ;; key 'windows-resolver and have block-list-payload-
-                      ;; json call it. To avoid extending the protocol we
-                      ;; instead keep the on-render-fn pattern: when
-                      ;; show-chips, on-render-fn mutates the spec's
-                      ;; 'windows entry in place via set-cdr!.
-                      (cons 'windows '()))))
-          (cond
-            (show-chips?
-              ;; Build an effect closure that captures the mutable spec
-              ;; for in-place update. The closure refreshes 'windows on
-              ;; every render so the JS payload matches what was just
-              ;; painted on screen.
-              (let ((spec base))
-                (define (effect)
-                  (paint-and-snapshot! chip-opts)
-                  (let ((win-entry (assoc 'windows spec)))
-                    (set-cdr! win-entry current-windows-data)))
-                (append spec
-                        (list (cons 'on-render-fn effect)))))
-            (else base)))))
+        (cond
+          (show-chips?
+            (list (cons 'type 'window-list)
+                  (cons 'on-render-fn
+                    (lambda ()
+                      (paint-and-snapshot! chip-opts)
+                      (list (cons 'windows current-windows-data))))))
+          (else
+            (list (cons 'type 'window-list)
+                  (cons 'windows '()))))))
 
     (add-overlay-asset-file! 'css "lib/modaliser/blocks/window-list.css")
     (add-overlay-asset-file! 'js  "lib/modaliser/blocks/window-list.js")))

@@ -129,4 +129,44 @@ struct ModaliserWindowActionsLibraryTests {
         try engine.evaluate("(define g (actions))")
         #expect(try engine.evaluate("(procedure? (node-on-leave g))") == .true)
     }
+
+    @Test func actionsGroupRendersFullBlockListPayload() throws {
+        // End-to-end render-path coverage for the actions group. Exercises
+        // block-list-payload-json -> each block's on-render-fn (including
+        // the window-list chip-painting effect) -> serialization. A prior
+        // bug used set-cdr! on the spec, which LispKit doesn't support
+        // and which crashed only at runtime — this test fires the same
+        // path that runs in production.
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("Scheme directory not found"); throw SchemeTestError.noSchemeDir
+        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
+        try engine.evaluateFile(schemePath + "/ui/css.scm")
+        try engine.evaluateFile(schemePath + "/ui/overlay.scm")
+        try engine.evaluate("(import (modaliser window-actions))")
+        try engine.evaluate("(define g (actions))")
+        try engine.evaluate("(define payload (block-list-payload-json g))")
+        let p = try engine.evaluate("payload").asString()
+        #expect(p.contains("\"type\":\"blocks\""))
+        #expect(p.contains("\"type\":\"window-diagram\""))
+        #expect(p.contains("\"type\":\"which-key\""))
+        #expect(p.contains("\"type\":\"window-list\""))
+        // Panel-painted keys (e.g. "d", "m", "c") must NOT appear inside
+        // which-key segments — they're consumed by window-diagram.
+        guard let wkStart = p.range(of: "\"type\":\"which-key\"") else {
+            Issue.record("which-key block missing"); return
+        }
+        let afterWk = p[wkStart.lowerBound...]
+        let wkSlice = String(afterWk.prefix(while: { $0 != "]" }))
+        #expect(!wkSlice.contains("\"key\":\"d\""),
+                "panel-painted key 'd' leaked into which-key segments")
+        #expect(!wkSlice.contains("\"key\":\"m\""),
+                "panel-painted key 'm' leaked into which-key segments")
+        // The which-key strip should still surface the non-consumed
+        // entries: "n" (Named…) and "r" (Restore).
+        #expect(wkSlice.contains("\"key\":\"n\""))
+        #expect(wkSlice.contains("\"key\":\"r\""))
+    }
 }
