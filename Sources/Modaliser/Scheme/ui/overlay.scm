@@ -268,7 +268,10 @@
 ;; into the renderer registry. Initial-render payload mirrors what
 ;; push-overlay-update sends for incremental updates.
 (define (render-overlay-custom cls segments current renderer path)
-  (let* ((payload-json (custom-renderer-payload-json current renderer))
+  (let* ((payload-json
+           (cond
+             ((eq? renderer 'blocks) (block-list-payload-json current))
+             (else (custom-renderer-payload-json current renderer))))
          ;; data-payload is single-quoted so the inner JSON's double
          ;; quotes don't need HTML entity-encoding. JS reads via
          ;; getAttribute('data-payload') + JSON.parse, which sees the
@@ -388,6 +391,51 @@
       dyn-section
       "}")))
 
+;; (block-list-payload-json current) → JSON string
+;; Payload shape: {"type":"blocks","blocks":[<block-json>, ...]}
+;; Each block in the group's 'blocks list is rendered by calling
+;; block-spec->json on its spec — every Scheme symbol becomes a quoted
+;; string, the order is the spec's declared order. Block-specific fields
+;; are carried through verbatim; the JS dispatcher pulls them out by name.
+(define (block-list-payload-json current)
+  (let* ((blocks (or (node-renderer-payload current 'blocks) '())))
+    ;; Run on-render-fn thunks before serializing — gives blocks a
+    ;; chance to refresh dynamic state (e.g. window-list paints chips
+    ;; here so the chip data and the rendered list stay in sync).
+    (for-each
+      (lambda (b)
+        (let ((fn (let ((e (assoc 'on-render-fn b))) (and e (cdr e)))))
+          (when (procedure? fn) (fn))))
+      blocks)
+    ;; Serialize each block. Filter out 'on-render-fn — alist->json
+    ;; emits "null" for procedures, but the key is internal-only and
+    ;; should not appear in the payload at all.
+    (string-append
+      "{\"type\":\"blocks\",\"blocks\":["
+      (string-join-comma (map block-spec->json blocks))
+      "]}")))
+
+;; (block-spec->json spec) → JSON object string
+;; Skip pairs whose value is a procedure (e.g. 'on-render-fn) — those are
+;; Scheme-side hooks, not data for the JS renderer.
+(define (block-spec->json spec)
+  (let loop ((rest spec) (acc '()))
+    (cond
+      ((null? rest)
+       (string-append "{" (string-join-comma (reverse acc)) "}"))
+      (else
+        (let* ((entry (car rest))
+               (k (car entry))
+               (v (cdr entry)))
+          (cond
+            ((procedure? v) (loop (cdr rest) acc))   ; skip thunks
+            (else
+              (loop (cdr rest)
+                    (cons (string-append
+                            "\"" (js-escape-overlay (symbol->string k))
+                            "\":" (alist->json v))
+                          acc)))))))))
+
 ;; (panels->json panels-list) → JSON array string
 ;; Each panel is itself an alist (panel-spec) — pass to alist->json
 ;; for a generic conversion. The diagram-panel library (Task 6) is
@@ -488,7 +536,10 @@
          (renderer (and current (node-renderer current))))
     (cond
       (renderer
-        (let ((payload (custom-renderer-payload-json current renderer)))
+        (let ((payload
+                (cond
+                  ((eq? renderer 'blocks) (block-list-payload-json current))
+                  (else (custom-renderer-payload-json current renderer)))))
           (webview-eval overlay-webview-id
             (string-append "updateOverlay(" payload ")"))))
       (else

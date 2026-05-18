@@ -119,6 +119,39 @@ window.overlayRenderers.list = function(data) {
   notifyResize();
 };
 
+// Block-list renderer — handles {type: "blocks", blocks: [{type, …}, …]}
+// payloads. Each block in payload.blocks is rendered by looking up
+// window.overlayBlockRenderers[block.type] and calling it with
+// (block, blockContainer). Block renderers append their own DOM into
+// their per-block container; the renderer here just builds the row of
+// containers in source order. Containers carry a "block block-<type>"
+// class so block-specific CSS can scope its styles.
+window.overlayBlockRenderers = window.overlayBlockRenderers || {};
+
+window.overlayRenderers.blocks = function(data, container) {
+  var root = container || document.querySelector('.overlay-custom-body[data-renderer="blocks"]');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  var list = data.blocks || [];
+  for (var i = 0; i < list.length; i++) {
+    var block = list[i];
+    var bc = document.createElement('div');
+    bc.className = 'block block-' + block.type;
+    root.appendChild(bc);
+    var fn = window.overlayBlockRenderers[block.type];
+    if (fn) {
+      try {
+        fn(block, bc);
+      } catch (e) {
+        console.error('block ' + block.type + ' render failed', e);
+      }
+    } else {
+      console.warn('overlay: no block renderer for', block.type);
+    }
+  }
+  notifyResize();
+};
+
 // Custom renderers send {type: TYPE, ...}; built-in payloads omit
 // type. Both dispatch the same way: lookup by type, fallback to
 // 'list'.
