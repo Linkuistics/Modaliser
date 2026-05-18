@@ -185,9 +185,11 @@ body {
    * next to the entry label. margin-right (not -left): marker leads
    * the label so markers align in a column across rows. */
   display: inline-block;
-  font-size: calc(var(--font-size) + 2px);
+  font-size: calc(var(--font-size) + 4px);
   line-height: 1;
   vertical-align: middle;
+  position: relative;
+  top: -1px;
   margin-right: 6px;
 }
 
