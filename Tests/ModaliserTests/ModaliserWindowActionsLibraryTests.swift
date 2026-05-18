@@ -21,42 +21,71 @@ struct ModaliserWindowActionsLibraryTests {
         #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Win\")") == .true)
     }
 
-    @Test func includeSwitcherFalseDropsSelectWindowChild() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
-        try engine.evaluate("""
-          (define g (actions 'include-switcher? #f))
-          (define children (cdr (assoc 'children g)))
-          (define has-switcher
-            (let loop ((cs children))
-              (cond ((null? cs) #f)
-                    ((and (selector? (car cs))
-                          (equal? (cdr (assoc 'key (car cs))) "s")) #t)
-                    (else (loop (cdr cs))))))
-        """)
-        #expect(try engine.evaluate("has-switcher") == .false)
-    }
-
-    @Test func includeSwitcherTrueIncludesSelectWindowChild() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
-        try engine.evaluate("""
-          (define g (actions))
-          (define children (cdr (assoc 'children g)))
-          (define has-switcher
-            (let loop ((cs children))
-              (cond ((null? cs) #f)
-                    ((and (selector? (car cs))
-                          (equal? (cdr (assoc 'key (car cs))) "s")) #t)
-                    (else (loop (cdr cs))))))
-        """)
-        #expect(try engine.evaluate("has-switcher") == .true)
-    }
-
     @Test func registerCreatesLookupableTree() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
         try engine.evaluate("(register! 'tree-scope 'wa-test)")
         #expect(try engine.evaluate("(lookup-tree \"wa-test\")") != .false)
+    }
+
+    @Test func defaultActionsGroupCarriesDiagramRendererAndPanels() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
+        try engine.evaluate("(define g (actions))")
+        #expect(try engine.evaluate("(eq? (node-renderer g) 'diagram)") == .true)
+        try engine.evaluate("(define panels (node-renderer-payload g 'panels))")
+        #expect(try engine.evaluate("(list? panels)") == .true)
+        // Six panels: full thirds, half thirds, two two-thirds, fill (m), center (c)
+        #expect(try engine.evaluate("(= (length panels) 6)") == .true)
+        // First panel is a grid with cols=3, rows=1
+        try engine.evaluate("(define p1 (car panels))")
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type p1)) 'grid)") == .true)
+        #expect(try engine.evaluate("(= (cdr (assoc 'cols p1)) 3)") == .true)
+    }
+
+    @Test func defaultActionsHasNamedSelectorWithKeyN() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
+        try engine.evaluate("""
+          (define g (actions))
+          (define children (cdr (assoc 'children g)))
+          (define named
+            (let loop ((cs children))
+              (cond ((null? cs) #f)
+                    ((and (selector? (car cs))
+                          (equal? (cdr (assoc 'key (car cs))) "n")) (car cs))
+                    (else (loop (cdr cs))))))
+        """)
+        #expect(try engine.evaluate("(and named #t)") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'label named)) \"Named…\")") == .true)
+    }
+
+    @Test func defaultActionsHasRestoreKey() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
+        try engine.evaluate("""
+          (define g (actions))
+          (define children (cdr (assoc 'children g)))
+          (define restore
+            (let loop ((cs children))
+              (cond ((null? cs) #f)
+                    ((and (command? (car cs))
+                          (equal? (cdr (assoc 'key (car cs))) "r")) (car cs))
+                    (else (loop (cdr cs))))))
+        """)
+        #expect(try engine.evaluate("(and restore #t)") == .true)
+    }
+
+    @Test func divisionsBuilderGeneratesKeysForMatrix() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (prefix (modaliser window-actions) window:))")
+        try engine.evaluate("(define result (window:divisions '((\"d\" \"f\" \"g\"))))")
+        // result is a 2-element list: (panel-spec key-nodes)
+        try engine.evaluate("(define spec (car result))")
+        try engine.evaluate("(define keys (cadr result))")
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type spec)) 'grid)") == .true)
+        #expect(try engine.evaluate("(= (length keys) 3)") == .true)
+        try engine.evaluate("(define k1 (car keys))")
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'key k1)) \"d\")") == .true)
     }
 }
