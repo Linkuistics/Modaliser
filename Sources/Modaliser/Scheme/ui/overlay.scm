@@ -242,7 +242,7 @@
 ;; Default list renderer body (formerly inline in render-overlay-body).
 ;; Sorted-children list with multi-column layout + breadcrumb + footer.
 (define (render-overlay-default cls segments current path)
-  (let* ((children (if current (node-children current) '()))
+  (let* ((children (if current (flatten-categories (node-children current)) '()))
          (sorted   (sort-children children))
          (n-items  (length sorted))
          (n-cols   (overlay-column-count n-items))
@@ -392,28 +392,109 @@
       "}")))
 
 ;; (block-list-payload-json current) → JSON string
-;; Payload shape: {"type":"blocks","blocks":[<block-json>, ...]}
-;; Each block in the group's 'blocks list is rendered by calling
-;; block-spec->json on its spec — every Scheme symbol becomes a quoted
-;; string, the order is the spec's declared order. Block-specific fields
-;; are carried through verbatim; the JS dispatcher pulls them out by name.
+;; Payload: {"type":"blocks","blocks":[<block-json>, ...]}
+;;
+;; Some block types are "derived" — their JSON depends on the parent
+;; group's children and the keys consumed by sibling blocks. which-key
+;; partitions group children into misc/category segments. Other blocks
+;; (window-diagram, window-list) serialize their spec directly via
+;; block-spec->json.
 (define (block-list-payload-json current)
-  (let* ((blocks (or (node-renderer-payload current 'blocks) '())))
-    ;; Run on-render-fn thunks before serializing — gives blocks a
-    ;; chance to refresh dynamic state (e.g. window-list paints chips
-    ;; here so the chip data and the rendered list stay in sync).
+  (let* ((blocks (or (node-renderer-payload current 'blocks) '()))
+         (consumed
+           (let loop ((bs blocks) (acc '()))
+             (cond
+               ((null? bs) acc)
+               (else
+                 (let ((e (assoc 'consumed-keys (car bs))))
+                   (loop (cdr bs)
+                         (if e (append acc (cdr e)) acc)))))))
+         (group-children (node-children current)))
+    ;; Run on-render thunks before serializing.
     (for-each
       (lambda (b)
         (let ((fn (let ((e (assoc 'on-render-fn b))) (and e (cdr e)))))
           (when (procedure? fn) (fn))))
       blocks)
-    ;; Serialize each block. Filter out 'on-render-fn — alist->json
-    ;; emits "null" for procedures, but the key is internal-only and
-    ;; should not appear in the payload at all.
     (string-append
       "{\"type\":\"blocks\",\"blocks\":["
-      (string-join-comma (map block-spec->json blocks))
+      (string-join-comma
+        (map (lambda (b) (block-json b group-children consumed)) blocks))
       "]}")))
+
+;; (block-json b group-children consumed) → JSON object
+;; Dispatch on block 'type:
+;;   'which-key — emit segments by partitioning (group-children − consumed).
+;;   other      — block-spec->json (verbatim alist, sans procedures).
+(define (block-json b group-children consumed)
+  (let ((type (let ((e (assoc 'type b))) (and e (cdr e)))))
+    (cond
+      ((eq? type 'which-key)
+       (which-key-payload-json group-children consumed))
+      (else
+       (block-spec->json b)))))
+
+;; (which-key-payload-json children consumed-keys) → JSON object
+;; Walks `children` once. For each entry:
+;;   - category? → emit a {"kind":"category","label":…,"rows":[<row>,…]}
+;;     where rows is the category's children, also filtered by consumed.
+;;   - else      → emit a {"kind":"misc","row":<row>} segment.
+;; Hidden entries (cons (cons 'hidden #t) …) and keys in `consumed` are
+;; skipped, matching the existing diagram renderer's behaviour.
+(define (which-key-payload-json children consumed)
+  (let ((segments
+          (let loop ((xs children) (acc '()))
+            (cond
+              ((null? xs) (reverse acc))
+              (else
+                (let ((c (car xs)))
+                  (cond
+                    ((category? c)
+                     (let* ((label (let ((e (assoc 'label c))) (if e (cdr e) "")))
+                            (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
+                            (rows (filtered-rows inner consumed))
+                            (seg (string-append
+                                   "{\"kind\":\"category\",\"label\":\""
+                                   (js-escape-overlay label)
+                                   "\",\"rows\":["
+                                   (string-join-comma rows) "]}")))
+                       (loop (cdr xs) (cons seg acc))))
+                    (else
+                     (let ((row (entry->row-json c consumed)))
+                       (if row
+                         (loop (cdr xs)
+                               (cons (string-append "{\"kind\":\"misc\",\"row\":" row "}") acc))
+                         (loop (cdr xs) acc)))))))))))
+    (string-append "{\"type\":\"which-key\",\"segments\":["
+                   (string-join-comma segments) "]}")))
+
+;; (filtered-rows children consumed) → list of JSON strings (each a row)
+(define (filtered-rows children consumed)
+  (let loop ((xs children) (acc '()))
+    (cond
+      ((null? xs) (reverse acc))
+      (else
+        (let ((row (entry->row-json (car xs) consumed)))
+          (loop (cdr xs) (if row (cons row acc) acc)))))))
+
+;; (entry->row-json c consumed) → JSON string OR #f if skipped
+;; Skips hidden entries and entries whose key is in consumed.
+(define (entry->row-json c consumed)
+  (let* ((hidden-pair (assoc 'hidden c))
+         (hidden? (and hidden-pair (cdr hidden-pair)))
+         (k (node-key c))
+         (lbl (node-label c))
+         (is-grp (group? c))
+         (sticky-target (and (command? c) (node-sticky-target c))))
+    (cond
+      (hidden? #f)
+      ((member k consumed) #f)
+      (else
+       (string-append "{\"key\":\"" (js-escape-overlay k)
+                      "\",\"label\":\"" (js-escape-overlay lbl)
+                      "\",\"isGroup\":" (if is-grp "true" "false")
+                      ",\"isSticky\":" (if sticky-target "true" "false")
+                      "}")))))
 
 ;; (block-spec->json spec) → JSON object string
 ;; Skip pairs whose value is a procedure (e.g. 'on-render-fn) — those are
@@ -549,7 +630,7 @@
 ;; Takes the root `node` (needed by path-labels / deepest-sticky-on-path),
 ;; the already-navigated `current` node, and `path`.
 (define (push-overlay-update-default node current path)
-  (let* ((children (if current (node-children current) '()))
+  (let* ((children (if current (flatten-categories (node-children current)) '()))
          (sorted (sort-children children))
          ;; Helper: build a JSON string array from a list of strings.
          (string-list->json

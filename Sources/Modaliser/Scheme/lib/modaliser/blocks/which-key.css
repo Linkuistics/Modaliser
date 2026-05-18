@@ -1,0 +1,52 @@
+/* which-key.css — multi-column layout for the which-key block.
+ *
+ * Container uses CSS columns with column-fill: auto for top-down
+ * sequential packing. Categories are atomic (break-inside: avoid),
+ * misc rows have no break rule so they can flow independently.
+ */
+
+.block-which-key {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-separator);
+}
+
+.block-which-key .wk-columns {
+  column-width: 14rem;
+  column-count: auto;
+  column-fill: auto;
+  column-gap: 1.5rem;
+}
+
+.block-which-key .wk-category {
+  break-inside: avoid;
+  margin-bottom: 0.4rem;
+}
+
+.block-which-key .wk-category-label {
+  margin: 0 0 2px 0;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--color-separator);
+  font-size: var(--font-size);
+  font-weight: 600;
+  color: var(--color-label);
+}
+
+.block-which-key .wk-row {
+  display: grid;
+  grid-template-columns: 3ch auto 1fr;
+  column-gap: 4px;
+  align-items: baseline;
+  padding: 1px 0;
+}
+
+.block-which-key .wk-row .entry-key { color: var(--color-key); font-weight: 600; }
+.block-which-key .wk-row .entry-arrow { color: var(--color-arrow); }
+.block-which-key .wk-row .entry-label { color: var(--color-label); }
+.block-which-key .wk-row .group-label { color: var(--color-label); }
+.block-which-key .wk-row .entry-sticky-marker {
+  font-size: calc(var(--font-size) + 4px);
+  position: relative;
+  top: -1px;
+  margin-right: 2px;
+}
