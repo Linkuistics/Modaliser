@@ -267,13 +267,47 @@
                                 "overlay-footer")))
         (make-raw-html (footer-html-for-path path))))))
 
+;; (panel-bound-keys panels) → list of key strings
+;; Walks every panel spec and returns the set of keys painted on
+;; panels (grid cells, center, fill). Used to filter the entries
+;; passed to custom renderers so panel keys don't appear twice
+;; (once on the panel, once in the text entries strip).
+(define (panel-bound-keys panels)
+  (if (or (not panels) (null? panels))
+    '()
+    (let loop ((ps panels) (acc '()))
+      (if (null? ps)
+        acc
+        (let* ((p (car ps))
+               (ptype (let ((e (assoc 'type p))) (and e (cdr e)))))
+          (cond
+            ((eq? ptype 'grid)
+             (let* ((cells-entry (assoc 'cells p))
+                    (cells (and cells-entry (cdr cells-entry))))
+               (loop (cdr ps)
+                     (let cells-loop ((cs (or cells '())) (a acc))
+                       (if (null? cs)
+                         a
+                         (let* ((c (car cs))
+                                (ke (assoc 'key c))
+                                (k (and ke (cdr ke))))
+                           (cells-loop (cdr cs)
+                                       (if k (cons k a) a))))))))
+            ((or (eq? ptype 'center) (eq? ptype 'fill))
+             (let* ((ke (assoc 'key p))
+                    (k (and ke (cdr ke))))
+               (loop (cdr ps) (if k (cons k acc) acc))))
+            (else (loop (cdr ps) acc))))))))
+
 ;; (custom-renderer-payload-json current renderer) → JSON string
 ;; Default: {type: RENDERER, panels: (...), entries: (...)}.
 ;; The diagram renderer (Task 6) reads 'panels off the group; the
 ;; entries field carries any non-panel children as a list of
-;; {key, label, isGroup} alists.
+;; {key, label, isGroup} alists. Children whose key is bound to a
+;; panel cell/center/fill are skipped so they aren't rendered twice.
 (define (custom-renderer-payload-json current renderer)
   (let* ((panels  (node-renderer-payload current 'panels))
+         (bound   (panel-bound-keys panels))
          (children (node-children current))
          (text-entries
            (let loop ((xs children) (acc '()))
@@ -283,13 +317,15 @@
                       (k (node-key c))
                       (lbl (node-label c))
                       (is-grp (group? c)))
-                 (loop (cdr xs)
-                       (cons (string-append
-                               "{\"key\":\"" (js-escape-overlay k)
-                               "\",\"label\":\"" (js-escape-overlay lbl)
-                               "\",\"isGroup\":" (if is-grp "true" "false")
-                               "}")
-                             acc)))))))
+                 (if (member k bound)
+                   (loop (cdr xs) acc)
+                   (loop (cdr xs)
+                         (cons (string-append
+                                 "{\"key\":\"" (js-escape-overlay k)
+                                 "\",\"label\":\"" (js-escape-overlay lbl)
+                                 "\",\"isGroup\":" (if is-grp "true" "false")
+                                 "}")
+                               acc))))))))
     (string-append "{\"type\":\"" (symbol->string renderer)
       "\",\"panels\":" (panels->json panels)
       ",\"entries\":[" (string-join-comma text-entries) "]}")))
