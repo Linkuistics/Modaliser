@@ -83,36 +83,40 @@ final class SchemeEngine {
         try context.environment.import(MathLibrary.name)
         try context.environment.import(BytevectorLibrary.name)
 
-        // Resolve and register the Scheme directory as a search path
-        schemeDirectoryPath = SchemeEngine.resolveSchemeDirectory()
+        // Resolve the Scheme directory. In production we mirror the whole
+        // tree into ~/.config/modaliser/sys/scheme via SysSync and read
+        // from there so users can browse/fork every bundled file. In
+        // dev/test we read directly from the bundle.
+        let bundleSchemePath = SchemeEngine.resolveSchemeDirectory()
         let resolvedUserConfigDir = userConfigDir
             ?? NSString(string: "~/.config/modaliser").expandingTildeInPath
-        if let schemePath = schemeDirectoryPath {
-            _ = context.fileHandler.addSearchPath(schemePath)
-            try evaluate("(define *scheme-directory* \"\(schemePath)\")")
-            // The bundled lib root is the lowest-precedence prepend — it
-            // serves as a fallback when sys/ hasn't been (or couldn't be)
-            // populated. In dev/test runs sys/ is skipped entirely and the
-            // bundled root is what actually answers (modaliser …) imports.
-            let bundledLibRoot = (schemePath as NSString).appendingPathComponent("lib")
+
+        var effectiveSchemePath = bundleSchemePath
+        if let bundlePath = bundleSchemePath {
+            // Always allow the bundle path to satisfy reads in dev/test.
+            _ = context.fileHandler.addSearchPath(bundlePath)
+            let bundledLibRoot = (bundlePath as NSString).appendingPathComponent("lib")
             _ = context.fileHandler.prependLibrarySearchPath(bundledLibRoot)
 
-            // Production-only: mirror the bundle's modaliser/ libs into
-            // ~/.config/modaliser/sys/ so users can read them in place.
-            // The check is whether schemePath sits inside an .app bundle
-            // (Contents/Resources/...). Dev runs (Sources/Modaliser/Scheme)
-            // and tests skip sync so we never write into the user's real
-            // config dir from a non-production launch.
-            if SchemeEngine.isProductionBundlePath(schemePath) {
+            if SchemeEngine.isProductionBundlePath(bundlePath) {
                 if let sysSchemeDir = SysSync.sync(
-                    bundleSchemeDir: schemePath,
+                    bundleSchemeDir: bundlePath,
                     userConfigDir: resolvedUserConfigDir) {
-                    let sysLibRoot = (sysSchemeDir as NSString).appendingPathComponent("lib")
-                    _ = context.fileHandler.prependLibrarySearchPath(sysLibRoot)
+                    effectiveSchemePath = sysSchemeDir
+                    _ = context.fileHandler.addSearchPath(sysSchemeDir)
+                    let syncedLibRoot = (sysSchemeDir as NSString).appendingPathComponent("lib")
+                    _ = context.fileHandler.prependLibrarySearchPath(syncedLibRoot)
                 }
             }
-            NSLog("SchemeEngine: Scheme directory at %@", schemePath)
+
+            if let schemePath = effectiveSchemePath {
+                try evaluate("(define *scheme-directory* \"\(schemePath)\")")
+            }
+            NSLog("SchemeEngine: Scheme directory at %@ (bundle=%@)",
+                  effectiveSchemePath ?? "(nil)", bundlePath)
         }
+
+        schemeDirectoryPath = effectiveSchemePath
 
         // Prepend the user-config root LAST, so it ends up FIRST on the
         // library search path — user libraries shadow bundled ones (and
