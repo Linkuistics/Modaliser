@@ -219,33 +219,138 @@
 
 (define (render-overlay-body root-segments node path)
   (let* ((current  (if (null? path) node (navigate-to-path node path)))
-         (children (if current (node-children current) '()))
+         (segments (append root-segments (path-labels node path)))
+         (sticky?  (and (deepest-sticky-on-path node path) #t))
+         (cls      (if sticky? "overlay sticky" "overlay"))
+         (renderer (and current (node-renderer current))))
+    (cond
+      (renderer
+        (render-overlay-custom cls segments current renderer path))
+      (else
+        (render-overlay-default cls segments current path)))))
+
+;; Default list renderer body (formerly inline in render-overlay-body).
+;; Sorted-children list with multi-column layout + breadcrumb + footer.
+(define (render-overlay-default cls segments current path)
+  (let* ((children (if current (node-children current) '()))
          (sorted   (sort-children children))
          (n-items  (length sorted))
          (n-cols   (overlay-column-count n-items))
          (key-ch   (max-key-chars sorted))
-         (segments (append root-segments (path-labels node path)))
-         (sticky?  (and (deepest-sticky-on-path node path) #t))
-         (cls      (if sticky? "overlay sticky" "overlay"))
          (entries-attrs
            (list (cons 'class "overlay-entries")
-                 ;; Two CSS custom props on the container: --overlay-cols
-                 ;; for the column-count, --entry-key-ch for the per-
-                 ;; entry key-column width (in ch). Both are inherited by
-                 ;; every .overlay-entry so the key tracks line up across
-                 ;; all CSS-multi-column columns.
                  (cons 'style
                    (string-append "--overlay-cols: "  (number->string n-cols)
                                   "; --entry-key-ch: " (number->string key-ch))))))
     (div (list (cons 'class cls))
       (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons entries-attrs (map render-entry sorted)))
-      ;; Root-only modifier class lets CSS right-align the lone ⎋ hint
-      ;; (kept in sync with the deep/root branch in footer-html-for-path).
       (div (list (cons 'class (if (null? path)
                                 "overlay-footer overlay-footer-root"
                                 "overlay-footer")))
         (make-raw-html (footer-html-for-path path))))))
+
+;; (render-overlay-custom cls segments current renderer path) → div
+;; Custom renderers receive a payload built from the group's metadata
+;; (renderer-emitted) plus the standard breadcrumb header + footer chrome.
+;; The body is a single <div data-renderer="TYPE"> carrying the JSON
+;; payload as a data-payload attribute; JS reads it on load and calls
+;; into the renderer registry. Initial-render payload mirrors what
+;; push-overlay-update sends for incremental updates.
+(define (render-overlay-custom cls segments current renderer path)
+  (let* ((payload-json (custom-renderer-payload-json current renderer))
+         (body-attrs (list (cons 'class "overlay-custom-body")
+                           (cons 'data-renderer (symbol->string renderer))
+                           (cons 'data-payload payload-json))))
+    (div (list (cons 'class cls))
+      (render-header-breadcrumb "overlay-header" segments)
+      (div body-attrs (make-raw-html ""))
+      (div (list (cons 'class (if (null? path)
+                                "overlay-footer overlay-footer-root"
+                                "overlay-footer")))
+        (make-raw-html (footer-html-for-path path))))))
+
+;; (custom-renderer-payload-json current renderer) → JSON string
+;; Default: {type: RENDERER, panels: (...), entries: (...)}.
+;; The diagram renderer (Task 6) reads 'panels off the group; the
+;; entries field carries any non-panel children as a list of
+;; {key, label, isGroup} alists.
+(define (custom-renderer-payload-json current renderer)
+  (let* ((panels  (node-renderer-payload current 'panels))
+         (children (node-children current))
+         (text-entries
+           (let loop ((xs children) (acc '()))
+             (if (null? xs)
+               (reverse acc)
+               (let* ((c (car xs))
+                      (k (node-key c))
+                      (lbl (node-label c))
+                      (is-grp (group? c)))
+                 (loop (cdr xs)
+                       (cons (string-append
+                               "{\"key\":\"" (js-escape-overlay k)
+                               "\",\"label\":\"" (js-escape-overlay lbl)
+                               "\",\"isGroup\":" (if is-grp "true" "false")
+                               "}")
+                             acc)))))))
+    (string-append "{\"type\":\"" (symbol->string renderer)
+      "\",\"panels\":" (panels->json panels)
+      ",\"entries\":[" (string-join-comma text-entries) "]}")))
+
+;; (panels->json panels-list) → JSON array string
+;; Each panel is itself an alist (panel-spec) — pass to alist->json
+;; for a generic conversion. The diagram-panel library (Task 6) is
+;; the only producer for now; the format is documented there.
+(define (panels->json panels)
+  (if (or (not panels) (null? panels))
+    "[]"
+    (string-append "["
+      (string-join-comma (map alist->json panels))
+      "]")))
+
+;; Helper: comma-separated join.
+(define (string-join-comma xs)
+  (let loop ((rest xs) (acc ""))
+    (if (null? rest)
+      acc
+      (loop (cdr rest)
+            (if (string=? acc "")
+              (car rest)
+              (string-append acc "," (car rest)))))))
+
+;; alist->json — generic conversion. Values may be strings, numbers,
+;; symbols (rendered as strings), booleans, or nested alists/lists.
+(define (alist->json a)
+  (cond
+    ((string? a) (string-append "\"" (js-escape-overlay a) "\""))
+    ((number? a) (number->string a))
+    ((symbol? a) (string-append "\"" (js-escape-overlay (symbol->string a)) "\""))
+    ((boolean? a) (if a "true" "false"))
+    ((null? a) "[]")
+    ((pair? a)
+     (cond
+       ;; Heuristic: alist if every car is a symbol; otherwise list.
+       ((every-pair-symbol-keyed? a)
+        (string-append "{"
+          (string-join-comma
+            (map (lambda (entry)
+                   (string-append "\"" (js-escape-overlay (symbol->string (car entry)))
+                                  "\":" (alist->json (cdr entry))))
+                 a))
+          "}"))
+       (else
+         (string-append "["
+           (string-join-comma (map alist->json a))
+           "]"))))
+    (else "null")))
+
+(define (every-pair-symbol-keyed? lst)
+  (let loop ((xs lst))
+    (cond
+      ((null? xs) #t)
+      ((not (pair? (car xs))) #f)
+      ((not (symbol? (car (car xs)))) #f)
+      (else (loop (cdr xs))))))
 
 ;; Sort children alphabetically by key (insertion sort)
 (define (sort-children children)
@@ -283,9 +388,26 @@
 ;; Build JSON for overlay update and push to JS updateOverlay().
 ;; Sends {rootSegments: [...], path: [...], entries: [...]} so the JS
 ;; can render the breadcrumb identically to the initial Scheme render.
+;;
+;; Dispatches on (node-renderer current): a typed payload {type, …} is
+;; emitted for custom renderers; otherwise the built-in list payload
+;; (handled by overlayRenderers.list in overlay.js).
 (define (push-overlay-update node path)
   (let* ((current (if (null? path) node (navigate-to-path node path)))
-         (children (if current (node-children current) '()))
+         (renderer (and current (node-renderer current))))
+    (cond
+      (renderer
+        (let ((payload (custom-renderer-payload-json current renderer)))
+          (webview-eval overlay-webview-id
+            (string-append "updateOverlay(" payload ")"))))
+      (else
+        (push-overlay-update-default node current path)))))
+
+;; Default list-renderer push (formerly the body of push-overlay-update).
+;; Takes the root `node` (needed by path-labels / deepest-sticky-on-path),
+;; the already-navigated `current` node, and `path`.
+(define (push-overlay-update-default node current path)
+  (let* ((children (if current (node-children current) '()))
          (sorted (sort-children children))
          ;; Helper: build a JSON string array from a list of strings.
          (string-list->json

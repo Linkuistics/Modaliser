@@ -28,12 +28,19 @@ function escapeHtml(str) {
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// Update overlay content with new entries and breadcrumb.
+// Renderer registry. Libraries register additional renderers by
+// assigning to window.overlayRenderers[TYPE]. The diagram renderer
+// (lib/modaliser/diagram-panel.js) registers itself when loaded.
+window.overlayRenderers = window.overlayRenderers || {};
+
+// Built-in list renderer — handles the default {rootSegments, path,
+// entries, sticky, footer, cols, keyCh} payload.
+//
 // data: { rootSegments: ["my-server","Global"], path: ["Windows"], entries: [...] }
 // path entries are group labels resolved from the navigation key chars,
 // not the raw keys — so the breadcrumb reads "Global » Windows" not
 // "Global » w".
-function updateOverlay(data) {
+window.overlayRenderers.list = function(data) {
   // Toggle the .sticky class on the root .overlay element so users can
   // theme the persistent mode indicator distinctly. The flag is sent by
   // push-overlay-update on every change so descending into / popping out
@@ -109,4 +116,38 @@ function updateOverlay(data) {
     ul.innerHTML = html;
   }
   notifyResize();
+};
+
+// Custom renderers send {type: TYPE, ...}; built-in payloads omit
+// type. Both dispatch the same way: lookup by type, fallback to
+// 'list'.
+function updateOverlay(payload) {
+  // Lookup by payload.type; fallback to the built-in list renderer.
+  var fn = (payload && payload.type && window.overlayRenderers[payload.type])
+    || window.overlayRenderers.list;
+  fn(payload);
+}
+
+// On initial HTML load the custom body div carries data-renderer
+// and data-payload — invoke the same dispatch so the first paint
+// matches subsequent updates.
+function bootstrapCustomBody() {
+  var div = document.querySelector('.overlay-custom-body');
+  if (!div) return;
+  var type = div.getAttribute('data-renderer');
+  var payloadStr = div.getAttribute('data-payload');
+  if (!type || !payloadStr) return;
+  try {
+    var payload = JSON.parse(payloadStr);
+    var fn = window.overlayRenderers[type];
+    if (fn) fn(payload, div);
+  } catch (e) {
+    console.error('overlay: bootstrap failed', e);
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootstrapCustomBody);
+} else {
+  bootstrapCustomBody();
 }
