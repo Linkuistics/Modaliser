@@ -346,16 +346,26 @@
                (let* ((c (car xs))
                       (k (node-key c))
                       (lbl (node-label c))
-                      (is-grp (group? c)))
-                 (if (member k bound)
-                   (loop (cdr xs) acc)
-                   (loop (cdr xs)
-                         (cons (string-append
-                                 "{\"key\":\"" (js-escape-overlay k)
-                                 "\",\"label\":\"" (js-escape-overlay lbl)
-                                 "\",\"isGroup\":" (if is-grp "true" "false")
-                                 "}")
-                               acc)))))))
+                      (is-grp (group? c))
+                      ;; Nodes carrying '(hidden . #t) participate in
+                      ;; binding (state machine still sees them) but
+                      ;; are omitted from the entries strip — used by
+                      ;; the windows group to suppress the redundant
+                      ;; "1.. → Window <n>" row when the windows-list
+                      ;; section already conveys the mapping.
+                      (hidden-pair (assoc 'hidden c))
+                      (hidden? (and hidden-pair (cdr hidden-pair))))
+                 (cond
+                   (hidden? (loop (cdr xs) acc))
+                   ((member k bound) (loop (cdr xs) acc))
+                   (else
+                     (loop (cdr xs)
+                           (cons (string-append
+                                   "{\"key\":\"" (js-escape-overlay k)
+                                   "\",\"label\":\"" (js-escape-overlay lbl)
+                                   "\",\"isGroup\":" (if is-grp "true" "false")
+                                   "}")
+                                 acc))))))))
          (dyn-fn  (node-renderer-payload current 'dynamic-data-fn))
          (dyn-data (if (procedure? dyn-fn) (dyn-fn) '()))
          (dyn-pairs
@@ -517,15 +527,20 @@
                         (is-sticky-leaf
                           (and (command? item)
                                (node-sticky-target item)
-                               #t)))
-                   (loop (cdr items)
-                         (string-append result
-                           (if (string=? result "") "" ",")
-                           "{\"key\":\"" (js-escape-overlay k)
-                           "\",\"label\":\"" (js-escape-overlay lbl)
-                           "\",\"isGroup\":" (if is-grp "true" "false")
-                           ",\"isSticky\":" (if is-sticky-leaf "true" "false")
-                           "}")))))
+                               #t))
+                        (hidden-pair (assoc 'hidden item))
+                        (hidden? (and hidden-pair (cdr hidden-pair))))
+                   (cond
+                     (hidden? (loop (cdr items) result))
+                     (else
+                       (loop (cdr items)
+                             (string-append result
+                               (if (string=? result "") "" ",")
+                               "{\"key\":\"" (js-escape-overlay k)
+                               "\",\"label\":\"" (js-escape-overlay lbl)
+                               "\",\"isGroup\":" (if is-grp "true" "false")
+                               ",\"isSticky\":" (if is-sticky-leaf "true" "false")
+                               "}")))))))
              "]")))
     (webview-eval overlay-webview-id
       (string-append "updateOverlay({\"rootSegments\":" segments-json

@@ -418,10 +418,16 @@
     ;; Dynamic window-range for 1.. — paint-window-chips! refreshes
     ;; current-window-targets on every leader press into the group, so
     ;; the same digit labels map to whichever windows are visible now.
+    ;; Marked 'hidden so the entries strip omits the "1.. → Window <n>"
+    ;; row: the windows-list section at the bottom of the overlay already
+    ;; shows the digit-to-window mapping per-row, and the redundant range
+    ;; entry just adds noise. Binding still works — the state machine
+    ;; reads the node from children regardless of the renderer flag.
     (define (window-range)
-      (key-range "1.." "Window <n>"
-        default-window-labels
-        (lambda (k) (focus-by-digit k))))
+      (cons (cons 'hidden #t)
+            (key-range "1.." "Window <n>"
+              default-window-labels
+              (lambda (k) (focus-by-digit k)))))
 
     ;; (actions . opts) → group node with 'renderer 'diagram
     ;;
