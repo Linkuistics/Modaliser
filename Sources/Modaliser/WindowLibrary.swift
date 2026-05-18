@@ -29,6 +29,7 @@ final class WindowLibrary: NativeLibrary {
         self.define(Procedure("toggle-fullscreen", toggleFullscreenFunction))
         self.define(Procedure("restore-window", restoreWindowFunction))
         self.define(Procedure("primary-screen-size", primaryScreenSizeFunction))
+        self.define(Procedure("window-visible-at?", windowVisibleAtFunction))
     }
 
     // MARK: - Functions
@@ -118,6 +119,55 @@ final class WindowLibrary: NativeLibrary {
             ("w", .fixnum(Int64(screen.width))),
             ("h", .fixnum(Int64(screen.height))),
         ], symbols: self.context.symbols)
+    }
+
+    /// (window-visible-at? wid x y) → #t/#f
+    /// Returns #t when the window with id `wid` is the topmost regular
+    /// app window at screen point (x, y). The window-select chip uses
+    /// this to test whether its anchor sits on its own window's pixels
+    /// (full background) or on top of another window (washed-out
+    /// background). Coordinates are AX top-left origin — same as
+    /// list-current-space-windows returns.
+    private func windowVisibleAtFunction(_ widExpr: Expr, _ xExpr: Expr,
+                                          _ yExpr: Expr) throws -> Expr {
+        let wid = try widExpr.asInt64()
+        let x = try xExpr.asInt64()
+        let y = try yExpr.asInt64()
+        let myPID = Int64(ProcessInfo.processInfo.processIdentifier)
+        let pt = CGPoint(x: CGFloat(x), y: CGFloat(y))
+
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+            as? [[String: Any]] else {
+            return .true  // No info — assume visible rather than fail soft.
+        }
+
+        for entry in list {
+            // Skip our own panels (overlay, hint chips themselves, etc.).
+            if let ownerPID = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int64Value,
+               ownerPID == myPID {
+                continue
+            }
+            // Only normal-app windows count — layer 0. Skip menubar,
+            // dock, status items, floating system panels, etc.
+            let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+            if layer != 0 { continue }
+
+            guard let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+                  let bx = (bounds["X"] as? NSNumber)?.doubleValue,
+                  let by = (bounds["Y"] as? NSNumber)?.doubleValue,
+                  let bw = (bounds["Width"] as? NSNumber)?.doubleValue,
+                  let bh = (bounds["Height"] as? NSNumber)?.doubleValue
+            else { continue }
+
+            let rect = CGRect(x: bx, y: by, width: bw, height: bh)
+            if rect.contains(pt) {
+                // Topmost window at this point — does it match wid?
+                let entryWid = (entry[kCGWindowNumber as String] as? NSNumber)?.int64Value ?? 0
+                return entryWid == wid ? .true : .false
+            }
+        }
+        return .true  // No window covers this point.
     }
 
     // MARK: - Helpers

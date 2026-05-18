@@ -117,6 +117,11 @@
             (cons 'corner-radius 6)
             (cons 'color "white")
             (cons 'background "dodgerblue")
+            ;; dodgerblue (#1e90ff) at ~50% alpha. Chips sitting on a
+            ;; window that's occluded at the chip's anchor render with
+            ;; this background so the user sees at a glance which
+            ;; numbered windows are partially or fully hidden.
+            (cons 'faded-background "#1e90ff80")
             (cons 'border-width 1)
             (cons 'border-color "black")
             ;; Truncation budgets — keep chips a sensible size even
@@ -238,27 +243,40 @@
         ((chips-overlap? c (car placed)) (car placed))
         (else (find-overlapping (cdr placed) c))))
 
-    ;; (resolve-chip-overlaps chips sw sh) → adjusted chips
-    ;; Iteratively shifts each chip past any conflict (down first, then
-    ;; right if the down move would leave the screen). Stops at
-    ;; chip-resolve-max-attempts per chip — pathological clusters degrade
-    ;; gracefully to "accept the last position" rather than infinite-loop.
-    (define (resolve-chip-overlaps chips sw sh)
-      (let outer ((rest chips) (placed '()))
+    ;; (resolve-occluded-against-visible chips initial-placed sw sh)
+    ;;   → list of resolved chips (in input order)
+    ;; Iteratively shifts each chip past any conflict with already-placed
+    ;; chips (down first, then right if the down move would leave the
+    ;; screen). The `initial-placed` list seeds the placed accumulator —
+    ;; used so visible-window chips can be pinned and occluded chips
+    ;; route around them. Stops at chip-resolve-max-attempts per chip;
+    ;; pathological clusters degrade to "accept the last position"
+    ;; rather than infinite-loop.
+    (define (resolve-occluded-against-visible chips initial-placed sw sh)
+      (let outer ((rest chips)
+                  (placed (let r ((xs initial-placed) (a '()))
+                            (if (null? xs) a (r (cdr xs) (cons (car xs) a)))))
+                  (new-count 0))
         (cond
-          ((null? rest) (reverse placed))
+          ((null? rest)
+            ;; New chips are at the front of placed in reverse input order;
+            ;; walk new-count of them, consing into acc gives input order.
+            (let collect ((p placed) (remaining new-count) (acc '()))
+              (cond
+                ((zero? remaining) acc)
+                (else (collect (cdr p) (- remaining 1) (cons (car p) acc))))))
           (else
             (let* ((c0 (clamp-chip-to-screen (car rest) sw sh))
                    (natural-y (cdr (assoc 'y c0))))
               (let inner ((c c0) (attempts 0))
                 (cond
                   ((>= attempts chip-resolve-max-attempts)
-                   (outer (cdr rest) (cons c placed)))
+                   (outer (cdr rest) (cons c placed) (+ new-count 1)))
                   (else
                     (let ((conflict (find-overlapping placed c)))
                       (cond
                         ((not conflict)
-                         (outer (cdr rest) (cons c placed)))
+                         (outer (cdr rest) (cons c placed) (+ new-count 1)))
                         (else
                           (let* ((cw (cdr (assoc 'w c)))
                                  (ch (cdr (assoc 'h c)))
@@ -284,6 +302,49 @@
                                      (else c))))
                             (inner new-c (+ attempts 1))))))))))))))
 
+    ;; (chip-with-background chip new-bg) → chip alist with 'background
+    ;; replaced. Used to mark chips whose window is occluded at the chip
+    ;; anchor point.
+    (define (chip-with-background chip new-bg)
+      (map (lambda (entry)
+             (if (eq? (car entry) 'background)
+               (cons 'background new-bg)
+               entry))
+           chip))
+
+    ;; (resolve-chips-with-visibility annotated sw sh) → resolved chips in
+    ;; input order. annotated is ((visible? . chip) ...). Visible chips
+    ;; pin to their natural (clamped) position so the user's frontmost
+    ;; windows always show their chip exactly where they expect it.
+    ;; Occluded chips resolve against the visible set plus any already-
+    ;; placed occluded chips.
+    (define (resolve-chips-with-visibility annotated sw sh)
+      (let split ((rest annotated) (visible-rev '()) (occluded-rev '()))
+        (cond
+          ((null? rest)
+            (let* ((visible-chips (reverse visible-rev))
+                   (occluded-chips (reverse occluded-rev))
+                   (occluded-resolved (resolve-occluded-against-visible
+                                        occluded-chips visible-chips sw sh)))
+              (let reassemble ((src annotated)
+                               (vp visible-chips)
+                               (op occluded-resolved)
+                               (acc '()))
+                (cond
+                  ((null? src) (reverse acc))
+                  ((car (car src))
+                   (reassemble (cdr src) (cdr vp) op (cons (car vp) acc)))
+                  (else
+                   (reassemble (cdr src) vp (cdr op) (cons (car op) acc)))))))
+          ((car (car rest))
+            (split (cdr rest)
+                   (cons (clamp-chip-to-screen (cdr (car rest)) sw sh) visible-rev)
+                   occluded-rev))
+          (else
+            (split (cdr rest)
+                   visible-rev
+                   (cons (cdr (car rest)) occluded-rev))))))
+
     ;; (paint-window-chips!) → ()
     ;; Paint a "<digit> <App>" chip on each visible window. App name lets
     ;; the user pick the right window when several are occluded — digit
@@ -300,10 +361,29 @@
                       (window-chip-for (car lw) (cdr lw)
                                        default-window-chip-options))
                     labelled))
+             (faded-bg (cdr (assoc 'faded-background
+                                    default-window-chip-options)))
+             ;; Annotate each chip with visibility — is the chip's own
+             ;; window the topmost at the chip's anchor point? Occluded
+             ;; chips render with the washed-out bg so the user sees
+             ;; which numbered windows are hidden.
+             (annotated
+               (map (lambda (lw chip)
+                      (let* ((win (cdr lw))
+                             (wid (cdr (assoc 'windowId win)))
+                             (cx (cdr (assoc 'x chip)))
+                             (cy (cdr (assoc 'y chip)))
+                             (visible? (window-visible-at? wid cx cy))
+                             (styled (if visible?
+                                       chip
+                                       (chip-with-background chip faded-bg))))
+                        (cons visible? styled)))
+                    labelled raw-chips))
              (screen (primary-screen-size))
-             (chips (resolve-chip-overlaps raw-chips
-                                            (cdr (assoc 'w screen))
-                                            (cdr (assoc 'h screen)))))
+             (chips (resolve-chips-with-visibility
+                      annotated
+                      (cdr (assoc 'w screen))
+                      (cdr (assoc 'h screen)))))
         (set! current-window-targets labelled)
         (hints-show chips)))
 
