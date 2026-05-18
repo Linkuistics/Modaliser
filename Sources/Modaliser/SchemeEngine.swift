@@ -104,12 +104,11 @@ final class SchemeEngine {
             // and tests skip sync so we never write into the user's real
             // config dir from a non-production launch.
             if SchemeEngine.isProductionBundlePath(schemePath) {
-                let bundleLibModaliser = (bundledLibRoot as NSString)
-                    .appendingPathComponent("modaliser")
-                if let sysRoot = SysSync.sync(
-                    bundleLibModaliserDir: bundleLibModaliser,
+                if let sysSchemeDir = SysSync.sync(
+                    bundleSchemeDir: schemePath,
                     userConfigDir: resolvedUserConfigDir) {
-                    _ = context.fileHandler.prependLibrarySearchPath(sysRoot)
+                    let sysLibRoot = (sysSchemeDir as NSString).appendingPathComponent("lib")
+                    _ = context.fileHandler.prependLibrarySearchPath(sysLibRoot)
                 }
             }
             NSLog("SchemeEngine: Scheme directory at %@", schemePath)
