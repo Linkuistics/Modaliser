@@ -151,22 +151,33 @@ final class HintsLibrary: NativeLibrary {
             digitField.drawsBackground = false
             digitField.translatesAutoresizingMaskIntoConstraints = false
 
-            let subField = NSTextField(wrappingLabelWithString: "")
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = .left
-            paragraph.lineSpacing = 0
-            let subAttrs: [NSAttributedString.Key: Any] = [
-                .font: subTextFont,
-                .foregroundColor: color,
-                .paragraphStyle: paragraph,
-            ]
-            subField.attributedStringValue = NSAttributedString(string: subLabel,
-                                                                attributes: subAttrs)
-            subField.isBezeled = false
-            subField.drawsBackground = false
-            subField.translatesAutoresizingMaskIntoConstraints = false
+            // Render each sub-line as its own single-line label so an
+            // over-wide value truncates with an ellipsis rather than
+            // wrapping onto extra lines (which would push the chip out
+            // of the height our caller computed for it).
+            let subLines = subLabel.split(separator: "\n",
+                                          omittingEmptySubsequences: false)
+                                   .map(String.init)
+            let subFields: [NSTextField] = subLines.map { line in
+                let f = NSTextField(labelWithString: line)
+                f.font = subTextFont
+                f.textColor = color
+                f.alignment = .left
+                f.lineBreakMode = .byTruncatingTail
+                f.maximumNumberOfLines = 1
+                f.usesSingleLineMode = true
+                f.isBezeled = false
+                f.drawsBackground = false
+                f.translatesAutoresizingMaskIntoConstraints = false
+                return f
+            }
+            let subStack = NSStackView(views: subFields)
+            subStack.orientation = .vertical
+            subStack.alignment = .leading
+            subStack.spacing = 0
+            subStack.translatesAutoresizingMaskIntoConstraints = false
 
-            let stack = NSStackView(views: [digitField, subField])
+            let stack = NSStackView(views: [digitField, subStack])
             stack.orientation = .horizontal
             stack.alignment = .centerY
             stack.spacing = max(4, padding * 0.75)
