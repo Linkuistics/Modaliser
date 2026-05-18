@@ -145,12 +145,21 @@
 (define chooser-sigil-enter  "<span class=\"sigil\">\x23ce;</span>")
 (define chooser-sigil-arrows "<span class=\"sigil\">\x2191;\x2193;</span>")
 
+;; Footer markup splits the count (left) from the navigation hints
+;; (right) into two flex children so base.css can justify-between them.
+;; Kept in sync with chooserFooterHtml in chooser.js — the native
+;; fuzzy-search path bypasses Scheme and writes the footer from JS.
 (define (chooser-footer-html item-count)
-  (string-append (number->string item-count)
-                 (if (= item-count 1) " item" " items")
-                 " \xb7; " chooser-sigil-escape " exit"
-                 " \xb7; " chooser-sigil-enter " choose"
-                 " \xb7; " chooser-sigil-arrows " select"))
+  (string-append
+    "<span class=\"chooser-footer-count\">"
+      (number->string item-count)
+      (if (= item-count 1) " item" " items")
+    "</span>"
+    "<span class=\"chooser-footer-hints\">"
+      chooser-sigil-escape " exit"
+      " \xb7; " chooser-sigil-enter " choose"
+      " \xb7; " chooser-sigil-arrows " select"
+    "</span>"))
 
 (define (render-chooser-html prompt visible-items query selected-index
                              actions-visible? actions)
