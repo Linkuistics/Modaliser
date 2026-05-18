@@ -176,22 +176,38 @@
 (define (footer-html-for-path path)
   (if (null? path) overlay-footer-html-root overlay-footer-html-deep))
 
+;; (max-key-chars children) → integer ≥ 2
+;; The widest key string among `children` in characters, used to pin
+;; every entry's key column at that width. Clamped to a minimum of 2
+;; so single-char keys still get a bit of breathing room before the
+;; arrow column. Monospaced font → character count = column width in ch.
+(define (max-key-chars children)
+  (let loop ((rest children) (best 2))
+    (if (null? rest)
+      best
+      (let ((n (string-length (node-key (car rest)))))
+        (loop (cdr rest) (if (> n best) n best))))))
+
 (define (render-overlay-body root-segments node path)
   (let* ((current  (if (null? path) node (navigate-to-path node path)))
          (children (if current (node-children current) '()))
          (sorted   (sort-children children))
          (n-items  (length sorted))
          (n-cols   (overlay-column-count n-items))
+         (key-ch   (max-key-chars sorted))
          (segments (append root-segments (path-labels node path)))
          (sticky?  (and (deepest-sticky-on-path node path) #t))
          (cls      (if sticky? "overlay sticky" "overlay"))
          (entries-attrs
            (list (cons 'class "overlay-entries")
-                 ;; Pass column count through CSS custom prop — keeps the
-                 ;; default-1 fallback in base.css and lets the same JS
-                 ;; update path tweak the value without touching markup.
-                 (cons 'style (string-append "--overlay-cols: "
-                                             (number->string n-cols))))))
+                 ;; Two CSS custom props on the container: --overlay-cols
+                 ;; for the column-count, --entry-key-ch for the per-
+                 ;; entry key-column width (in ch). Both are inherited by
+                 ;; every .overlay-entry so the key tracks line up across
+                 ;; all CSS-multi-column columns.
+                 (cons 'style
+                   (string-append "--overlay-cols: "  (number->string n-cols)
+                                  "; --entry-key-ch: " (number->string key-ch))))))
     (div (list (cons 'class cls))
       (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons entries-attrs (map render-entry sorted)))
@@ -281,6 +297,7 @@
         ",\"sticky\":" (if sticky? "true" "false")
         ",\"footer\":\"" (js-escape-overlay (footer-html-for-path path)) "\""
         ",\"cols\":" (number->string (overlay-column-count (length sorted)))
+        ",\"keyCh\":" (number->string (max-key-chars sorted))
         ",\"entries\":" entries-json "})"))))
 
 ;; Escape string for embedding in JSON/JS string literal.

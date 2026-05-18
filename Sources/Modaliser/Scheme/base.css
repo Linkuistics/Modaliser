@@ -131,7 +131,13 @@ body {
 
 .overlay-entry {
   display: grid;
-  grid-template-columns: minmax(1.5em, auto) auto 1fr;
+  /* Key column width is pinned to --entry-key-ch (ch units, set on the
+   * parent .overlay-entries by render-overlay-body — the widest key
+   * string across all entries). Monospaced font → ch matches an exact
+   * character width, so this aligns the arrow column across every
+   * entry AND across every CSS-multi-column column. Falls back to
+   * 2ch if the prop isn't set. */
+  grid-template-columns: calc(var(--entry-key-ch, 2) * 1ch) auto 1fr;
   column-gap: 4px;
   align-items: baseline;
   break-inside: avoid;
