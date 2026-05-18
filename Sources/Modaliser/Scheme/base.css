@@ -181,12 +181,16 @@ body {
   border-top: 1px solid var(--color-separator);
 }
 
-/* Footer-hint sigils (escape, backspace, return, arrows). Bumped above
- * the surrounding footer body so the glyphs read clearly: footer text
- * sits at (--font-size - 2px); sigils sit at (--font-size), i.e. +2px
- * / +2pt, and bold. Same rule serves both overlay and chooser footers. */
+/* Footer-hint sigils (escape, backspace, return, arrows). Bumped well
+ * above the surrounding footer body so the glyphs read clearly: footer
+ * text sits at (--font-size - 2px) = 12px; sigils sit at
+ * (--font-size + 2px) = 16px, +33% larger, and bold-700. The extra
+ * weight matters as much as the size — some glyphs (U+232B backspace
+ * especially) carry less visual ink than others (U+238B escape) at the
+ * same font-size, so without the bold they read as smaller siblings.
+ * Same rule serves both overlay and chooser footers. */
 .sigil {
-  font-size: var(--font-size);
+  font-size: calc(var(--font-size) + 2px);
   font-weight: 700;
 }
 

@@ -133,8 +133,20 @@ function updateResults(items, totalCount) {
 
   var footer = document.querySelector('.chooser-footer');
   if (footer) {
-    footer.textContent = totalCount + (totalCount === 1 ? ' item' : ' items');
+    footer.innerHTML = chooserFooterHtml(totalCount);
   }
+}
+
+// Mirror of chooser-footer-html in chooser.scm — kept in sync because
+// the native fuzzy-search path bypasses Scheme and calls updateResults
+// directly, so the footer template has to exist on the JS side too.
+// Sigils are wrapped in .sigil spans so base.css can enlarge + bold
+// them above the surrounding footer text.
+function chooserFooterHtml(count) {
+  return count + (count === 1 ? ' item' : ' items') +
+    ' · <span class="sigil">⎋</span> exit' +
+    ' · <span class="sigil">⏎</span> choose' +
+    ' · <span class="sigil">↑↓</span> select';
 }
 
 function escapeHtml(str) {

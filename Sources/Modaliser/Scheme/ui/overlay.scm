@@ -170,17 +170,6 @@
 (define (footer-html-for-path path)
   (if (null? path) overlay-footer-html-root overlay-footer-html-deep))
 
-;; Plain-text equivalents — push-overlay-update sends one of these
-;; through the JSON footer channel; overlay.js sets innerHTML so the
-;; sigil spans render the same way on dynamic re-renders as on the
-;; initial paint. (Kept around as plain text in case a non-HTML consumer
-;; ever wants the bare sigils.)
-(define overlay-footer-text-root "\x238b; cancel")
-(define overlay-footer-text-deep "\x238b; cancel \xb7; \x232b; back")
-
-(define (footer-text-for-path path)
-  (if (null? path) overlay-footer-text-root overlay-footer-text-deep))
-
 (define (render-overlay-body root-segments node path)
   (let* ((current  (if (null? path) node (navigate-to-path node path)))
          (children (if current (node-children current) '()))
