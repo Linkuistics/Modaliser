@@ -103,23 +103,26 @@
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
 
     ;; iTerm-style ratio-based chip placement (chip top-left sits at a
-    ;; fractional inset from each window's top-left corner) plus app-name
-    ;; label so the user can disambiguate occluded windows. Chip width
-    ;; scales with label length; height stays at font + 2×padding.
+    ;; fractional inset from each window's top-left corner). Three-line
+    ;; chip: large bold digit on top, app name and window title beneath
+    ;; at half the font size. App + title let the user disambiguate
+    ;; occluded windows even when most of the window is hidden behind
+    ;; another. Width auto-fits the widest line, height fits the stack.
     (define default-window-chip-options
       (list (cons 'offset-x-frac 0.05)
             (cons 'offset-y-frac 0.05)
-            (cons 'font-size 20)
+            (cons 'font-size 28)
+            (cons 'sub-font-size 14)
             (cons 'padding 8)
             (cons 'corner-radius 6)
             (cons 'color "white")
             (cons 'background "dodgerblue")
             (cons 'border-width 1)
             (cons 'border-color "black")
-            ;; App-name truncation budget. macOS app names are usually
-            ;; short ("Safari", "Mail") but a few are long ("Microsoft
-            ;; Excel"); cap so chips don't blow past their window's width.
-            (cons 'app-name-max-chars 16)))
+            ;; Truncation budgets — keep chips a sensible size even
+            ;; for verbose apps ("Microsoft Word") or long titles.
+            (cons 'app-name-max-chars 18)
+            (cons 'window-title-max-chars 22)))
 
     ;; (truncate-with-ellipsis s n) → string of length ≤ n
     ;; Trims to n-1 chars + … when over budget. The ellipsis is one
@@ -129,31 +132,48 @@
         (string-append (substring s 0 (- n 1)) "\x2026;")
         s))
 
-    ;; (window-chip-for label window opts) → chip alist for hints-show
-    ;; Places the chip at the ratio-based offset inside the window and
-    ;; sizes its width from the label length (chip-w = font * ~0.62 per
-    ;; char + 2*padding). Matches the iTerm pattern's offset semantics
-    ;; without forcing a square chip (windows need wider chips so the
-    ;; app name fits).
-    (define (window-chip-for label win opts)
+    ;; (window-chip-for digit window opts) → chip alist for hints-show
+    ;; Builds a three-line chip:
+    ;;   digit         — large bold (font-size)
+    ;;   app name      — half-size below the digit (sub-font-size)
+    ;;   window title  — half-size below the app name
+    ;; The digit drives the user's keypress; the sub-label disambiguates
+    ;; when several windows have overlapping or occluded positions.
+    ;; Chip is placed at the ratio-based offset inside the window; width
+    ;; is the widest line + padding, height fits the 3-line stack.
+    (define (window-chip-for digit win opts)
       (let* ((wx (cdr (assoc 'x win)))
              (wy (cdr (assoc 'y win)))
              (ww (cdr (assoc 'w win)))
              (wh (cdr (assoc 'h win)))
              (font-size (cdr (assoc 'font-size opts)))
+             (sub-font-size (cdr (assoc 'sub-font-size opts)))
              (padding (cdr (assoc 'padding opts)))
              (offx (cdr (assoc 'offset-x-frac opts)))
              (offy (cdr (assoc 'offset-y-frac opts)))
              (chip-x (+ wx (exact (round (* ww offx)))))
              (chip-y (+ wy (exact (round (* wh offy)))))
-             (label-chars (string-length label))
+             (app-max (cdr (assoc 'app-name-max-chars opts)))
+             (title-max (cdr (assoc 'window-title-max-chars opts)))
+             (app (truncate-with-ellipsis (cdr (assoc 'subText win)) app-max))
+             (title (truncate-with-ellipsis (cdr (assoc 'text win)) title-max))
+             (sub-label (if (string=? title "")
+                          app
+                          (string-append app "\n" title)))
              ;; 0.62 ≈ average char-width / point-size for the system
-             ;; semibold sans face. Slightly generous so the label has
-             ;; breathing room before the right edge.
-             (chip-w (+ (exact (round (* font-size 0.62 label-chars)))
-                        (* 2 padding)))
-             (chip-h (+ font-size (* 2 padding))))
-        (list (cons 'label label)
+             ;; semibold sans face. Width = widest of the three lines.
+             (digit-w (exact (round (* font-size 0.62 (string-length digit)))))
+             (app-w   (exact (round (* sub-font-size 0.62 (string-length app)))))
+             (title-w (exact (round (* sub-font-size 0.62 (string-length title)))))
+             (chip-w (+ (max digit-w app-w title-w) (* 2 padding)))
+             ;; Height = main line + N sub-lines (with line-height ~1.2).
+             (sub-line-count (if (string=? title "") 1 2))
+             (main-h (exact (round (* font-size 1.2))))
+             (sub-h (exact (round (* sub-font-size 1.2))))
+             (chip-h (+ main-h (* sub-line-count sub-h) (* 2 padding))))
+        (list (cons 'label digit)
+              (cons 'sub-label sub-label)
+              (cons 'sub-font-size sub-font-size)
               (cons 'x chip-x) (cons 'y chip-y)
               (cons 'w chip-w) (cons 'h chip-h)
               (cons 'font-size font-size)
@@ -272,16 +292,10 @@
     (define (paint-window-chips!)
       (let* ((ws (list-current-space-windows))
              (labelled (label-pairs default-window-labels ws))
-             (max-app-chars (cdr (assoc 'app-name-max-chars
-                                        default-window-chip-options)))
              (raw-chips
                (map (lambda (lw)
-                      (let* ((digit (car lw))
-                             (win (cdr lw))
-                             (app-raw (cdr (assoc 'subText win)))
-                             (app (truncate-with-ellipsis app-raw max-app-chars))
-                             (label (string-append digit " " app)))
-                        (window-chip-for label win default-window-chip-options)))
+                      (window-chip-for (car lw) (cdr lw)
+                                       default-window-chip-options))
                     labelled))
              (screen (primary-screen-size))
              (chips (resolve-chip-overlaps raw-chips

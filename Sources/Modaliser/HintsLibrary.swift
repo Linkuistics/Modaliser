@@ -36,11 +36,15 @@ final class HintsLibrary: NativeLibrary {
     /// (hints-show hint-list) → void
     ///
     /// hint-list is a list of alists. Each alist may contain:
-    ///   label       — required string, drawn centered in the panel
-    ///   x, y, w, h  — required ints, screen rectangle in AX coords (top-left origin)
-    ///   color       — optional CSS color: hex ("#ff3030") or named ("tomato"), default red
-    ///   background  — optional CSS color: hex or named, default semi-transparent dark
-    ///   font-size   — optional fixnum, default = min(w, h) * 0.5
+    ///   label          — required string, drawn centered in the panel
+    ///   x, y, w, h     — required ints, screen rectangle in AX coords (top-left origin)
+    ///   color          — optional CSS color: hex ("#ff3030") or named ("tomato"), default red
+    ///   background     — optional CSS color: hex or named, default semi-transparent dark
+    ///   font-size      — optional fixnum, default = min(w, h) * 0.5
+    ///   sub-label      — optional string, drawn beneath `label` (may contain
+    ///                    newlines for multiple lines). Renders the chip as a
+    ///                    bold large primary line plus smaller secondary lines.
+    ///   sub-font-size  — optional fixnum, default = font-size / 2.
     private func hintsShowFunction(_ hintsExpr: Expr) throws -> Expr {
         // Always close any prior set first — hints are an exclusive overlay.
         closeAllPanels()
@@ -121,10 +125,39 @@ final class HintsLibrary: NativeLibrary {
             content.layer?.borderColor = borderColor.cgColor
         }
 
-        let textField = NSTextField(labelWithString: label)
-        textField.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-        textField.textColor = color
-        textField.alignment = .center
+        // Single-line chip = simple labelWithString. Multi-line chip
+        // (sub-label present) = attributed string with mixed font sizes
+        // so the primary digit/glyph reads large and the supplementary
+        // text reads at the smaller sub-font-size beneath it.
+        let subLabel = SchemeAlistLookup.lookupString(alist, key: "sub-label")
+        let subFontSize = SchemeAlistLookup.lookupFixnum(alist, key: "sub-font-size")
+            .map { CGFloat($0) } ?? (fontSize * 0.5)
+        let textField: NSTextField
+        if let subLabel, !subLabel.isEmpty {
+            textField = NSTextField(wrappingLabelWithString: "")
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            paragraph.lineSpacing = 0
+            let mainAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+                .foregroundColor: color,
+                .paragraphStyle: paragraph,
+            ]
+            let subAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: subFontSize, weight: .semibold),
+                .foregroundColor: color,
+                .paragraphStyle: paragraph,
+            ]
+            let attributed = NSMutableAttributedString()
+            attributed.append(NSAttributedString(string: label, attributes: mainAttrs))
+            attributed.append(NSAttributedString(string: "\n" + subLabel, attributes: subAttrs))
+            textField.attributedStringValue = attributed
+        } else {
+            textField = NSTextField(labelWithString: label)
+            textField.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
+            textField.textColor = color
+            textField.alignment = .center
+        }
         textField.isBezeled = false
         textField.drawsBackground = false
         textField.translatesAutoresizingMaskIntoConstraints = false
