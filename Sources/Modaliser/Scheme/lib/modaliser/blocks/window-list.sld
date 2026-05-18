@@ -26,6 +26,7 @@
           (modaliser util)
           (modaliser window)
           (modaliser hints)
+          (modaliser ax-hints)
           (modaliser overlay-assets))
   (begin
 
