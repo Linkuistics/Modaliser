@@ -152,14 +152,14 @@ final class WindowLibrary: NativeLibrary {
 
         for entry in list {
             // Skip our own panels (overlay, hint chips themselves, etc.).
+            // Don't filter by layer — some user apps create their main
+            // window at a non-zero layer (floating utilities, etc.) and
+            // we'd miss them, falsely classifying their chip as occluded.
+            // The CG list is already front-to-back; trust the order.
             if let ownerPID = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int64Value,
                ownerPID == myPID {
                 continue
             }
-            // Only normal-app windows count — layer 0. Skip menubar,
-            // dock, status items, floating system panels, etc.
-            let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
-            if layer != 0 { continue }
 
             guard let bounds = entry[kCGWindowBounds as String] as? [String: Any],
                   let bx = (bounds["X"] as? NSNumber)?.doubleValue,

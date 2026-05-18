@@ -171,12 +171,15 @@
     const root = container || document.querySelector('.overlay-custom-body[data-renderer="diagram"]');
     if (!root) return;
     while (root.firstChild) root.removeChild(root.firstChild);
+    // Panel grid: just the screen-diagrams. Entries strip and windows
+    // list live as siblings below so each gets its own top-divider rule
+    // and the panel grid layout isn't perturbed by their widths.
     const grid = el('div', { class: 'diagram-panel-grid' });
     for (const panel of (payload.panels || [])) {
       grid.appendChild(renderPanel(panel));
     }
-    grid.appendChild(renderEntries(payload.entries || []));
     root.appendChild(grid);
+    root.appendChild(renderEntries(payload.entries || []));
     if (payload.windows && payload.windows.length > 0) {
       root.appendChild(renderWindowsList(payload.windows));
     }

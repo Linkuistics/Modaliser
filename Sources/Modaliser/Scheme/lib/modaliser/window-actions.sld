@@ -115,12 +115,15 @@
     ;;
     ;; All keys here are overridable via (actions 'chip-options …) — see
     ;; merge-chip-options. Defaults match the overlay's accent palette.
+    ;; Sizing matches (modaliser apps iterm)'s default-chip-options so
+    ;; the window chip and an iTerm pane chip read at the same visual
+    ;; weight side-by-side.
     (define default-window-chip-options
-      (list (cons 'offset-x-frac 0.05)
-            (cons 'offset-y-frac 0.05)
-            (cons 'font-size 32)
-            (cons 'padding 10)
-            (cons 'corner-radius 6)
+      (list (cons 'offset-x-frac 0.02)
+            (cons 'offset-y-frac 0.02)
+            (cons 'font-size 56)
+            (cons 'padding 16)
+            (cons 'corner-radius 8)
             (cons 'color "white")
             (cons 'background "dodgerblue")
             ;; Opaque desaturated blue. Used for chips whose window is
