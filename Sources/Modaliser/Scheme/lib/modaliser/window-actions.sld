@@ -29,6 +29,7 @@
           (modaliser util)
           (modaliser window)
           (modaliser hints)
+          (modaliser ax-hints)
           (modaliser diagram-panel))
   (begin
 
@@ -92,50 +93,46 @@
         (divisions '(("m")))                        ; maximise (single cell)
         (center-panel "c")))                        ; center
 
-    ;; Per-launch state: the current set of window alists the chip
-    ;; digits map to. Set by paint-window-chips! on every leader press;
-    ;; read by the focus action.
+    ;; Per-launch state: ((label . window-alist) ...) — set by
+    ;; paint-window-chips! on every leader press, read by focus-by-digit
+    ;; so the same digit press resolves to whichever window had that
+    ;; label at paint time.
     (define current-window-targets '())
 
     (define default-window-labels
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
 
+    ;; iTerm-style ratio-based chip placement: chip top-left sits at a
+    ;; fractional offset inside each window's bounds (so chips stay clear
+    ;; of macOS traffic-light controls), and chip size is derived from
+    ;; font + 2×padding. Same option shape (modaliser ax-hints) consumes.
+    (define default-window-chip-options
+      (list (cons 'offset-x-frac 0.05)
+            (cons 'offset-y-frac 0.05)
+            (cons 'font-size 32)
+            (cons 'padding 10)
+            (cons 'corner-radius 6)
+            (cons 'color "white")
+            (cons 'background "dodgerblue")
+            (cons 'border-width 1)
+            (cons 'border-color "black")))
+
     ;; (paint-window-chips!) → ()
-    ;; Side-effect: paints a chip on each current-space window at its
-    ;; top-left corner and updates current-window-targets so the focus
-    ;; action can look up the window alist by digit.
+    ;; Paint a numbered chip on each current-space window using the same
+    ;; ax-target-hints placement helper iTerm panes use. label-pairs
+    ;; trims to min(labels, windows) so a single-window space gets only
+    ;; "1", a two-window space "1" and "2", etc. — labels never skip.
     (define (paint-window-chips!)
       (let* ((ws (list-current-space-windows))
-             (labels (let loop ((lbls default-window-labels) (xs ws) (acc '()))
-                       (cond
-                         ((or (null? lbls) (null? xs)) (reverse acc))
-                         (else (loop (cdr lbls) (cdr xs)
-                                     (cons (cons (car lbls) (car xs)) acc))))))
-             (chips (map
-                      (lambda (lw)
-                        (let* ((lbl (car lw))
-                               (w (cdr lw))
-                               (x (cdr (assoc 'x w)))
-                               (y (cdr (assoc 'y w))))
-                          (list (cons 'label lbl)
-                                (cons 'x x) (cons 'y y)
-                                (cons 'w 52) (cons 'h 52)
-                                (cons 'color "white")
-                                (cons 'background "dodgerblue")
-                                (cons 'font-size 32)
-                                (cons 'padding 10)
-                                (cons 'corner-radius 6)
-                                (cons 'border-width 1)
-                                (cons 'border-color "black"))))
-                      labels)))
-        (set! current-window-targets labels)
-        (hints-show chips)))
+             (labelled (label-pairs default-window-labels ws)))
+        (set! current-window-targets labelled)
+        (hints-show (ax-target-hints labelled default-window-chip-options))))
 
     (define (hide-window-chips!)
       (hints-hide))
 
     ;; (focus-by-digit digit-str) → ()
-    ;; Look up the window for the given label and call focus-window.
+    ;; Look up the window for the pressed digit and focus it.
     (define (focus-by-digit d)
       (let ((entry (assoc d current-window-targets)))
         (when entry

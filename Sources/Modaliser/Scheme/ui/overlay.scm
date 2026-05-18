@@ -22,6 +22,14 @@
 (define overlay-webview-id "modaliser-overlay")
 (define overlay-custom-css "")
 
+;; Renderer of the node the WebView's current DOM was rendered for. Used by
+;; overlay-update-impl to detect when an incremental push-overlay-update
+;; would target a DOM shape that no longer matches (e.g. navigating from a
+;; list-renderer root into a 'diagram group) — in that case we fall back
+;; to a full webview-set-html! so the new renderer's JS can find its
+;; expected container. Symbol or #f.
+(define overlay-current-renderer #f)
+
 ;; ─── CSS Theming ─────────────────────────────────────────
 
 ;; (set-overlay-css! css-string) — store custom CSS to inject after base.css
@@ -527,6 +535,13 @@
   (when (equal? (alist-ref msg 'type "") "cancel")
     (modal-exit)))
 
+;; (current-node-renderer node path) → symbol or #f
+;; Renderer of the node addressed by `path` within `node`. Reused by show
+;; and update impls to track DOM shape.
+(define (current-node-renderer node path)
+  (let ((current (if (null? path) node (navigate-to-path node path))))
+    (and current (node-renderer current))))
+
 ;; (overlay-show-impl node path) — create panel if needed, render content
 (define (overlay-show-impl node path)
   (unless (overlay-open?)
@@ -539,19 +554,32 @@
             (cons 'shadow #t)))
     (webview-on-message overlay-webview-id overlay-message-handler)
     (set-overlay-open! #t))
+  (set! overlay-current-renderer (current-node-renderer node path))
   (webview-set-html! overlay-webview-id
     (render-overlay-html node (modal-root-segments) path)))
 
-;; (overlay-update-impl node path) — update content via JS (no page reload)
+;; (overlay-update-impl node path) — update content via JS (no page reload).
+;; If the destination node uses a different renderer than the one the
+;; WebView's DOM was built for, fall back to a full re-render — the JS
+;; renderer registry can't reshape the DOM on its own (e.g. swapping
+;; an .overlay-entries <ul> for an .overlay-custom-body <div>).
 (define (overlay-update-impl node path)
   (when (overlay-open?)
-    (push-overlay-update node path)))
+    (let ((new-renderer (current-node-renderer node path)))
+      (cond
+        ((eq? new-renderer overlay-current-renderer)
+         (push-overlay-update node path))
+        (else
+         (set! overlay-current-renderer new-renderer)
+         (webview-set-html! overlay-webview-id
+           (render-overlay-html node (modal-root-segments) path)))))))
 
 ;; (overlay-hide-impl) — close the panel
 (define (overlay-hide-impl)
   (when (overlay-open?)
     (webview-close overlay-webview-id)
-    (set-overlay-open! #f)))
+    (set-overlay-open! #f)
+    (set! overlay-current-renderer #f)))
 
 ;; Install overlay implementations into the state-machine.
 (set-show-overlay!   overlay-show-impl)

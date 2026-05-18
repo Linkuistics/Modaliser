@@ -46,9 +46,13 @@ final class WindowLibrary: NativeLibrary {
 
     /// (list-current-space-windows) → list of alists
     /// Each entry: text, subText, icon, iconType, windowId, ownerPid, x, y, w, h
-    /// Filtered to current-space windows (those with non-zero bounds).
+    /// Returns only windows AX-enumerated on the current space (Phase 1).
+    /// Excludes the other-space cache — those entries hold stale bounds
+    /// from when their app last had a window on a visited space, so
+    /// including them would paint phantom chips at no-longer-meaningful
+    /// coordinates and steal label slots from genuinely visible windows.
     private func listCurrentSpaceWindowsFunction() -> Expr {
-        let windows = WindowCache.shared.listWindows().filter { $0.bounds != .zero }
+        let windows = WindowCache.shared.listCurrentSpaceWindows()
         var result: Expr = .null
         for window in windows.reversed() {
             let alist = makeCurrentSpaceWindowAlist(window)

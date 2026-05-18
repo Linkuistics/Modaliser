@@ -20,13 +20,24 @@
   padding: 0 12px;
 }
 
-/* Panel grid container — 3 columns of max-content, rows packed top-to-bottom. */
+/* Panel grid container — 3 fixed-width columns, rows packed top-to-bottom.
+ * Pinning columns to the panel width (not max-content) keeps every panel
+ * in the same visual column even when other grid items (the entries
+ * stack) are wider than a single panel. */
 .diagram-panel-grid {
   display: grid;
-  grid-template-columns: repeat(3, max-content);
+  grid-template-columns: repeat(3, var(--diagram-panel-w));
   gap: 1.4rem 1.6rem;
   justify-content: start;
   align-items: center;
+}
+
+/* Entries stack lives below the panel grid and spans all three columns
+ * so the panels above stay in clean 3-up rows. Without the span the stack
+ * would auto-place in row 3 col 1, widening that column and shifting the
+ * panels in cols 1 of rows 1-2 out of alignment with the rest. */
+.diagram-panel-grid .diagram-entries-stack {
+  grid-column: 1 / -1;
 }
 
 /* Each panel is a fixed-size 102×60 box with a thin border. */
