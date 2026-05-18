@@ -171,11 +171,12 @@ struct OverlayRenderTests {
         let footer = try #require(extractFooter(html))
         #expect(footer.contains("\u{238B}"))
         #expect(footer.contains("\u{232B}"))
-        // Both sigils must be wrapped in <span class="sigil"> so base.css
+        // Both sigils must be wrapped in a span carrying .sigil so base.css
         // can enlarge + bold them — otherwise they render at the footer's
-        // (smaller) default and visually disappear.
+        // (smaller) default and visually disappear. The backspace also
+        // carries .sigil-back for its extra +2px size bump.
         #expect(footer.contains("class=\"sigil\">\u{238B}"))
-        #expect(footer.contains("class=\"sigil\">\u{232B}"))
+        #expect(footer.contains("class=\"sigil sigil-back\">\u{232B}"))
     }
 
     @Test func renderOverlayHtmlPaintsStickyMarkerOnTaggedKeys() throws {

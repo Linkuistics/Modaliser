@@ -159,7 +159,10 @@
 ;; their font-size + weight above the surrounding footer body — the raw
 ;; glyphs are too small at the footer's default size.
 (define overlay-sigil-escape "<span class=\"sigil\">\x238b;</span>")
-(define overlay-sigil-back   "<span class=\"sigil\">\x232b;</span>")
+;; .sigil-back adds another size bump just for ⌫ — the U+232B glyph
+;; carries less ink than ⎋ in monospace fonts, so without the boost it
+;; reads visually smaller than its siblings.
+(define overlay-sigil-back   "<span class=\"sigil sigil-back\">\x232b;</span>")
 
 (define overlay-footer-html-root
   (string-append overlay-sigil-escape " cancel"))

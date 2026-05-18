@@ -167,7 +167,15 @@ body {
  * is the answer to a different question". */
 .entry-sticky-marker {
   color: var(--color-host-bg, var(--color-group));
-  font-size: calc(var(--font-size) - 1px);
+  /* Same size + weight treatment as .sigil — the ↻ glyph is a sigil in
+   * the same sense (key glyph, not body text) and was visually getting
+   * lost at the smaller default. inline-block + line-height: 1 +
+   * vertical-align: middle so the bump doesn't stretch the entry row. */
+  display: inline-block;
+  font-size: calc(var(--font-size) + 2px);
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
   margin-left: 6px;
 }
 
@@ -212,6 +220,14 @@ body {
   font-weight: 700;
   line-height: 1;
   vertical-align: middle;
+}
+
+/* The U+232B backspace glyph carries noticeably less ink than the other
+ * sigils in Menlo / SF Mono — even at the shared .sigil size it reads
+ * smaller than ⎋ ⏎ ↑↓. Bump just this one by another ~10% so it lands
+ * in the same visual weight class as its siblings. */
+.sigil-back {
+  font-size: calc(var(--font-size) + 4px);
 }
 
 /* ═══════════════════════════════════════════════════════════ */
@@ -328,6 +344,14 @@ body {
   line-height: 1.5;
   padding: 4px 12px;
   border-top: 1px solid var(--color-separator);
+  /* Two flex children — count on the left, hints on the right —
+   * separated by all remaining whitespace via justify-content:
+   * space-between. Aligns the navigation hints flush with the chooser's
+   * right edge, nearest the input cursor / arrow keys. */
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
 }
 
 /* ─── Action Panel ────────────────────────────────────────── */
