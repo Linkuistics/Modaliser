@@ -227,14 +227,17 @@ body {
  * siblings instead of dragging the row's baseline down. */
 .sigil-back {
   font-size: calc(var(--font-size) + 7px);
-  transform: translateY(-1px);
+  /* No vertical offset — the bigger glyph already sits on the row's
+   * baseline naturally, and the previous -1px nudge floated it above
+   * the surrounding text. */
 }
 
 /* The return glyph (U+23CE) reads slightly small in Menlo / SF Mono
- * even at the base .sigil size — give it +1px so it sits in the same
- * visual weight class as its siblings. */
+ * even at the base .sigil size — give it +2px on top of the base
+ * .sigil bump (so +4px total) to bring it into the same visual weight
+ * class as its siblings. */
 .sigil-return {
-  font-size: calc(var(--font-size) + 3px);
+  font-size: calc(var(--font-size) + 4px);
 }
 
 /* Per-glyph vertical nudge. In Menlo/SF Mono the escape and arrow
