@@ -125,55 +125,74 @@ final class HintsLibrary: NativeLibrary {
             content.layer?.borderColor = borderColor.cgColor
         }
 
-        // Single-line chip = simple labelWithString. Multi-line chip
-        // (sub-label present) = attributed string with mixed font sizes
-        // so the primary digit/glyph reads large and the supplementary
-        // text reads at the smaller sub-font-size beneath it.
+        // Single-line chip (no sub-label) keeps the simple centred label;
+        // chips with a sub-label render as digit-on-left + sub-text-stack-
+        // on-right via a horizontal NSStackView so the user reads the
+        // digit and the disambiguating lines at a glance without their
+        // eyes hopping up/down.
         let subLabel = SchemeAlistLookup.lookupString(alist, key: "sub-label")
         let subFontSize = SchemeAlistLookup.lookupFixnum(alist, key: "sub-font-size")
             .map { CGFloat($0) } ?? (fontSize * 0.5)
-        let textField: NSTextField
         if let subLabel, !subLabel.isEmpty {
-            textField = NSTextField(wrappingLabelWithString: "")
+            let digitField = NSTextField(labelWithString: label)
+            digitField.font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
+            digitField.textColor = color
+            digitField.alignment = .center
+            digitField.isBezeled = false
+            digitField.drawsBackground = false
+            digitField.translatesAutoresizingMaskIntoConstraints = false
+
+            let subField = NSTextField(wrappingLabelWithString: "")
             let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = .center
+            paragraph.alignment = .left
             paragraph.lineSpacing = 0
-            let mainAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
-                .foregroundColor: color,
-                .paragraphStyle: paragraph,
-            ]
             let subAttrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: subFontSize, weight: .semibold),
                 .foregroundColor: color,
                 .paragraphStyle: paragraph,
             ]
-            let attributed = NSMutableAttributedString()
-            attributed.append(NSAttributedString(string: label, attributes: mainAttrs))
-            attributed.append(NSAttributedString(string: "\n" + subLabel, attributes: subAttrs))
-            textField.attributedStringValue = attributed
+            subField.attributedStringValue = NSAttributedString(string: subLabel,
+                                                                attributes: subAttrs)
+            subField.isBezeled = false
+            subField.drawsBackground = false
+            subField.translatesAutoresizingMaskIntoConstraints = false
+
+            let stack = NSStackView(views: [digitField, subField])
+            stack.orientation = .horizontal
+            stack.alignment = .centerY
+            stack.spacing = max(4, padding * 0.75)
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+                stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+                stack.leadingAnchor.constraint(
+                    greaterThanOrEqualTo: content.leadingAnchor, constant: padding),
+                stack.trailingAnchor.constraint(
+                    lessThanOrEqualTo: content.trailingAnchor, constant: -padding),
+            ])
         } else {
-            textField = NSTextField(labelWithString: label)
+            let textField = NSTextField(labelWithString: label)
             textField.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
             textField.textColor = color
             textField.alignment = .center
+            textField.isBezeled = false
+            textField.drawsBackground = false
+            textField.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(textField)
+            // Padding is the inset between the panel rim and the text bbox.
+            // For a chip that hugs its glyph, callers size w/h = font +
+            // 2*padding (a single rule), then padding is just visual
+            // breathing room around the centred label.
+            NSLayoutConstraint.activate([
+                textField.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+                textField.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+                textField.leadingAnchor.constraint(
+                    greaterThanOrEqualTo: content.leadingAnchor, constant: padding),
+                textField.trailingAnchor.constraint(
+                    lessThanOrEqualTo: content.trailingAnchor, constant: -padding),
+            ])
         }
-        textField.isBezeled = false
-        textField.drawsBackground = false
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(textField)
-        // Padding here is the inset between the panel rim and the text bbox.
-        // For a chip that hugs its glyph, callers size w/h = font + 2*padding
-        // (a single rule), then padding is just visual breathing room around
-        // the centered label rather than an extra margin to honor.
-        NSLayoutConstraint.activate([
-            textField.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            textField.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            textField.leadingAnchor.constraint(
-                greaterThanOrEqualTo: content.leadingAnchor, constant: padding),
-            textField.trailingAnchor.constraint(
-                lessThanOrEqualTo: content.trailingAnchor, constant: -padding),
-        ])
 
         panel.contentView = content
         panel.orderFrontRegardless()

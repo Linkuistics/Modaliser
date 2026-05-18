@@ -133,14 +133,13 @@
         s))
 
     ;; (window-chip-for digit window opts) → chip alist for hints-show
-    ;; Builds a three-line chip:
-    ;;   digit         — large bold (font-size)
-    ;;   app name      — half-size below the digit (sub-font-size)
-    ;;   window title  — half-size below the app name
-    ;; The digit drives the user's keypress; the sub-label disambiguates
-    ;; when several windows have overlapping or occluded positions.
-    ;; Chip is placed at the ratio-based offset inside the window; width
-    ;; is the widest line + padding, height fits the 3-line stack.
+    ;; Horizontal chip:  digit  | App
+    ;;                          | Window Title
+    ;; — large bold digit on the left, app + window title stacked to
+    ;; the right at half the digit's font size. The digit drives the
+    ;; user's keypress; the sub-text disambiguates when several windows
+    ;; sit at overlapping positions. Chip is placed at the ratio-based
+    ;; offset inside the window.
     (define (window-chip-for digit win opts)
       (let* ((wx (cdr (assoc 'x win)))
              (wy (cdr (assoc 'y win)))
@@ -161,16 +160,20 @@
                           app
                           (string-append app "\n" title)))
              ;; 0.62 ≈ average char-width / point-size for the system
-             ;; semibold sans face. Width = widest of the three lines.
+             ;; semibold sans face. Width = digit + gap + widest sub-line
+             ;; + 2*padding; the gap matches HintsLibrary's stack spacing
+             ;; (0.75 × padding).
              (digit-w (exact (round (* font-size 0.62 (string-length digit)))))
              (app-w   (exact (round (* sub-font-size 0.62 (string-length app)))))
              (title-w (exact (round (* sub-font-size 0.62 (string-length title)))))
-             (chip-w (+ (max digit-w app-w title-w) (* 2 padding)))
-             ;; Height = main line + N sub-lines (with line-height ~1.2).
+             (gap (max 4 (exact (round (* padding 0.75)))))
+             (chip-w (+ digit-w gap (max app-w title-w) (* 2 padding)))
+             ;; Height = taller of (digit, sub-line stack) + 2*padding.
              (sub-line-count (if (string=? title "") 1 2))
-             (main-h (exact (round (* font-size 1.2))))
-             (sub-h (exact (round (* sub-font-size 1.2))))
-             (chip-h (+ main-h (* sub-line-count sub-h) (* 2 padding))))
+             (digit-h (exact (round (* font-size 1.2))))
+             (sub-stack-h (* sub-line-count
+                             (exact (round (* sub-font-size 1.2)))))
+             (chip-h (+ (max digit-h sub-stack-h) (* 2 padding))))
         (list (cons 'label digit)
               (cons 'sub-label sub-label)
               (cons 'sub-font-size sub-font-size)
