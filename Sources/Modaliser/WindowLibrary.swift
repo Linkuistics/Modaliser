@@ -22,6 +22,7 @@ final class WindowLibrary: NativeLibrary {
 
     public override func declarations() {
         self.define(Procedure("list-windows", listWindowsFunction))
+        self.define(Procedure("list-current-space-windows", listCurrentSpaceWindowsFunction))
         self.define(Procedure("focus-window", focusWindowFunction))
         self.define(Procedure("center-window", centerWindowFunction))
         self.define(Procedure("move-window", moveWindowFunction))
@@ -38,6 +39,19 @@ final class WindowLibrary: NativeLibrary {
         var result: Expr = .null
         for window in windows.reversed() {
             let alist = makeWindowAlist(window)
+            result = .pair(alist, result)
+        }
+        return result
+    }
+
+    /// (list-current-space-windows) → list of alists
+    /// Each entry: text, subText, icon, iconType, windowId, ownerPid, x, y, w, h
+    /// Filtered to current-space windows (those with non-zero bounds).
+    private func listCurrentSpaceWindowsFunction() -> Expr {
+        let windows = WindowCache.shared.listWindows().filter { $0.bounds != .zero }
+        var result: Expr = .null
+        for window in windows.reversed() {
+            let alist = makeCurrentSpaceWindowAlist(window)
             result = .pair(alist, result)
         }
         return result
@@ -99,6 +113,21 @@ final class WindowLibrary: NativeLibrary {
             ("iconType", .makeString("bundleId")),
             ("windowId", .fixnum(Int64(window.windowId))),
             ("ownerPid", .fixnum(Int64(window.ownerPID))),
+        ], symbols: self.context.symbols)
+    }
+
+    private func makeCurrentSpaceWindowAlist(_ window: WindowInfo) -> Expr {
+        SchemeAlistLookup.makeAlist([
+            ("text", .makeString(window.title)),
+            ("subText", .makeString(window.ownerName)),
+            ("icon", .makeString(window.bundleId)),
+            ("iconType", .makeString("bundleId")),
+            ("windowId", .fixnum(Int64(window.windowId))),
+            ("ownerPid", .fixnum(Int64(window.ownerPID))),
+            ("x", .fixnum(Int64(window.bounds.origin.x))),
+            ("y", .fixnum(Int64(window.bounds.origin.y))),
+            ("w", .fixnum(Int64(window.bounds.size.width))),
+            ("h", .fixnum(Int64(window.bounds.size.height))),
         ], symbols: self.context.symbols)
     }
 }

@@ -79,4 +79,28 @@ struct WindowLibraryTests {
             #expect(!window.ownerName.isEmpty)
         }
     }
+
+    @Test func listCurrentSpaceWindowsExposesBounds() throws {
+        // Smoke test: function exists, returns a list whose entries (if any)
+        // carry x/y/w/h. Can't assert specific windows in a unit test, so
+        // assert structural shape.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser window))")
+        try engine.evaluate("(define ws (list-current-space-windows))")
+        let isList = try engine.evaluate("(list? ws)")
+        #expect(isList == .true)
+        try engine.evaluate("""
+          (define has-bounds-shape?
+            (let loop ((xs ws))
+              (cond ((null? xs) #t)
+                    ((not (and (assoc 'x (car xs))
+                               (assoc 'y (car xs))
+                               (assoc 'w (car xs))
+                               (assoc 'h (car xs))
+                               (assoc 'windowId (car xs))
+                               (assoc 'ownerPid (car xs)))) #f)
+                    (else (loop (cdr xs))))))
+        """)
+        #expect(try engine.evaluate("has-bounds-shape?") == .true)
+    }
 }
