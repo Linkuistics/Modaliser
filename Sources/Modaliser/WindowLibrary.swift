@@ -28,6 +28,7 @@ final class WindowLibrary: NativeLibrary {
         self.define(Procedure("move-window", moveWindowFunction))
         self.define(Procedure("toggle-fullscreen", toggleFullscreenFunction))
         self.define(Procedure("restore-window", restoreWindowFunction))
+        self.define(Procedure("primary-screen-size", primaryScreenSizeFunction))
     }
 
     // MARK: - Functions
@@ -105,6 +106,18 @@ final class WindowLibrary: NativeLibrary {
     private func restoreWindowFunction() -> Expr {
         WindowManipulator.restoreFocusedWindow()
         return .void
+    }
+
+    /// (primary-screen-size) → ((w . W) (h . H))
+    /// Dimensions of the primary screen in AX coordinates (the coordinate
+    /// space windows and hint chips both live in). Used by chip-overlap
+    /// resolution to clamp adjusted positions onscreen.
+    private func primaryScreenSizeFunction() -> Expr {
+        let screen = NSScreen.screens.first?.frame ?? .zero
+        return SchemeAlistLookup.makeAlist([
+            ("w", .fixnum(Int64(screen.width))),
+            ("h", .fixnum(Int64(screen.height))),
+        ], symbols: self.context.symbols)
     }
 
     // MARK: - Helpers

@@ -164,19 +164,117 @@
               (cons 'border-width (cdr (assoc 'border-width opts)))
               (cons 'border-color (cdr (assoc 'border-color opts))))))
 
+    ;; ─── Chip overlap resolution ─────────────────────────────────
+    ;;
+    ;; Windows can stack at similar screen positions (z-stacked, occluded);
+    ;; chips painted at each window's natural ratio offset would then
+    ;; overlap and become unreadable. Resolve by processing in input order
+    ;; (most-recent-focused first via list-current-space-windows's sort) —
+    ;; the focused window keeps its natural chip position, occluded chips
+    ;; migrate to free space (below the conflict by default, right of it
+    ;; if that runs off the bottom). When neither direction has room, the
+    ;; chip accepts the overlap rather than going offscreen.
+    ;;
+    ;; Uses primary-screen-size as the clamp boundary — matches the
+    ;; existing AX-to-Cocoa flip in HintsLibrary which also assumes the
+    ;; primary screen. Multi-display setups inherit that limitation.
+
+    (define chip-overlap-gap 4)
+    (define chip-resolve-max-attempts 64)
+
+    (define (chips-overlap? a b)
+      (let ((ax (cdr (assoc 'x a))) (ay (cdr (assoc 'y a)))
+            (aw (cdr (assoc 'w a))) (ah (cdr (assoc 'h a)))
+            (bx (cdr (assoc 'x b))) (by (cdr (assoc 'y b)))
+            (bw (cdr (assoc 'w b))) (bh (cdr (assoc 'h b))))
+        (and (< ax (+ bx bw))
+             (< bx (+ ax aw))
+             (< ay (+ by bh))
+             (< by (+ ay ah)))))
+
+    (define (chip-with-position c nx ny)
+      (map (lambda (entry)
+             (cond
+               ((eq? (car entry) 'x) (cons 'x nx))
+               ((eq? (car entry) 'y) (cons 'y ny))
+               (else entry)))
+           c))
+
+    (define (clamp-chip-to-screen c sw sh)
+      (let* ((cx (cdr (assoc 'x c)))
+             (cy (cdr (assoc 'y c)))
+             (cw (cdr (assoc 'w c)))
+             (ch (cdr (assoc 'h c)))
+             (nx (max 0 (min cx (- sw cw))))
+             (ny (max 0 (min cy (- sh ch)))))
+        (chip-with-position c nx ny)))
+
+    (define (find-overlapping placed c)
+      (cond
+        ((null? placed) #f)
+        ((chips-overlap? c (car placed)) (car placed))
+        (else (find-overlapping (cdr placed) c))))
+
+    ;; (resolve-chip-overlaps chips sw sh) → adjusted chips
+    ;; Iteratively shifts each chip past any conflict (down first, then
+    ;; right if the down move would leave the screen). Stops at
+    ;; chip-resolve-max-attempts per chip — pathological clusters degrade
+    ;; gracefully to "accept the last position" rather than infinite-loop.
+    (define (resolve-chip-overlaps chips sw sh)
+      (let outer ((rest chips) (placed '()))
+        (cond
+          ((null? rest) (reverse placed))
+          (else
+            (let* ((c0 (clamp-chip-to-screen (car rest) sw sh))
+                   (natural-y (cdr (assoc 'y c0))))
+              (let inner ((c c0) (attempts 0))
+                (cond
+                  ((>= attempts chip-resolve-max-attempts)
+                   (outer (cdr rest) (cons c placed)))
+                  (else
+                    (let ((conflict (find-overlapping placed c)))
+                      (cond
+                        ((not conflict)
+                         (outer (cdr rest) (cons c placed)))
+                        (else
+                          (let* ((cw (cdr (assoc 'w c)))
+                                 (ch (cdr (assoc 'h c)))
+                                 (cx (cdr (assoc 'x c)))
+                                 (cf-x (cdr (assoc 'x conflict)))
+                                 (cf-y (cdr (assoc 'y conflict)))
+                                 (cf-w (cdr (assoc 'w conflict)))
+                                 (cf-h (cdr (assoc 'h conflict)))
+                                 (try-y (+ cf-y cf-h chip-overlap-gap))
+                                 (try-x-right (+ cf-x cf-w chip-overlap-gap))
+                                 (new-c
+                                   (cond
+                                     ;; Prefer moving below the conflict.
+                                     ((<= (+ try-y ch) sh)
+                                      (chip-with-position c cx try-y))
+                                     ;; Off the bottom — try right of conflict
+                                     ;; at the chip's natural Y.
+                                     ((<= (+ try-x-right cw) sw)
+                                      (chip-with-position c try-x-right natural-y))
+                                     ;; No room either way — keep current
+                                     ;; position and let the loop exit on
+                                     ;; the attempt count.
+                                     (else c))))
+                            (inner new-c (+ attempts 1))))))))))))))
+
     ;; (paint-window-chips!) → ()
-    ;; Paint a "<digit> <App>" chip on each visible window. The app name
-    ;; lets the user pick the right window when several are occluded —
-    ;; the digit alone (which the iTerm pane chips can rely on because
-    ;; panes are always visible) isn't enough when windows hide behind
-    ;; each other. label-pairs trims to min(labels, windows) so a single-
-    ;; window space gets only "1", a two-window space "1" and "2", etc.
+    ;; Paint a "<digit> <App>" chip on each visible window. App name lets
+    ;; the user pick the right window when several are occluded — digit
+    ;; alone isn't enough when windows hide behind each other. Chips that
+    ;; would overlap are pushed to clear space via resolve-chip-overlaps
+    ;; so every label stays readable. label-pairs trims to min(labels,
+    ;; windows) so a single-window space gets only "1", a two-window
+    ;; space "1" and "2", etc.
     (define (paint-window-chips!)
       (let* ((ws (list-current-space-windows))
              (labelled (label-pairs default-window-labels ws))
              (max-app-chars (cdr (assoc 'app-name-max-chars
                                         default-window-chip-options)))
-             (chips
+             (raw-chips
                (map (lambda (lw)
                       (let* ((digit (car lw))
                              (win (cdr lw))
@@ -184,7 +282,11 @@
                              (app (truncate-with-ellipsis app-raw max-app-chars))
                              (label (string-append digit " " app)))
                         (window-chip-for label win default-window-chip-options)))
-                    labelled)))
+                    labelled))
+             (screen (primary-screen-size))
+             (chips (resolve-chip-overlaps raw-chips
+                                            (cdr (assoc 'w screen))
+                                            (cdr (assoc 'h screen)))))
         (set! current-window-targets labelled)
         (hints-show chips)))
 
