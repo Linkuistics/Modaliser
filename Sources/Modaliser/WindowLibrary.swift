@@ -133,6 +133,14 @@ final class WindowLibrary: NativeLibrary {
         let wid = try widExpr.asInt64()
         let x = try xExpr.asInt64()
         let y = try yExpr.asInt64()
+        // A 0 windowId means WindowCache couldn't resolve a CGWindowID for
+        // this window (private _AXUIElementGetWindow returned an error).
+        // We can't reliably match by ID in that case — bias to "visible"
+        // so the chip isn't falsely dulled. Better a missed dulling than
+        // a wrongly-dulled chip on the user's frontmost window.
+        if wid == 0 {
+            return .true
+        }
         let myPID = Int64(ProcessInfo.processInfo.processIdentifier)
         let pt = CGPoint(x: CGFloat(x), y: CGFloat(y))
 

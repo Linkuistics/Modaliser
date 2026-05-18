@@ -36,15 +36,11 @@ final class HintsLibrary: NativeLibrary {
     /// (hints-show hint-list) → void
     ///
     /// hint-list is a list of alists. Each alist may contain:
-    ///   label          — required string, drawn centered in the panel
-    ///   x, y, w, h     — required ints, screen rectangle in AX coords (top-left origin)
-    ///   color          — optional CSS color: hex ("#ff3030") or named ("tomato"), default red
-    ///   background     — optional CSS color: hex or named, default semi-transparent dark
-    ///   font-size      — optional fixnum, default = min(w, h) * 0.5
-    ///   sub-label      — optional string, drawn beneath `label` (may contain
-    ///                    newlines for multiple lines). Renders the chip as a
-    ///                    bold large primary line plus smaller secondary lines.
-    ///   sub-font-size  — optional fixnum, default = font-size / 2.
+    ///   label       — required string, drawn centered in the panel
+    ///   x, y, w, h  — required ints, screen rectangle in AX coords (top-left origin)
+    ///   color       — optional CSS color: hex ("#ff3030") or named ("tomato"), default red
+    ///   background  — optional CSS color: hex or named, default semi-transparent dark
+    ///   font-size   — optional fixnum, default = min(w, h) * 0.5
     private func hintsShowFunction(_ hintsExpr: Expr) throws -> Expr {
         // Always close any prior set first — hints are an exclusive overlay.
         closeAllPanels()
@@ -125,94 +121,26 @@ final class HintsLibrary: NativeLibrary {
             content.layer?.borderColor = borderColor.cgColor
         }
 
-        // Single-line chip (no sub-label) keeps the simple centred label;
-        // chips with a sub-label render as digit-on-left + sub-text-stack-
-        // on-right via a horizontal NSStackView so the user reads the
-        // digit and the disambiguating lines at a glance without their
-        // eyes hopping up/down.
-        let subLabel = SchemeAlistLookup.lookupString(alist, key: "sub-label")
-        let subFontSize = SchemeAlistLookup.lookupFixnum(alist, key: "sub-font-size")
-            .map { CGFloat($0) } ?? (fontSize * 0.5)
-        if let subLabel, !subLabel.isEmpty {
-            // Use Menlo so the chip's typography matches the overlay panel
-            // (whose CSS specifies "Menlo", "SF Mono", monospace at 14px).
-            // Fallback to the system monospace face if Menlo somehow
-            // isn't installed.
-            let digitFont = NSFont(name: "Menlo Bold", size: fontSize)
-                ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
-            let subTextFont = NSFont(name: "Menlo", size: subFontSize)
-                ?? NSFont.monospacedSystemFont(ofSize: subFontSize, weight: .regular)
-
-            let digitField = NSTextField(labelWithString: label)
-            digitField.font = digitFont
-            digitField.textColor = color
-            digitField.alignment = .center
-            digitField.isBezeled = false
-            digitField.drawsBackground = false
-            digitField.translatesAutoresizingMaskIntoConstraints = false
-
-            // Render each sub-line as its own single-line label so an
-            // over-wide value truncates with an ellipsis rather than
-            // wrapping onto extra lines (which would push the chip out
-            // of the height our caller computed for it).
-            let subLines = subLabel.split(separator: "\n",
-                                          omittingEmptySubsequences: false)
-                                   .map(String.init)
-            let subFields: [NSTextField] = subLines.map { line in
-                let f = NSTextField(labelWithString: line)
-                f.font = subTextFont
-                f.textColor = color
-                f.alignment = .left
-                f.lineBreakMode = .byTruncatingTail
-                f.maximumNumberOfLines = 1
-                f.usesSingleLineMode = true
-                f.isBezeled = false
-                f.drawsBackground = false
-                f.translatesAutoresizingMaskIntoConstraints = false
-                return f
-            }
-            let subStack = NSStackView(views: subFields)
-            subStack.orientation = .vertical
-            subStack.alignment = .leading
-            subStack.spacing = 0
-            subStack.translatesAutoresizingMaskIntoConstraints = false
-
-            let stack = NSStackView(views: [digitField, subStack])
-            stack.orientation = .horizontal
-            stack.alignment = .centerY
-            stack.spacing = max(4, padding * 0.75)
-            stack.translatesAutoresizingMaskIntoConstraints = false
-            content.addSubview(stack)
-            NSLayoutConstraint.activate([
-                stack.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-                stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-                stack.leadingAnchor.constraint(
-                    greaterThanOrEqualTo: content.leadingAnchor, constant: padding),
-                stack.trailingAnchor.constraint(
-                    lessThanOrEqualTo: content.trailingAnchor, constant: -padding),
-            ])
-        } else {
-            let textField = NSTextField(labelWithString: label)
-            textField.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-            textField.textColor = color
-            textField.alignment = .center
-            textField.isBezeled = false
-            textField.drawsBackground = false
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            content.addSubview(textField)
-            // Padding is the inset between the panel rim and the text bbox.
-            // For a chip that hugs its glyph, callers size w/h = font +
-            // 2*padding (a single rule), then padding is just visual
-            // breathing room around the centred label.
-            NSLayoutConstraint.activate([
-                textField.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-                textField.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-                textField.leadingAnchor.constraint(
-                    greaterThanOrEqualTo: content.leadingAnchor, constant: padding),
-                textField.trailingAnchor.constraint(
-                    lessThanOrEqualTo: content.trailingAnchor, constant: -padding),
-            ])
-        }
+        let textField = NSTextField(labelWithString: label)
+        textField.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
+        textField.textColor = color
+        textField.alignment = .center
+        textField.isBezeled = false
+        textField.drawsBackground = false
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(textField)
+        // Padding is the inset between the panel rim and the text bbox.
+        // For a chip that hugs its glyph, callers size w/h = font +
+        // 2*padding (a single rule), then padding is just visual
+        // breathing room around the centred label.
+        NSLayoutConstraint.activate([
+            textField.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            textField.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            textField.leadingAnchor.constraint(
+                greaterThanOrEqualTo: content.leadingAnchor, constant: padding),
+            textField.trailingAnchor.constraint(
+                lessThanOrEqualTo: content.trailingAnchor, constant: -padding),
+        ])
 
         panel.contentView = content
         panel.orderFrontRegardless()

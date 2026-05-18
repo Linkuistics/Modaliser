@@ -325,11 +325,16 @@
             (else (loop (cdr ps) acc))))))))
 
 ;; (custom-renderer-payload-json current renderer) → JSON string
-;; Default: {type: RENDERER, panels: (...), entries: (...)}.
-;; The diagram renderer (Task 6) reads 'panels off the group; the
-;; entries field carries any non-panel children as a list of
-;; {key, label, isGroup} alists. Children whose key is bound to a
-;; panel cell/center/fill are skipped so they aren't rendered twice.
+;; Base: {type: RENDERER, panels: (...), entries: (...)}.
+;; The diagram renderer reads 'panels off the group; the entries field
+;; carries any non-panel children as a list of {key, label, isGroup}
+;; alists. Children whose key is bound to a panel cell/center/fill are
+;; skipped so they aren't rendered twice.
+;;
+;; If the group declares 'dynamic-data-fn (a thunk), it's called on every
+;; render and its returned alist is merged into the JSON. Used e.g. by
+;; the windows tree to attach a live "windows" list with per-row
+;; visibility flags that the renderer turns into a dulled-or-not row.
 (define (custom-renderer-payload-json current renderer)
   (let* ((panels  (node-renderer-payload current 'panels))
          (bound   (panel-bound-keys panels))
@@ -350,10 +355,28 @@
                                  "\",\"label\":\"" (js-escape-overlay lbl)
                                  "\",\"isGroup\":" (if is-grp "true" "false")
                                  "}")
-                               acc))))))))
+                               acc)))))))
+         (dyn-fn  (node-renderer-payload current 'dynamic-data-fn))
+         (dyn-data (if (procedure? dyn-fn) (dyn-fn) '()))
+         (dyn-pairs
+           (let dynloop ((rest dyn-data) (acc '()))
+             (cond
+               ((null? rest) (reverse acc))
+               (else
+                 (let* ((entry (car rest))
+                        (k (symbol->string (car entry)))
+                        (v (cdr entry))
+                        (pair (string-append "\"" k "\":" (alist->json v))))
+                   (dynloop (cdr rest) (cons pair acc)))))))
+         (dyn-section
+           (if (null? dyn-pairs)
+             ""
+             (string-append "," (string-join-comma dyn-pairs)))))
     (string-append "{\"type\":\"" (symbol->string renderer)
       "\",\"panels\":" (panels->json panels)
-      ",\"entries\":[" (string-join-comma text-entries) "]}")))
+      ",\"entries\":[" (string-join-comma text-entries) "]"
+      dyn-section
+      "}")))
 
 ;; (panels->json panels-list) → JSON array string
 ;; Each panel is itself an alist (panel-spec) — pass to alist->json

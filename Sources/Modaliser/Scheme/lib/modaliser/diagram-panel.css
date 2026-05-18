@@ -128,3 +128,37 @@
 .diagram-entry-row .entry-key { color: var(--color-key); font-weight: 600; }
 .diagram-entry-row .entry-arrow { color: var(--color-arrow); }
 .diagram-entry-row .entry-label { color: var(--color-label); }
+
+/* Windows-list section — sits below the panel grid + entries strip,
+ * separated by a divider rule. Each row mirrors the entry strip's
+ * `<key> → <label>` shape but the label is the app + window title
+ * (the chip's digit is the key). Rows whose window is occluded at the
+ * chip-anchor get a .dulled modifier matching the chip's desaturated
+ * background so the user reads chip and row as a unit. */
+.diagram-windows-list {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-separator);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.diagram-windows-row {
+  display: grid;
+  grid-template-columns: 3ch auto 1fr;
+  column-gap: 4px;
+  align-items: baseline;
+}
+.diagram-windows-row .entry-key { color: var(--color-key); font-weight: 600; }
+.diagram-windows-row .entry-arrow { color: var(--color-arrow); }
+.diagram-windows-row .entry-label {
+  color: var(--color-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diagram-windows-row.dulled .entry-key,
+.diagram-windows-row.dulled .entry-arrow,
+.diagram-windows-row.dulled .entry-label {
+  opacity: 0.5;
+}

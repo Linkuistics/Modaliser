@@ -147,6 +147,26 @@
     return stack;
   }
 
+  // The windows-list section (below the panel grid + entries strip)
+  // surfaces app + window-title for each numbered chip so the user can
+  // disambiguate occluded windows without crowding the chip itself. Rows
+  // for windows hidden behind others get a "dulled" modifier — matches
+  // the chip-bg desaturation so chip and row read as a unit.
+  function renderWindowsList(windows) {
+    const section = el('div', { class: 'diagram-windows-list' });
+    for (const w of windows) {
+      const name = w.title ? (w.app + ' · ' + w.title) : w.app;
+      const cls = w.visible ? 'diagram-windows-row' : 'diagram-windows-row dulled';
+      const row = el('div', { class: cls },
+        el('span', { class: 'entry-key', text: w.label }),
+        el('span', { class: 'entry-arrow', text: '→' }),
+        el('span', { class: 'entry-label', text: name })
+      );
+      section.appendChild(row);
+    }
+    return section;
+  }
+
   function render(payload, container) {
     const root = container || document.querySelector('.overlay-custom-body[data-renderer="diagram"]');
     if (!root) return;
@@ -157,6 +177,9 @@
     }
     grid.appendChild(renderEntries(payload.entries || []));
     root.appendChild(grid);
+    if (payload.windows && payload.windows.length > 0) {
+      root.appendChild(renderWindowsList(payload.windows));
+    }
   }
 
   window.overlayRenderers = window.overlayRenderers || {};

@@ -108,82 +108,62 @@
     ;; at half the font size. App + title let the user disambiguate
     ;; occluded windows even when most of the window is hidden behind
     ;; another. Width auto-fits the widest line, height fits the stack.
+    ;; Single-digit window chips. App + window names live in the overlay's
+    ;; windows-list section below the panel grid (not on the chip), so the
+    ;; chip stays small and the user reads disambiguation info in the
+    ;; overlay where there's room.
+    ;;
+    ;; All keys here are overridable via (actions 'chip-options …) — see
+    ;; merge-chip-options. Defaults match the overlay's accent palette.
     (define default-window-chip-options
       (list (cons 'offset-x-frac 0.05)
             (cons 'offset-y-frac 0.05)
-            (cons 'font-size 28)
-            (cons 'sub-font-size 14)
-            (cons 'padding 8)
+            (cons 'font-size 32)
+            (cons 'padding 10)
             (cons 'corner-radius 6)
             (cons 'color "white")
             (cons 'background "dodgerblue")
-            ;; dodgerblue (#1e90ff) at ~50% alpha. Chips sitting on a
-            ;; window that's occluded at the chip's anchor render with
-            ;; this background so the user sees at a glance which
-            ;; numbered windows are partially or fully hidden.
-            (cons 'faded-background "#1e90ff80")
+            ;; Opaque desaturated blue. Used for chips whose window is
+            ;; occluded at the chip's anchor point — the chip stays
+            ;; fully readable but visibly muted so the user sees which
+            ;; numbered windows are hidden behind others. NOT alpha-
+            ;; based: an alpha bg lets the underlying app-pixels bleed
+            ;; through and makes the chip hard to read.
+            (cons 'faded-background "#6f8baa")
             (cons 'border-width 1)
-            (cons 'border-color "black")
-            ;; Truncation budgets — keep chips a sensible size even
-            ;; for verbose apps ("Microsoft Word") or long titles.
-            (cons 'app-name-max-chars 18)
-            (cons 'window-title-max-chars 22)))
+            (cons 'border-color "black")))
 
-    ;; (truncate-with-ellipsis s n) → string of length ≤ n
-    ;; Trims to n-1 chars + … when over budget. The ellipsis is one
-    ;; character wide visually so the total reads as n chars.
-    (define (truncate-with-ellipsis s n)
-      (if (> (string-length s) n)
-        (string-append (substring s 0 (- n 1)) "\x2026;")
-        s))
+    ;; (merge-chip-options overrides) → merged alist
+    ;; User keys win; missing keys fall back to defaults. Mirrors the
+    ;; merge pattern in (modaliser apps iterm)'s merge-hint-options.
+    (define (merge-chip-options overrides)
+      (let loop ((rest default-window-chip-options) (acc '()))
+        (cond
+          ((null? rest) (append (reverse acc) overrides))
+          ((assoc (car (car rest)) overrides)
+           (loop (cdr rest) acc))
+          (else (loop (cdr rest) (cons (car rest) acc))))))
 
     ;; (window-chip-for digit window opts) → chip alist for hints-show
-    ;; Horizontal chip:  digit  | App
-    ;;                          | Window Title
-    ;; — large bold digit on the left, app + window title stacked to
-    ;; the right at half the digit's font size. The digit drives the
-    ;; user's keypress; the sub-text disambiguates when several windows
-    ;; sit at overlapping positions. Chip is placed at the ratio-based
-    ;; offset inside the window.
+    ;; Builds a square single-digit chip placed at the ratio-based offset
+    ;; inside the window's bounds. The chip carries only the digit; the
+    ;; app + window title are surfaced separately in the overlay's
+    ;; windows-list section so the chip stays compact.
     (define (window-chip-for digit win opts)
       (let* ((wx (cdr (assoc 'x win)))
              (wy (cdr (assoc 'y win)))
              (ww (cdr (assoc 'w win)))
              (wh (cdr (assoc 'h win)))
              (font-size (cdr (assoc 'font-size opts)))
-             (sub-font-size (cdr (assoc 'sub-font-size opts)))
              (padding (cdr (assoc 'padding opts)))
              (offx (cdr (assoc 'offset-x-frac opts)))
              (offy (cdr (assoc 'offset-y-frac opts)))
              (chip-x (+ wx (exact (round (* ww offx)))))
              (chip-y (+ wy (exact (round (* wh offy)))))
-             (app-max (cdr (assoc 'app-name-max-chars opts)))
-             (title-max (cdr (assoc 'window-title-max-chars opts)))
-             (app (truncate-with-ellipsis (cdr (assoc 'subText win)) app-max))
-             (title (truncate-with-ellipsis (cdr (assoc 'text win)) title-max))
-             (sub-label (if (string=? title "")
-                          app
-                          (string-append app "\n" title)))
-             ;; 0.62 ≈ average char-width / point-size for the system
-             ;; semibold sans face. Width = digit + gap + widest sub-line
-             ;; + 2*padding; the gap matches HintsLibrary's stack spacing
-             ;; (0.75 × padding).
-             (digit-w (exact (round (* font-size 0.62 (string-length digit)))))
-             (app-w   (exact (round (* sub-font-size 0.62 (string-length app)))))
-             (title-w (exact (round (* sub-font-size 0.62 (string-length title)))))
-             (gap (max 4 (exact (round (* padding 0.75)))))
-             (chip-w (+ digit-w gap (max app-w title-w) (* 2 padding)))
-             ;; Height = taller of (digit, sub-line stack) + 2*padding.
-             (sub-line-count (if (string=? title "") 1 2))
-             (digit-h (exact (round (* font-size 1.2))))
-             (sub-stack-h (* sub-line-count
-                             (exact (round (* sub-font-size 1.2)))))
-             (chip-h (+ (max digit-h sub-stack-h) (* 2 padding))))
+             (chip-size (+ font-size (* 2 padding))))
         (list (cons 'label digit)
-              (cons 'sub-label sub-label)
-              (cons 'sub-font-size sub-font-size)
               (cons 'x chip-x) (cons 'y chip-y)
-              (cons 'w chip-w) (cons 'h chip-h)
+              (cons 'w chip-size) (cons 'h chip-size)
               (cons 'font-size font-size)
               (cons 'padding padding)
               (cons 'corner-radius (cdr (assoc 'corner-radius opts)))
@@ -353,39 +333,73 @@
     ;; so every label stays readable. label-pairs trims to min(labels,
     ;; windows) so a single-window space gets only "1", a two-window
     ;; space "1" and "2", etc.
-    (define (paint-window-chips!)
+    ;; The actions group stashes the merged chip-options here so the
+    ;; on-enter hook (paint-window-chips!) can read them. Mutable because
+    ;; the user can register multiple windows trees with different
+    ;; chip-options, and the most-recently-built one wins.
+    (define current-chip-options default-window-chip-options)
+
+    ;; Snapshot of the visible/occluded window list for the overlay's
+    ;; windows-list section. Refreshed by paint-window-chips! every
+    ;; leader press and read by the actions group's dynamic-data-fn.
+    (define current-windows-data '())
+
+    (define (paint-window-chips! opts)
       (let* ((ws (list-current-space-windows))
              (labelled (label-pairs default-window-labels ws))
              (raw-chips
                (map (lambda (lw)
-                      (window-chip-for (car lw) (cdr lw)
-                                       default-window-chip-options))
+                      (window-chip-for (car lw) (cdr lw) opts))
                     labelled))
-             (faded-bg (cdr (assoc 'faded-background
-                                    default-window-chip-options)))
+             (faded-bg (cdr (assoc 'faded-background opts)))
              ;; Annotate each chip with visibility — is the chip's own
-             ;; window the topmost at the chip's anchor point? Occluded
-             ;; chips render with the washed-out bg so the user sees
-             ;; which numbered windows are hidden.
+             ;; window the topmost at the chip's CENTER point? Center
+             ;; is more robust than top-left for tiny windows whose
+             ;; chip-anchor lands on a window-decoration boundary.
              (annotated
                (map (lambda (lw chip)
                       (let* ((win (cdr lw))
                              (wid (cdr (assoc 'windowId win)))
                              (cx (cdr (assoc 'x chip)))
                              (cy (cdr (assoc 'y chip)))
-                             (visible? (window-visible-at? wid cx cy))
+                             (cw (cdr (assoc 'w chip)))
+                             (ch (cdr (assoc 'h chip)))
+                             (test-x (+ cx (quotient cw 2)))
+                             (test-y (+ cy (quotient ch 2)))
+                             (visible? (window-visible-at? wid test-x test-y))
                              (styled (if visible?
                                        chip
                                        (chip-with-background chip faded-bg))))
                         (cons visible? styled)))
                     labelled raw-chips))
+             ;; Windows-list rows for the overlay. Each row carries the
+             ;; digit, app name, window title, and visibility flag so the
+             ;; renderer can dull occluded rows.
+             (windows-data
+               (map (lambda (lw vc)
+                      (let* ((win (cdr lw))
+                             (label (car lw))
+                             (visible? (car vc)))
+                        (list (cons 'label label)
+                              (cons 'app (cdr (assoc 'subText win)))
+                              (cons 'title (cdr (assoc 'text win)))
+                              (cons 'visible visible?))))
+                    labelled annotated))
              (screen (primary-screen-size))
              (chips (resolve-chips-with-visibility
                       annotated
                       (cdr (assoc 'w screen))
                       (cdr (assoc 'h screen)))))
         (set! current-window-targets labelled)
+        (set! current-windows-data windows-data)
         (hints-show chips)))
+
+    ;; (windows-overlay-data) → alist for the diagram renderer's
+    ;; dynamic-data-fn. Read on every overlay render — captures the
+    ;; current window list with visibility flags so the overlay's
+    ;; list section stays in sync with the painted chips.
+    (define (windows-overlay-data)
+      (list (cons 'windows current-windows-data)))
 
     (define (hide-window-chips!)
       (hints-hide))
@@ -406,6 +420,16 @@
         (lambda (k) (focus-by-digit k))))
 
     ;; (actions . opts) → group node with 'renderer 'diagram
+    ;;
+    ;; Options:
+    ;;   'key           — leader key char (default "w")
+    ;;   'label         — group label (default "Windows")
+    ;;   'panels        — list of panel-spec pairs (default = default-panels)
+    ;;   'chip-options  — alist of chip overrides; merged with
+    ;;                    default-window-chip-options. See default-window-
+    ;;                    chip-options for the full list of keys
+    ;;                    (font-size, padding, color, background,
+    ;;                    faded-background, offset-x-frac, etc.).
     (define (actions . opts)
       (let* ((alist        (apply props->alist opts))
              (group-key    (alist-ref alist 'key "w"))
@@ -414,6 +438,8 @@
              (panels        (or custom-panels (default-panels)))
              (panel-specs   (map panel-spec-of panels))
              (panel-keys    (apply append (map panel-keys-of panels)))
+             (chip-overrides (alist-ref alist 'chip-options '()))
+             (chip-opts (merge-chip-options chip-overrides))
              (text-entries
                (list
                  (selector "n" "Named…"
@@ -427,10 +453,13 @@
                  (window-range)
                  (key "r" "Restore" (lambda () (restore-window)))))
              (children (append panel-keys text-entries)))
+        ;; Stash the resolved chip-options for the on-enter hook to read.
+        (set! current-chip-options chip-opts)
         (apply group group-key group-label
                'renderer 'diagram
                'panels panel-specs
-               'on-enter (lambda () (paint-window-chips!))
+               'dynamic-data-fn windows-overlay-data
+               'on-enter (lambda () (paint-window-chips! current-chip-options))
                'on-leave (lambda () (hide-window-chips!))
                children)))
 
