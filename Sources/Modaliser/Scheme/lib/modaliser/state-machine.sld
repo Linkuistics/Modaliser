@@ -13,6 +13,7 @@
     node-key node-label node-action node-children node-range-keys
     node-on-enter node-on-leave node-sticky? node-exit-on-unknown?
     node-display-name node-sticky-target
+    node-renderer node-renderer-payload
     run-on-enter run-on-leave
     find-child navigate-to-path
     ;; Sticky helpers
@@ -232,6 +233,24 @@
 ;; and overlay rendering (the cell gets a sticky marker).
 (define (node-sticky-target node)
   (let ((entry (assoc 'sticky-target node)))
+    (and entry (cdr entry))))
+
+;; (node-renderer node) → symbol or #f
+;; The custom renderer type declared on a group via (group … 'renderer SYM …).
+;; When set, the overlay dispatches to window.overlayRenderers[SYM] on both
+;; initial render and push-updates, instead of using the built-in list
+;; renderer. See render-overlay-custom / push-overlay-update in ui/overlay.scm.
+(define (node-renderer node)
+  (let ((entry (assoc 'renderer node)))
+    (and entry (cdr entry))))
+
+;; (node-renderer-payload node key) → value or #f
+;; Generic accessor for any keyword passed to (group … 'k v …) and stored
+;; via the group constructor's pass-through branch (e.g. 'panels for the
+;; diagram renderer). Renderers read their own payload keys off the node;
+;; the format is owned by each renderer.
+(define (node-renderer-payload node key)
+  (let ((entry (assoc key node)))
     (and entry (cdr entry))))
 
 ;; Find the child that handles KEY. Specific bindings (key …) always win

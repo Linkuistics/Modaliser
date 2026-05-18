@@ -129,10 +129,10 @@ final class HintsLibrary: NativeLibrary {
         textField.drawsBackground = false
         textField.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(textField)
-        // Padding here is the inset between the panel rim and the text bbox.
-        // For a chip that hugs its glyph, callers size w/h = font + 2*padding
-        // (a single rule), then padding is just visual breathing room around
-        // the centered label rather than an extra margin to honor.
+        // Padding is the inset between the panel rim and the text bbox.
+        // For a chip that hugs its glyph, callers size w/h = font +
+        // 2*padding (a single rule), then padding is just visual
+        // breathing room around the centred label.
         NSLayoutConstraint.activate([
             textField.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             textField.centerYAnchor.constraint(equalTo: content.centerYAnchor),

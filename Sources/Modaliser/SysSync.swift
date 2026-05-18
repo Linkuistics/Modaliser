@@ -1,48 +1,50 @@
 import Foundation
 
-/// Mirror the bundled `(modaliser …)` libraries into
-/// `~/.config/modaliser/sys/modaliser/` so users can read them in place
-/// (forking is a `cp` into the user-config root, which already shadows
-/// `sys/` on the library search path).
+/// Mirror the bundle's `Sources/Modaliser/Scheme/` tree into
+/// `~/.config/modaliser/sys/scheme/` so users can read every bundled
+/// `.scm`, `.sld`, `.css`, `.js`, `.svg` etc. in place. The user's
+/// config root shadows `sys/` on the library search path and on any
+/// `read-file-text` that resolves via `*scheme-directory*`, so the
+/// user can fork any bundled file by copying it to a non-`sys/`
+/// location under `~/.config/modaliser/`.
 ///
-/// Sync trigger: a fingerprint over the bundle's `lib/modaliser/` tree
-/// (relative path + mtime per file). Cheap to compute (~14 stats) and
-/// always correct — catches both upgrades and dev rebuilds. Stored in
+/// Sync trigger: a fingerprint over the bundle's `Scheme/` tree
+/// (relative path + mtime per file). Stored in
 /// `sys/.bundle-fingerprint`; mismatch (or missing) → wipe + re-copy.
 ///
-/// Edits to files under `sys/` are NOT preserved across syncs — the
-/// design surfaces them as "obviously not yours" by being silently
-/// overwritten. The recommended workflow for a local patch is to copy
-/// the file to `~/.config/modaliser/modaliser/<name>.sld`, which takes
-/// precedence on the search path.
+/// Edits to files under `sys/` are NOT preserved across syncs —
+/// silently overwritten. Recommended fork workflow: copy
+/// `sys/scheme/lib/modaliser/foo.sld` to
+/// `~/.config/modaliser/modaliser/foo.sld`, which takes precedence
+/// on the library search path.
 enum SysSync {
-    /// Sync the bundle's `lib/modaliser/` directory into the user
-    /// config's `sys/modaliser/`. Returns the path to use as the sys
-    /// search root if the sync succeeded (or was already current), or
-    /// nil on failure — callers should fall through to the bundle.
-    static func sync(bundleLibModaliserDir: String, userConfigDir: String) -> String? {
+    /// Sync the bundle's `Scheme/` directory into the user config's
+    /// `sys/scheme/`. Returns the path to `sys/scheme` (the new
+    /// `*scheme-directory*` target) on success, or nil on failure —
+    /// callers fall through to reading directly from the bundle.
+    static func sync(bundleSchemeDir: String, userConfigDir: String) -> String? {
         let fm = FileManager.default
         let sysRoot = (userConfigDir as NSString).appendingPathComponent("sys")
-        let sysLibDir = (sysRoot as NSString).appendingPathComponent("modaliser")
+        let sysSchemeDir = (sysRoot as NSString).appendingPathComponent("scheme")
         let fingerprintPath = (sysRoot as NSString).appendingPathComponent(".bundle-fingerprint")
 
-        guard let fingerprint = fingerprint(of: bundleLibModaliserDir) else {
-            NSLog("SysSync: bundle modaliser libs dir missing at %@", bundleLibModaliserDir)
+        guard let fingerprint = fingerprint(of: bundleSchemeDir) else {
+            NSLog("SysSync: bundle Scheme dir missing at %@", bundleSchemeDir)
             return nil
         }
 
         let cached = (try? String(contentsOfFile: fingerprintPath, encoding: .utf8)) ?? ""
-        if cached == fingerprint && fm.fileExists(atPath: sysLibDir) {
-            return sysRoot
+        if cached == fingerprint && fm.fileExists(atPath: sysSchemeDir) {
+            return sysSchemeDir
         }
 
         do {
-            try? fm.removeItem(atPath: sysLibDir)
+            try? fm.removeItem(atPath: sysSchemeDir)
             try fm.createDirectory(atPath: sysRoot, withIntermediateDirectories: true)
-            try fm.copyItem(atPath: bundleLibModaliserDir, toPath: sysLibDir)
+            try fm.copyItem(atPath: bundleSchemeDir, toPath: sysSchemeDir)
             try fingerprint.write(toFile: fingerprintPath, atomically: true, encoding: .utf8)
-            NSLog("SysSync: synced %@ -> %@", bundleLibModaliserDir, sysLibDir)
-            return sysRoot
+            NSLog("SysSync: synced %@ -> %@", bundleSchemeDir, sysSchemeDir)
+            return sysSchemeDir
         } catch {
             NSLog("SysSync: copy failed: %@", error.localizedDescription)
             return nil

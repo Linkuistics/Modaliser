@@ -1,0 +1,163 @@
+/* diagram-panel.css — styles for groups rendered with 'renderer 'diagram.
+ *
+ * Lives next to diagram-panel.sld; loaded into the overlay via
+ * (add-overlay-asset! 'css …) at library-import time. Reuses the
+ * overlay's existing palette variables (--color-key, --color-label,
+ * --color-arrow, --color-separator) from base.css.
+ *
+ * Line colour for diagram strokes: rgba(0, 0, 0, 0.65). Cell width
+ * for grid panels: 102×60px (target size from the v19 mockup).
+ */
+
+:root {
+  --diagram-line: rgba(0, 0, 0, 0.65);
+  --diagram-cell-bg: #ffffff;
+  --diagram-panel-w: 102px;
+  --diagram-panel-h: 60px;
+}
+
+.overlay-custom-body[data-renderer="diagram"] {
+  padding: 8px 12px;
+}
+
+/* Panel grid container — as many fixed-width columns as fit the container,
+ * packed top-to-bottom. The overlay (width: max-content) sizes itself to its
+ * widest child, so when the windows-list rows push the overlay wider than the
+ * grid's baseline footprint, the grid reflows to fill that extra horizontal
+ * space rather than leaving a right-side gutter. min-width preserves the
+ * 3-column baseline when nothing wider sits below the grid — auto-fill alone
+ * with an indefinite container would collapse the grid to a single column. */
+.diagram-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--diagram-panel-w));
+  gap: 0.5rem 1.6rem;
+  justify-content: start;
+  align-items: center;
+  min-width: calc(3 * var(--diagram-panel-w) + 2 * 1.6rem);
+}
+
+/* Each panel is a fixed-size 102×60 box with a thin border. */
+.diagram-panel {
+  width: var(--diagram-panel-w);
+  height: var(--diagram-panel-h);
+  border: 0.5px solid var(--diagram-line);
+  background: transparent;
+  position: relative;
+  box-sizing: border-box;
+  display: grid;
+}
+
+/* Grid panels use CSS grid to lay out cells from the spec's cols/rows. */
+.diagram-panel.grid {
+  /* grid-template-columns / -rows set inline from the spec */
+}
+
+.diagram-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-key);
+  font-weight: 600;
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  background: transparent;
+}
+.diagram-cell.has-key { background: var(--diagram-cell-bg); }
+
+/* Internal cell separators — light line between adjacent cells. */
+.diagram-panel.grid .diagram-cell + .diagram-cell {
+  /* Borders are painted per-cell from JS based on row/col neighbours so spans
+     don't get a divider running through them. JS sets .diagram-cell.left-line
+     and .diagram-cell.top-line as needed. */
+}
+.diagram-cell.left-line { border-left: 0.5px solid var(--diagram-line); }
+.diagram-cell.top-line  { border-top:  0.5px solid var(--diagram-line); }
+
+/* Fill panel — single cell covering the whole panel, white background. */
+.diagram-panel.fill {
+  background: var(--diagram-cell-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-key);
+  font-weight: 600;
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+}
+
+/* Center panel — SVG renders the inner rect + arrows + key glyph. */
+.diagram-panel.center svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: var(--diagram-line);
+}
+.diagram-panel.center .diagram-inner-fill { fill: var(--diagram-cell-bg); stroke: none; }
+.diagram-panel.center .diagram-stroke {
+  stroke: currentColor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  fill: none;
+  stroke-linecap: round;
+}
+.diagram-panel.center .diagram-arrow { fill: currentColor; stroke: none; }
+.diagram-panel.center .diagram-key {
+  fill: var(--color-key);
+  font-family: var(--font-family);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Text-entry strip — sits below the panel grid as a sibling so it gets
+ * its own divider rule and doesn't push panel-grid columns. */
+.diagram-entries-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-separator);
+}
+.diagram-entry-row {
+  display: grid;
+  grid-template-columns: 3ch auto 1fr;
+  column-gap: 4px;
+  align-items: baseline;
+}
+.diagram-entry-row .entry-key { color: var(--color-key); font-weight: 600; }
+.diagram-entry-row .entry-arrow { color: var(--color-arrow); }
+.diagram-entry-row .entry-label { color: var(--color-label); }
+
+/* Windows-list section — sits below the panel grid + entries strip,
+ * separated by a divider rule. Each row mirrors the entry strip's
+ * `<key> → <label>` shape but the label is the app + window title
+ * (the chip's digit is the key). Rows whose window is occluded at the
+ * chip-anchor get a .dulled modifier matching the chip's desaturated
+ * background so the user reads chip and row as a unit. */
+.diagram-windows-list {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-separator);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.diagram-windows-row {
+  display: grid;
+  grid-template-columns: 3ch auto 1fr;
+  column-gap: 4px;
+  align-items: baseline;
+}
+.diagram-windows-row .entry-key { color: var(--color-key); font-weight: 600; }
+.diagram-windows-row .entry-arrow { color: var(--color-arrow); }
+.diagram-windows-row .entry-label {
+  color: var(--color-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diagram-windows-row.dulled .entry-key,
+.diagram-windows-row.dulled .entry-arrow,
+.diagram-windows-row.dulled .entry-label {
+  opacity: 0.5;
+}

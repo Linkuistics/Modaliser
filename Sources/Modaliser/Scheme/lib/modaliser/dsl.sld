@@ -97,26 +97,39 @@
 ;; (kind . ...)); a keyword is a bare symbol. So leading bare symbols start
 ;; the keyword tail and the first non-symbol begins the children.
 (define (group k label . rest)
-  (let loop ((args rest) (on-enter #f) (on-leave #f)
-             (sticky #f) (exit-unk #f))
+  (let loop ((args rest)
+             (on-enter #f) (on-leave #f)
+             (sticky #f) (exit-unk #f)
+             (extras '())            ; reverse-accumulated alist of unknown kw/val pairs
+             (children '()))
     (cond
-      ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
-       (case (car args)
-         ((on-enter)        (loop (cddr args) (cadr args) on-leave sticky exit-unk))
-         ((on-leave)        (loop (cddr args) on-enter (cadr args) sticky exit-unk))
-         ((sticky)          (loop (cddr args) on-enter on-leave (cadr args) exit-unk))
-         ((exit-on-unknown) (loop (cddr args) on-enter on-leave sticky (cadr args)))
-         (else (error "group: unknown keyword" (car args)))))
-      (else
+      ((null? args)
         (let* ((acc (list (cons 'kind 'group)
                           (cons 'key k)
                           (cons 'label label)
-                          (cons 'children args)))
-               (acc (if on-leave (cons (cons 'on-leave on-leave)  acc) acc))
-               (acc (if on-enter (cons (cons 'on-enter on-enter)  acc) acc))
-               (acc (if sticky   (cons (cons 'sticky #t)          acc) acc))
-               (acc (if exit-unk (cons (cons 'exit-on-unknown #t) acc) acc)))
-          acc)))))
+                          (cons 'children (reverse children))))
+               (acc (if exit-unk    (cons (cons 'exit-on-unknown exit-unk) acc) acc))
+               (acc (if sticky      (cons (cons 'sticky sticky)            acc) acc))
+               (acc (if on-leave    (cons (cons 'on-leave on-leave)        acc) acc))
+               (acc (if on-enter    (cons (cons 'on-enter on-enter)        acc) acc))
+               (acc (append (reverse extras) acc)))   ; extras carried through as-is
+          acc))
+      ((and (symbol? (car args)) (not (null? (cdr args))))
+       (case (car args)
+         ((on-enter)        (loop (cddr args) (cadr args) on-leave sticky exit-unk extras children))
+         ((on-leave)        (loop (cddr args) on-enter (cadr args) sticky exit-unk extras children))
+         ((sticky)          (loop (cddr args) on-enter on-leave (cadr args) exit-unk extras children))
+         ((exit-on-unknown) (loop (cddr args) on-enter on-leave sticky (cadr args) extras children))
+         (else
+           ;; Unknown keyword — accumulate as opaque alist entry.
+           ;; Used by renderer-style extensions like 'renderer 'diagram 'panels (...).
+           (loop (cddr args) on-enter on-leave sticky exit-unk
+                 (cons (cons (car args) (cadr args)) extras)
+                 children))))
+      (else
+       ;; Positional child node.
+       (loop (cdr args) on-enter on-leave sticky exit-unk extras
+             (cons (car args) children))))))
 
 ;; (selector k label . props) → selector alist
 (define (selector k label . props)

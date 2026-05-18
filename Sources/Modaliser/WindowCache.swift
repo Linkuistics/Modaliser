@@ -55,6 +55,35 @@ final class WindowCache {
         }
     }
 
+    /// AX-enumerated windows on the current space only — no merge with the
+    /// other-space cache, no Phase 3 zero-bounds entries. The window picker
+    /// (numbered chip selector) uses this so digits map 1..N to actually-
+    /// visible windows; cached entries from other spaces still hold their
+    /// previously-captured bounds and would otherwise paint phantom chips
+    /// or steal label slots.
+    func listCurrentSpaceWindows() -> [WindowInfo] {
+        lock.lock()
+        defer { lock.unlock() }
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        // Spatial row-major sort (y major, x minor) so window-number chips
+        // map deterministically to position — same windows in the same
+        // layout always get the same digits across leader presses. The
+        // earlier focus-recency sort changed digit assignments whenever
+        // the user activated a different app, which made muscle memory
+        // ("window 2 is always my left-pane editor") impossible.
+        var windows = currentSpaceWindowsViaAX(currentPID: currentPID).windows
+        windows.sort { lhs, rhs in
+            if lhs.bounds.origin.y != rhs.bounds.origin.y {
+                return lhs.bounds.origin.y < rhs.bounds.origin.y
+            }
+            if lhs.bounds.origin.x != rhs.bounds.origin.x {
+                return lhs.bounds.origin.x < rhs.bounds.origin.x
+            }
+            return lhs.windowId < rhs.windowId
+        }
+        return windows
+    }
+
     /// List windows: fresh AX for current space, cached for other spaces, sorted by focus recency.
     func listWindows() -> [WindowInfo] {
         lock.lock()
@@ -67,56 +96,11 @@ final class WindowCache {
         otherSpaceCache = otherSpaceCache.filter { runningPIDs.contains($0.value.ownerPID) }
         focusHistory.removeAll { !runningPIDs.contains($0) }
 
-        // Phase 1: AX enumeration for current space
-        var currentSpaceWindows: [WindowInfo] = []
-        var currentSpacePIDs: Set<pid_t> = []
-
-        for app in NSWorkspace.shared.runningApplications {
-            guard app.activationPolicy == .regular,
-                  app.processIdentifier != currentPID else { continue }
-
-            let appElement = AXUIElementCreateApplication(app.processIdentifier)
-            guard let axWindows = WindowEnumerator.axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement],
-                  !axWindows.isEmpty else { continue }
-
-            // AX is authoritative for apps on the current space.
-            // Remove stale cache entries for this app (handles closed windows).
-            let pid = app.processIdentifier
-            otherSpaceCache = otherSpaceCache.filter { $0.value.ownerPID != pid }
-
-            for axWindow in axWindows {
-                let subrole = WindowEnumerator.axAttribute(axWindow, kAXSubroleAttribute) as? String
-                if let subrole, subrole != "AXStandardWindow" && subrole != "AXDialog" {
-                    continue
-                }
-                if WindowEnumerator.axAttribute(axWindow, kAXMinimizedAttribute) as? Bool == true {
-                    continue
-                }
-
-                let title = WindowEnumerator.axAttribute(axWindow, kAXTitleAttribute) as? String ?? ""
-                guard !title.isEmpty else { continue }
-
-                var windowId: CGWindowID = 0
-                _ = _AXUIElementGetWindow(axWindow, &windowId)
-
-                let position = WindowEnumerator.axPosition(axWindow) ?? .zero
-                let size = WindowEnumerator.axSize(axWindow) ?? .zero
-
-                let info = WindowInfo(
-                    windowId: windowId,
-                    title: title,
-                    ownerName: app.localizedName ?? "",
-                    ownerPID: app.processIdentifier,
-                    bundleId: app.bundleIdentifier ?? "",
-                    bounds: CGRect(origin: position, size: size)
-                )
-                currentSpaceWindows.append(info)
-                currentSpacePIDs.insert(app.processIdentifier)
-
-                // Re-cache with current state
-                otherSpaceCache[cacheKey(info)] = info
-            }
-        }
+        // Phase 1: AX enumeration for current space (also re-caches into
+        // otherSpaceCache so future cross-space lookups stay fresh).
+        let phase1 = currentSpaceWindowsViaAX(currentPID: currentPID)
+        let currentSpaceWindows = phase1.windows
+        let currentSpacePIDs = phase1.pids
 
         // Phase 2: Merge cached windows from other spaces
         // Include cached entries for PIDs not seen in current AX enumeration
@@ -169,6 +153,67 @@ final class WindowCache {
     }
 
     // MARK: - Private
+
+    /// Phase 1 of listWindows: walk every regular running app, enumerate AX
+    /// windows in its focused window list, and capture each window's bounds.
+    /// Side-effect: refreshes otherSpaceCache with the freshly-captured
+    /// entries so subsequent cross-space lookups don't lose state.
+    /// Caller MUST hold `lock`.
+    private func currentSpaceWindowsViaAX(currentPID: pid_t)
+        -> (windows: [WindowInfo], pids: Set<pid_t>)
+    {
+        var windows: [WindowInfo] = []
+        var pids: Set<pid_t> = []
+
+        for app in NSWorkspace.shared.runningApplications {
+            guard app.activationPolicy == .regular,
+                  app.processIdentifier != currentPID else { continue }
+
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            guard let axWindows = WindowEnumerator.axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement],
+                  !axWindows.isEmpty else { continue }
+
+            // AX is authoritative for apps on the current space.
+            // Remove stale cache entries for this app (handles closed windows).
+            let pid = app.processIdentifier
+            otherSpaceCache = otherSpaceCache.filter { $0.value.ownerPID != pid }
+
+            for axWindow in axWindows {
+                let subrole = WindowEnumerator.axAttribute(axWindow, kAXSubroleAttribute) as? String
+                if let subrole, subrole != "AXStandardWindow" && subrole != "AXDialog" {
+                    continue
+                }
+                if WindowEnumerator.axAttribute(axWindow, kAXMinimizedAttribute) as? Bool == true {
+                    continue
+                }
+
+                let title = WindowEnumerator.axAttribute(axWindow, kAXTitleAttribute) as? String ?? ""
+                guard !title.isEmpty else { continue }
+
+                var windowId: CGWindowID = 0
+                _ = _AXUIElementGetWindow(axWindow, &windowId)
+
+                let position = WindowEnumerator.axPosition(axWindow) ?? .zero
+                let size = WindowEnumerator.axSize(axWindow) ?? .zero
+
+                let info = WindowInfo(
+                    windowId: windowId,
+                    title: title,
+                    ownerName: app.localizedName ?? "",
+                    ownerPID: app.processIdentifier,
+                    bundleId: app.bundleIdentifier ?? "",
+                    bounds: CGRect(origin: position, size: size)
+                )
+                windows.append(info)
+                pids.insert(app.processIdentifier)
+
+                // Re-cache with current state
+                otherSpaceCache[cacheKey(info)] = info
+            }
+        }
+
+        return (windows, pids)
+    }
 
     private func removeApp(pid: pid_t) {
         lock.lock()

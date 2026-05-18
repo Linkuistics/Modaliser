@@ -75,7 +75,30 @@
 
   (launcher:find-application)
   (launcher:find-file)
-  (window:actions))
+
+  ;; Window manager group ("w"). The panel layout and chip styling are
+  ;; spelled out below because they're the most likely things to tune
+  ;; per user — pick a different matrix here to get a different
+  ;; division scheme (halves, quarters, custom asymmetric splits), or
+  ;; override chip-options to match your theme.
+  ;;
+  ;; The defaults (passing no opts) mirror what's spelled out here.
+  (window:actions
+    'panels (list
+      ;; Row 1 of the panel grid.
+      (window:divisions '(("d" "f" "g")))         ; full thirds
+      (window:divisions '(("D" "F" "G")
+                          ("C" "V" "B")))         ; half thirds
+      (window:divisions '(("e" "e" #f)))          ; left two-thirds
+      ;; Row 2 of the panel grid.
+      (window:divisions '((#f "t" "t")))          ; right two-thirds
+      (window:divisions '(("m")))                 ; maximise (full cell)
+      (window:center-panel "c"))                  ; centre (inward arrows)
+    'chip-options (list
+      ;; All other chip options inherit from window:default-window-
+      ;; chip-options — see (modaliser window-actions) for the full list
+      ;; (font-size, padding, color, faded-background, offset-x-frac, …).
+      (cons 'background the-color))))
 
 ;; ─── Per-app trees (F17 when that app is focused) ────────────────
 

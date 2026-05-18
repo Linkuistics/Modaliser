@@ -147,10 +147,12 @@ function chooserFooterHtml(count) {
   return '<span class="chooser-footer-count">' +
            count + (count === 1 ? ' item' : ' items') +
          '</span>' +
+         // Hint order: ⏎ choose · ↑↓ select · ⎋ exit so exit anchors
+         // the right edge (kept in sync with chooser-footer-html).
          '<span class="chooser-footer-hints">' +
-           '<span class="sigil sigil-escape">⎋</span> exit' +
-           ' · <span class="sigil sigil-return">⏎</span> choose' +
+           '<span class="sigil sigil-return">⏎</span> choose' +
            ' · <span class="sigil sigil-arrows">↑↓</span> select' +
+           ' · <span class="sigil sigil-escape">⎋</span> exit' +
          '</span>';
 }
 
