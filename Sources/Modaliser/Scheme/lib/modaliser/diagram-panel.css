@@ -17,18 +17,23 @@
 }
 
 .overlay-custom-body[data-renderer="diagram"] {
-  padding: 0 12px;
+  padding: 8px 12px;
 }
 
-/* Panel grid container — 3 fixed-width columns, rows packed top-to-bottom.
- * Pinning columns to the panel width (not max-content) keeps every panel
- * in the same visual column regardless of what sits below the grid. */
+/* Panel grid container — as many fixed-width columns as fit the container,
+ * packed top-to-bottom. The overlay (width: max-content) sizes itself to its
+ * widest child, so when the windows-list rows push the overlay wider than the
+ * grid's baseline footprint, the grid reflows to fill that extra horizontal
+ * space rather than leaving a right-side gutter. min-width preserves the
+ * 3-column baseline when nothing wider sits below the grid — auto-fill alone
+ * with an indefinite container would collapse the grid to a single column. */
 .diagram-panel-grid {
   display: grid;
-  grid-template-columns: repeat(3, var(--diagram-panel-w));
-  gap: 1.4rem 1.6rem;
+  grid-template-columns: repeat(auto-fill, var(--diagram-panel-w));
+  gap: 0.5rem 1.6rem;
   justify-content: start;
   align-items: center;
+  min-width: calc(3 * var(--diagram-panel-w) + 2 * 1.6rem);
 }
 
 /* Each panel is a fixed-size 102×60 box with a thin border. */
@@ -109,7 +114,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-top: 8px;
+  margin-top: 14px;
   padding-top: 6px;
   border-top: 1px solid var(--color-separator);
 }
@@ -130,7 +135,7 @@
  * chip-anchor get a .dulled modifier matching the chip's desaturated
  * background so the user reads chip and row as a unit. */
 .diagram-windows-list {
-  margin-top: 8px;
+  margin-top: 14px;
   padding-top: 6px;
   border-top: 1px solid var(--color-separator);
   display: flex;
