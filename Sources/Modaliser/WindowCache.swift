@@ -65,17 +65,21 @@ final class WindowCache {
         lock.lock()
         defer { lock.unlock() }
         let currentPID = ProcessInfo.processInfo.processIdentifier
-        // Phase 1 only — sorted by focus recency the same way listWindows()
-        // does, so the most recently focused on-screen window leads.
+        // Spatial row-major sort (y major, x minor) so window-number chips
+        // map deterministically to position — same windows in the same
+        // layout always get the same digits across leader presses. The
+        // earlier focus-recency sort changed digit assignments whenever
+        // the user activated a different app, which made muscle memory
+        // ("window 2 is always my left-pane editor") impossible.
         var windows = currentSpaceWindowsViaAX(currentPID: currentPID).windows
-        let switchingFromPID = focusHistory.first { $0 != currentPID }
         windows.sort { lhs, rhs in
-            let lhsIsCurrent = lhs.ownerPID == switchingFromPID
-            let rhsIsCurrent = rhs.ownerPID == switchingFromPID
-            if lhsIsCurrent != rhsIsCurrent {
-                return !lhsIsCurrent
+            if lhs.bounds.origin.y != rhs.bounds.origin.y {
+                return lhs.bounds.origin.y < rhs.bounds.origin.y
             }
-            return focusRank(for: lhs.ownerPID) < focusRank(for: rhs.ownerPID)
+            if lhs.bounds.origin.x != rhs.bounds.origin.x {
+                return lhs.bounds.origin.x < rhs.bounds.origin.x
+            }
+            return lhs.windowId < rhs.windowId
         }
         return windows
     }
