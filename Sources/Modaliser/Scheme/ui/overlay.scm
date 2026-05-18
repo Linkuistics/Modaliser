@@ -478,7 +478,10 @@
           (loop (cdr xs) (if row (cons row acc) acc)))))))
 
 ;; (entry->row-json c consumed) → JSON string OR #f if skipped
-;; Skips hidden entries and entries whose key is in consumed.
+;; Skips hidden entries, entries whose key is in consumed, and nested
+;; category nodes (categories inside categories — dispatch flattens
+;; through them via find-child, so emitting a bogus empty row here
+;; would be inconsistent with dispatch).
 (define (entry->row-json c consumed)
   (let* ((hidden-pair (assoc 'hidden c))
          (hidden? (and hidden-pair (cdr hidden-pair)))
@@ -487,6 +490,7 @@
          (is-grp (group? c))
          (sticky-target (and (command? c) (node-sticky-target c))))
     (cond
+      ((category? c) #f)
       (hidden? #f)
       ((member k consumed) #f)
       (else
