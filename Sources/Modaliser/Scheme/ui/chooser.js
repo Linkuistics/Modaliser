@@ -149,7 +149,7 @@ function chooserFooterHtml(count) {
          '</span>' +
          '<span class="chooser-footer-hints">' +
            '<span class="sigil sigil-escape">⎋</span> exit' +
-           ' · <span class="sigil">⏎</span> choose' +
+           ' · <span class="sigil sigil-return">⏎</span> choose' +
            ' · <span class="sigil sigil-arrows">↑↓</span> select' +
          '</span>';
 }

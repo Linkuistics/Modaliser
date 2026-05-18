@@ -226,15 +226,21 @@ body {
  * (offset) so it lands in the same visual weight class as its
  * siblings instead of dragging the row's baseline down. */
 .sigil-back {
-  font-size: calc(var(--font-size) + 8px);
-  transform: translateY(-2px);
+  font-size: calc(var(--font-size) + 7px);
+  transform: translateY(-1px);
+}
+
+/* The return glyph (U+23CE) reads slightly small in Menlo / SF Mono
+ * even at the base .sigil size — give it +1px so it sits in the same
+ * visual weight class as its siblings. */
+.sigil-return {
+  font-size: calc(var(--font-size) + 3px);
 }
 
 /* Per-glyph vertical nudge. In Menlo/SF Mono the escape and arrow
  * glyphs sit slightly low relative to their cap-height / x-height
  * neighbours; shift them up 1px so they read as visually centred
- * against the footer text. The return glyph already sits on the right
- * baseline at the shared .sigil size, no nudge. */
+ * against the footer text. */
 .sigil-escape,
 .sigil-arrows {
   transform: translateY(-1px);

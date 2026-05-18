@@ -145,7 +145,9 @@
 ;; them up 2px — those glyphs sit low in Menlo / SF Mono and read as
 ;; off-centre against the surrounding footer text without the shift.
 (define chooser-sigil-escape "<span class=\"sigil sigil-escape\">\x238b;</span>")
-(define chooser-sigil-enter  "<span class=\"sigil\">\x23ce;</span>")
+;; .sigil-return adds +1px just for ⏎ — the glyph reads slightly small
+;; against the other footer sigils in Menlo / SF Mono.
+(define chooser-sigil-enter  "<span class=\"sigil sigil-return\">\x23ce;</span>")
 (define chooser-sigil-arrows "<span class=\"sigil sigil-arrows\">\x2191;\x2193;</span>")
 
 ;; Footer markup splits the count (left) from the navigation hints
