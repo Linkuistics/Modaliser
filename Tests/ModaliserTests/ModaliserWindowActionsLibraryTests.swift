@@ -118,4 +118,15 @@ struct ModaliserWindowActionsLibraryTests {
         #expect(try engine.evaluate("(eq? (cdr (assoc 'type (list-ref blocks 1))) 'which-key)") == .true)
         #expect(try engine.evaluate("(eq? (cdr (assoc 'type (list-ref blocks 2))) 'window-list)") == .true)
     }
+
+    @Test func actionsGroupHasOnLeaveHook() throws {
+        // The migration replaced on-enter (paint-window-chips!) with the
+        // window-list block's on-render-fn; on-leave was kept on the
+        // group to call hints-hide when the overlay closes. This test
+        // guards against silently dropping that hook in a future refactor.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
+        try engine.evaluate("(define g (actions))")
+        #expect(try engine.evaluate("(procedure? (node-on-leave g))") == .true)
+    }
 }
