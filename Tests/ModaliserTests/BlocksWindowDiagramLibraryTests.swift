@@ -42,7 +42,7 @@ struct BlocksWindowDiagramLibraryTests {
     @Test func blockRendersViaBlockListInOverlay() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found"); return
+            Issue.record("Scheme directory not found"); throw SchemeTestError.noSchemeDir
         }
         try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
         try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
