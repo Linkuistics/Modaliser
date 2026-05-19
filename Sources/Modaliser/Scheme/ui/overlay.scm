@@ -295,38 +295,29 @@
 ;; (block-list-payload-json current) → JSON string
 ;; Payload: {"type":"blocks","blocks":[<block-json>, ...]}
 ;;
-;; Some block types are "derived" — their JSON depends on the parent
-;; group's children and the keys consumed by sibling blocks. which-key
-;; partitions group children into misc/category segments. Other blocks
-;; (window-diagram, window-list) serialize their spec directly via
-;; block-spec->json.
+;; Each block in the group's 'blocks list serializes itself. Blocks
+;; that carry their own dispatch children declare them under
+;; 'block-children; the (window:overlay …) constructor lifts those
+;; into the group's 'children for the state machine. The which-key
+;; block additionally partitions its own block-children into ordered
+;; misc/category segments at render time.
 (define (block-list-payload-json current)
-  (let* ((blocks (or (node-renderer-payload current 'blocks) '()))
-         (consumed
-           (let loop ((bs blocks) (acc '()))
-             (cond
-               ((null? bs) acc)
-               (else
-                 (let ((e (assoc 'consumed-keys (car bs))))
-                   (loop (cdr bs)
-                         (if e (append acc (cdr e)) acc)))))))
-         (group-children (node-children current)))
+  (let ((blocks (or (node-renderer-payload current 'blocks) '())))
     (string-append
       "{\"type\":\"blocks\",\"blocks\":["
-      (string-join-comma
-        (map (lambda (b) (block-json b group-children consumed)) blocks))
+      (string-join-comma (map block-json blocks))
       "]}")))
 
-;; (block-json b group-children consumed) → JSON object
+;; (block-json b) → JSON object string
 ;; Runs the block's optional 'on-render-fn FIRST so side-effects (e.g.
 ;; chip painting) happen before serialization; its return value — when
 ;; a pair/alist — is merged into the spec for serialization. LispKit
 ;; doesn't expose set-cdr!, so blocks that need to splice live data
 ;; into the payload return it from the thunk rather than mutating their
 ;; spec.  Then dispatch on 'type:
-;;   'which-key — emit segments by partitioning (group-children − consumed).
+;;   'which-key — emit segments by partitioning the block's own children.
 ;;   other      — block-spec->json on (spec ∪ dynamic-data).
-(define (block-json b group-children consumed)
+(define (block-json b)
   (let* ((type (let ((e (assoc 'type b))) (and e (cdr e))))
          (fn-entry (assoc 'on-render-fn b))
          (fn (and fn-entry (cdr fn-entry)))
@@ -335,18 +326,19 @@
                 '())))
     (cond
       ((eq? type 'which-key)
-       (which-key-payload-json group-children consumed))
+       (which-key-payload-json
+         (let ((e (assoc 'block-children b)))
+           (if e (cdr e) '()))))
       (else
        (block-spec->json (append b dyn))))))
 
-;; (which-key-payload-json children consumed-keys) → JSON object
+;; (which-key-payload-json children) → JSON object
 ;; Walks `children` once. For each entry:
 ;;   - category? → emit a {"kind":"category","label":…,"rows":[<row>,…]}
-;;     where rows is the category's children, also filtered by consumed.
+;;     where rows is the category's children.
 ;;   - else      → emit a {"kind":"misc","row":<row>} segment.
-;; Hidden entries (cons (cons 'hidden #t) …) and keys in `consumed` are
-;; skipped, matching the existing diagram renderer's behaviour.
-(define (which-key-payload-json children consumed)
+;; Hidden entries (cons (cons 'hidden #t) …) are skipped.
+(define (which-key-payload-json children)
   (let ((segments
           (let loop ((xs children) (acc '()))
             (cond
@@ -357,7 +349,7 @@
                     ((category? c)
                      (let* ((label (let ((e (assoc 'label c))) (if e (cdr e) "")))
                             (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
-                            (rows (filtered-rows inner consumed))
+                            (rows (filtered-rows inner))
                             (seg (string-append
                                    "{\"kind\":\"category\",\"label\":\""
                                    (js-escape-overlay label)
@@ -365,7 +357,7 @@
                                    (string-join-comma rows) "]}")))
                        (loop (cdr xs) (cons seg acc))))
                     (else
-                     (let ((row (entry->row-json c consumed)))
+                     (let ((row (entry->row-json c)))
                        (if row
                          (loop (cdr xs)
                                (cons (string-append "{\"kind\":\"misc\",\"row\":" row "}") acc))
@@ -373,21 +365,20 @@
     (string-append "{\"type\":\"which-key\",\"segments\":["
                    (string-join-comma segments) "]}")))
 
-;; (filtered-rows children consumed) → list of JSON strings (each a row)
-(define (filtered-rows children consumed)
+;; (filtered-rows children) → list of JSON strings (each a row)
+(define (filtered-rows children)
   (let loop ((xs children) (acc '()))
     (cond
       ((null? xs) (reverse acc))
       (else
-        (let ((row (entry->row-json (car xs) consumed)))
+        (let ((row (entry->row-json (car xs))))
           (loop (cdr xs) (if row (cons row acc) acc)))))))
 
-;; (entry->row-json c consumed) → JSON string OR #f if skipped
-;; Skips hidden entries, entries whose key is in consumed, and nested
-;; category nodes (categories inside categories — dispatch flattens
-;; through them via find-child, so emitting a bogus empty row here
-;; would be inconsistent with dispatch).
-(define (entry->row-json c consumed)
+;; (entry->row-json c) → JSON string OR #f if skipped
+;; Skips hidden entries and nested category nodes (categories inside
+;; categories — dispatch flattens through them via find-child, so
+;; emitting a bogus empty row here would be inconsistent with dispatch).
+(define (entry->row-json c)
   (let* ((hidden-pair (assoc 'hidden c))
          (hidden? (and hidden-pair (cdr hidden-pair)))
          (k (node-key c))
@@ -397,7 +388,6 @@
     (cond
       ((category? c) #f)
       (hidden? #f)
-      ((member k consumed) #f)
       (else
        (string-append "{\"key\":\"" (js-escape-overlay k)
                       "\",\"label\":\"" (js-escape-overlay lbl)
@@ -418,7 +408,11 @@
                (k (car entry))
                (v (cdr entry)))
           (cond
-            ((procedure? v) (loop (cdr rest) acc))   ; skip thunks
+            ;; Skip internal-only keys: procedures (on-render-fn) and
+            ;; block-children (dispatch keys, lifted to the group by
+            ;; (overlay …) — the JS side has no use for them).
+            ((procedure? v) (loop (cdr rest) acc))
+            ((eq? k 'block-children) (loop (cdr rest) acc))
             (else
               (loop (cdr rest)
                     (cons (string-append

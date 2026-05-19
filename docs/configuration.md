@@ -18,7 +18,7 @@ On first launch, Modaliser seeds `~/.config/modaliser/config.scm` from a bundled
         (prefix (modaliser window-actions)  window:))
 ```
 
-`(modaliser dsl)` carries the DSL forms (`key`, `group`, `selector`, `action`, `define-tree`). Other libraries surface native primitives (`launch-app`, `send-keystroke`, …) or factory builders (`safari:register!`, `window:actions`). The bundled stdlib uses bare-name exports (`register!`, `actions`, `tree`); import them with `(prefix …)` so call sites read as `<lib>:<verb>` and bare names from different libraries don't collide.
+`(modaliser dsl)` carries the DSL forms (`key`, `group`, `selector`, `action`, `define-tree`). Other libraries surface native primitives (`launch-app`, `send-keystroke`, …) or factory builders (`safari:register!`, `window:overlay`). The bundled stdlib uses bare-name exports (`register!`, `overlay`, `tree`); import them with `(prefix …)` so call sites read as `<lib>:<verb>` and bare names from different libraries don't collide.
 
 See [user libraries](user-libraries.md) for the full lookup-path / `sys/` story and the complete list of bundled libraries.
 
@@ -225,31 +225,48 @@ Selectors with `'file-roots` use `FileManager.enumerator` to index files and dir
 
 Suggestions appear after typing 3+ characters. Below that threshold, only the pinned search item is shown.
 
-## Windows-diagram overlay
+## Windows overlay
 
-`(modaliser window-actions)` ships the windows-manager group as a diagrammatic overlay: each direction key sits visually at the screen region it targets, plus Center (inward arrows), Maximise (filled cell), a Named selector, a numbered window picker (1..) that paints chips on the actual on-screen windows, and Restore.
+`(modaliser window-actions)` ships block constructors for the windows-manager overlay. Configs declare each block explicitly so the visual structure of the overlay is visible at the call site: a layout block (panel grid with `move-window` actions), a which-key block (text-entry strip), and a window-list block (per-window labelled rows + on-screen chips).
 
-Minimal call uses the defaults:
+Minimal call uses the canonical 6-panel layout and a default which-key strip:
 
 ```scheme
-(import (prefix (modaliser window-actions) window:))
+(import (modaliser dsl)
+        (modaliser blocks which-key)               ; make-which-key-block
+        (modaliser window)                         ; restore-window, list-windows, focus-window
+        (prefix (modaliser window-actions) window:))
 
 (define-tree 'global
-  (window:actions))              ; binds "w"; full default layout
+  (window:overlay 'key "w" 'label "Windows"
+    (window:default-layout-block)
+    (make-which-key-block
+      (selector "n" "Named…"
+        'prompt "Select window…"
+        'source list-windows
+        'on-select focus-window)
+      (key "r" "Restore" (lambda () (restore-window))))
+    (window:list-block 'show-chips #t)))
 ```
 
-Customise by overriding the panels matrix or chip styling:
+Customise the layout by spelling out the divisions yourself; everything else stays the same:
 
 ```scheme
-(window:actions
-  'panels (list
+(window:overlay 'key "w" 'label "Windows"
+  (window:layout-block
     (window:divisions '(("d" "f" "g")))                ; full thirds
     (window:divisions '(("D" "F" "G") ("C" "V" "B")))  ; half thirds
     (window:divisions '(("e" "e" #f)))                 ; left two-thirds
     (window:divisions '((#f "t" "t")))                 ; right two-thirds
     (window:divisions '(("m")))                        ; maximise (full cell)
-    (window:center-panel "c"))                         ; center (inward arrows)
-  'chip-options (list (cons 'background "dodgerblue")))
+    (window:center-panel "c"))                         ; centre (inward arrows)
+  (make-which-key-block
+    (selector "n" "Named…" 'prompt "Select window…"
+                            'source list-windows
+                            'on-select focus-window)
+    (key "r" "Restore" (lambda () (restore-window))))
+  (window:list-block 'show-chips #t
+    'chip-options (list (cons 'background "dodgerblue"))))
 ```
 
 The numbered chips (1..0) are placed at the top-left of each on-screen window. Each chip's background is saturated when the window is visible at the chip's anchor point and desaturated when occluded — translucent overlay utilities (HazeOver, f.lux) are skipped in the visibility test so they don't falsely dim chips. Window-number assignment is deterministic by (y, x) position so the same arrangement always produces the same digits across leader presses.

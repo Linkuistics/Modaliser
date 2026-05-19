@@ -1,25 +1,33 @@
-;; (modaliser window-actions) — window-management binding builder.
+;; (modaliser window-actions) — windows-overlay block constructors.
 ;;
-;; Builds the Windows group as a block-list overlay: a window-diagram
-;; block (panel grid), a which-key block (text-entry strip), and a
-;; window-list block (per-window labelled rows with on-screen chips).
+;; Provides the `overlay` group constructor + the high-level block
+;; wrappers users compose in their config:
 ;;
-;; Compose with other groups in your config:
+;;   (import (modaliser dsl)
+;;           (modaliser blocks which-key)               ; make-which-key-block
+;;           (prefix (modaliser window-actions) window:))
 ;;
-;;   (import (modaliser dsl) (prefix (modaliser window-actions) window:))
 ;;   (define-tree 'global
-;;     (window:actions)
-;;     (key "i" "iTerm" (lambda () (launch-app "iTerm"))))
+;;     (window:overlay 'key "w" 'label "Windows"
+;;       (window:default-layout-block)
+;;       (make-which-key-block
+;;         (selector "n" "Named…" 'prompt "Select window…"
+;;                                 'source list-windows
+;;                                 'on-select focus-window)
+;;         (key "r" "Restore" (lambda () (restore-window))))
+;;       (window:list-block 'show-chips #t)))
 ;;
-;; Override the default layout by passing your own panels:
-;;
-;;   (window:actions
-;;     'panels (list (window:divisions '(("h" "l")))      ; halves
-;;                   (window:divisions '(("a" "s" "d" "f"))))) ; quarters
+;; The overlay constructor: opts ('key, 'label) then positional blocks.
+;; Each block declares its own 'block-children for dispatch; overlay
+;; lifts them onto the group's 'children so the state machine routes
+;; keys correctly. Auto-applies 'on-leave (hints-hide) so chips clear
+;; when the overlay closes.
 
 (define-library (modaliser window-actions)
-  (export actions
-          register!
+  (export overlay
+          layout-block
+          default-layout-block
+          list-block
           divisions
           center-panel)
   (import (scheme base)
@@ -29,14 +37,14 @@
           (modaliser hints)
           (modaliser diagram-panel)
           (modaliser blocks window-diagram)
-          (modaliser blocks which-key)
           (modaliser blocks window-list))
   (begin
 
+    ;; ─── Panel data helpers ────────────────────────────────────
+
     ;; JS-friendly key conversion for grid cells: parse-matrix returns
-    ;; col-span / row-span (Scheme/kebab) but diagram-panel.js reads
-    ;; colSpan / rowSpan (JS/camel). Convert before emitting so the
-    ;; renderer sees the expected payload shape.
+    ;; col-span / row-span (Scheme/kebab) but the window-diagram JS
+    ;; reads colSpan / rowSpan (JS/camel). Convert before emitting.
     (define (js-cell cell)
       (list (cons 'key      (cdr (assoc 'key cell)))
             (cons 'col      (cdr (assoc 'col cell)))
@@ -47,8 +55,7 @@
     ;; (divisions matrix) → (panel-spec key-node-list)
     ;; Parse the matrix, compute (move-window x y w h) for each unique
     ;; key from its bounding box, and produce both the grid panel-spec
-    ;; (for the window-diagram block) and the list of key nodes (for
-    ;; the group's children).
+    ;; (for the window-diagram block) and the matching key bindings.
     (define (divisions matrix)
       (let* ((rows (length matrix))
              (cols (length (car matrix)))
@@ -75,23 +82,37 @@
       (list (make-center-panel-spec k)
             (list (key k "Center" (lambda () (center-window))))))
 
-    ;; Helpers to unpack the (panel-spec keys) pair.
-    (define (panel-spec-of p) (car p))
-    (define (panel-keys-of p) (cadr p))
+    ;; ─── Block constructors ────────────────────────────────────
 
-    ;; Default panel layout matching the v19 mockup:
+    ;; (layout-block . panel-pairs) → block spec
+    ;; Each panel-pair is (panel-spec key-list) as returned by
+    ;; `divisions` or `center-panel`. Combines them into a single
+    ;; window-diagram block and attaches the union of all panel keys as
+    ;; 'block-children so overlay can lift them for dispatch.
+    (define (layout-block . panel-pairs)
+      (let* ((panel-specs (map car panel-pairs))
+             (panel-keys  (apply append (map cadr panel-pairs)))
+             (base (make-window-diagram-block panel-specs)))
+        (append base (list (cons 'block-children panel-keys)))))
+
+    ;; Default 6-panel layout matching the v19 mockup:
     ;;   Row 1: full thirds (d/f/g), half thirds (D/F/G over C/V/B),
-    ;;          two-thirds spans (e and t — two separate panels).
-    ;;   Row 2: maximise fill (m), center (c), text-entries (n/1../r).
-    (define (default-panels)
+    ;;          two two-thirds spans (e and t).
+    ;;   Row 2: maximise fill (m), centre (c).
+    (define (default-divisions)
       (list
-        (divisions '(("d" "f" "g")))                ; full thirds
+        (divisions '(("d" "f" "g")))           ; full thirds
         (divisions '(("D" "F" "G")
-                     ("C" "V" "B")))                ; half thirds
-        (divisions '(("e" "e" #f)))                 ; first two-thirds
-        (divisions '((#f "t" "t")))                 ; last two-thirds
-        (divisions '(("m")))                        ; maximise (single cell)
-        (center-panel "c")))                        ; center
+                     ("C" "V" "B")))           ; half thirds
+        (divisions '(("e" "e" #f)))            ; left two-thirds
+        (divisions '((#f "t" "t")))            ; right two-thirds
+        (divisions '(("m")))                   ; maximise
+        (center-panel "c")))                   ; centre
+
+    (define (default-layout-block)
+      (apply layout-block (default-divisions)))
+
+    ;; ─── Numbered window dispatch ──────────────────────────────
 
     (define default-window-labels
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
@@ -106,62 +127,60 @@
         (when entry
           (focus-window (cdr entry)))))
 
-    ;; Dynamic window-range for 1.. — marked 'hidden so the which-key
-    ;; strip omits the "1.. → Window <n>" row: the windows-list block
-    ;; at the bottom of the overlay already shows the digit-to-window
-    ;; mapping per-row, and the redundant range entry would just add
-    ;; noise. Binding still works — the state machine reads the node
-    ;; from children regardless of the hidden flag.
+    ;; Dynamic window-range for 1.. — marked 'hidden so neither the
+    ;; default list renderer nor the which-key block surfaces the
+    ;; "1.. → Window <n>" row; the windows-list block at the bottom
+    ;; already shows the digit-to-window mapping per row.
     (define (window-range)
       (cons (cons 'hidden #t)
             (key-range "1.." "Window <n>"
               default-window-labels
               (lambda (k) (focus-by-digit k)))))
 
-    ;; (actions . opts) → group node with 'renderer 'blocks
+    ;; (list-block . opts) → window-list block spec with dispatch keys.
+    ;; Wraps make-window-list-block and bundles the 1.. range so
+    ;; digits resolve to focus-by-digit at the group level.
     ;;
-    ;; Options:
-    ;;   'key           — leader key char (default "w")
-    ;;   'label         — group label (default "Windows")
-    ;;   'panels        — list of panel-spec pairs (default = default-panels)
-    ;;   'chip-options  — alist of chip overrides; forwarded to the
-    ;;                    window-list block, which merges them with its
-    ;;                    own defaults (font-size, padding, color,
-    ;;                    background, faded-background, offset-x-frac,
-    ;;                    etc.).
-    (define (actions . opts)
-      (let* ((alist        (apply props->alist opts))
-             (group-key    (alist-ref alist 'key "w"))
-             (group-label  (alist-ref alist 'label "Windows"))
-             (custom-panels (alist-ref alist 'panels #f))
-             (panels        (or custom-panels (default-panels)))
-             (panel-specs   (map panel-spec-of panels))
-             (panel-keys    (apply append (map panel-keys-of panels)))
-             (chip-overrides (alist-ref alist 'chip-options '()))
-             (wd-block (make-window-diagram-block panel-specs))
-             (wk-block (make-which-key-block))
-             (wl-block (make-window-list-block 'show-chips #t
-                                               'chip-options chip-overrides))
-             (text-entries
-               (list
-                 (selector "n" "Named…"
-                   'prompt "Select window…"
-                   'source list-windows
-                   'on-select focus-window
-                   'actions
-                     (list
-                       (action "Focus" 'description "Select window" 'key 'primary
-                         'run (lambda (c) (focus-window c)))))
-                 (window-range)
-                 (key "r" "Restore" (lambda () (restore-window)))))
-             (children (append panel-keys text-entries)))
-        (apply group group-key group-label
-               'renderer 'blocks
-               'blocks (list wd-block wk-block wl-block)
-               'on-leave (lambda () (hints-hide))
-               children)))
+    ;; Opts forwarded to make-window-list-block: 'show-chips, 'chip-options.
+    (define (list-block . opts)
+      (let ((base (apply make-window-list-block opts)))
+        (append base (list (cons 'block-children
+                                 (list (window-range)))))))
 
-    (define (register! . opts)
-      (let* ((alist (apply props->alist opts))
-             (scope (alist-ref alist 'tree-scope 'global)))
-        (define-tree scope (apply actions opts))))))
+    ;; ─── Group constructor ─────────────────────────────────────
+
+    ;; (overlay . args) → group node with 'renderer 'blocks
+    ;;
+    ;; Leading args are keyword/value opt pairs ('key STRING,
+    ;; 'label STRING). Positional args after the opts are blocks —
+    ;; alists carrying ('type . SYM) and optionally ('block-children
+    ;; . LIST). The block-children from every block are lifted into the
+    ;; group's 'children so the state machine dispatches them. The
+    ;; group auto-applies 'on-leave (hints-hide) so any painted chips
+    ;; clear when the overlay closes.
+    (define (overlay . args)
+      (let loop ((rest args) (key #f) (label #f))
+        (cond
+          ;; Recognised opts consume two args.
+          ((and (pair? rest) (eq? (car rest) 'key) (pair? (cdr rest)))
+           (loop (cddr rest) (cadr rest) label))
+          ((and (pair? rest) (eq? (car rest) 'label) (pair? (cdr rest)))
+           (loop (cddr rest) key (cadr rest)))
+          ;; Everything from here is positional blocks.
+          (else
+           (let* ((blocks rest)
+                  (block-children
+                    (apply append
+                      (map (lambda (b)
+                             (let ((e (assoc 'block-children b)))
+                               (if e (cdr e) '())))
+                           blocks))))
+             (apply group
+                    (or key "w")
+                    (or label "Windows")
+                    'renderer 'blocks
+                    'blocks blocks
+                    'on-leave (lambda () (hints-hide))
+                    block-children))))))
+
+    ))

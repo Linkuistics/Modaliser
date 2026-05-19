@@ -1,15 +1,21 @@
 ;; (modaliser blocks which-key) — which-key block constructor.
 ;;
-;; (make-which-key-block) returns a marker spec; the block has no
-;; spec-level data. At render time the block-list renderer in
-;; ui/overlay.scm walks the parent group's children, filters out keys
-;; claimed by any sibling block via 'consumed-keys, partitions what
-;; remains into (misc | category) segments preserving source order,
-;; and emits the payload below.
+;; (make-which-key-block . CHILDREN) returns a block spec carrying its
+;; own children:
 ;;
-;; The render-time partitioning lives in ui/overlay.scm because that's
-;; where the parent group is in scope. This library only exposes the
-;; constructor + asset registration.
+;;   ((type . which-key) (block-children . (<child> ...)))
+;;
+;; Children may include (key …), (key-range …), (selector …),
+;; (category …), or any node-alist accepted by the state machine.
+;; Categories are rendered as labelled units; everything else flows as
+;; misc rows in source order. Children are transparently flattened for
+;; dispatch via state-machine.flatten-categories.
+;;
+;; The block-list renderer (ui/overlay.scm) reads block-children at
+;; render time and partitions them into the misc/category segments the
+;; JS expects. The parent `(window:overlay …)` constructor also lifts
+;; block-children onto the group's 'children so find-child can dispatch
+;; them.
 
 (define-library (modaliser blocks which-key)
   (export make-which-key-block)
@@ -17,8 +23,9 @@
           (modaliser overlay-assets))
   (begin
 
-    (define (make-which-key-block)
-      (list (cons 'type 'which-key)))
+    (define (make-which-key-block . children)
+      (list (cons 'type 'which-key)
+            (cons 'block-children children)))
 
     (add-overlay-asset-file! 'css "lib/modaliser/blocks/which-key.css")
     (add-overlay-asset-file! 'js  "lib/modaliser/blocks/which-key.js")))
