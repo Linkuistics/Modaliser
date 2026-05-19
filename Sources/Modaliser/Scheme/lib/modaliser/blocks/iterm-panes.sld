@@ -154,8 +154,12 @@
                     (label (car entry))
                     (pane  (cdr entry))
                     (idx   (cdr (assoc 'idx pane)))
-                    (name  (let ((p (assoc 'name pane)))
-                             (if p (cdr p) "")))
+                    (raw-name (let ((p (assoc 'name pane)))
+                                (if p (cdr p) "")))
+                    ;; iTerm reports the pane title via AX as a single
+                    ;; space (" ") when no badge is set, not as "". Trim
+                    ;; so the empty-title branch covers both.
+                    (name  (string-trim raw-name))
                     (sid   (and (< idx sid-count)
                                 (list-ref session-ids idx)))
                     (fallback (if (and sid (string=? name ""))
