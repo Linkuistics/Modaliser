@@ -41,6 +41,8 @@
   (export rebuild-tree!
           focus-mode-tree
           focus-mode-register!
+          move-mode-tree
+          move-mode-register!
           context-suffix-handler
           register!
           default-pane-labels
@@ -133,9 +135,12 @@
     ;; neighbour, leaving the freshly-created pane in the desired
     ;; "before" position with focus intact.
     ;;
-    ;; Required iTerm key bindings (Settings → Keys → Key Bindings):
-    ;;   Cmd+Opt+Shift+Left → Swap With Split Pane on Left   (ships as default in iTerm 3.6)
-    ;;   Cmd+Opt+Shift+Up   → Swap With Split Pane Above     (no default — bind manually)
+    ;; Required iTerm key bindings (Settings → Keys → Key Bindings),
+    ;; shared with the Move Pane modal below:
+    ;;   Cmd+Ctrl+Shift+H → Swap With Split Pane on Left
+    ;;   Cmd+Ctrl+Shift+J → Swap With Split Pane Below
+    ;;   Cmd+Ctrl+Shift+K → Swap With Split Pane Above
+    ;;   Cmd+Ctrl+Shift+L → Swap With Split Pane on Right
     ;;
     ;; The send-keystroke path is reliable here because Swap-With-…
     ;; lives in iTerm's GlobalKeyMap (not an NSMenu key equivalent),
@@ -144,10 +149,10 @@
       (cond
         ((eq? direction 'left)
          (iterm-split 'vertical)
-         (send-keystroke '(cmd alt shift) "left"))
+         (send-keystroke '(cmd ctrl shift) "h"))
         ((eq? direction 'up)
          (iterm-split 'horizontal)
-         (send-keystroke '(cmd alt shift) "up"))
+         (send-keystroke '(cmd ctrl shift) "k"))
         (else (error "iterm-split-before: unknown direction" direction))))
 
     ;; Build a single (key-range ...) node covering every labelled pane.
@@ -205,6 +210,7 @@
         (let* ((labels       (alist-ref alist 'pane-labels default-pane-labels))
                (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
                (sticky-id    (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
+               (move-id      (alist-ref alist 'move-mode-id 'iterm-panes-move))
                (raw-panes    (ax-find-elements-named
                                "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
                (panes        (label-pairs labels raw-panes))
@@ -240,13 +246,28 @@
               ;; swap with the left/above neighbour via iTerm's
               ;; built-in Swap-With-Split-Pane action — see
               ;; iterm-split-before for the iTerm key bindings it
-              ;; depends on (Cmd+Opt+Shift+Left ships as default;
-              ;; Cmd+Opt+Shift+Up needs a one-time manual bind).
+              ;; depends on.
               (group "x" "Split"
                 (key "h" "Left"  (lambda () (iterm-split-before 'left)))
                 (key "j" "Down"  (lambda () (iterm-split 'horizontal)))
                 (key "k" "Up"    (lambda () (iterm-split-before 'up)))
-                (key "l" "Right" (lambda () (iterm-split 'vertical))))))))))
+                (key "l" "Right" (lambda () (iterm-split 'vertical))))
+              ;; Move Pane modal — m prefix enters a sticky mode whose
+              ;; hjkl keys fire iTerm's Swap-With-Split-Pane-on-<dir>
+              ;; actions, letting the user rearrange pane positions
+              ;; without re-entering the leader. First press performs
+              ;; the swap AND transitions into 'iterm-panes-move (per
+              ;; 'sticky-target), then subsequent hjkl keep swapping.
+              ;; Depends on the same iTerm bindings as iterm-split-before.
+              (group "m" "Move Pane"
+                (key "h" "Left"  (keystroke '(cmd ctrl shift) "h")
+                  'sticky-target move-id)
+                (key "j" "Down"  (keystroke '(cmd ctrl shift) "j")
+                  'sticky-target move-id)
+                (key "k" "Up"    (keystroke '(cmd ctrl shift) "k")
+                  'sticky-target move-id)
+                (key "l" "Right" (keystroke '(cmd ctrl shift) "l")
+                  'sticky-target move-id))))))))
 
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
     ;; the transient tree via any of its hjkl keys (each carries a
@@ -267,6 +288,26 @@
           'exit-on-unknown #t
           'display-name disp-name
           (focus-mode-tree))))
+
+    ;; Sticky move-pane mode children. Pure hjkl swaps, entered from
+    ;; the "m" group in the transient tree (each hjkl carries
+    ;; 'sticky-target → here) or via (enter-mode! 'iterm-panes-move).
+    (define (move-mode-tree)
+      (list
+        (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
+        (key "j" "Down"  (keystroke '(cmd ctrl shift) "j"))
+        (key "k" "Up"    (keystroke '(cmd ctrl shift) "k"))
+        (key "l" "Right" (keystroke '(cmd ctrl shift) "l"))))
+
+    (define (move-mode-register! . opts)
+      (let* ((alist     (apply props->alist opts))
+             (id        (alist-ref alist 'move-mode-id 'iterm-panes-move))
+             (disp-name (alist-ref alist 'move-display-name "Move")))
+        (apply define-tree id
+          'sticky #t
+          'exit-on-unknown #t
+          'display-name disp-name
+          (move-mode-tree))))
 
     ;; Variant string for the focused iTerm pane, used by the
     ;; (modaliser event-dispatch) dispatcher to select sub-tree variants
@@ -315,6 +356,7 @@
                           (cons (cadr kvs) (cons (car kvs) acc))))))))
         (apply rebuild-tree! forwarded)
         (apply focus-mode-register! forwarded)
+        (apply move-mode-register! forwarded)
         (when install?
           (set-local-context-suffix!
             (lambda (bundle-id)
