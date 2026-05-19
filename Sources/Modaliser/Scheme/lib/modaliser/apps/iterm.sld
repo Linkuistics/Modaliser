@@ -45,7 +45,10 @@
           register!
           default-pane-labels
           pane-list-block
-          select-session-by-id)
+          select-session-by-id
+          focus-pane-left focus-pane-right focus-pane-up focus-pane-down
+          split-pane-left split-pane-right split-pane-up split-pane-down
+          move-pane-left  move-pane-right  move-pane-up  move-pane-down)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -153,6 +156,30 @@
          (send-keystroke '(cmd ctrl shift) "k"))
         (else (error "iterm-split-before: unknown direction" direction))))
 
+    ;; ─── Public pane operations ──────────────────────────────────
+    ;;
+    ;; Twelve 0-arg procedures that consumers can drop straight into
+    ;; `(key ... ACTION ...)` slots without wrapping in a lambda. They
+    ;; encapsulate the underlying mechanism (AppleScript split for
+    ;; right/down, AppleScript-split-then-swap for left/up, keystroke
+    ;; synthesis for focus/move) so config sites don't need to know
+    ;; which iTerm surface backs each direction.
+
+    (define (focus-pane-left)  (send-keystroke '(cmd alt) "left"))
+    (define (focus-pane-right) (send-keystroke '(cmd alt) "right"))
+    (define (focus-pane-up)    (send-keystroke '(cmd alt) "up"))
+    (define (focus-pane-down)  (send-keystroke '(cmd alt) "down"))
+
+    (define (split-pane-left)  (iterm-split-before 'left))
+    (define (split-pane-right) (iterm-split 'vertical))
+    (define (split-pane-up)    (iterm-split-before 'up))
+    (define (split-pane-down)  (iterm-split 'horizontal))
+
+    (define (move-pane-left)  (send-keystroke '(cmd ctrl shift) "h"))
+    (define (move-pane-right) (send-keystroke '(cmd ctrl shift) "l"))
+    (define (move-pane-up)    (send-keystroke '(cmd ctrl shift) "k"))
+    (define (move-pane-down)  (send-keystroke '(cmd ctrl shift) "j"))
+
     ;; Build a single (key-range ...) node covering every labelled pane.
     ;; Display key is "<first>.." reflecting actually-bound count (so a
     ;; 3-pane window reads "1.." rather than the full label list). If
@@ -230,49 +257,41 @@
               ;; into a "Focus" category so the cluster reads as one
               ;; semantic unit at the top of the overlay.
               (category "Focus"
-                (key "h" "Left"  (keystroke '(cmd alt) "left")
-                  'sticky-target sticky-id)
-                (key "j" "Down"  (keystroke '(cmd alt) "down")
-                  'sticky-target sticky-id)
-                (key "k" "Up"    (keystroke '(cmd alt) "up")
-                  'sticky-target sticky-id)
-                (key "l" "Right" (keystroke '(cmd alt) "right")
-                  'sticky-target sticky-id))
-              ;; Right/down use iTerm's AppleScript `split` verb
-              ;; directly (iterm-split). Left/up split-after then
-              ;; swap with the left/above neighbour via iTerm's
-              ;; built-in Swap-With-Split-Pane action — see
-              ;; iterm-split-before for the iTerm key bindings it
-              ;; depends on.
+                (key "h" "Left"  focus-pane-left  'sticky-target sticky-id)
+                (key "j" "Down"  focus-pane-down  'sticky-target sticky-id)
+                (key "k" "Up"    focus-pane-up    'sticky-target sticky-id)
+                (key "l" "Right" focus-pane-right 'sticky-target sticky-id))
+              ;; Right/down split directly; left/up split-then-swap.
+              ;; See split-pane-* and iterm-split-before for the iTerm
+              ;; key bindings the split-before path depends on.
               (group "x" "Split"
-                (key "h" "Left"  (lambda () (iterm-split-before 'left)))
-                (key "j" "Down"  (lambda () (iterm-split 'horizontal)))
-                (key "k" "Up"    (lambda () (iterm-split-before 'up)))
-                (key "l" "Right" (lambda () (iterm-split 'vertical))))
-              ;; Move Pane modal — m prefix enters a sticky group whose
-              ;; hjkl keys fire iTerm's Swap-With-Split-Pane-on-<dir>
-              ;; actions, letting the user rearrange pane positions
-              ;; without re-entering the leader. Each hjkl press swaps
-              ;; and stays in the group (per 'sticky #t); any other key
-              ;; exits (per 'exit-on-unknown #t). Depends on the same
-              ;; iTerm bindings as iterm-split-before.
+                (key "h" "Left"  split-pane-left)
+                (key "j" "Down"  split-pane-down)
+                (key "k" "Up"    split-pane-up)
+                (key "l" "Right" split-pane-right))
+              ;; Move Pane modal — m enters a sticky group whose hjkl
+              ;; keys swap the focused pane with its neighbour in that
+              ;; direction. Each press swaps and stays in the group
+              ;; (per 'sticky #t); any other key exits (per
+              ;; 'exit-on-unknown #t). Depends on the same iTerm
+              ;; bindings as split-pane-left/up.
               (group "m" "Move Pane"
                 'sticky #t
                 'exit-on-unknown #t
-                (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
-                (key "j" "Down"  (keystroke '(cmd ctrl shift) "j"))
-                (key "k" "Up"    (keystroke '(cmd ctrl shift) "k"))
-                (key "l" "Right" (keystroke '(cmd ctrl shift) "l")))))))))
+                (key "h" "Left"  move-pane-left)
+                (key "j" "Down"  move-pane-down)
+                (key "k" "Up"    move-pane-up)
+                (key "l" "Right" move-pane-right))))))))
 
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
     ;; the transient tree via any of its hjkl keys (each carries a
     ;; 'sticky-target → here) or via (enter-mode! 'iterm-panes-focus).
     (define (focus-mode-tree)
       (list
-        (key "h" "Left"  (keystroke '(cmd alt) "left"))
-        (key "j" "Down"  (keystroke '(cmd alt) "down"))
-        (key "k" "Up"    (keystroke '(cmd alt) "up"))
-        (key "l" "Right" (keystroke '(cmd alt) "right"))))
+        (key "h" "Left"  focus-pane-left)
+        (key "j" "Down"  focus-pane-down)
+        (key "k" "Up"    focus-pane-up)
+        (key "l" "Right" focus-pane-right)))
 
     (define (focus-mode-register! . opts)
       (let* ((alist     (apply props->alist opts))

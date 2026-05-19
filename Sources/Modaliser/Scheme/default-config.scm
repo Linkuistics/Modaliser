@@ -142,72 +142,39 @@
 ;;   Cmd+Ctrl+Shift+K → Swap With Split Pane Above
 ;;   Cmd+Ctrl+Shift+L → Swap With Split Pane on Right
 
-;; AppleScript split helper — iTerm's AppleScript split verb supports
-;; only "after" directions (new pane on the right or below). Firing
-;; via osascript means the split doesn't depend on any iTerm key
-;; binding (unlike Cmd+D / Cmd+Shift+D, which are NSMenu shortcuts
-;; that don't fire reliably from synthesized CGEvents).
-(define (iterm-split direction)
-  (let ((axis (if (eq? direction 'horizontal) "horizontally" "vertically")))
-    (run-shell
-      (string-append
-        "osascript -e 'tell application \"iTerm\" to "
-        "tell current session of current window to "
-        "split " axis " with same profile' 2>/dev/null"))))
-
 (define-tree 'com.googlecode.iterm2
 
   (key "c" "Copy Mode"   (λ () (send-keystroke '(cmd shift) "c")))
   (key "z" "Toggle Zoom" (λ () (send-keystroke '(cmd shift) "return")))
 
-  ;; hjkl: focus-move AND transition into the sticky 'iterm-panes-focus
-  ;; mode in one press. First leader → h moves left and lands in the
-  ;; sticky mode, so subsequent hjkl keys keep moving without another
-  ;; leader. The overlay paints a ↻ marker on each via 'sticky-target.
-  (category "Focus"
-    (key "h" "Left"  (λ () (send-keystroke '(cmd alt) "left"))
-      'sticky-target 'iterm-panes-focus)
-    (key "j" "Down"  (λ () (send-keystroke '(cmd alt) "down"))
-      'sticky-target 'iterm-panes-focus)
-    (key "k" "Up"    (λ () (send-keystroke '(cmd alt) "up"))
-      'sticky-target 'iterm-panes-focus)
-    (key "l" "Right" (λ () (send-keystroke '(cmd alt) "right"))
-      'sticky-target 'iterm-panes-focus))
+  ;; Focus / Split / Move use the (modaliser apps iterm) factory's
+  ;; named operations. Each is a 0-arg procedure, so it can be passed
+  ;; directly as the `key` action without wrapping in a lambda. The
+  ;; AppleScript split, the split-then-swap sequencing for left/up,
+  ;; and the swap-keystroke emission all live inside the library.
 
-  ;; Right/down: AppleScript split directly. Left/up: split-after then
-  ;; fire Swap-With-Split-Pane-on-<dir> to land the new pane in the
-  ;; "before" position with focus intact (AppleScript's split verb
-  ;; has no `before` parameter).
-  (group "x" "Split"
-    (key "h" "Left"  (λ () (iterm-split 'vertical)
-                            (send-keystroke '(cmd ctrl shift) "h")))
-    (key "j" "Down"  (λ () (iterm-split 'horizontal)))
-    (key "k" "Up"    (λ () (iterm-split 'horizontal)
-                            (send-keystroke '(cmd ctrl shift) "k")))
-    (key "l" "Right" (λ () (iterm-split 'vertical))))
+  (category "Focus"
+    (key "h" "Left"  iterm:focus-pane-left)
+    (key "j" "Down"  iterm:focus-pane-down)
+    (key "k" "Up"    iterm:focus-pane-up)
+    (key "l" "Right" iterm:focus-pane-right))
+
+  (category "Split"
+    (key "H" "Left"  iterm:split-pane-left)
+    (key "J" "Down"  iterm:split-pane-down)
+    (key "K" "Up"    iterm:split-pane-up)
+    (key "L" "Right" iterm:split-pane-right))
 
   ;; Move Pane sticky modal — m enters the group, hjkl swap the focused
   ;; pane in that direction and stay; any other key exits.
-  (group "m" "Move Pane"
+  (group "m" "Move"
     'sticky #t
     'exit-on-unknown #t
-    (key "h" "Left"  (λ () (send-keystroke '(cmd ctrl shift) "h")))
-    (key "j" "Down"  (λ () (send-keystroke '(cmd ctrl shift) "j")))
-    (key "k" "Up"    (λ () (send-keystroke '(cmd ctrl shift) "k")))
-    (key "l" "Right" (λ () (send-keystroke '(cmd ctrl shift) "l"))))
+    (key "h" "Left"  iterm:move-pane-left)
+    (key "j" "Down"  iterm:move-pane-down)
+    (key "k" "Up"    iterm:move-pane-up)
+    (key "l" "Right" iterm:move-pane-right))
 
   ;; Bottom: labelled panes list. 'chips? #t paints the pane chips and
   ;; bundles a hidden digit key-range that focuses panes by UUID.
   (iterm:pane-list-block 'chips? #t))
-
-;; Sticky focus-mode tree (entered by the hjkl 'sticky-target above).
-;; 'sticky #t keeps the mode armed across key presses; 'exit-on-unknown
-;; #t bounces out cleanly when an unrelated key arrives.
-(define-tree 'iterm-panes-focus
-  'sticky #t
-  'exit-on-unknown #t
-  'display-name "Focus"
-  (key "h" "Left"  (λ () (send-keystroke '(cmd alt) "left")))
-  (key "j" "Down"  (λ () (send-keystroke '(cmd alt) "down")))
-  (key "k" "Up"    (λ () (send-keystroke '(cmd alt) "up")))
-  (key "l" "Right" (λ () (send-keystroke '(cmd alt) "right"))))
