@@ -16,27 +16,8 @@ struct BlocksWindowDiagramLibraryTests {
           (define b (make-window-diagram-block spec))
         """)
         #expect(try engine.evaluate("(eq? (cdr (assoc 'type b)) 'window-diagram)") == .true)
-        // 'panels carries the original list
+        // 'panels carries the original list verbatim
         #expect(try engine.evaluate("(equal? (cdr (assoc 'panels b)) spec)") == .true)
-        // 'consumed-keys lists the keys painted on the panel(s)
-        #expect(try engine.evaluate("(member \"d\" (cdr (assoc 'consumed-keys b)))") != .false)
-    }
-
-    @Test func consumedKeysCoversGridCenterAndFill() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser blocks window-diagram))")
-        try engine.evaluate("""
-          (define grid (list (cons 'type 'grid) (cons 'cols 1) (cons 'rows 1)
-                             (cons 'cells (list (list (cons 'key "d") (cons 'col 1) (cons 'row 1)
-                                                      (cons 'colSpan 1) (cons 'rowSpan 1))))))
-          (define cen  (list (cons 'type 'center) (cons 'key "c")))
-          (define fil  (list (cons 'type 'fill)   (cons 'key "m")))
-          (define b (make-window-diagram-block (list grid cen fil)))
-          (define ck (cdr (assoc 'consumed-keys b)))
-        """)
-        #expect(try engine.evaluate("(member \"d\" ck)") != .false)
-        #expect(try engine.evaluate("(member \"c\" ck)") != .false)
-        #expect(try engine.evaluate("(member \"m\" ck)") != .false)
     }
 
     @Test func blockRendersViaBlockListInOverlay() throws {

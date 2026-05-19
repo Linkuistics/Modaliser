@@ -22,6 +22,8 @@
         (prefix (modaliser settings-menu)   settings:)
         (prefix (modaliser launchers)       launcher:)
         (prefix (modaliser window-actions)  window:)
+        (modaliser blocks which-key)        ; make-which-key-block
+        (modaliser window)                  ; list-windows, focus-window
         (prefix (modaliser space-switching) space:)
         (prefix (modaliser web-search)      web-search:)
         (prefix (modaliser apps safari)     safari:)
@@ -76,15 +78,13 @@
   (launcher:find-application)
   (launcher:find-file)
 
-  ;; Window manager group ("w"). The panel layout and chip styling are
-  ;; spelled out below because they're the most likely things to tune
-  ;; per user — pick a different matrix here to get a different
-  ;; division scheme (halves, quarters, custom asymmetric splits), or
-  ;; override chip-options to match your theme.
-  ;;
-  ;; The defaults (passing no opts) mirror what's spelled out here.
-  (window:actions
-    'panels (list
+  ;; Window manager overlay ("w"). Each block is declared explicitly so
+  ;; the structure of the overlay is visible at the config level. Swap
+  ;; in different (window:divisions …) matrices to change the layout,
+  ;; or override chip-options to match your theme.
+  (window:overlay 'key "w" 'label "Windows"
+    ;; Top: panel grid + matching move-window key bindings.
+    (window:layout-block
       ;; Row 1 of the panel grid.
       (window:divisions '(("d" "f" "g")))         ; full thirds
       (window:divisions '(("D" "F" "G")
@@ -94,11 +94,20 @@
       (window:divisions '((#f "t" "t")))          ; right two-thirds
       (window:divisions '(("m")))                 ; maximise (full cell)
       (window:center-panel "c"))                  ; centre (inward arrows)
-    'chip-options (list
-      ;; All other chip options inherit from window:default-window-
-      ;; chip-options — see (modaliser window-actions) for the full list
-      ;; (font-size, padding, color, faded-background, offset-x-frac, …).
-      (cons 'background the-color))))
+    ;; Middle: which-key strip listing the remaining bindings.
+    (make-which-key-block
+      (selector "n" "Named…"
+        'prompt "Select window…"
+        'source list-windows
+        'on-select focus-window)
+      (key "r" "Restore" (lambda () (restore-window))))
+    ;; Bottom: labelled windows list with on-screen chips.
+    (window:list-block 'show-chips #t
+      'chip-options (list
+        ;; All other chip options inherit from the block's built-in
+        ;; defaults — see (modaliser blocks window-list) for the full
+        ;; list (font-size, padding, color, faded-background, …).
+        (cons 'background the-color)))))
 
 ;; ─── Per-app trees (F17 when that app is focused) ────────────────
 

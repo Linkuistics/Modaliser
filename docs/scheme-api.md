@@ -117,16 +117,18 @@ Modal navigation predicates and introspection.
 
 ## Window actions — `(modaliser window-actions)`
 
-Bare-name exports — import with `(prefix … window:)`.
+Bare-name exports — import with `(prefix … window:)`. Users compose the windows overlay from explicit blocks, mirroring the visual structure in the config.
 
 | Function | Description |
 |----------|-------------|
-| `(actions [keyword value]...)` | Build the windows group with `'renderer 'blocks` and three stacked blocks: `window-diagram` + `which-key` + `window-list` (with chip-painting). Options: `'key`, `'label`, `'panels`, `'chip-options`. |
-| `(register! [keyword value]...)` | Register the actions tree under the given scope (`'tree-scope`, default `'global`). |
+| `(overlay [keyword value]... block...)` | Build the windows group with `'renderer 'blocks`. Opts: `'key` (default `"w"`), `'label` (default `"Windows"`). Positional args are block specs; their `'block-children` are lifted onto the group's `'children` for dispatch. Auto-applies `'on-leave (hints-hide)`. |
+| `(layout-block panel-pair...)` | Window-diagram block built from one or more `(panel-spec key-list)` pairs (as returned by `divisions`/`center-panel`). The panel keys are attached as `'block-children` so the matching `move-window` actions dispatch from the group. |
+| `(default-layout-block)` | The canonical 6-panel layout (thirds, half-thirds, two-thirds × 2, maximise, centre). Equivalent to `(layout-block (divisions '(("d" "f" "g"))) … (center-panel "c"))`. |
+| `(list-block [keyword value]...)` | Window-list block wrapping `make-window-list-block` and attaching the hidden `1..` digit range as a `'block-child` for digit-focus dispatch. Opts: `'show-chips`, `'chip-options` (forwarded to the block). |
 | `(divisions matrix)` | Build a `(panel-spec key-node-list)` pair from a matrix of key strings. |
-| `(center-panel key)` | Build the center-panel pair for the given key. |
+| `(center-panel key)` | Build the centre-panel pair for the given key. |
 
-See [Configuration](configuration.md#windows-diagram-overlay) for the full layout walkthrough.
+See [Configuration](configuration.md#windows-overlay) for the full composition example.
 
 ## Apps — `(modaliser apps safari)`, `chrome`, `iterm`
 
