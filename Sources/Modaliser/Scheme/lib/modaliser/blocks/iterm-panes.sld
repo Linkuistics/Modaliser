@@ -28,6 +28,7 @@
           (modaliser util)
           (modaliser shell)
           (modaliser hints)
+          (modaliser accessibility)
           (modaliser ax-hints)
           (modaliser overlay-assets)
           (modaliser theming))
