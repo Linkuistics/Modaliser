@@ -67,8 +67,9 @@
 
   ;; Window manager overlay ("w"). Each block is declared explicitly so
   ;; the structure of the overlay is visible at the config level. Swap
-  ;; in different (window:divisions …) matrices to change the layout,
-  ;; or override chip-options to match your theme.
+  ;; in different (window:divisions …) matrices to change the layout;
+  ;; chip styling lives in the .chip CSS rule (base.css +
+  ;; ~/.config/modaliser/overlay.css — see docs/reference/theming.md).
   (key "w" "Windows"
        (overlay
         ;; Top: panel grid + matching move-window key bindings. Each form
@@ -92,13 +93,12 @@
                        'on-select focus-window))
         (key "r" "Restore" (λ () (restore-window)))
 
-        ;; Bottom: labelled windows list. The presence of 'chip-options
-        ;; (even '()) enables the on-screen window chips; the alist value
-        ;; supplies overrides. Other keys (font-size, padding, color,
-        ;; faded-background, …) inherit from the block's defaults — see
-        ;; (modaliser blocks window-list).
+        ;; Bottom: labelled windows list. 'chips? #t enables the on-screen
+        ;; window chips. Chip appearance (colour, font, padding, …) is
+        ;; controlled by the .chip CSS rule and inherits the host-header
+        ;; colour automatically — no per-callsite plumbing required.
 
-        (window:list-block 'chip-options `((background . ,the-color)))))
+        (window:list-block 'chips? #t)))
 
   ;; (category LABEL . CHILDREN) groups a slice of the overlay into a
   ;; labelled column. Categories may appear anywhere a (key …) can; the
@@ -132,8 +132,7 @@
 (safari:register!)
 
 ;; iTerm: dynamic-pane tree + sticky 'iterm-panes-focus mode + context-
-;; suffix handler. Only the chip background needs threading through;
-;; everything else (label set, font, padding, etc.) defaults inside
-;; the library.
-(iterm:register!
- 'hint-options `((background . ,the-color)))
+;; suffix handler. Pane chips inherit the host-header colour through the
+;; .chip CSS rule's var(--color-host-bg) reference — no per-callsite
+;; threading required.
+(iterm:register!)

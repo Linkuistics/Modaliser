@@ -11,7 +11,7 @@ struct ModaliserWindowActionsLibraryTests {
         try engine.evaluate("""
           (define g (overlay 'key "w" 'label "Windows"
                       (default-layout-block)
-                      (list-block 'chip-options '())))
+                      (list-block 'chips? #t)))
         """)
         #expect(try engine.evaluate("(group? g)") == .true)
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key g)) \"w\")") == .true)
@@ -100,7 +100,7 @@ struct ModaliserWindowActionsLibraryTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
         try engine.evaluate("""
-          (define b (list-block 'chip-options '()))
+          (define b (list-block 'chips? #t))
           (define bc (cdr (assoc 'block-children b)))
         """)
         #expect(try engine.evaluate("(= (length bc) 1)") == .true)
@@ -117,7 +117,7 @@ struct ModaliserWindowActionsLibraryTests {
         try engine.evaluate("""
           (define g (overlay 'key "w" 'label "Windows"
                       (layout-block (("d" "f" "g")))
-                      (list-block 'chip-options '())))
+                      (list-block 'chips? #t)))
           (define ch (cdr (assoc 'children g)))
         """)
         // 3 panel keys + 1 window-range = 4 children
@@ -129,7 +129,7 @@ struct ModaliserWindowActionsLibraryTests {
     }
 
     @Test func windowListBlockContributesOnLeaveHook() throws {
-        // The window-list block (with 'chip-options '()) owns the chip
+        // The window-list block (with 'chips? #t) owns the chip
         // lifecycle end-to-end: its 'on-leave-fn calls (hints-hide)
         // when the overlay closes. The generic overlay constructor in
         // (modaliser dsl) collects 'on-leave-fn from every block and
@@ -139,7 +139,7 @@ struct ModaliserWindowActionsLibraryTests {
         try engine.evaluate("""
           (define g (overlay 'key "w" 'label "Windows"
                       (default-layout-block)
-                      (list-block 'chip-options '())))
+                      (list-block 'chips? #t)))
         """)
         #expect(try engine.evaluate("(procedure? (node-on-leave g))") == .true)
     }
@@ -164,7 +164,7 @@ struct ModaliserWindowActionsLibraryTests {
                       (default-layout-block)
                       (which-key-block
                         (key "r" "Restore" (lambda () #t)))
-                      (list-block 'chip-options '())))
+                      (list-block 'chips? #t)))
           (define payload (block-list-payload-json g))
         """)
         let p = try engine.evaluate("payload").asString()

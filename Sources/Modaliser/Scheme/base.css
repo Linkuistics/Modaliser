@@ -435,3 +435,44 @@ body {
   margin-left: 8px;
   font-size: calc(var(--font-size) - 2px);
 }
+
+/* ═══════════════════════════════════════════════════════════ */
+/* Chip                                                        */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* Window-list / AX-hint chips. The chip painter is native (NSPanel +
+ * NSView + NSTextField — see HintsLibrary.swift), but the *style* lives
+ * in CSS so users theme chips with the same vocabulary as everything
+ * else. A hidden 1×1 probe WebView resolves these rules via
+ * getComputedStyle at boot and posts the values back to Scheme; the
+ * native painter then reads them out of the (modaliser theming) cache.
+ *
+ * The var() fallbacks mean chips inherit the host-header theme by
+ * default — calling (set-host-header! 'background X) recolours chips
+ * for free, with no further plumbing. */
+
+:root {
+  /* Chip top-left offset, as a fraction of the host element's size.
+   * No DOM analogue (chip placement is computed in Scheme, not via
+   * layout), so we expose the values as custom properties that the
+   * probe reads via getPropertyValue. */
+  --chip-offset-x-frac: 0.02;
+  --chip-offset-y-frac: 0.02;
+}
+
+.chip {
+  color: var(--color-host-fg, white);
+  background: var(--color-host-bg, dodgerblue);
+  font-size: 56px;
+  padding: 16px;
+  border: 1px solid black;
+  border-radius: 8px;
+}
+
+/* Occluded variant — painted on chips whose target window is hidden
+ * behind another. Distinct slate-blue rather than inheriting the host
+ * theme: occluded windows should read as "covered" regardless of
+ * which colour the user threaded through set-host-header!. */
+.chip.faded {
+  background: #6f8baa;
+}

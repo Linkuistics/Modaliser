@@ -31,12 +31,14 @@
 (define overlay-current-renderer #f)
 
 ;; ─── CSS Theming ─────────────────────────────────────────
-
-;; (set-overlay-css! css-string) — store custom CSS to inject after base.css
-;; and after any add-overlay-asset! 'css contributions. User-level override —
-;; applied LAST so it wins.
-(define (set-overlay-css! css)
-  (set! overlay-custom-css css))
+;;
+;; overlay-custom-css is the user-CSS slot in the cascade — concatenated
+;; LAST (well, just before host-header-css) so user declarations override
+;; base.css and block-registered CSS. The slot is populated by root.scm
+;; slurping ~/.config/modaliser/overlay.css at boot. There is no Scheme
+;; setter: CSS authoring happens in a real .css file, not as a Scheme
+;; string. Programmatic users can write a build step that emits
+;; overlay.css before launch.
 
 ;; Wire the asset-file resolver so library-registered file assets
 ;; (add-overlay-asset-file!) get read from the right place. A library
@@ -542,17 +544,27 @@
       sorted
       (loop (cdr rest) (insert (car rest) sorted)))))
 
+;; (overlay-full-css) → string
+;; The concatenated CSS stack that ends up inside the overlay's <style>
+;; block: base.css + library asset contributions + user overlay.css +
+;; host-header-css. Exposed so the (modaliser theming) chip-style probe
+;; can load the exact same CSS into its hidden WebView — any divergence
+;; would make computed chip values disagree with what a real chip in
+;; the overlay would have.
+(define (overlay-full-css)
+  (let ((extra-css (overlay-assets-concat 'css)))
+    (string-append overlay-base-css
+                   (if (string=? extra-css "") "" (string-append "\n" extra-css))
+                   (if (string=? overlay-custom-css "") "" (string-append "\n" overlay-custom-css))
+                   "\n"
+                   (host-header-css))))
+
 ;; (render-overlay-html node root-segments path) → full HTML document string
 ;; Pure function. CSS load order: base.css + library extras + user css.
 ;; JS load order: overlay.js + library extras.
 (define (render-overlay-html node root-segments path)
-  (let* ((extra-css (overlay-assets-concat 'css))
-         (extra-js  (overlay-assets-concat 'js))
-         (css (string-append overlay-base-css
-                             (if (string=? extra-css "") "" (string-append "\n" extra-css))
-                             (if (string=? overlay-custom-css "") "" (string-append "\n" overlay-custom-css))
-                             "\n"
-                             (host-header-css)))
+  (let* ((extra-js  (overlay-assets-concat 'js))
+         (css (overlay-full-css))
          (js  (string-append overlay-js
                              (if (string=? extra-js "") "" (string-append "\n" extra-js)))))
     (html-document

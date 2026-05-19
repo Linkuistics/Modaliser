@@ -193,22 +193,11 @@ uses `layout-block` + `list-block` together inside a single `(overlay
 
 | Keyword | Default | Description |
 |---|---|---|
-| `'chip-options` | omitted | When present (even `'()`), enables on-screen window chips. Value is an alist of overrides merged into the chip defaults below. Omitting the keyword disables chips entirely. |
+| `'chips?` | `#f` | When `#t`, paints on-screen labelled chips for each window. Chip styling lives in CSS — see [theming.md](theming.md). |
 
-**Default chip options** (overridable via `'chip-options`):
-
-| Key | Default |
-|---|---|
-| `offset-x-frac` | `0.02` |
-| `offset-y-frac` | `0.02` |
-| `font-size` | `56` |
-| `padding` | `16` |
-| `corner-radius` | `8` |
-| `color` | `"white"` |
-| `background` | `"dodgerblue"` |
-| `faded-background` | `"#6f8baa"` |
-| `border-width` | `1` |
-| `border-color` | `"black"` |
+Chip appearance is no longer threaded through the block constructor.
+Override `.chip` / `.chip.faded` in `~/.config/modaliser/overlay.css` to
+customise; relaunch picks up the changes.
 
 ```scheme
 (key "w" "Windows"
@@ -225,7 +214,7 @@ uses `layout-block` + `list-block` together inside a single `(overlay
                    'source list-windows
                    'on-select focus-window))
     (key "r" "Restore" (λ () (restore-window)))
-    (window:list-block 'chip-options `((background . ,the-color)))))
+    (window:list-block 'chips? #t)))
 ```
 
 ### `(modaliser window)`
@@ -312,20 +301,22 @@ leader press to track the live pane layout.
 | `focus-mode-tree` | The bindings inside the sticky mode (hjkl Cmd+Alt focus moves). Splice into your own custom mode if you need a different sticky-id. |
 | `context-suffix-handler` | The bundle-id → variant suffix function (`"/nvim"`, `"/zellij"`, `"/zellij+nvim"`). Install via `(set-local-context-suffix! …)` from `(modaliser event-dispatch)`. |
 | `default-pane-labels` | `("1" "2" … "9" "0")` — default pane-label list. |
-| `default-chip-options` | Default chip styling alist. |
 
 **`register!` / `rebuild-tree!` options:**
 
 | Keyword | Default | Description |
 |---|---|---|
 | `'pane-labels` | `("1"…"9" "0")` | Labels assigned to panes in walk order. |
-| `'hint-options` | `default-chip-options` | Pane-chip styling (same shape as window-list `'chip-options`). |
 | `'pane-range-label` | `"Focus Pane <n>"` | Label for the auto-generated digit range. |
 | `'sticky-mode-id` | `'iterm-panes-focus` | The mode-id of the sticky focus tree. |
 | `'install-context-suffix?` | `#t` | (`register!` only) Whether to install the context-suffix handler. |
 
+Pane-chip styling is no longer threaded through the registration. The
+chips read from the same `.chip` CSS rule the window-list block uses;
+edit `~/.config/modaliser/overlay.css` to customise.
+
 ```scheme
-(iterm:register! 'hint-options `((background . ,the-color)))
+(iterm:register!)
 ```
 
 The transient iTerm tree gets `c` (Copy Mode), `z` (Toggle Zoom), a
@@ -363,7 +354,7 @@ the lower-level form only when composing a custom block.
 
 | Export | Description |
 |---|---|
-| `make-window-list-block` | `(make-window-list-block [keyword value]...)` — accepts `'chip-options`. Returns a block spec. |
+| `make-window-list-block` | `(make-window-list-block [keyword value]...)` — accepts `'chips? #t` to enable chip painting. Returns a block spec. |
 | `window-list-current-labels` | The label sequence the last render painted (for custom dispatch handlers). |
 | `window-list-current-targets` | Alist of `label → window` from the last render. |
 
@@ -402,6 +393,26 @@ Modifier predicates for keystroke handlers and AX listeners.
 | Export | Returns |
 |---|---|
 | `has-cmd?`, `has-shift?`, `has-alt?`, `has-ctrl?` | Boolean predicates over the modifier mask integer. |
+
+### `(modaliser theming)`
+
+Resolves the live `.chip` / `.chip.faded` CSS rules to a concrete alist
+of pixel/colour values. Used by `(modaliser blocks window-list)` and
+`(modaliser apps iterm)` at chip-paint time so chip styling tracks
+whatever the user puts in `~/.config/modaliser/overlay.css`.
+
+| Export | Signature | Description |
+|---|---|---|
+| `current-chip-theme` | `(current-chip-theme [variant])` | `variant` is `'normal` (default) or `'faded`. Returns an alist with keys `color`, `background`, `font-size`, `padding`, `corner-radius`, `border-width`, `border-color`, `offset-x-frac`, `offset-y-frac`. Colours are hex (`#rrggbb` / `#rrggbbaa`); numeric values are bare ints/floats. |
+
+Resolution mechanism: a hidden offscreen probe WebView spawned at boot
+loads the full overlay CSS cascade plus two probe `<div>`s, reads
+`getComputedStyle`, and posts the resolved values back via
+`webview-on-message`. The probe runs once per boot — relaunch is the
+refresh path for chip styling. Before the probe completes, the
+accessor returns seed defaults matching `base.css`. See
+[theming.md](theming.md#how-chip-values-are-resolved) for the full
+picture.
 
 ### `(modaliser ax-hints)`
 

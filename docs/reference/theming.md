@@ -4,15 +4,15 @@ The overlay and chooser are HTML rendered into WKWebView panels. All
 visuals come from CSS — there's no native styling layer. Theming
 ranges from a one-line variable override to wholesale custom CSS.
 
-This page inventories the **current** CSS surface. A refactor moving
-inline block options (chip colours, font sizes) into CSS classes is
-planned as a separate slice; until that lands, some block styling is
-controlled via block-constructor options instead of CSS variables.
+User CSS lives in `~/.config/modaliser/overlay.css`. The file is
+auto-loaded at startup and concatenated into the cascade *after*
+`base.css` and all block-supplied stylesheets, so user declarations win
+on equal specificity. Edit the file, relaunch Modaliser, done.
 
 Source files:
 
 - [`base.css`](../../Sources/Modaliser/Scheme/base.css) — root
-  variables, overlay container, chooser, footer sigils.
+  variables, overlay container, chip, chooser, footer sigils.
 - [`blocks/which-key.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/which-key.css)
 - [`blocks/window-list.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/window-list.css)
 - [`blocks/window-diagram.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/window-diagram.css)
@@ -22,8 +22,8 @@ CSS load order (last wins on equal specificity):
 1. `base.css`
 2. Each block library's CSS (registered via
    `(add-overlay-asset-file! 'css PATH)`) in import order.
-3. The dynamic `:root { … }` block emitted by `set-host-header!`.
-4. User CSS from `(set-overlay-css! "…")`.
+3. `~/.config/modaliser/overlay.css` (your user CSS).
+4. The dynamic `:root { … }` block emitted by `set-host-header!`.
 
 ## CSS variables
 
@@ -98,6 +98,28 @@ From `blocks/window-diagram.css`:
 | `--diagram-cell-bg` | `#ffffff` |
 | `--diagram-panel-w` | `102px` |
 | `--diagram-panel-h` | `60px` |
+
+### Chip (window-list + iTerm hint chips)
+
+`base.css` declares the `.chip` rule + `:root` positioning vars:
+
+| Property / variable | Default | Notes |
+|---|---|---|
+| `.chip { color }` | `var(--color-host-fg, white)` | Inherits the host header foreground; falls back to white. |
+| `.chip { background }` | `var(--color-host-bg, dodgerblue)` | Inherits the host header background; falls back to dodgerblue. |
+| `.chip { font-size }` | `56px` | |
+| `.chip { padding }` | `16px` | |
+| `.chip { border }` | `1px solid black` | |
+| `.chip { border-radius }` | `8px` | |
+| `.chip.faded { background }` | `#6f8baa` | Occluded windows in the window-list block paint with this. |
+| `--chip-offset-x-frac` | `0.02` | Chip top-left x-offset, as a fraction of the host element's width. |
+| `--chip-offset-y-frac` | `0.02` | y-offset, fraction of host height. |
+
+Chips inherit the host-header colour automatically — calling
+`(set-host-header! 'background "tomato")` recolours both the header
+strip and every chip on screen in one step. Override the rule directly
+(see "Customising chips" below) when you want chips to look unlike the
+host header.
 
 ## Class inventory
 
@@ -178,74 +200,150 @@ From `blocks/window-diagram.css`:
 (set-host-header! 'background "darkorchid")
 ```
 
-`--color-host-bg`, `--color-host-fg` (defaults to white), `--color-host-sep`
-(falls through) are set. The overlay header strip, the sticky-mode
-border, and `'sticky-target` cell markers all inherit the colour.
+`--color-host-bg`, `--color-host-fg` (defaults to white),
+`--color-host-sep` (falls through) are set. The overlay header strip,
+the sticky-mode border, `'sticky-target` cell markers, **and the chips
+on every window-list / iTerm hint overlay** all inherit the colour
+through `var(--color-host-*)` references in `base.css`.
 
 ### Override variables only
 
-`set-overlay-css!` is the last CSS layer, so an override block sits
-cleanly on top:
+User CSS in `~/.config/modaliser/overlay.css` sits *after* `base.css`
+in the cascade, so a `:root { … }` override block applies cleanly:
 
-```scheme
-(set-overlay-css! "
-  :root {
-    --color-key: #5b9bd5;
-    --color-group: #d68a2d;
-    --color-category: #2f6b80;
-    --color-label: #232323;
-    --overlay-bg: rgba(255, 255, 255, 1);
-    --overlay-border: rgba(60, 60, 60, 1);
-  }
-")
+```css
+/* ~/.config/modaliser/overlay.css */
+:root {
+  --color-key: #5b9bd5;
+  --color-group: #d68a2d;
+  --color-category: #2f6b80;
+  --color-label: #232323;
+  --overlay-bg: rgba(255, 255, 255, 1);
+  --overlay-border: rgba(60, 60, 60, 1);
+}
 ```
 
 ### Override classes
 
-For shape changes (typography, spacing, custom widgets):
+For shape changes (typography, spacing, custom widgets), declare them
+in the same file:
 
-```scheme
-(set-overlay-css! "
-  .overlay {
-    backdrop-filter: blur(20px);
-    background: rgba(40, 40, 40, 0.85);
-  }
-  .entry-key { font-weight: 700; }
-  .entry-label { font-style: italic; }
-  .overlay-footer { display: none; }
-")
+```css
+.overlay {
+  backdrop-filter: blur(20px);
+  background: rgba(40, 40, 40, 0.85);
+}
+.entry-key { font-weight: 700; }
+.entry-label { font-style: italic; }
+.overlay-footer { display: none; }
 ```
+
+### Customising chips
+
+The `.chip` rule is the chip styling surface. Override it the same way
+as any other class:
+
+```css
+/* ~/.config/modaliser/overlay.css */
+.chip {
+  background: tomato;
+  border-radius: 12px;
+  font-size: 48px;
+}
+
+.chip.faded {
+  background: #555;
+}
+
+:root {
+  --chip-offset-x-frac: 0.04;
+  --chip-offset-y-frac: 0.04;
+}
+```
+
+Chip values are pulled out of the cascade at boot by a hidden probe
+WebView (see "How chip values are resolved" below), so edits to
+`overlay.css` take effect on the next relaunch — same reload story as
+every other Modaliser config change.
 
 ### A worked dark-mode override
 
-```scheme
-(set-overlay-css! "
-  :root {
-    --overlay-bg: rgba(28, 28, 30, 0.96);
-    --overlay-border: rgba(255, 255, 255, 0.18);
-    --color-key:      rgba(120, 170, 240, 1);
-    --color-label:    rgba(230, 230, 230, 1);
-    --color-group:    rgba(240, 175, 80, 1);
-    --color-category: rgba(130, 180, 210, 1);
-    --color-arrow:    rgba(140, 140, 140, 1);
-    --color-header:   rgba(170, 170, 170, 1);
-    --color-separator:rgba(255, 255, 255, 0.10);
-    --diagram-line:   rgba(255, 255, 255, 0.55);
-    --diagram-cell-bg: #2a2a2c;
-    --chooser-input-bg: rgba(40, 40, 40, 1);
-    --chooser-input-border: rgba(255, 255, 255, 0.15);
-    --chooser-selected-bg: rgba(120, 170, 240, 0.18);
-    --chooser-action-bg: rgba(36, 36, 38, 1);
-  }
-")
+```css
+/* ~/.config/modaliser/overlay.css */
+:root {
+  --overlay-bg: rgba(28, 28, 30, 0.96);
+  --overlay-border: rgba(255, 255, 255, 0.18);
+  --color-key:      rgba(120, 170, 240, 1);
+  --color-label:    rgba(230, 230, 230, 1);
+  --color-group:    rgba(240, 175, 80, 1);
+  --color-category: rgba(130, 180, 210, 1);
+  --color-arrow:    rgba(140, 140, 140, 1);
+  --color-header:   rgba(170, 170, 170, 1);
+  --color-separator:rgba(255, 255, 255, 0.10);
+  --diagram-line:   rgba(255, 255, 255, 0.55);
+  --diagram-cell-bg: #2a2a2c;
+  --chooser-input-bg: rgba(40, 40, 40, 1);
+  --chooser-input-border: rgba(255, 255, 255, 0.15);
+  --chooser-selected-bg: rgba(120, 170, 240, 0.18);
+  --chooser-action-bg: rgba(36, 36, 38, 1);
+}
 ```
 
 The same CSS applies to overlay, chooser, and all three bundled
 blocks because every visual class consumes the `--color-*` vocabulary.
 
+## How chip values are resolved
+
+Chips are painted natively (each chip is its own borderless `NSPanel`
+drawn by `HintsLibrary`) — there's no WebView holding the live chip
+graphics. But the *appearance* of those chips comes from the same CSS
+the overlay uses. To bridge the two, Modaliser spawns a hidden 1×1
+offscreen probe WebView at boot, loads the full CSS cascade into it
+plus two `<div class="chip">` elements (normal + `.faded`), and reads
+`getComputedStyle` from a tiny inline `<script>`. The resolved values
+get posted back to Scheme via `webview-on-message` and cached. The
+native chip painter reads the cache.
+
+The probe runs once per boot — relaunching is the refresh path for
+chip styling, same as every other config change in Modaliser. The
+Scheme accessor is `(current-chip-theme)` / `(current-chip-theme
+'faded)` — see [libraries.md](libraries.md#modaliser-theming).
+
+## Migrating from `'chip-options` / `'hint-options`
+
+Older versions threaded chip styling through block constructors:
+
+```scheme
+;; OLD:
+(window:list-block 'chip-options `((background . ,the-color)))
+(iterm:register!   'hint-options `((background . ,the-color)))
+```
+
+That surface was removed. The replacement: set `(set-host-header!
+'background …)` (chips inherit automatically) or edit `.chip` in
+`~/.config/modaliser/overlay.css`. The block constructors now accept
+only `'chips? #t` (window-list) and the iTerm registration takes no
+chip-style options:
+
+```scheme
+;; NEW:
+(window:list-block 'chips? #t)
+(iterm:register!)
+```
+
+Passing the legacy keywords raises a migration error pointing at the
+new CSS surface.
+
+## Migrating from `(set-overlay-css! …)`
+
+The Scheme setter was removed. The migration is a one-liner: paste the
+CSS string contents into `~/.config/modaliser/overlay.css` and delete
+the `(set-overlay-css! …)` call. The cascade order is unchanged.
+
 ## See also
 
 - [renderer-protocol.md](renderer-protocol.md) — how blocks emit HTML
   the CSS targets.
-- [dsl.md](dsl.md#set-overlay-css-css-string) — `set-overlay-css!`,
-  `set-host-header!`.
+- [dsl.md](dsl.md#set-host-header-keyword-value) — `set-host-header!`.
+- [libraries.md](libraries.md#modaliser-theming) — `(modaliser theming)`,
+  `current-chip-theme`.

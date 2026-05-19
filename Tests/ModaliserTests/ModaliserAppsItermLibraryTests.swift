@@ -35,6 +35,19 @@ struct ModaliserAppsItermLibraryTests {
         #expect(try engine.evaluate("(equal? (car default-pane-labels) \"1\")") == .true)
     }
 
+    @Test func rebuildTreeLegacyHintOptionsRaises() throws {
+        // The old 'hint-options keyword was removed in the chip-theming
+        // refactor — chip styling moved to the .chip CSS rule. Passing
+        // it should fail loudly with a migration message.
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser apps iterm))
+        """)
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(rebuild-tree! 'hint-options '())")
+        }
+    }
+
     @Test func focusModeTreeIsHjklOnly() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps iterm))")

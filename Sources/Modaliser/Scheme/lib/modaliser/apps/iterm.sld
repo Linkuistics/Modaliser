@@ -10,6 +10,11 @@
 ;;   (import (prefix (modaliser apps iterm) iterm:))
 ;;   (iterm:register!)
 ;;
+;; Chip appearance (font size, colour, border, etc.) lives in the .chip
+;; CSS rule in base.css / ~/.config/modaliser/overlay.css — see
+;; (modaliser theming). Pass overrides by editing CSS, not by threading
+;; option alists through the library.
+;;
 ;; Defaults mirror the bundled seed: digit pane labels 1..0, transient
 ;; tree with "c Copy Mode"; "h/j/k/l Focus <dir>" (each fires the
 ;; corresponding Cmd+Alt+arrow keystroke AND transitions into the
@@ -38,8 +43,7 @@
           focus-mode-register!
           context-suffix-handler
           register!
-          default-pane-labels
-          default-chip-options)
+          default-pane-labels)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -50,25 +54,12 @@
           (modaliser accessibility)
           (modaliser hints)
           (modaliser ax-hints)
-          (modaliser terminal))
+          (modaliser terminal)
+          (modaliser theming))
   (begin
 
     (define default-pane-labels
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
-
-    ;; iTerm-tuned chip appearance: large, neutral defaults so the library
-    ;; has no theme coupling. Seeds typically override 'background to
-    ;; their host-header colour for a consistent look.
-    (define default-chip-options
-      (list (cons 'offset-x-frac 0.02)
-            (cons 'offset-y-frac 0.02)
-            (cons 'font-size 56)
-            (cons 'padding 16)
-            (cons 'corner-radius 8)
-            (cons 'color "white")
-            (cons 'background "dodgerblue")
-            (cons 'border-width 1)
-            (cons 'border-color "black")))
 
     ;; Returns a thunk that fires send-keystroke on call. The thunk
     ;; lands cleanly as the third arg of `(key K L …)`: the macro
@@ -145,36 +136,33 @@
                     (if sid (cons (cons label sid) label->sid) label->sid)
                     (if sid (cons label keys)                  keys)))))))
 
-    ;; Merge an alist of user overrides into the iTerm hint-option
-    ;; defaults — user keys win, missing keys fall back to defaults.
-    ;; Pass '() (or omit 'hint-options entirely) to take all defaults.
-    (define (merge-hint-options overrides)
-      (let loop ((rest default-chip-options) (acc '()))
-        (cond
-          ((null? rest) (append (reverse acc) overrides))
-          (else
-            (let ((k (car (car rest))))
-              (if (assoc k overrides)
-                (loop (cdr rest) acc)
-                (loop (cdr rest) (cons (car rest) acc))))))))
-
     ;; Rebuild and re-register the 'com.googlecode.iterm2 tree from
     ;; the current iTerm pane layout. Cheap when iTerm isn't running
     ;; (AX returns empty, no panes contribute to the range).
+    ;;
+    ;; Chip styling is no longer threaded through opts. Hint chips read
+    ;; their resolved appearance from (current-chip-theme), driven by
+    ;; the .chip rule in base.css + ~/.config/modaliser/overlay.css. The
+    ;; old 'hint-options keyword raises a migration error.
     (define (rebuild-tree! . opts)
-      (let* ((alist        (apply props->alist opts))
-             (labels       (alist-ref alist 'pane-labels default-pane-labels))
-             (hint-overrides (alist-ref alist 'hint-options '()))
-             (hint-options (merge-hint-options hint-overrides))
-             (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
-             (sticky-id    (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
-             (raw-panes    (ax-find-elements-named
-                             "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
-             (panes        (label-pairs labels raw-panes))
-             (session-ids  (iterm-list-session-ids)))
+      (let ((alist (apply props->alist opts)))
+        ;; Guard runs before any AX / AppleScript work so a stale config
+        ;; passing the legacy keyword fails fast instead of paying the
+        ;; full discovery cost first.
+        (when (assoc 'hint-options alist)
+          (error
+            "rebuild-tree!: 'hint-options removed — edit .chip in ~/.config/modaliser/overlay.css instead"))
+        (let* ((labels       (alist-ref alist 'pane-labels default-pane-labels))
+               (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
+               (sticky-id    (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
+               (raw-panes    (ax-find-elements-named
+                               "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
+               (panes        (label-pairs labels raw-panes))
+               (session-ids  (iterm-list-session-ids)))
         (apply define-tree 'com.googlecode.iterm2
           'on-enter (lambda ()
-                      (hints-show (ax-target-hints panes hint-options)))
+                      (hints-show
+                        (ax-target-hints panes (current-chip-theme 'normal))))
           'on-leave (lambda () (hints-hide))
           (append
             (iterm-pane-bindings panes session-ids range-label)
@@ -201,7 +189,7 @@
                 (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
                 (key "j" "Down"  (keystroke '(cmd ctrl shift) "j"))
                 (key "k" "Up"    (keystroke '(cmd ctrl shift) "k"))
-                (key "l" "Right" (keystroke '(cmd ctrl shift) "l"))))))))
+                (key "l" "Right" (keystroke '(cmd ctrl shift) "l")))))))))
 
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
     ;; the transient tree via any of its hjkl keys (each carries a
@@ -230,12 +218,11 @@
     ;; current pane layout.
     ;;
     ;; Accepts the same trailing opts as rebuild-tree! ('pane-labels,
-    ;; 'hint-options, 'pane-range-label, 'sticky-mode-id). They are forwarded
-    ;; to the rebuild call so per-press registrations honour the user's
+    ;; 'pane-range-label, 'sticky-mode-id). They are forwarded to the
+    ;; rebuild call so per-press registrations honour the user's
     ;; customisation rather than reverting to the library's neutral
-    ;; defaults. register! captures opts in a closure for this
-    ;; reason; users composing their own handler can pass opts at call
-    ;; site too.
+    ;; defaults. register! captures opts in a closure for this reason;
+    ;; users composing their own handler can pass opts at call site too.
     (define (context-suffix-handler bundle-id . opts)
       (cond
         ((equal? bundle-id "com.googlecode.iterm2")

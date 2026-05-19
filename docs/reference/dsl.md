@@ -124,24 +124,16 @@ Translates to `--color-host-bg`, `--color-host-fg`, and
 `--color-host-sep` CSS variables on `:root`. See
 [theming.md](theming.md) for the full variable inventory.
 
-### `(set-overlay-css! css-string)`
-
-Inject custom CSS into the overlay. Applied *after* `base.css` and any
-block-supplied stylesheets, so user CSS wins on equal specificity.
-This is a top-level definition from `ui/overlay.scm`; it does not
-require an explicit import.
-
-```scheme
-(set-overlay-css! "
-  .overlay { backdrop-filter: blur(20px); }
-  .entry-key { font-weight: 700; }
-")
-```
+For per-instance CSS customisation (overrides, dark mode, chip colours,
+etc.), edit `~/.config/modaliser/overlay.css` directly — see
+[theming.md](theming.md). Modaliser auto-loads that file at startup; no
+Scheme setter is involved.
 
 ### `(set-theme! …)`
 
-Deprecated no-op stub. Theming moved to CSS — use `set-overlay-css!`
-or override CSS variables via `set-host-header!` and block options.
+Deprecated no-op stub. Theming moved to CSS — edit
+`~/.config/modaliser/overlay.css` or override CSS variables via
+`set-host-header!`.
 
 ---
 
@@ -403,7 +395,7 @@ unchanged.
     (key "s" "Select Window" (selector …))               ; node — packed
     (key "r" "Restore"       (λ () (restore-window)))    ; node — packed
 
-    (window:list-block 'chip-options `(…))))             ; block
+    (window:list-block 'chips? #t)))                     ; block
 ```
 
 `(overlay …)` returns a group node; bind it with `(key K L (overlay …))`
