@@ -390,7 +390,7 @@ against Phase-2 prose):
   `selector`, `group`, `define-tree`, `λ`. Two pieces of the keyword
   tail matter for Part 2: `group`'s `'sticky` / `'exit-on-unknown`
   (Step 6) and `key`'s `'sticky-target SYMBOL` (Step 7; the macro
-  contract is in `dsl.sld` lines 39–43 and 95–107). `define-tree`'s
+  contract is in `dsl.sld` lines 35–42 and 95–107). `define-tree`'s
   same `'sticky` / `'exit-on-unknown` keywords (top-level form) are
   what Step 7's `(define-tree 'window-focus …)` uses.
 - `Sources/Modaliser/Scheme/lib/modaliser/state-machine.sld` —
