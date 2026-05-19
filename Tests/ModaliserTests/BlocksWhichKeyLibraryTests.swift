@@ -59,7 +59,7 @@ struct BlocksWhichKeyLibraryTests {
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key (car bc))) \"a\")") == .true)
     }
 
-    @Test func whichKeyPayloadPartitionsCategoriesAndMiscSorted() throws {
+    @Test func whichKeyPayloadCoalescesMiscRunsAndPreservesSegmentOrder() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else {
             Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
@@ -76,8 +76,8 @@ struct BlocksWhichKeyLibraryTests {
               'blocks (list (which-key-block
                               (key "a" "Apple" (lambda () #t))
                               (category "Move"
-                                (key "h" "Left" (lambda () #t))
-                                (key "j" "Down" (lambda () #t)))
+                                (key "j" "Down" (lambda () #t))
+                                (key "h" "Left" (lambda () #t)))
                               (key "z" "Zebra" (lambda () #t))))))
           (define html (render-overlay-html grp '("Root") '()))
         """)
@@ -86,18 +86,54 @@ struct BlocksWhichKeyLibraryTests {
         let after = html[s.upperBound...]
         guard let e = after.firstIndex(of: "'") else { Issue.record("unterminated"); return }
         let payload = String(after[..<e])
-        // Children are sorted by key. Category "Move" has no key — empty
-        // strings sort before any letter, so the order is: Move → a → z.
-        let aIdx = payload.range(of: "\"label\":\"Apple\"")!.lowerBound
+        // Segments preserve declaration order: misc[a] → category[Move] → misc[z].
+        let aIdx    = payload.range(of: "\"label\":\"Apple\"")!.lowerBound
         let moveIdx = payload.range(of: "\"label\":\"Move\"")!.lowerBound
-        let zIdx = payload.range(of: "\"label\":\"Zebra\"")!.lowerBound
-        #expect(moveIdx < aIdx)
-        #expect(aIdx < zIdx)
-        // Category contains its rows (h, j) — also sorted within the category.
-        #expect(payload.contains("\"key\":\"h\""))
-        #expect(payload.contains("\"key\":\"j\""))
+        let zIdx    = payload.range(of: "\"label\":\"Zebra\"")!.lowerBound
+        #expect(aIdx < moveIdx)
+        #expect(moveIdx < zIdx)
+        // Category contains its rows, sorted internally (h before j).
+        let hIdx = payload.range(of: "\"key\":\"h\"")!.lowerBound
+        let jIdx = payload.range(of: "\"key\":\"j\"")!.lowerBound
+        #expect(hIdx < jIdx)
         // kind tags exist
         #expect(payload.contains("\"kind\":\"misc\""))
         #expect(payload.contains("\"kind\":\"category\""))
+    }
+
+    @Test func whichKeyConsecutiveMiscsCoalesceIntoOneSegment() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
+        try engine.evaluateFile(schemePath + "/ui/css.scm")
+        try engine.evaluateFile(schemePath + "/ui/overlay.scm")
+        try engine.evaluate("(import (modaliser blocks which-key))")
+        try engine.evaluate("""
+          (define grp
+            (group "w" "Win"
+              'renderer 'blocks
+              'blocks (list (which-key-block
+                              (key "z" "Zebra" (lambda () #t))
+                              (key "a" "Apple" (lambda () #t))
+                              (key "m" "Mango" (lambda () #t))))))
+          (define html (render-overlay-html grp '("Root") '()))
+        """)
+        let html = try engine.evaluate("html").asString()
+        guard let s = html.range(of: "data-payload='") else { Issue.record("no payload"); return }
+        let after = html[s.upperBound...]
+        guard let e = after.firstIndex(of: "'") else { Issue.record("unterminated"); return }
+        let payload = String(after[..<e])
+        // Three misc entries in a row → exactly one "misc" segment.
+        let miscMatches = payload.components(separatedBy: "\"kind\":\"misc\"").count - 1
+        #expect(miscMatches == 1)
+        // Internal sort: a, m, z.
+        let aIdx = payload.range(of: "\"label\":\"Apple\"")!.lowerBound
+        let mIdx = payload.range(of: "\"label\":\"Mango\"")!.lowerBound
+        let zIdx = payload.range(of: "\"label\":\"Zebra\"")!.lowerBound
+        #expect(aIdx < mIdx)
+        #expect(mIdx < zIdx)
     }
 }

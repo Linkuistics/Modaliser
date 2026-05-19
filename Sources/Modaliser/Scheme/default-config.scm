@@ -68,27 +68,29 @@
   (keys '("1" ..) "Goto Space <n>"
     (λ (k i ks) (send-keystroke '(ctrl) k)))
 
-  ;; Quick-launch keys — λ (Unicode lambda) is exported from
-  ;; (modaliser dsl) as an alias for `lambda` so these stay compact.
-  (key "b" "Browser - Dia"    (λ () (launch-app "Dia")))
-  (key "e" "Editor - Zed"     (λ () (launch-app "Zed")))
-  (key "t" "Terminal - iTerm" (λ () (launch-app "iTerm")))
+  ;; (category LABEL . CHILDREN) groups a slice of the overlay into a
+  ;; labelled column. Categories may appear anywhere a (key …) can; the
+  ;; renderer flows categories and loose-key runs as columns, left to
+  ;; right, wrapping onto a new row when the overlay runs out of width.
 
-  (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
+  (category "Apps"
+    (key "b" "Browser - Dia"    (λ () (launch-app "Dia")))
+    (key "e" "Editor - Zed"     (λ () (launch-app "Zed")))
+    (key "t" "Terminal - iTerm" (λ () (launch-app "iTerm")))
+    (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
+    (key "m" "Mail"             (λ () (launch-app "Mail")))
+    (key "n" "Notes"            (λ () (launch-app "Notes")))
+    (key "o" "Obsidian"         (λ () (launch-app "Obsidian")))
+    (key "z" "Zotero"           (λ () (launch-app "Zotero"))))
 
-  (key "c" "ChatGPT"          (λ () (launch-app "ChatGPT")))
-  (key "C" "Claude Desktop"   (λ () (launch-app "Claude")))
+  (category "AI"
+    (key "c" "ChatGPT"          (λ () (launch-app "ChatGPT")))
+    (key "C" "Claude Desktop"   (λ () (launch-app "Claude"))))
 
-  (key "m" "Mail"             (λ () (launch-app "Mail")))
-  (key "n" "Notes"            (λ () (launch-app "Notes")))
-
-  (key "o" "Obsidian"         (λ () (launch-app "Obsidian")))
-  (key "z" "Zotero"           (λ () (launch-app "Zotero")))
-
-  ;; Selector factories — pair-returning, so dispatch decorates.
-  (key "g" "Google"           (web-search:google))
-  (key "a" "Find Application" (launcher:find-application))
-  (key "f" "Find File"        (launcher:find-file))
+  (category "Search"
+    (key "g" "Google"           (web-search:google))
+    (key "a" "Find Application" (launcher:find-application))
+    (key "f" "Find File"        (launcher:find-file)))
 
   ;; Window manager overlay ("w"). Each block is declared explicitly so
   ;; the structure of the overlay is visible at the config level. Swap

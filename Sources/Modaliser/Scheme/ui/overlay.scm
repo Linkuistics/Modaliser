@@ -339,41 +339,52 @@
 ;;   - else      → emit a {"kind":"misc","row":<row>} segment.
 ;; Hidden entries (cons (cons 'hidden #t) …) are skipped.
 (define (which-key-payload-json children)
-  ;; Sort top-level children so the overlay reads in alphabetical order.
-  ;; Categories preserve their declared internal order (the author asked
-  ;; for that grouping); their position among the misc siblings is sorted
-  ;; using the category's own 'key (if any) — or it floats to the front
-  ;; with key "" which sorts before any letter, matching prior behaviour.
-  (let* ((sorted (sort-children children))
-         (segments
-           (let loop ((xs sorted) (acc '()))
-             (cond
-               ((null? xs) (reverse acc))
-               (else
-                 (let ((c (car xs)))
-                   (cond
-                     ((category? c)
-                      (let* ((label (let ((e (assoc 'label c))) (if e (cdr e) "")))
-                             (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
-                             (rows (filtered-rows (sort-children inner)))
-                             (seg (string-append
-                                    "{\"kind\":\"category\",\"label\":\""
-                                    (js-escape-overlay label)
-                                    "\",\"rows\":["
-                                    (string-join-comma rows) "]}")))
-                        (loop (cdr xs) (cons seg acc))))
-                     (else
-                      (let ((row (entry->row-json c)))
-                        (if row
-                          (loop (cdr xs)
-                                (cons (string-append "{\"kind\":\"misc\",\"row\":" row "}") acc))
-                          (loop (cdr xs) acc))))))))))
-         ;; Column hint mirrors the old list renderer: pick N to balance
-         ;; the body against the target aspect ratio. Categories count
-         ;; as 1 segment for sizing — close enough for typical configs.
+  ;; Partition `children` into ordered segments suitable for column-style
+  ;; layout. Each (category …) becomes its own segment; consecutive non-
+  ;; category entries coalesce into a single "misc" segment so isolated
+  ;; bindings don't get scattered as one-row columns. Segments preserve
+  ;; declaration order — the renderer flows them left-to-right and wraps
+  ;; onto a new row when no horizontal room remains. Misc segments and
+  ;; category rows are each sorted internally with the standard sort.
+  (let* ((segments (partition-which-key-segments children))
          (cols (overlay-column-count (length segments))))
     (string-append "{\"type\":\"which-key\",\"cols\":" (number->string cols)
-                   ",\"segments\":[" (string-join-comma segments) "]}")))
+                   ",\"segments\":[" (string-join-comma (map render-segment segments)) "]}")))
+
+;; Group children into ordered segments without reordering across category
+;; boundaries. Returns a list of tagged segments:
+;;   ('misc <list-of-nodes>) or ('category <label> <list-of-nodes>)
+(define (partition-which-key-segments children)
+  (let loop ((xs children) (pending '()) (acc '()))
+    (cond
+      ((null? xs)
+       (let ((acc (if (null? pending)
+                    acc
+                    (cons (list 'misc (reverse pending)) acc))))
+         (reverse acc)))
+      ((category? (car xs))
+       (let* ((c     (car xs))
+              (label (let ((e (assoc 'label c)))    (if e (cdr e) "")))
+              (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
+              (acc   (if (null? pending)
+                       acc
+                       (cons (list 'misc (reverse pending)) acc)))
+              (acc   (cons (list 'category label inner) acc)))
+         (loop (cdr xs) '() acc)))
+      (else
+       (loop (cdr xs) (cons (car xs) pending) acc)))))
+
+(define (render-segment seg)
+  (cond
+    ((eq? (car seg) 'misc)
+     (let ((rows (filtered-rows (sort-children (cadr seg)))))
+       (string-append "{\"kind\":\"misc\",\"rows\":["
+                      (string-join-comma rows) "]}")))
+    (else  ; 'category
+     (let ((rows (filtered-rows (sort-children (caddr seg)))))
+       (string-append "{\"kind\":\"category\",\"label\":\""
+                      (js-escape-overlay (cadr seg))
+                      "\",\"rows\":[" (string-join-comma rows) "]}")))))
 
 ;; (filtered-rows children) → list of JSON strings (each a row)
 (define (filtered-rows children)
