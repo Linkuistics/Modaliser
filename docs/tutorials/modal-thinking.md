@@ -182,3 +182,60 @@ If you want a denser layout, the bundled `default-config.scm` adds a
 half-thirds row (`(("D" "F" "G") ("C" "V" "B"))`) between full-thirds
 and two-thirds for 3×2 sub-cells; the form is the same, just one more
 matrix in the sequence.
+
+## Step 4 — A selector
+
+A *selector* is a fuzzy-finder bound to a key. You hand it a function
+that produces the list of options each time it opens (`'source`) and a
+function that runs on the chosen item (`'on-select`). The reader gets
+type-to-narrow and Enter-to-select for free.
+
+Selectors are the moment most readers' mental model snaps into place,
+because of *how* they're bound. Look at the form you're about to type:
+
+```scheme
+(key "s" "Select Window"
+  (selector 'prompt "Select window by name…"
+            'source list-windows
+            'on-select focus-window))
+```
+
+The third arg to `(key …)` is a *call* — `(selector …)`. Modaliser
+evaluates it at config-load time. It returns a node — a Scheme pair
+describing a selector. The `(key …)` macro sees the pair and
+*decorates* it with `"s"` / `"Select Window"`. The same dispatch you
+saw on `(overlay …)` in Step 2.
+
+Once you spot this pattern, every factory in the codebase reads the
+same way: `(settings:actions)`, `(launcher:find-application)`,
+`(web-search:google)` — they all return nodes that get decorated by
+the wrapping `(key …)`.
+
+Add the selector to your overlay (you'll already have `(modaliser window)`
+in your imports — it provides `list-windows` and `focus-window`):
+
+```scheme
+(define-tree 'global
+  (key "w" "Windows"
+    (overlay
+      (window:layout-block
+        (("d" "f" "g"))
+        (("e" "e" #f))
+        ((#f "t" "t"))
+        (("m"))
+        (center "c"))
+      (key "r" "Restore" (λ () (restore-window)))
+      (key "s" "Select Window"
+        (selector 'prompt "Select window by name…"
+                  'source list-windows
+                  'on-select focus-window)))))
+```
+
+**Relaunch. Press F18 w s.** You get a list of your visible windows.
+Type characters to narrow it (the matcher prefers contiguous matches,
+so a few letters from anywhere in a title usually gets you close).
+Press Enter — the highlighted window comes to the front and the
+overlay closes.
+
+The selector fired, then dismissed. Same shape as everything in
+Part 1: tree → leaf → action → dismiss.
