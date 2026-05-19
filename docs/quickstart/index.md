@@ -110,6 +110,9 @@ Tap F18 again, then `b` — Safari should open.
 
 You now have the loop: edit `config.scm`, relaunch, try the binding.
 
+- **How-to guides** — task-oriented recipes for adding bindings,
+  per-app trees, sticky modes, fuzzy-finders, theming, and debugging.
+  → [how-to/index.md](../how-to/index.md)
 - **The DSL** — every form available inside `define-tree`, including
   `keys` for multi-key bindings, `group` for nested submenus, `selector`
   for fuzzy-finder choosers, and `overlay` for custom block layouts.

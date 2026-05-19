@@ -106,7 +106,7 @@ The foundational set is always available. From a user `.sld` or
 (import (modaliser dsl))            ; key, keys, key-range, group, category,
                                     ; selector, action, overlay, define-tree,
                                     ; λ, set-leader!, set-theme!,
-                                    ; set-host-header!, set-overlay-delay!,
+                                    ; set-overlay-delay!,
                                     ; set-overlay-aspect-ratio!,
                                     ; modifier-symbols->mask
 (import (modaliser state-machine))  ; lookup-tree, modal-* introspection
@@ -172,6 +172,10 @@ Customisation example:
 
 See the bundled `default-config.scm` (copied to your config dir on
 first run) for an end-to-end example that combines all of these.
+
+For a task-oriented walkthrough of pulling pieces out of `config.scm`
+into your own libraries, see
+[how-to/split-your-config.md](../how-to/split-your-config.md).
 
 ## What lives outside the library tree
 
