@@ -22,10 +22,11 @@
     while (container.firstChild) container.removeChild(container.firstChild);
     const panes = block.panes || [];
     for (const p of panes) {
+      const text = p.title || p.fallback || 'Pane';
       const row = el('div', { class: 'ip-row' },
         el('span', { class: 'entry-key', text: p.label }),
         el('span', { class: 'entry-arrow', text: '→' }),
-        el('span', { class: 'entry-label', text: p.title || 'Pane' })
+        el('span', { class: 'entry-label', text: text })
       );
       container.appendChild(row);
     }

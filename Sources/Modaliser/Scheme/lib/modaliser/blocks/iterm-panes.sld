@@ -31,6 +31,7 @@
           (modaliser accessibility)
           (modaliser ax-hints)
           (modaliser overlay-assets)
+          (modaliser terminal)
           (modaliser theming))
   (begin
 
@@ -68,6 +69,69 @@
                   (loop (cdr parts)
                         (if (string=? s "") acc (cons s acc))))))))))
 
+    ;; ─── Empty-title fallback: <proc> · <cwd> ──────────────────────
+    ;; iTerm panes sometimes have an empty AX static-text title (no badge
+    ;; set, default profile). For those we surface the foreground process
+    ;; name and its working directory so the row is still identifiable.
+    ;; Only invoked per pane WHEN the title is empty, so a typical window
+    ;; pays zero extra shell processes.
+
+    (define (iterm-session-tty session-id)
+      (string-trim
+        (run-shell
+          (string-append
+            "osascript -e 'tell application \"iTerm\" to "
+            "tty of first session of current tab of current window "
+            "whose id is \"" session-id "\"' "
+            "2>/dev/null"))))
+
+    ;; Foreground PID on a tty. macOS `ps -t` accepts the bare tty name
+    ;; (no /dev/ prefix), and `stat` containing `+` flags the foreground
+    ;; process group leader.
+    (define (tty-foreground-pid tty)
+      (let* ((tty-clean (if (and (>= (string-length tty) 5)
+                                 (string=? (substring tty 0 5) "/dev/"))
+                          (substring tty 5 (string-length tty))
+                          tty)))
+        (string-trim
+          (run-shell
+            (string-append
+              "export PATH=" modaliser-tool-path ":$PATH; "
+              "ps -t " tty-clean " -o pid=,stat= 2>/dev/null"
+              " | awk '$2 ~ /\\+/ {print $1; exit}'")))))
+
+    (define (pid-cwd pid)
+      (string-trim
+        (run-shell
+          (string-append
+            "export PATH=" modaliser-tool-path ":$PATH; "
+            "lsof -a -p " pid " -d cwd -F n 2>/dev/null"
+            " | awk '/^n/ {sub(/^n/,\"\"); print; exit}'"
+            " | sed \"s|^$HOME|~|\""))))
+
+    (define (pid-proc-name pid)
+      (string-trim
+        (run-shell
+          (string-append "ps -o comm= -p " pid " 2>/dev/null"
+                         " | awk -F/ '{print $NF}'"))))
+
+    (define (pane-fallback-label session-id)
+      (let ((tty (iterm-session-tty session-id)))
+        (cond
+          ((string=? tty "") "")
+          (else
+            (let ((pid (tty-foreground-pid tty)))
+              (cond
+                ((string=? pid "") "")
+                (else
+                  (let ((proc (pid-proc-name pid))
+                        (cwd  (pid-cwd pid)))
+                    (cond
+                      ((and (string=? proc "") (string=? cwd "")) "")
+                      ((string=? proc "") cwd)
+                      ((string=? cwd "")  proc)
+                      (else (string-append proc " · " cwd)))))))))))
+
     ;; ─── on-render side-effect ─────────────────────────────────────
     ;; Discover the current pane layout, snapshot label→UUID, and paint
     ;; chips. AX provides the frames + a 0-based 'idx; AppleScript's
@@ -94,8 +158,12 @@
                              (if p (cdr p) "")))
                     (sid   (and (< idx sid-count)
                                 (list-ref session-ids idx)))
+                    (fallback (if (and sid (string=? name ""))
+                                (pane-fallback-label sid)
+                                ""))
                     (row   (list (cons 'label label)
-                                 (cons 'title name))))
+                                 (cons 'title name)
+                                 (cons 'fallback fallback))))
                (loop (cdr ps)
                      (if sid (cons (cons label sid) targets) targets)
                      (cons row rows))))))))
