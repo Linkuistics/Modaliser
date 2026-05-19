@@ -59,7 +59,7 @@ struct BlocksWhichKeyLibraryTests {
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key (car bc))) \"a\")") == .true)
     }
 
-    @Test func whichKeyPayloadPartitionsCategoriesAndMiscInSourceOrder() throws {
+    @Test func whichKeyPayloadPartitionsCategoriesAndMiscSorted() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else {
             Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
@@ -86,13 +86,14 @@ struct BlocksWhichKeyLibraryTests {
         let after = html[s.upperBound...]
         guard let e = after.firstIndex(of: "'") else { Issue.record("unterminated"); return }
         let payload = String(after[..<e])
-        // Verify source order: a → Move → z
+        // Children are sorted by key. Category "Move" has no key — empty
+        // strings sort before any letter, so the order is: Move → a → z.
         let aIdx = payload.range(of: "\"label\":\"Apple\"")!.lowerBound
         let moveIdx = payload.range(of: "\"label\":\"Move\"")!.lowerBound
         let zIdx = payload.range(of: "\"label\":\"Zebra\"")!.lowerBound
-        #expect(aIdx < moveIdx)
-        #expect(moveIdx < zIdx)
-        // Category contains its rows (h, j)
+        #expect(moveIdx < aIdx)
+        #expect(aIdx < zIdx)
+        // Category contains its rows (h, j) — also sorted within the category.
         #expect(payload.contains("\"key\":\"h\""))
         #expect(payload.contains("\"key\":\"j\""))
         // kind tags exist

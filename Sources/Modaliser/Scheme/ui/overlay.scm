@@ -339,31 +339,41 @@
 ;;   - else      → emit a {"kind":"misc","row":<row>} segment.
 ;; Hidden entries (cons (cons 'hidden #t) …) are skipped.
 (define (which-key-payload-json children)
-  (let ((segments
-          (let loop ((xs children) (acc '()))
-            (cond
-              ((null? xs) (reverse acc))
-              (else
-                (let ((c (car xs)))
-                  (cond
-                    ((category? c)
-                     (let* ((label (let ((e (assoc 'label c))) (if e (cdr e) "")))
-                            (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
-                            (rows (filtered-rows inner))
-                            (seg (string-append
-                                   "{\"kind\":\"category\",\"label\":\""
-                                   (js-escape-overlay label)
-                                   "\",\"rows\":["
-                                   (string-join-comma rows) "]}")))
-                       (loop (cdr xs) (cons seg acc))))
-                    (else
-                     (let ((row (entry->row-json c)))
-                       (if row
-                         (loop (cdr xs)
-                               (cons (string-append "{\"kind\":\"misc\",\"row\":" row "}") acc))
-                         (loop (cdr xs) acc)))))))))))
-    (string-append "{\"type\":\"which-key\",\"segments\":["
-                   (string-join-comma segments) "]}")))
+  ;; Sort top-level children so the overlay reads in alphabetical order.
+  ;; Categories preserve their declared internal order (the author asked
+  ;; for that grouping); their position among the misc siblings is sorted
+  ;; using the category's own 'key (if any) — or it floats to the front
+  ;; with key "" which sorts before any letter, matching prior behaviour.
+  (let* ((sorted (sort-children children))
+         (segments
+           (let loop ((xs sorted) (acc '()))
+             (cond
+               ((null? xs) (reverse acc))
+               (else
+                 (let ((c (car xs)))
+                   (cond
+                     ((category? c)
+                      (let* ((label (let ((e (assoc 'label c))) (if e (cdr e) "")))
+                             (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
+                             (rows (filtered-rows (sort-children inner)))
+                             (seg (string-append
+                                    "{\"kind\":\"category\",\"label\":\""
+                                    (js-escape-overlay label)
+                                    "\",\"rows\":["
+                                    (string-join-comma rows) "]}")))
+                        (loop (cdr xs) (cons seg acc))))
+                     (else
+                      (let ((row (entry->row-json c)))
+                        (if row
+                          (loop (cdr xs)
+                                (cons (string-append "{\"kind\":\"misc\",\"row\":" row "}") acc))
+                          (loop (cdr xs) acc))))))))))
+         ;; Column hint mirrors the old list renderer: pick N to balance
+         ;; the body against the target aspect ratio. Categories count
+         ;; as 1 segment for sizing — close enough for typical configs.
+         (cols (overlay-column-count (length segments))))
+    (string-append "{\"type\":\"which-key\",\"cols\":" (number->string cols)
+                   ",\"segments\":[" (string-join-comma segments) "]}")))
 
 ;; (filtered-rows children) → list of JSON strings (each a row)
 (define (filtered-rows children)
@@ -464,12 +474,33 @@
       ((not (symbol? (car (car xs)))) #f)
       (else (loop (cdr xs))))))
 
-;; Sort children alphabetically by key (insertion sort)
+;; Sort children alphabetically by key (insertion sort).
+;;
+;; Comparator is case-insensitive on the primary, with a stable tiebreak
+;; that places lowercase before its uppercase variant — so the visible
+;; order is "a A b B …" rather than ASCII's "A B … a b …" or a strict
+;; lowercase-only ordering. Mixed-case configs read more naturally that
+;; way; the user model is "letters in the alphabet, lowercase first".
+(define (sort-key-lt? a b)
+  ;; Categories and other entries without a binding key carry #f here;
+  ;; coerce to "" so they sort before any letter rather than crashing.
+  (let* ((a (or a ""))
+         (b (or b ""))
+         (la (string-downcase a))
+         (lb (string-downcase b)))
+    (cond
+      ((string<? la lb) #t)
+      ((string<? lb la) #f)
+      ;; Same letter, different case: lowercase first. ASCII gives
+      ;; uppercase a LOWER code point, so a > b under string<? means
+      ;; a is the lowercase variant.
+      (else (string>? a b)))))
+
 (define (sort-children children)
   (define (insert item sorted)
     (cond
       ((null? sorted) (list item))
-      ((string<? (node-key item) (node-key (car sorted)))
+      ((sort-key-lt? (node-key item) (node-key (car sorted)))
        (cons item sorted))
       (else (cons (car sorted) (insert item (cdr sorted))))))
   (let loop ((rest children) (sorted '()))

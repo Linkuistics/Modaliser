@@ -250,6 +250,30 @@ struct OverlayRenderTests {
         #expect(mPos < zPos)
     }
 
+    @Test func renderOverlayHtmlCaseAwareSort() throws {
+        let engine = try loadOverlay()
+        // Mixed-case keys: expected order is a, A, b, B — case-insensitive
+        // primary, lowercase-first tiebreak. Source order is shuffled so
+        // a passing test really proves the sort fires.
+        try engine.evaluate("""
+            (define test-node (group "g" "G"
+              (key "B" "BravoUpper" (lambda () 'ok))
+              (key "a" "AlphaLower" (lambda () 'ok))
+              (key "A" "AlphaUpper" (lambda () 'ok))
+              (key "b" "BravoLower" (lambda () 'ok))))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html test-node '("G") '())
+            """).asString()
+        let aLow = html.range(of: "AlphaLower")!.lowerBound
+        let aUp  = html.range(of: "AlphaUpper")!.lowerBound
+        let bLow = html.range(of: "BravoLower")!.lowerBound
+        let bUp  = html.range(of: "BravoUpper")!.lowerBound
+        #expect(aLow < aUp)
+        #expect(aUp < bLow)
+        #expect(bLow < bUp)
+    }
+
     @Test func renderOverlayHtmlShowsGroupWithEllipsis() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""

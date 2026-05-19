@@ -63,6 +63,11 @@
   window.overlayBlockRenderers['which-key'] = function(block, container) {
     while (container.firstChild) container.removeChild(container.firstChild);
     const cols = el('div', { class: 'wk-columns' });
+    // Column count is precomputed Scheme-side to match the legacy list
+    // renderer's aspect-ratio-based layout; default to 1 if absent.
+    if (typeof block.cols === 'number' && block.cols > 0) {
+      cols.style.setProperty('--overlay-cols', String(block.cols));
+    }
     for (const seg of (block.segments || [])) {
       if (seg.kind === 'category') {
         cols.appendChild(renderCategory(seg));

@@ -12,9 +12,12 @@
 }
 
 .block-which-key .wk-columns {
+  /* --overlay-cols is set inline by which-key.js based on a Scheme-side
+   * aspect-ratio calculation; falls back to a width-driven auto layout
+   * when the renderer didn't supply a hint. */
+  column-count: var(--overlay-cols, auto);
   column-width: 14rem;
-  column-count: auto;
-  column-fill: auto;
+  column-fill: balance;
   column-gap: 1.5rem;
 }
 
@@ -43,7 +46,10 @@
 .block-which-key .wk-row .entry-key { color: var(--color-key); font-weight: 600; }
 .block-which-key .wk-row .entry-arrow { color: var(--color-arrow); }
 .block-which-key .wk-row .entry-label { color: var(--color-label); }
-.block-which-key .wk-row .group-label { color: var(--color-label); }
+/* Bindings that open a panel (sub-overlay or chooser) take the accent
+ * colour — matches the legacy list renderer so commands and panels are
+ * visually distinct at a glance. */
+.block-which-key .wk-row .group-label { color: var(--color-group); }
 .block-which-key .wk-row .entry-sticky-marker {
   font-size: calc(var(--font-size) + 4px);
   position: relative;
