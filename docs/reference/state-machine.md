@@ -237,3 +237,5 @@ mutations must call through a procedure. See the comments around
   machine dispatches.
 - [renderer-protocol.md](renderer-protocol.md) — how overlays consume
   the current node and path.
+- [how-to/sticky-mode.md](../how-to/sticky-mode.md) — recipe for
+  building a sticky focus-movement mode.

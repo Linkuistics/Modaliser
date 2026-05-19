@@ -377,3 +377,6 @@ their tree or override the breadcrumb via CSS pseudo-element content.
   the CSS targets.
 - [libraries.md](libraries.md#modaliser-theming) — `(modaliser theming)`,
   `current-chip-theme`.
+- [how-to/customise-theme.md](../how-to/customise-theme.md) — minimal
+  recipe for tinting the overlay, recolouring chips, and a worked
+  dark-theme template.

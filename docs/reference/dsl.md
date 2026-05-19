@@ -192,9 +192,6 @@ explicitly.
 ;; Correct — selector factory returns a node, decorated with key/label
 (key "g" "Google" (web-search:google))
 
-;; Correct — keystroke returns a procedure that closes over the args
-(key "c" "Copy" (keystroke '(cmd) "c"))
-
 ;; WRONG — launch-app fires once at config-load and never again
 (key "b" "Browser" (launch-app "Safari"))
 ```
@@ -442,3 +439,7 @@ lists via their `'modifiers` keyword.
   blocks.
 - [theming.md](theming.md) — CSS variables and class names consumed by
   the overlay.
+- How-to guides — task-oriented recipes:
+  [add a binding](../how-to/add-a-binding.md),
+  [add a per-app tree](../how-to/add-a-per-app-tree.md),
+  [add a fuzzy-finder](../how-to/fuzzy-finder.md).
