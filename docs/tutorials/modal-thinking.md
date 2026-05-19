@@ -233,13 +233,19 @@ in your imports — it provides `list-windows` and `focus-window`):
 
 **Relaunch. Press F18 w s.** You get a list of your visible windows
 and an input box. The input drives *which entry in the list is
-selected* — type a few characters from a title and the closest match
-becomes the highlighted row. Press Enter — the action (`focus-window`)
+selected* — type characters from a title and the closest-matching row
+becomes the highlighted one. Press Enter — the action (`focus-window`)
 runs against that highlighted entry and the overlay closes.
 
 So: input box ⇒ list selection ⇒ Enter fires `'on-select`. The input
 isn't a window-focus action by itself; it's a navigator for the list
 underneath it.
+
+> The matcher is conservative — it prefers contiguous character runs
+> in the title and may need most of the title's letters before settling
+> on the entry you want. If you find yourself typing nearly the whole
+> title, that's not the tutorial deceiving you; it's the matcher's
+> current threshold.
 
 ## Step 5 — The window list, with chips
 
