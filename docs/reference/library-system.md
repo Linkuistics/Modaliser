@@ -103,11 +103,13 @@ Phase B published the foundational set. From a user `.sld` or
 `config.scm` you can:
 
 ```scheme
-(import (modaliser dsl))            ; key, key-range, group, selector,
-                                    ; action, define-tree, set-leader!,
+(import (modaliser dsl))            ; key, keys, key-range, group, category,
+                                    ; selector, action, overlay, define-tree,
+                                    ; λ, set-leader!, set-theme!,
+                                    ; set-host-header!, set-overlay-delay!,
+                                    ; set-overlay-aspect-ratio!,
                                     ; modifier-symbols->mask
-(import (modaliser state-machine))  ; lookup-tree, modal-* introspection,
-                                    ; set-host-header!, set-overlay-delay!
+(import (modaliser state-machine))  ; lookup-tree, modal-* introspection
 (import (modaliser event-dispatch)) ; set-local-context-suffix!
 (import (modaliser util))           ; alist-ref, props->alist, string-join,
                                     ; read-file-text, log
@@ -115,8 +117,9 @@ Phase B published the foundational set. From a user `.sld` or
                                     ; has-ctrl?
 ```
 
-Plus the native `(modaliser shell)`, `(modaliser app)`,
-`(modaliser keyboard)`, etc. — those were already importable.
+See [dsl.md](dsl.md) for the full DSL surface with signatures and
+examples. The native `(modaliser shell)`, `(modaliser app)`,
+`(modaliser keyboard)`, etc. are also importable from a user `.sld`.
 
 ## Bundled stdlib libraries (Phase C)
 
@@ -139,7 +142,6 @@ different libraries don't collide:
         (prefix (modaliser apps safari)     safari:)   ; safari:tree, safari:register!
         (prefix (modaliser apps chrome)     chrome:)   ; chrome:tree, chrome:register!
         (prefix (modaliser window-actions)  window:)   ; window:actions, window:register!
-        (prefix (modaliser space-switching) space:)    ; space:switch-actions, space:register!
         (prefix (modaliser launchers)       launcher:) ; launcher:find-application,
                                                        ; launcher:find-file
         (prefix (modaliser settings-menu)   settings:) ; settings:actions
@@ -181,7 +183,7 @@ These modules are intentionally *not* exposed as `(modaliser …)`
 libraries: they lean on LispKit-specific bindings (WebView, JSON) and
 the spec's Phase D non-goal explicitly keeps them that way — only
 the user-facing **library** surface needs to be portable, not every
-internal `.scm` file. See [`docs/portability.md`](portability.md)
+internal `.scm` file. See [portability.md](portability.md)
 for the formal portability contract.
 
 If you want to use any of those top-level helpers from your own

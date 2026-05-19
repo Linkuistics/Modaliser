@@ -37,8 +37,10 @@ user-shipped `.sld` file may import from:
    *pure-Scheme* vs *native* matters for porting:
    - *Pure-Scheme* libraries (`dsl`, `keymap`, `state-machine`,
      `event-dispatch`, `util`, `ax-hints`, `terminal`, `leader`,
-     `window-actions`, `space-switching`, `apps/iterm`, `apps/safari`,
-     `apps/chrome`) port verbatim across hosts.
+     `window-actions`, `apps/iterm`, `apps/safari`, `apps/chrome`,
+     `launchers`, `web-search`, `settings-menu`, `window`,
+     `blocks/which-key`, `blocks/window-list`, `blocks/window-diagram`)
+     port verbatim across hosts.
    - *Native* libraries (`shell`, `app`, `keyboard`, `window`,
      `webview`, `input`, `accessibility`, `hints`, `fuzzy`,
      `http`, `pasteboard`, `lifecycle`, `clipboard-history`,
@@ -112,7 +114,6 @@ bindings you pick up that way.
 
 ## See also
 
-- [`docs/user-libraries.md`](user-libraries.md) — user-side guide to
+- [library-system.md](library-system.md) — user-side guide to
   splitting configs and shadowing libraries.
-- [`docs/superpowers/specs/2026-05-16-modular-config-architecture-design.md`](superpowers/specs/2026-05-16-modular-config-architecture-design.md) — umbrella spec.
-- [`docs/superpowers/prompts/2026-05-16-modular-config-kickoff.md`](superpowers/prompts/2026-05-16-modular-config-kickoff.md) — phase plan.
+- [dsl.md](dsl.md) — the DSL forms exported from `(modaliser dsl)`.

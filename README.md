@@ -6,11 +6,16 @@ Press a leader key, type a sequence, and Modaliser launches apps, manages window
 
 ## Documentation
 
-- [Configuration](docs/configuration.md) — DSL primer (commands, groups, selectors), leader keys, app-local trees, themes, selectors deep-dive, file/web search, the windows-diagram overlay, AX hint flows.
-- [Scheme API](docs/scheme-api.md) — every bundled `(modaliser …)` library and native primitive, with signatures.
-- [User libraries](docs/user-libraries.md) — splitting configs across `.sld` files, the `~/.config/modaliser/` layout, the `sys/` mirror of bundled libraries, library lookup order, `prepend-library-path!`.
-- [Portability](docs/portability.md) — what configurations can rely on and what's deliberately host-specific.
-- [Keyboard reference](docs/keyboard.md) — modal navigation keys, chooser controls, menu bar.
+- **[Quick start](docs/quickstart/index.md)** — install → first launch → edit one binding → relaunch, in five minutes.
+- **Reference**
+  - [DSL](docs/reference/dsl.md) — every form from `(modaliser dsl)`: `key`, `keys`, `group`, `category`, `selector`, `overlay`, `define-tree`, leader setters, …
+  - [Libraries](docs/reference/libraries.md) — bundled `(modaliser …)` libraries: launchers, web-search, settings-menu, window-actions, apps/safari, apps/chrome, apps/iterm, blocks.
+  - [State machine](docs/reference/state-machine.md) — modal lifecycle, transient vs. sticky, `'sticky-target`, `'exit-on-unknown`, hook gating, dispatch precedence.
+  - [Renderer protocol](docs/reference/renderer-protocol.md) — block spec shape, `on-render-fn` return-and-merge, chrome envelope, writing a custom block.
+  - [Theming](docs/reference/theming.md) — CSS variables, class inventory, worked dark-mode override.
+  - [Library system](docs/reference/library-system.md) — splitting configs across `.sld` files, the `sys/` mirror, lookup order, `prepend-library-path!`.
+  - [Portability](docs/reference/portability.md) — what configurations can rely on, what's deliberately host-specific.
+  - [Keyboard](docs/reference/keyboard.md) — modal navigation, chooser controls, menu bar.
 
 ## Architecture
 
@@ -59,8 +64,7 @@ A minimal modern config:
 (import (modaliser dsl)
         (modaliser app)
         (modaliser leader)
-        (prefix (modaliser apps safari)     safari:)
-        (prefix (modaliser window-actions)  window:))
+        (prefix (modaliser apps safari) safari:))
 
 (set-leaders! 'global-keycode F18
               'local-keycode  F17)
@@ -68,14 +72,14 @@ A minimal modern config:
 (set-overlay-delay! 0.3)
 
 (define-tree 'global
-  (key "s" "Safari"   (lambda () (launch-app "Safari")))
-  (key "t" "Terminal" (lambda () (launch-app "iTerm")))
-  (window:actions))            ; bundled window manager + diagram overlay on "w"
+  (category "Apps"
+    (key "s" "Safari"   (λ () (launch-app "Safari")))
+    (key "t" "Terminal" (λ () (launch-app "iTerm")))))
 
 (safari:register!)              ; app-local tree (F17 while Safari is focused)
 ```
 
-That's a complete config. The `(modaliser …)` imports surface the DSL, native primitives, and the bundled stdlib of app-specific trees (`safari:`, `iterm:`, `chrome:`) and helpers (`window:`, `space:`, `launcher:`, `web-search:`). See [Configuration](docs/configuration.md) for the full primer and [User libraries](docs/user-libraries.md) for how to split your config as it grows.
+That's a complete config. `(modaliser dsl)` surfaces the DSL (`key`, `keys`, `group`, `category`, `selector`, `overlay`, `define-tree`, `λ`); `(modaliser leader)` adds `set-leaders!`; the bundled stdlib includes app-specific trees (`safari:`, `chrome:`, `iterm:`) and helpers (`window:`, `launcher:`, `web-search:`, `settings:`). See the [Quick start](docs/quickstart/index.md) for a guided walkthrough and the [DSL reference](docs/reference/dsl.md) for the full surface.
 
 ## Menu bar
 
