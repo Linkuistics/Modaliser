@@ -14,7 +14,7 @@
 ;; Chip styling is no longer threaded through this constructor. The
 ;; per-chip alist is built at paint time from (current-chip-theme), which
 ;; reads the resolved .chip / .chip.faded CSS rules from base.css plus
-;; the user's ~/.config/modaliser/overlay.css. See (modaliser theming).
+;; the user's ~/.config/modaliser/theme.css. See (modaliser theming).
 ;;
 ;; The current window snapshot is exposed via window-list-current-labels
 ;; so the parent group can build a (key-range …) that dispatches
@@ -254,7 +254,7 @@
       (let* ((alist (apply props->alist opts)))
         (when (assoc 'chip-options alist)
           (error
-            "make-window-list-block: 'chip-options removed — edit .chip in ~/.config/modaliser/overlay.css instead"))
+            "make-window-list-block: 'chip-options removed — edit .chip in ~/.config/modaliser/theme.css instead"))
         (cond
           ((alist-ref alist 'chips? #f)
             ;; The block owns the chip lifecycle end-to-end:

@@ -50,16 +50,20 @@
   (string-append user-config-dir "/config.scm"))
 
 ;; User-authored CSS lives in a real .css file so editors give syntax
-;; highlighting and linting for free. Slurped into overlay-custom-css
-;; below after the user config has loaded.
-(define user-overlay-css-path
-  (string-append user-config-dir "/overlay.css"))
+;; highlighting and linting for free. Slurped into user-theme-css below
+;; after the user config has loaded. The same file styles both the
+;; overlay and the chooser/selector — hence the generic name.
+(define user-theme-css-path
+  (string-append user-config-dir "/theme.css"))
 
 (define default-config-path
   (string-append *scheme-directory* "/default-config.scm"))
 
+;; "Settings…" menu item: reveal the config directory in Finder. Users
+;; pick which file to edit (config.scm / theme.css / their own .sld
+;; libraries) rather than us assuming one canonical entry point.
 (define (open-settings!)
-  (run-shell (string-append "/usr/bin/open \"" user-config-path "\"")))
+  (run-shell (string-append "/usr/bin/open \"" user-config-dir "\"")))
 
 ;; Copy file by streaming characters; preserves contents exactly.
 (define (copy-file! src dst)
@@ -98,19 +102,19 @@
 (when (file-exists? user-config-path)
   (include "~/.config/modaliser/config.scm"))
 
-;; Slurp ~/.config/modaliser/overlay.css if present. Runs after the
-;; user config so a user that wants to compose CSS in Scheme can still
-;; do so by writing to overlay-custom-css before this point — but the
-;; canonical authoring surface is the .css file.
-(when (file-exists? user-overlay-css-path)
-  (set! overlay-custom-css (read-file-text user-overlay-css-path)))
+;; Slurp ~/.config/modaliser/theme.css if present. Runs after the user
+;; config so a programmatic user who wants to compose CSS in Scheme
+;; can still do so by writing to user-theme-css before this point — but
+;; the canonical authoring surface is the .css file.
+(when (file-exists? user-theme-css-path)
+  (set! user-theme-css (read-file-text user-theme-css-path)))
 
 ;; Wire the (modaliser theming) probe to the overlay's CSS stack and
-;; kick it off. The probe library can't see top-level overlay-* vars
+;; kick it off. The probe library can't see top-level user-theme-css
 ;; from inside its define-library scope, so we hand it a closure that
 ;; resolves them at call time — same deferred-resolution pattern
 ;; (modaliser overlay-assets) uses for its file resolver. Must run
-;; AFTER the overlay.css slurp so user overrides feed the probe.
+;; AFTER the theme.css slurp so user overrides feed the probe.
 (theming-set-css-source! overlay-full-css)
 (run-chip-theme-probe!)
 

@@ -196,7 +196,7 @@ uses `layout-block` + `list-block` together inside a single `(overlay
 | `'chips?` | `#f` | When `#t`, paints on-screen labelled chips for each window. Chip styling lives in CSS — see [theming.md](theming.md). |
 
 Chip appearance is no longer threaded through the block constructor.
-Override `.chip` / `.chip.faded` in `~/.config/modaliser/overlay.css` to
+Override `.chip` / `.chip.faded` in `~/.config/modaliser/theme.css` to
 customise; relaunch picks up the changes.
 
 ```scheme
@@ -313,7 +313,7 @@ leader press to track the live pane layout.
 
 Pane-chip styling is no longer threaded through the registration. The
 chips read from the same `.chip` CSS rule the window-list block uses;
-edit `~/.config/modaliser/overlay.css` to customise.
+edit `~/.config/modaliser/theme.css` to customise.
 
 ```scheme
 (iterm:register!)
@@ -399,7 +399,7 @@ Modifier predicates for keystroke handlers and AX listeners.
 Resolves the live `.chip` / `.chip.faded` CSS rules to a concrete alist
 of pixel/colour values. Used by `(modaliser blocks window-list)` and
 `(modaliser apps iterm)` at chip-paint time so chip styling tracks
-whatever the user puts in `~/.config/modaliser/overlay.css`.
+whatever the user puts in `~/.config/modaliser/theme.css`.
 
 | Export | Signature | Description |
 |---|---|---|

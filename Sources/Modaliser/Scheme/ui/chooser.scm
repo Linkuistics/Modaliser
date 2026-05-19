@@ -171,11 +171,9 @@
 (define (render-chooser-html prompt visible-items query selected-index
                              actions-visible? actions)
   (let* ((css (string-append overlay-base-css
-                             (if (string=? overlay-custom-css "")
+                             (if (string=? user-theme-css "")
                                ""
-                               (string-append "\n" overlay-custom-css))
-                             "\n"
-                             (host-header-css)))
+                               (string-append "\n" user-theme-css))))
          (item-count (length visible-items))
          ;; Footer HTML: item count + navigation hints. Sigils (⎋ ⏎ ↑↓)
          ;; are wrapped in <span class="sigil"> so base.css bumps them
@@ -383,11 +381,9 @@
   (when (chooser-open?)
     (let* ((prompt (alist-ref chooser-selector-node 'prompt "Select..."))
            (css (string-append overlay-base-css
-                               (if (string=? overlay-custom-css "")
+                               (if (string=? user-theme-css "")
                                  ""
-                                 (string-append "\n" overlay-custom-css))
-                               "\n"
-                               (host-header-css)))
+                                 (string-append "\n" user-theme-css))))
            (segments (append (modal-root-segments)
                              (list (chooser-prompt-segment prompt))))
            (html (html-document

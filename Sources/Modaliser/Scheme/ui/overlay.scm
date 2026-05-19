@@ -20,7 +20,11 @@
 ;; ─── Overlay State ────────────────────────────────────────────
 
 (define overlay-webview-id "modaliser-overlay")
-(define overlay-custom-css "")
+;; User-supplied CSS slurped from ~/.config/modaliser/theme.css at boot.
+;; Applies to both the overlay and the chooser/selector — see
+;; (overlay-full-css) and the chooser's render path. Name is generic
+;; because the surface is overlay+chooser+chip, not overlay-only.
+(define user-theme-css "")
 
 ;; Renderer of the node the WebView's current DOM was rendered for. Used by
 ;; overlay-update-impl to detect when an incremental push-overlay-update
@@ -32,13 +36,13 @@
 
 ;; ─── CSS Theming ─────────────────────────────────────────
 ;;
-;; overlay-custom-css is the user-CSS slot in the cascade — concatenated
-;; LAST (well, just before host-header-css) so user declarations override
-;; base.css and block-registered CSS. The slot is populated by root.scm
-;; slurping ~/.config/modaliser/overlay.css at boot. There is no Scheme
-;; setter: CSS authoring happens in a real .css file, not as a Scheme
-;; string. Programmatic users can write a build step that emits
-;; overlay.css before launch.
+;; user-theme-css is the user-CSS slot in the cascade — concatenated
+;; LAST so user declarations override base.css and block-registered CSS.
+;; The slot is populated by root.scm slurping
+;; ~/.config/modaliser/theme.css at boot. There is no Scheme setter:
+;; CSS authoring happens in a real .css file, not as a Scheme string.
+;; Programmatic users can write a build step that emits theme.css
+;; before launch.
 
 ;; Wire the asset-file resolver so library-registered file assets
 ;; (add-overlay-asset-file!) get read from the right place. A library
@@ -546,18 +550,16 @@
 
 ;; (overlay-full-css) → string
 ;; The concatenated CSS stack that ends up inside the overlay's <style>
-;; block: base.css + library asset contributions + user overlay.css +
-;; host-header-css. Exposed so the (modaliser theming) chip-style probe
-;; can load the exact same CSS into its hidden WebView — any divergence
-;; would make computed chip values disagree with what a real chip in
-;; the overlay would have.
+;; block: base.css + library asset contributions + user theme.css.
+;; Exposed so the (modaliser theming) chip-style probe can load the
+;; exact same CSS into its hidden WebView — any divergence would make
+;; computed chip values disagree with what a real chip in the overlay
+;; would have. User theme.css sits LAST so its declarations win.
 (define (overlay-full-css)
   (let ((extra-css (overlay-assets-concat 'css)))
     (string-append overlay-base-css
                    (if (string=? extra-css "") "" (string-append "\n" extra-css))
-                   (if (string=? overlay-custom-css "") "" (string-append "\n" overlay-custom-css))
-                   "\n"
-                   (host-header-css))))
+                   (if (string=? user-theme-css "") "" (string-append "\n" user-theme-css)))))
 
 ;; (render-overlay-html node root-segments path) → full HTML document string
 ;; Pure function. CSS load order: base.css + library extras + user css.

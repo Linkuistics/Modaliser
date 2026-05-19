@@ -447,9 +447,9 @@ body {
  * getComputedStyle at boot and posts the values back to Scheme; the
  * native painter then reads them out of the (modaliser theming) cache.
  *
- * The var() fallbacks mean chips inherit the host-header theme by
- * default — calling (set-host-header! 'background X) recolours chips
- * for free, with no further plumbing. */
+ * The var() fallbacks mean chips inherit the host-header theme when
+ * --color-host-bg / --color-host-fg are declared in the user's
+ * theme.css. Without those, chips fall back to white-on-dodgerblue. */
 
 :root {
   /* Chip top-left offset, as a fraction of the host element's size.
@@ -471,8 +471,8 @@ body {
 
 /* Occluded variant — painted on chips whose target window is hidden
  * behind another. Distinct slate-blue rather than inheriting the host
- * theme: occluded windows should read as "covered" regardless of
- * which colour the user threaded through set-host-header!. */
+ * theme: occluded windows should read as "covered" regardless of which
+ * colour the user picked for --color-host-bg. */
 .chip.faded {
   background: #6f8baa;
 }

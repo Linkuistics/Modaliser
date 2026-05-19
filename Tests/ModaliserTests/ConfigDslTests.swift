@@ -194,15 +194,15 @@ struct ConfigDslTests {
 
     // MARK: - CSS theming
 
-    // overlay-custom-css is populated at boot by root.scm slurping
-    // ~/.config/modaliser/overlay.css. The setter (set-overlay-css!) was
+    // user-theme-css is populated at boot by root.scm slurping
+    // ~/.config/modaliser/theme.css. The setter (set-overlay-css!) was
     // removed in the chip-theming refactor — CSS authoring moved to a real
     // .css file. Tests poke the variable directly to verify the cascade.
 
     @Test func customCssAppearsInRenderedOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (set! overlay-custom-css ":root { --overlay-bg: #333; }")
+            (set! user-theme-css ":root { --overlay-bg: #333; }")
             (define-tree 'global (key "s" "Safari" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""

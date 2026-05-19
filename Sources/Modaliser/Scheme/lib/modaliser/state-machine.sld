@@ -38,18 +38,13 @@
     set-overlay-open! set-show-overlay! set-update-overlay!
     set-hide-overlay! set-open-chooser!
     chooser-open? set-chooser-open! close-chooser set-close-chooser!
-    ;; Host header
-    host-header-name host-header-background host-header-foreground
-    host-header-separator-color
-    set-host-header! host-header-css
     ;; Breadcrumb
     resolve-app-segments compute-root-segments compute-tree-root-segments)
   (import (scheme base)
           (modaliser util)
           (modaliser app)
           (modaliser keyboard)
-          (modaliser lifecycle)
-          (modaliser shell))
+          (modaliser lifecycle))
   (begin
 
 ;; Manages command tree registration, lookup, and modal navigation.
@@ -763,75 +758,6 @@
         (navigate-to-path child (cdr path))
         #f))))
 
-;; ─── Host Header ────────────────────────────────────────────────
-;;
-;; Optional banner identifying which Modaliser instance owns the
-;; overlay/chooser. Set once at config load via (set-host-header! ...).
-
-(define host-header-name #f)              ;; #f → no host segment, no recolour
-(define host-header-background #f)         ;; CSS colour string or #f
-(define host-header-foreground #f)         ;; CSS colour string or #f
-(define host-header-separator-color #f)    ;; CSS colour string or #f
-
-;; (set-host-header! [ 'name            VAL ]
-;;                   [ 'background      CSS ]
-;;                   [ 'foreground      CSS ]
-;;                   [ 'separator-color CSS ])
-;;
-;; Keyword-style API mirroring set-leaders!. All keywords are optional:
-;;   'name        defaults to (run-shell "hostname -s")
-;;   'foreground  defaults to "white" when 'background is also supplied
-;;                (the "thread the theme through" use case); otherwise #f
-;;   'background  no default (header recolour only when set)
-;; The seed config typically only overrides 'background to thread the
-;; host-theme colour through. Re-calling overwrites the previous values.
-;; All values are whitespace-trimmed so (run-shell …) outputs can be
-;; passed directly without callers stripping the trailing newline.
-(define (set-host-header! . args)
-  (let loop ((rest args)
-             (name #f) (bg #f) (fg #f) (sep #f)
-             (saw-name? #f) (saw-fg? #f))
-    (cond
-      ((null? rest)
-       (let* ((resolved-name (if saw-name? name (run-shell "hostname -s")))
-              (resolved-fg   (cond
-                               (saw-fg? fg)
-                               (bg      "white")
-                               (else    #f))))
-         (set! host-header-name (string-trim resolved-name))
-         (set! host-header-background (and bg (string-trim bg)))
-         (set! host-header-foreground (and resolved-fg (string-trim resolved-fg)))
-         (set! host-header-separator-color (and sep (string-trim sep)))))
-      ((eq? (car rest) 'name)
-       (loop (cddr rest) (cadr rest) bg fg sep #t saw-fg?))
-      ((eq? (car rest) 'background)
-       (loop (cddr rest) name (cadr rest) fg sep saw-name? saw-fg?))
-      ((eq? (car rest) 'foreground)
-       (loop (cddr rest) name bg (cadr rest) sep saw-name? #t))
-      ((eq? (car rest) 'separator-color)
-       (loop (cddr rest) name bg fg (cadr rest) saw-name? saw-fg?))
-      (else
-       (error "set-host-header!: unknown keyword" (car rest))))))
-
-;; (host-header-css) → string
-;; Returns a :root { ... } CSS block defining --color-host-bg / --color-host-fg
-;; / --color-host-sep when set, or "" when none are set. Concatenated into the
-;; <style> block by both the overlay and the chooser renderers.
-(define (host-header-css)
-  (if (and (not host-header-background)
-           (not host-header-foreground)
-           (not host-header-separator-color))
-    ""
-    (string-append
-      ":root {"
-      (if host-header-background
-        (string-append " --color-host-bg: " host-header-background ";") "")
-      (if host-header-foreground
-        (string-append " --color-host-fg: " host-header-foreground ";") "")
-      (if host-header-separator-color
-        (string-append " --color-host-sep: " host-header-separator-color ";") "")
-      " }")))
-
 ;; (resolve-app-segments scope-str) → list of strings
 ;;
 ;; Splits a registered scope key into breadcrumb segments by `/`.
@@ -851,15 +777,13 @@
 
 ;; (compute-root-segments scope-str) → list of strings
 ;;
-;; Builds the breadcrumb root: optional host name, then scope segments.
-;;   global tree              → (host? "Global")
-;;   app-local tree           → (host? app-name [variant])
+;; Builds the breadcrumb root from the scope segments.
+;;   global tree              → ("Global")
+;;   app-local tree           → (app-name [variant])
 (define (compute-root-segments scope-str)
-  (let ((host-prefix (if host-header-name (list host-header-name) '()))
-        (scope-segs  (if (equal? scope-str "global")
-                       (list "Global")
-                       (resolve-app-segments scope-str))))
-    (append host-prefix scope-segs)))
+  (if (equal? scope-str "global")
+    (list "Global")
+    (resolve-app-segments scope-str)))
 
 ;; (compute-tree-root-segments tree) → list of strings
 ;;
@@ -869,9 +793,7 @@
 (define (compute-tree-root-segments tree)
   (let ((display (node-display-name tree)))
     (cond
-      (display
-       (append (if host-header-name (list host-header-name) '())
-               (list display)))
+      (display (list display))
       (else
        (compute-root-segments (or (alist-ref tree 'scope #f) ""))))))
 
