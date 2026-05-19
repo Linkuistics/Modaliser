@@ -340,39 +340,43 @@
 ;; Hidden entries (cons (cons 'hidden #t) …) are skipped.
 (define (which-key-payload-json children)
   ;; Partition `children` into ordered segments suitable for column-style
-  ;; layout. ALL non-category ("uncategorised") entries collect into a
-  ;; single misc segment, placed before any category — so isolated
-  ;; bindings interleaved with categories don't fragment into multiple
-  ;; one-row columns. Categories preserve their declaration order after
-  ;; that. Misc rows and each category's rows are sorted internally with
-  ;; the standard sort. Column count is computed from the total visible
-  ;; row count (rows + category headings) so the aspect-ratio target
-  ;; reflects what actually fills the overlay, not segment count alone.
+  ;; layout. Each (category …) is its own segment; consecutive non-
+  ;; category entries coalesce into one misc segment in their declared
+  ;; position. The auto-pack in (modaliser dsl) splits implicit runs
+  ;; into a misc which-key-block and a category which-key-block already,
+  ;; so a single block is typically homogeneous; mixing only happens
+  ;; inside an explicit user-written (which-key-block …), and we honour
+  ;; their authored order. Misc rows and category rows sort internally.
+  ;; Column count is computed from total visible row count so the
+  ;; aspect-ratio target reflects what actually fills the overlay.
   (let* ((segments (partition-which-key-segments children))
          (row-count (segments-row-count segments))
          (cols (overlay-column-count row-count)))
     (string-append "{\"type\":\"which-key\",\"cols\":" (number->string cols)
                    ",\"segments\":[" (string-join-comma (map render-segment segments)) "]}")))
 
-;; Partition into segments. Returns a list with ONE optional 'misc segment
-;; first (when there are uncategorised entries) followed by all categories
-;; in declaration order:
-;;   ('misc <list-of-nodes>) or ('category <label> <list-of-nodes>)
+;; Partition into segments, preserving declaration order. Consecutive
+;; non-category entries flush into one ('misc <nodes>) segment; each
+;; category becomes its own ('category <label> <inner>) segment.
 (define (partition-which-key-segments children)
-  (let loop ((xs children) (misc '()) (cats '()))
+  (let loop ((xs children) (pending '()) (acc '()))
     (cond
       ((null? xs)
-       (let ((cats (reverse cats))
-             (misc (reverse misc)))
-         (if (null? misc) cats (cons (list 'misc misc) cats))))
+       (let ((acc (if (null? pending)
+                    acc
+                    (cons (list 'misc (reverse pending)) acc))))
+         (reverse acc)))
       ((category? (car xs))
        (let* ((c     (car xs))
               (label (let ((e (assoc 'label c)))    (if e (cdr e) "")))
               (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
-              (cats  (cons (list 'category label inner) cats)))
-         (loop (cdr xs) misc cats)))
+              (acc   (if (null? pending)
+                       acc
+                       (cons (list 'misc (reverse pending)) acc)))
+              (acc   (cons (list 'category label inner) acc)))
+         (loop (cdr xs) '() acc)))
       (else
-       (loop (cdr xs) (cons (car xs) misc) cats)))))
+       (loop (cdr xs) (cons (car xs) pending) acc)))))
 
 ;; Total visible rows across all segments. Categories add one row for the
 ;; heading. Used to drive aspect-ratio-aware column-count selection.

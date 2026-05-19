@@ -505,23 +505,59 @@
           (apply register-tree! scope (append head block-children)))))))
 
 ;; Partition `items` into a list of blocks. Consecutive node-forms
-;; (alists with a 'kind entry) are packed into a single which-key-block;
-;; block forms (alists with a 'type entry) pass through. Order preserved.
+;; (alists with a 'kind entry) are packed into which-key-blocks; explicit
+;; block forms (alists with a 'type entry) pass through unchanged.
+;;
+;; Mixed runs split into TWO blocks — uncategorised entries first, then
+;; categories — so the overlay renders the loose bindings as a single
+;; section, with the category columns underneath. Categories preserve
+;; declaration order across the split; miscs are collected together
+;; regardless of where they appear in the source. A homogeneous run
+;; (all misc OR all categories) produces a single block.
+;;
+;; We never re-nest existing (which-key-block …) forms — those are
+;; passed through verbatim, honouring the author's explicit grouping.
 (define (pack-node-runs items)
   (let loop ((rest items) (pending '()) (out '()))
     (cond
       ((null? rest)
-       (reverse (if (null? pending)
-                  out
-                  (cons (apply which-key-block (reverse pending)) out))))
+       (reverse (append (flush-node-run pending) out)))
       ((node-form? (car rest))
        (loop (cdr rest) (cons (car rest) pending) out))
       (else
        (loop (cdr rest) '()
-             (cons (car rest)
-                   (if (null? pending)
-                     out
-                     (cons (apply which-key-block (reverse pending)) out))))))))
+             (cons (car rest) (append (flush-node-run pending) out)))))))
+
+;; Build 0..2 which-key-blocks from a pending run of node-forms.
+;; Returned list is in REVERSE final order so it can be cons'd onto
+;; `out` (which pack-node-runs reverses at the end).
+(define (flush-node-run pending)
+  ;; `pending` arrives in reverse-of-declaration order (pack-node-runs
+  ;; conses onto it). Walking it and consing each item onto either
+  ;; `miscs` or `cats` reverses that order back to declaration order
+  ;; inside each bucket — so neither bucket needs a final reverse.
+  (cond
+    ((null? pending) '())
+    (else
+     (let split ((rest pending) (miscs '()) (cats '()))
+       (cond
+         ((null? rest)
+          (let ((misc-block (and (not (null? miscs))
+                                 (apply which-key-block miscs)))
+                (cat-block  (and (not (null? cats))
+                                 (apply which-key-block cats))))
+            ;; Output order is uncategorised → categorised. The list we
+            ;; return is reversed here so it cons'es cleanly onto
+            ;; pack-node-runs's `out` accumulator.
+            (cond
+              ((and misc-block cat-block) (list cat-block misc-block))
+              (misc-block                 (list misc-block))
+              (cat-block                  (list cat-block))
+              (else                       '()))))
+         ((category? (car rest))
+          (split (cdr rest) miscs (cons (car rest) cats)))
+         (else
+          (split (cdr rest) (cons (car rest) miscs) cats)))))))
 
 (define (node-form? x)
   (and (pair? x) (pair? (car x)) (assoc 'kind x) #t))
