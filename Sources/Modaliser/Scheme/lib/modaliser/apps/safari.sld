@@ -14,8 +14,10 @@
           (modaliser input))
   (begin
 
+    ;; Immediate-fire wrapper — under the `key` macro the callsite
+    ;; (key K L (keystroke …)) is auto-wrapped in a thunk.
     (define (keystroke mods key-name)
-      (lambda () (send-keystroke mods key-name)))
+      (send-keystroke mods key-name))
 
     (define (tree . opts)
       (let* ((alist (apply props->alist opts))

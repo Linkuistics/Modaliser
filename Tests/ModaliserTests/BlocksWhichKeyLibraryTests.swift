@@ -41,7 +41,7 @@ struct BlocksWhichKeyLibraryTests {
     @Test func makeWhichKeyBlockEmptyHasNoChildren() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser blocks which-key))")
-        try engine.evaluate("(define b (make-which-key-block))")
+        try engine.evaluate("(define b (which-key-block))")
         #expect(try engine.evaluate("(eq? (cdr (assoc 'type b)) 'which-key)") == .true)
         #expect(try engine.evaluate("(null? (cdr (assoc 'block-children b)))") == .true)
     }
@@ -50,7 +50,7 @@ struct BlocksWhichKeyLibraryTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser blocks which-key))")
         try engine.evaluate("""
-          (define b (make-which-key-block
+          (define b (which-key-block
                       (key "a" "Apple" (lambda () #t))
                       (key "z" "Zebra" (lambda () #t))))
           (define bc (cdr (assoc 'block-children b)))
@@ -73,7 +73,7 @@ struct BlocksWhichKeyLibraryTests {
           (define grp
             (group "w" "Win"
               'renderer 'blocks
-              'blocks (list (make-which-key-block
+              'blocks (list (which-key-block
                               (key "a" "Apple" (lambda () #t))
                               (category "Move"
                                 (key "h" "Left" (lambda () #t))

@@ -54,16 +54,46 @@ struct ModaliserWindowActionsLibraryTests {
         #expect(try engine.evaluate("(= (cdr (assoc 'cols p1)) 3)") == .true)
     }
 
-    @Test func layoutBlockExposesPanelKeysAsBlockChildren() throws {
+    @Test func layoutBlockMacroAcceptsBareMatrixForm() throws {
+        // layout-block is a macro that quasiquotes each form, so the
+        // matrix can be written directly without explicit (divisions …).
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser window-actions))")
         try engine.evaluate("""
-          (define b (layout-block (divisions '(("d" "f" "g")))))
+          (define b (layout-block (("d" "f" "g"))))
           (define bc (cdr (assoc 'block-children b)))
         """)
         // Three keys for the three thirds.
         #expect(try engine.evaluate("(= (length bc) 3)") == .true)
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key (car bc))) \"d\")") == .true)
+    }
+
+    @Test func layoutBlockMacroAcceptsCenterForm() throws {
+        // (center K) dispatches to (center-panel K) inside the macro.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser window-actions))")
+        try engine.evaluate("""
+          (define b (layout-block (center "c")))
+          (define panels (cdr (assoc 'panels b)))
+          (define p1 (car panels))
+        """)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type p1)) 'center)") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'key p1)) \"c\")") == .true)
+    }
+
+    @Test func layoutBlockMacroMixesMatrixAndCenter() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (modaliser window-actions))")
+        try engine.evaluate("""
+          (define b (layout-block
+                      (("d" "f" "g"))
+                      (center "c")))
+          (define panels (cdr (assoc 'panels b)))
+        """)
+        // Two panels: a 1x3 grid + a center
+        #expect(try engine.evaluate("(= (length panels) 2)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type (car panels))) 'grid)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type (cadr panels))) 'center)") == .true)
     }
 
     @Test func listBlockExposesWindowRangeAsBlockChild() throws {
@@ -86,7 +116,7 @@ struct ModaliserWindowActionsLibraryTests {
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
         try engine.evaluate("""
           (define g (overlay 'key "w" 'label "Windows"
-                      (layout-block (divisions '(("d" "f" "g"))))
+                      (layout-block (("d" "f" "g")))
                       (list-block 'chip-options '())))
           (define ch (cdr (assoc 'children g)))
         """)
@@ -132,7 +162,7 @@ struct ModaliserWindowActionsLibraryTests {
         try engine.evaluate("""
           (define g (overlay 'key "w" 'label "Windows"
                       (default-layout-block)
-                      (make-which-key-block
+                      (which-key-block
                         (key "r" "Restore" (lambda () #t)))
                       (list-block 'chip-options '())))
           (define payload (block-list-payload-json g))

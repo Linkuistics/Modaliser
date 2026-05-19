@@ -1,6 +1,6 @@
 ;; (modaliser blocks which-key) — which-key block constructor.
 ;;
-;; (make-which-key-block . CHILDREN) returns a block spec carrying its
+;; (which-key-block . CHILDREN) returns a block spec carrying its
 ;; own children:
 ;;
 ;;   ((type . which-key) (block-children . (<child> ...)))
@@ -18,12 +18,12 @@
 ;; them.
 
 (define-library (modaliser blocks which-key)
-  (export make-which-key-block)
+  (export which-key-block)
   (import (scheme base)
           (modaliser overlay-assets))
   (begin
 
-    (define (make-which-key-block . children)
+    (define (which-key-block . children)
       (list (cons 'type 'which-key)
             (cons 'block-children children)))
 
