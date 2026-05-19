@@ -10,6 +10,10 @@ if you want to *look something up*, the reference is exhaustive. The
 how-tos sit between those — short walkthroughs for problems users hit
 once their config grows past the seeded defaults.
 
+If you'd rather *learn the system* through a worked example before
+reaching for recipes, start with the tutorial:
+[Modal Thinking — build a window-manager leader](../tutorials/modal-thinking.md).
+
 ## Configuration basics
 
 - [Add a binding to the global tree](add-a-binding.md) — the smallest

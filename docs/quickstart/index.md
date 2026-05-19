@@ -110,6 +110,11 @@ Tap F18 again, then `b` — Safari should open.
 
 You now have the loop: edit `config.scm`, relaunch, try the binding.
 
+- **Tutorial** — [Modal Thinking — build a window-manager leader](../tutorials/modal-thinking.md).
+  30–60 minutes; the natural next step if you want to *understand*
+  the system rather than look up recipes for specific tasks. Walks
+  through the launcher and modal patterns by building a `w` overlay
+  from a one-key stub up to something close to `default-config.scm`.
 - **How-to guides** — task-oriented recipes for adding bindings,
   per-app trees, sticky modes, fuzzy-finders, theming, and debugging.
   → [how-to/index.md](../how-to/index.md)
