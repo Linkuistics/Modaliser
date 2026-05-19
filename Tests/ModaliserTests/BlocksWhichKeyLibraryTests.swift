@@ -59,7 +59,7 @@ struct BlocksWhichKeyLibraryTests {
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key (car bc))) \"a\")") == .true)
     }
 
-    @Test func whichKeyPayloadCoalescesMiscRunsAndPreservesSegmentOrder() throws {
+    @Test func whichKeyPayloadHoistsAllMiscsAheadOfCategories() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else {
             Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
@@ -69,6 +69,9 @@ struct BlocksWhichKeyLibraryTests {
         try engine.evaluateFile(schemePath + "/ui/css.scm")
         try engine.evaluateFile(schemePath + "/ui/overlay.scm")
         try engine.evaluate("(import (modaliser blocks which-key))")
+        // Misc entries interleaved between categories. Expected: all
+        // uncategorised entries (a, z) collect into one misc segment
+        // FIRST, then categories follow in declaration order.
         try engine.evaluate("""
           (define grp
             (group "w" "Win"
@@ -86,19 +89,22 @@ struct BlocksWhichKeyLibraryTests {
         let after = html[s.upperBound...]
         guard let e = after.firstIndex(of: "'") else { Issue.record("unterminated"); return }
         let payload = String(after[..<e])
-        // Segments preserve declaration order: misc[a] → category[Move] → misc[z].
-        let aIdx    = payload.range(of: "\"label\":\"Apple\"")!.lowerBound
+        // Exactly one misc segment, and it precedes the category.
+        let miscMatches = payload.components(separatedBy: "\"kind\":\"misc\"").count - 1
+        #expect(miscMatches == 1)
+        let miscIdx = payload.range(of: "\"kind\":\"misc\"")!.lowerBound
         let moveIdx = payload.range(of: "\"label\":\"Move\"")!.lowerBound
-        let zIdx    = payload.range(of: "\"label\":\"Zebra\"")!.lowerBound
+        #expect(miscIdx < moveIdx)
+        // Both miscs land in that one segment, sorted (a before z).
+        let aIdx = payload.range(of: "\"label\":\"Apple\"")!.lowerBound
+        let zIdx = payload.range(of: "\"label\":\"Zebra\"")!.lowerBound
+        #expect(aIdx < zIdx)
         #expect(aIdx < moveIdx)
-        #expect(moveIdx < zIdx)
-        // Category contains its rows, sorted internally (h before j).
+        #expect(zIdx < moveIdx)
+        // Category rows sorted internally (h before j).
         let hIdx = payload.range(of: "\"key\":\"h\"")!.lowerBound
         let jIdx = payload.range(of: "\"key\":\"j\"")!.lowerBound
         #expect(hIdx < jIdx)
-        // kind tags exist
-        #expect(payload.contains("\"kind\":\"misc\""))
-        #expect(payload.contains("\"kind\":\"category\""))
     }
 
     @Test func whichKeyConsecutiveMiscsCoalesceIntoOneSegment() throws {

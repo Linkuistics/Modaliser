@@ -340,39 +340,53 @@
 ;; Hidden entries (cons (cons 'hidden #t) …) are skipped.
 (define (which-key-payload-json children)
   ;; Partition `children` into ordered segments suitable for column-style
-  ;; layout. Each (category …) becomes its own segment; consecutive non-
-  ;; category entries coalesce into a single "misc" segment so isolated
-  ;; bindings don't get scattered as one-row columns. Segments preserve
-  ;; declaration order — the renderer flows them left-to-right and wraps
-  ;; onto a new row when no horizontal room remains. Misc segments and
-  ;; category rows are each sorted internally with the standard sort.
+  ;; layout. ALL non-category ("uncategorised") entries collect into a
+  ;; single misc segment, placed before any category — so isolated
+  ;; bindings interleaved with categories don't fragment into multiple
+  ;; one-row columns. Categories preserve their declaration order after
+  ;; that. Misc rows and each category's rows are sorted internally with
+  ;; the standard sort. Column count is computed from the total visible
+  ;; row count (rows + category headings) so the aspect-ratio target
+  ;; reflects what actually fills the overlay, not segment count alone.
   (let* ((segments (partition-which-key-segments children))
-         (cols (overlay-column-count (length segments))))
+         (row-count (segments-row-count segments))
+         (cols (overlay-column-count row-count)))
     (string-append "{\"type\":\"which-key\",\"cols\":" (number->string cols)
                    ",\"segments\":[" (string-join-comma (map render-segment segments)) "]}")))
 
-;; Group children into ordered segments without reordering across category
-;; boundaries. Returns a list of tagged segments:
+;; Partition into segments. Returns a list with ONE optional 'misc segment
+;; first (when there are uncategorised entries) followed by all categories
+;; in declaration order:
 ;;   ('misc <list-of-nodes>) or ('category <label> <list-of-nodes>)
 (define (partition-which-key-segments children)
-  (let loop ((xs children) (pending '()) (acc '()))
+  (let loop ((xs children) (misc '()) (cats '()))
     (cond
       ((null? xs)
-       (let ((acc (if (null? pending)
-                    acc
-                    (cons (list 'misc (reverse pending)) acc))))
-         (reverse acc)))
+       (let ((cats (reverse cats))
+             (misc (reverse misc)))
+         (if (null? misc) cats (cons (list 'misc misc) cats))))
       ((category? (car xs))
        (let* ((c     (car xs))
               (label (let ((e (assoc 'label c)))    (if e (cdr e) "")))
               (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
-              (acc   (if (null? pending)
-                       acc
-                       (cons (list 'misc (reverse pending)) acc)))
-              (acc   (cons (list 'category label inner) acc)))
-         (loop (cdr xs) '() acc)))
+              (cats  (cons (list 'category label inner) cats)))
+         (loop (cdr xs) misc cats)))
       (else
-       (loop (cdr xs) (cons (car xs) pending) acc)))))
+       (loop (cdr xs) (cons (car xs) misc) cats)))))
+
+;; Total visible rows across all segments. Categories add one row for the
+;; heading. Used to drive aspect-ratio-aware column-count selection.
+(define (segments-row-count segments)
+  (let loop ((rest segments) (total 0))
+    (cond
+      ((null? rest) total)
+      (else
+       (let* ((seg (car rest))
+              (kind (car seg))
+              (rows (cond ((eq? kind 'misc)     (length (cadr seg)))
+                          ((eq? kind 'category) (+ 1 (length (caddr seg))))
+                          (else                 0))))
+         (loop (cdr rest) (+ total rows)))))))
 
 (define (render-segment seg)
   (cond

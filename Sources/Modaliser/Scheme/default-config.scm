@@ -65,30 +65,6 @@
   ;; Factory-returned nodes — call site decides the binding key/label.
   (key "," "Settings"         (settings:actions))
 
-  ;; (category LABEL . CHILDREN) groups a slice of the overlay into a
-  ;; labelled column. Categories may appear anywhere a (key …) can; the
-  ;; renderer flows categories and loose-key runs as columns, left to
-  ;; right, wrapping onto a new row when the overlay runs out of width.
-
-  (category "Apps"
-    (key "b" "Browser"          (λ () (launch-app "Dia")))
-    (key "e" "Editor"           (λ () (launch-app "Zed")))
-    (key "t" "Terminal"         (λ () (launch-app "iTerm")))
-    (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
-    (key "m" "Mail"             (λ () (launch-app "Mail")))
-    (key "n" "Notes"            (λ () (launch-app "Notes")))
-    (key "o" "Obsidian"         (λ () (launch-app "Obsidian")))
-    (key "z" "Zotero"           (λ () (launch-app "Zotero"))))
-
-  (category "AI"
-    (key "c" "ChatGPT"          (λ () (launch-app "ChatGPT")))
-    (key "C" "Claude Desktop"   (λ () (launch-app "Claude"))))
-
-  (category "Search"
-    (key "g" "Google"           (web-search:google))
-    (key "a" "Find Application" (launcher:find-application))
-    (key "f" "Find File"        (launcher:find-file)))
-
   ;; Window manager overlay ("w"). Each block is declared explicitly so
   ;; the structure of the overlay is visible at the config level. Swap
   ;; in different (window:divisions …) matrices to change the layout,
@@ -122,7 +98,34 @@
         ;; faded-background, …) inherit from the block's defaults — see
         ;; (modaliser blocks window-list).
 
-        (window:list-block 'chip-options `((background . ,the-color))))))
+        (window:list-block 'chip-options `((background . ,the-color)))))
+
+  ;; (category LABEL . CHILDREN) groups a slice of the overlay into a
+  ;; labelled column. Categories may appear anywhere a (key …) can; the
+  ;; renderer flows categories and loose-key runs as columns, left to
+  ;; right, wrapping onto a new row when the overlay runs out of width.
+
+  (category "Instant Apps"
+    (key "b" "Browser"          (λ () (launch-app "Dia")))
+    (key "e" "Editor"           (λ () (launch-app "Zed")))
+    (key "t" "Terminal"         (λ () (launch-app "iTerm"))))
+
+  (category "AI"
+    (key "c" "ChatGPT"          (λ () (launch-app "ChatGPT")))
+    (key "C" "Claude Desktop"   (λ () (launch-app "Claude"))))
+
+  (category "Search"
+    (key "g" "Google"           (web-search:google))
+    (key "a" "Find Application" (launcher:find-application))
+    (key "f" "Find File"        (launcher:find-file)))
+
+  (category "Apps"
+    (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
+    (key "m" "Mail"             (λ () (launch-app "Mail")))
+    (key "n" "Notes"            (λ () (launch-app "Notes")))
+    (key "o" "Obsidian"         (λ () (launch-app "Obsidian")))
+    (key "z" "Zotero"           (λ () (launch-app "Zotero"))))
+)
 
 ;; ─── Per-app trees (F17 when that app is focused) ────────────────
 
