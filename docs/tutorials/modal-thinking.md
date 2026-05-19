@@ -43,3 +43,46 @@ step on your own screen.
 If a step's verification doesn't behave as described, *stop and check
 the snippet against what you typed* before moving on. The forms are
 small; a missing parenthesis is usually the culprit.
+
+## Step 1 — A leader with one binding
+
+A *leader* is a hotkey that opens a menu, not an action. The menu can
+have one entry, ten entries, or nested sub-menus — F18 just opens it;
+what's inside is up to you. This step writes the smallest possible
+global tree: one binding under `w` that maximises the current window.
+
+Replace `~/.config/modaliser/config.scm` with:
+
+```scheme
+(import (modaliser dsl)
+        (modaliser keyboard)   ; F18, F17 keycode constants
+        (modaliser leader)     ; set-leaders!
+        (modaliser window))    ; move-window
+
+(set-leaders! 'global-keycode F18
+              'local-keycode  F17)
+
+(define-tree 'global
+  (key "w" "Maximise" (λ () (move-window 0 0 1 1))))
+```
+
+`move-window` takes four unit fractions of the primary screen — x, y,
+width, height. Pass it `0 0 1 1` and the focused window covers the
+whole screen; that's what "maximise" means here. You'll meet
+`move-window` again in Step 3, where Modaliser computes those four
+numbers for you from a grid.
+
+The `(λ () …)` wrap is non-negotiable. Without it, the call
+`(move-window 0 0 1 1)` would fire once, at config-load time — the
+very first time Modaliser parses the file — and `w` would be bound to
+whatever that call returned (a void). The lambda defers the call until
+you press the key.
+
+**Pick Relaunch from the menu bar icon, then press F18 w.** The
+current window maximises.
+
+That single binding is a *leader* (`F18`), opening a *tree* (the
+global tree, declared with `define-tree`), containing a *command*
+(`(key "w" "Maximise" …)`). Three concepts, one for every level of
+the nesting you just typed. Each of the next six steps adds exactly
+one more.
