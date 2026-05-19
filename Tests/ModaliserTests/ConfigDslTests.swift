@@ -194,18 +194,15 @@ struct ConfigDslTests {
 
     // MARK: - CSS theming
 
-    @Test func setOverlayCssStoresCustomCss() throws {
-        let engine = try loadAllModules()
-        try engine.evaluate("""
-            (set-overlay-css! ":root { --overlay-bg: #333; }")
-            """)
-        #expect(try engine.evaluate("overlay-custom-css").asString() == ":root { --overlay-bg: #333; }")
-    }
+    // overlay-custom-css is populated at boot by root.scm slurping
+    // ~/.config/modaliser/overlay.css. The setter (set-overlay-css!) was
+    // removed in the chip-theming refactor — CSS authoring moved to a real
+    // .css file. Tests poke the variable directly to verify the cascade.
 
     @Test func customCssAppearsInRenderedOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (set-overlay-css! ":root { --overlay-bg: #333; }")
+            (set! overlay-custom-css ":root { --overlay-bg: #333; }")
             (define-tree 'global (key "s" "Safari" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""

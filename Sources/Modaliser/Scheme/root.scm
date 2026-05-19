@@ -15,7 +15,8 @@
         (modaliser event-dispatch)
         (modaliser dsl)
         (modaliser dom)
-        (modaliser web-search))
+        (modaliser web-search)
+        (modaliser theming))
 
 ;; ─── Plain .scm modules (Phase D will library-ize the remaining ones) ────────
 
@@ -47,6 +48,12 @@
 
 (define user-config-path
   (string-append user-config-dir "/config.scm"))
+
+;; User-authored CSS lives in a real .css file so editors give syntax
+;; highlighting and linting for free. Slurped into overlay-custom-css
+;; below after the user config has loaded.
+(define user-overlay-css-path
+  (string-append user-config-dir "/overlay.css"))
 
 (define default-config-path
   (string-append *scheme-directory* "/default-config.scm"))
@@ -90,5 +97,21 @@
 
 (when (file-exists? user-config-path)
   (include "~/.config/modaliser/config.scm"))
+
+;; Slurp ~/.config/modaliser/overlay.css if present. Runs after the
+;; user config so a user that wants to compose CSS in Scheme can still
+;; do so by writing to overlay-custom-css before this point — but the
+;; canonical authoring surface is the .css file.
+(when (file-exists? user-overlay-css-path)
+  (set! overlay-custom-css (read-file-text user-overlay-css-path)))
+
+;; Wire the (modaliser theming) probe to the overlay's CSS stack and
+;; kick it off. The probe library can't see top-level overlay-* vars
+;; from inside its define-library scope, so we hand it a closure that
+;; resolves them at call time — same deferred-resolution pattern
+;; (modaliser overlay-assets) uses for its file resolver. Must run
+;; AFTER the overlay.css slurp so user overrides feed the probe.
+(theming-set-css-source! overlay-full-css)
+(run-chip-theme-probe!)
 
 (log "Modaliser Scheme runtime initialized")

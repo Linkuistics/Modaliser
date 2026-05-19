@@ -61,9 +61,12 @@ struct OverlayAssetRegistrationTests {
 
     @Test func userOverrideCssAppliesAfterExtras() throws {
         let engine = try loadOverlay()
+        // overlay-custom-css is populated at boot by root.scm slurping
+        // ~/.config/modaliser/overlay.css. The setter was removed in
+        // the chip-theming refactor; tests poke the variable directly.
         try engine.evaluate("""
           (add-overlay-asset! 'css "/* extra */")
-          (set-overlay-css! "/* user */")
+          (set! overlay-custom-css "/* user */")
           (define grp (group "w" "Win" (key "a" "Apple" (lambda () #t))))
           (define html (render-overlay-html grp '("Root") '()))
         """)

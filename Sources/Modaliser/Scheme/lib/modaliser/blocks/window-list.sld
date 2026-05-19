@@ -5,14 +5,16 @@
 ;; (make-window-list-block . opts) → block-spec alist
 ;;
 ;; Opts:
-;;   'show-chips    BOOL  — default #f. When true, the block's
-;;                          on-render-fn computes chip positions,
-;;                          runs window-visible-at? probes, and forwards
-;;                          to hints-show. The block's payload also
-;;                          carries the current windows list so the
-;;                          rendered rows mirror the chip placement.
-;;   'chip-options  ALIST — chip styling overrides; merged with
-;;                          default-window-chip-options.
+;;   'chips?  BOOL — default #f. When #t, the block's on-render-fn
+;;                   computes chip positions, runs window-visible-at?
+;;                   probes, and forwards to hints-show. The block's
+;;                   payload also carries the current windows list so
+;;                   the rendered rows mirror the chip placement.
+;;
+;; Chip styling is no longer threaded through this constructor. The
+;; per-chip alist is built at paint time from (current-chip-theme), which
+;; reads the resolved .chip / .chip.faded CSS rules from base.css plus
+;; the user's ~/.config/modaliser/overlay.css. See (modaliser theming).
 ;;
 ;; The current window snapshot is exposed via window-list-current-labels
 ;; so the parent group can build a (key-range …) that dispatches
@@ -27,7 +29,8 @@
           (modaliser window)
           (modaliser hints)
           (modaliser ax-hints)
-          (modaliser overlay-assets))
+          (modaliser overlay-assets)
+          (modaliser theming))
   (begin
 
     ;; Per-render state — refreshed by the on-render effect every render.
@@ -41,26 +44,6 @@
 
     (define default-window-labels
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
-
-    (define default-chip-options
-      (list (cons 'offset-x-frac 0.02)
-            (cons 'offset-y-frac 0.02)
-            (cons 'font-size 56)
-            (cons 'padding 16)
-            (cons 'corner-radius 8)
-            (cons 'color "white")
-            (cons 'background "dodgerblue")
-            (cons 'faded-background "#6f8baa")
-            (cons 'border-width 1)
-            (cons 'border-color "black")))
-
-    (define (merge-chip-options overrides)
-      (let loop ((rest default-chip-options) (acc '()))
-        (cond
-          ((null? rest) (append (reverse acc) overrides))
-          ((assoc (car (car rest)) overrides)
-           (loop (cdr rest) acc))
-          (else (loop (cdr rest) (cons (car rest) acc))))))
 
     ;; ─── Chip placement helpers — lifted from window-actions.sld ────
     ;; Kept private to this library so it owns chip painting end-to-end.
@@ -196,14 +179,21 @@
                    (cons (cdr (car rest)) occluded-rev))))))
 
     ;; ─── on-render side-effect ─────────────────────────────────────
-    (define (paint-and-snapshot! opts)
-      (let* ((ws (list-current-space-windows))
+    ;; Reads chip styling from (current-chip-theme) at paint time so
+    ;; users theme chips by editing CSS, not by passing options through
+    ;; the block constructor. The 'normal variant feeds the chip
+    ;; geometry + appearance; the 'faded variant contributes only its
+    ;; background, swapped in for chips whose window is occluded.
+    (define (paint-and-snapshot!)
+      (let* ((normal-theme (current-chip-theme 'normal))
+             (faded-theme  (current-chip-theme 'faded))
+             (faded-bg     (cdr (assoc 'background faded-theme)))
+             (ws (list-current-space-windows))
              (labelled (label-pairs default-window-labels ws))
              (raw-chips
                (map (lambda (lw)
-                      (window-chip-for (car lw) (cdr lw) opts))
+                      (window-chip-for (car lw) (cdr lw) normal-theme))
                     labelled))
-             (faded-bg (cdr (assoc 'faded-background opts)))
              (annotated
                (map (lambda (lw chip)
                       (let* ((win (cdr lw))
@@ -256,25 +246,27 @@
     ;;   set-cdr!, so live in-place mutation isn't an option — the
     ;;   thunk-resolver pattern is the documented fallback.
     (define (make-window-list-block . opts)
-      ;; Presence of 'chip-options (even '()) enables on-screen chips;
-      ;; absence means the block just renders the row list with no
-      ;; chip painting. The value supplies overrides that get merged
-      ;; into the block's chip styling defaults.
-      (let* ((alist (apply props->alist opts))
-             (chip-entry (assoc 'chip-options alist)))
+      ;; 'chips? #t enables on-screen chips; absence (or #f) means the
+      ;; block just renders the row list with no chip painting. The old
+      ;; 'chip-options keyword has been removed — chip styling lives in
+      ;; CSS now. Catch users still passing it with a one-line migration
+      ;; error pointing at the new authoring surface.
+      (let* ((alist (apply props->alist opts)))
+        (when (assoc 'chip-options alist)
+          (error
+            "make-window-list-block: 'chip-options removed — edit .chip in ~/.config/modaliser/overlay.css instead"))
         (cond
-          (chip-entry
-            (let ((chip-opts (merge-chip-options (cdr chip-entry))))
-              ;; The block owns the chip lifecycle end-to-end:
-              ;;   on-render-fn paints chips and snapshots windows-data
-              ;;   on-leave-fn  clears the chips when the overlay closes
-              (list (cons 'type 'window-list)
-                    (cons 'on-render-fn
-                      (lambda ()
-                        (paint-and-snapshot! chip-opts)
-                        (list (cons 'windows current-windows-data))))
-                    (cons 'on-leave-fn
-                      (lambda () (hints-hide))))))
+          ((alist-ref alist 'chips? #f)
+            ;; The block owns the chip lifecycle end-to-end:
+            ;;   on-render-fn paints chips and snapshots windows-data
+            ;;   on-leave-fn  clears the chips when the overlay closes
+            (list (cons 'type 'window-list)
+                  (cons 'on-render-fn
+                    (lambda ()
+                      (paint-and-snapshot!)
+                      (list (cons 'windows current-windows-data))))
+                  (cons 'on-leave-fn
+                    (lambda () (hints-hide)))))
           (else
             (list (cons 'type 'window-list)
                   (cons 'windows '()))))))

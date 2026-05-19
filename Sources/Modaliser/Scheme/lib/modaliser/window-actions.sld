@@ -17,13 +17,13 @@
 ;;                       'source list-windows
 ;;                       'on-select focus-window))
 ;;           (key "r" "Restore" (lambda () (restore-window))))
-;;         (window:list-block 'chip-options '()))))
+;;         (window:list-block 'chips? #t))))
 ;;
 ;; Each block carries its dispatch keys as 'block-children; overlay
 ;; lifts them onto the group's 'children so the state machine routes
-;; keys correctly. The window-list block (with 'show-chips #t) also
-;; carries its own 'on-leave-fn that calls (hints-hide) — chip cleanup
-;; lives with the block that paints chips, not at the overlay level.
+;; keys correctly. The window-list block (with 'chips? #t) also carries
+;; its own 'on-leave-fn that calls (hints-hide) — chip cleanup lives
+;; with the block that paints chips, not at the overlay level.
 
 (define-library (modaliser window-actions)
   (export layout-block
@@ -167,7 +167,7 @@
     ;; Wraps make-window-list-block and bundles the 1.. range so
     ;; digits resolve to focus-by-digit at the group level.
     ;;
-    ;; Opts forwarded to make-window-list-block: 'show-chips, 'chip-options.
+    ;; Opts forwarded to make-window-list-block (currently just 'chips?).
     (define (list-block . opts)
       (let ((base (apply make-window-list-block opts)))
         (append base (list (cons 'block-children
