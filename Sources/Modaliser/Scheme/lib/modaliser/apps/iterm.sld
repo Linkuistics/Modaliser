@@ -44,7 +44,7 @@
           context-suffix-handler
           register!
           default-pane-labels
-          list-panes
+          pane-list-block
           select-session-by-id)
   (import (scheme base)
           (modaliser dsl)
@@ -279,7 +279,7 @@
     ;;     (overlay
     ;;       (key "c" "Copy Mode" …)
     ;;       …
-    ;;       (iterm:list-panes 'chips? #t)))
+    ;;       (iterm:pane-list-block 'chips? #t)))
     ;;
     ;; The 1.. range is marked 'hidden so the which-key strip doesn't
     ;; surface a redundant "1.. → Pane <n>" row — the pane list block
@@ -301,7 +301,7 @@
               default-pane-labels
               (lambda (k) (focus-by-digit k)))))
 
-    (define (list-panes . opts)
+    (define (pane-list-block . opts)
       (let ((base (apply make-iterm-panes-block opts)))
         (append base (list (cons 'block-children
                                  (list (pane-range)))))))))

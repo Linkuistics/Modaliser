@@ -128,16 +128,16 @@
 (safari:register!)
 
 ;; iTerm tree inlined here (formerly (iterm:register!)) so it's easy
-;; to tweak. The pane-selection mechanism is now the (iterm:list-panes)
+;; to tweak. The pane-selection mechanism is the (iterm:pane-list-block)
 ;; block: it paints pane chips, renders a row list at the bottom of the
 ;; overlay (one per pane), and dispatches digits 1..0 to focus the
 ;; matching pane by session UUID. Layout is re-snapshotted on every
 ;; overlay open, so panes added or moved between presses Just Work
 ;; without a separate tree rebuild step.
 ;;
-;; The sticky 'iterm-panes-focus mode is still registered via the
-;; library — the hjkl bindings carry 'sticky-target to enter it on
-;; first press, then keep moving without another leader.
+;; The hjkl bindings carry 'sticky-target so the first press lands in
+;; the sticky 'iterm-panes-focus mode (defined below), then keeps
+;; moving without another leader.
 (define-tree 'com.googlecode.iterm2
 
   (key "c" "Copy Mode"   (λ () (send-keystroke '(cmd shift) "c")))
@@ -165,7 +165,7 @@
 
   ;; Bottom: labelled panes list. 'chips? #t paints the pane chips and
   ;; bundles a hidden digit key-range that focuses panes by UUID.
-  (iterm:list-panes 'chips? #t))
+  (iterm:pane-list-block 'chips? #t))
 
 ;; Sticky focus-mode tree (entered by the hjkl 'sticky-target above).
 ;; 'sticky #t keeps the mode armed across key presses; 'exit-on-unknown
