@@ -238,7 +238,7 @@ Minimal call uses the canonical 6-panel layout and a default which-key strip:
         (prefix (modaliser window-actions) window:))
 
 (define-tree 'global
-  (window:overlay 'key "w" 'label "Windows"
+  (overlay 'key "w" 'label "Windows"
     (window:default-layout-block)
     (make-which-key-block
       (selector "n" "Named…"
@@ -246,13 +246,13 @@ Minimal call uses the canonical 6-panel layout and a default which-key strip:
         'source list-windows
         'on-select focus-window)
       (key "r" "Restore" (lambda () (restore-window))))
-    (window:list-block 'show-chips #t)))
+    (window:list-block 'chip-options '())))
 ```
 
-Customise the layout by spelling out the divisions yourself; everything else stays the same:
+The presence of `'chip-options` (even an empty list) on `list-block` enables the on-screen chip lifecycle; omit it for a chipless row list. Customise the layout by spelling out the divisions yourself, and pass chip styling overrides via the same `'chip-options` value:
 
 ```scheme
-(window:overlay 'key "w" 'label "Windows"
+(overlay 'key "w" 'label "Windows"
   (window:layout-block
     (window:divisions '(("d" "f" "g")))                ; full thirds
     (window:divisions '(("D" "F" "G") ("C" "V" "B")))  ; half thirds
@@ -265,8 +265,7 @@ Customise the layout by spelling out the divisions yourself; everything else sta
                             'source list-windows
                             'on-select focus-window)
     (key "r" "Restore" (lambda () (restore-window))))
-  (window:list-block 'show-chips #t
-    'chip-options (list (cons 'background "dodgerblue"))))
+  (window:list-block 'chip-options `((background . ,the-color))))
 ```
 
 The numbered chips (1..0) are placed at the top-left of each on-screen window. Each chip's background is saturated when the window is visible at the chip's anchor point and desaturated when occluded — translucent overlay utilities (HazeOver, f.lux) are skipped in the visibility test so they don't falsely dim chips. Window-number assignment is deterministic by (y, x) position so the same arrangement always produces the same digits across leader presses.

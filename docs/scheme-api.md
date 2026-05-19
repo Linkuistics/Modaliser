@@ -31,6 +31,7 @@ The surface user configs spell against.
 | `(key-range display-key label keys action-fn)` | Bind multiple keys to one shared action, displayed as a single overlay row. `action-fn` receives the matched key. |
 | `(group k label [keyword value]... children...)` | Define a group. See [Configuration](configuration.md#group--define-tree-keywords) for keyword options. |
 | `(category label children...)` | Group children under a render-time label for the which-key block. Transparent to dispatch — keys inside behave identically to direct group children. |
+| `(overlay [keyword value]... block...)` | Generic block-list group constructor. Opts: `'key` (default `"?"`), `'label` (default `"Overlay"`), `'on-enter` THUNK, `'on-leave` THUNK. Positional args are block specs; their `'block-children` are lifted to the group's `'children`, and each block's `'on-enter-fn` / `'on-leave-fn` (if any) is composed into the group's lifecycle hooks. |
 | `(selector k label props...)` | Define a selector. |
 | `(action name props...)` | Define a selector action. |
 | `(define-tree scope [keyword value]... children...)` | Register a command tree. |
@@ -121,10 +122,9 @@ Bare-name exports — import with `(prefix … window:)`. Users compose the wind
 
 | Function | Description |
 |----------|-------------|
-| `(overlay [keyword value]... block...)` | Build the windows group with `'renderer 'blocks`. Opts: `'key` (default `"w"`), `'label` (default `"Windows"`). Positional args are block specs; their `'block-children` are lifted onto the group's `'children` for dispatch. Auto-applies `'on-leave (hints-hide)`. |
 | `(layout-block panel-pair...)` | Window-diagram block built from one or more `(panel-spec key-list)` pairs (as returned by `divisions`/`center-panel`). The panel keys are attached as `'block-children` so the matching `move-window` actions dispatch from the group. |
 | `(default-layout-block)` | The canonical 6-panel layout (thirds, half-thirds, two-thirds × 2, maximise, centre). Equivalent to `(layout-block (divisions '(("d" "f" "g"))) … (center-panel "c"))`. |
-| `(list-block [keyword value]...)` | Window-list block wrapping `make-window-list-block` and attaching the hidden `1..` digit range as a `'block-child` for digit-focus dispatch. Opts: `'show-chips`, `'chip-options` (forwarded to the block). |
+| `(list-block [keyword value]...)` | Window-list block wrapping `make-window-list-block` and attaching the hidden `1..` digit range as a `'block-child` for digit-focus dispatch. Forwards opts to `make-window-list-block`. |
 | `(divisions matrix)` | Build a `(panel-spec key-node-list)` pair from a matrix of key strings. |
 | `(center-panel key)` | Build the centre-panel pair for the given key. |
 
@@ -323,7 +323,7 @@ Procedure-valued keys (like `'on-render-fn`) are stripped from the JSON automati
 
 | Function | Description |
 |----------|-------------|
-| `(make-window-list-block [keyword value]...)` | Build a window-list block spec. Options: `'show-chips BOOL` (default `#f`; when `#t`, attaches an `on-render-fn` that paints labelled chips on each window and snapshots the window list into the rendered payload), `'chip-options ALIST` (merged with defaults — `font-size`, `padding`, `color`, `background`, `faded-background`, `offset-x-frac`, `offset-y-frac`, …). |
+| `(make-window-list-block [keyword value]...)` | Build a window-list block spec. The presence of `'chip-options` (even `'()`) enables the on-screen chip-painting lifecycle: the block attaches an `on-render-fn` that paints labelled chips per window and snapshots the window list into the payload, plus an `on-leave-fn` that clears the chips when the overlay closes. The value of `'chip-options` is an alist of overrides merged with the block's chip-styling defaults — `font-size`, `padding`, `color`, `background`, `faded-background`, `offset-x-frac`, `offset-y-frac`, etc. Omit `'chip-options` entirely to get the row list with no chips. |
 | `(window-list-current-labels)` | The list of digit labels assigned to windows by the most recent render. |
 | `(window-list-current-targets)` | The current `((label . window-alist) …)` mapping. `window-actions`'s `focus-by-digit` reads this to resolve a pressed digit to its window. |
 

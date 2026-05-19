@@ -11,7 +11,7 @@ struct ModaliserWindowActionsLibraryTests {
         try engine.evaluate("""
           (define g (overlay 'key "w" 'label "Windows"
                       (default-layout-block)
-                      (list-block 'show-chips #t)))
+                      (list-block 'chip-options '())))
         """)
         #expect(try engine.evaluate("(group? g)") == .true)
         #expect(try engine.evaluate("(equal? (cdr (assoc 'key g)) \"w\")") == .true)
@@ -20,11 +20,14 @@ struct ModaliserWindowActionsLibraryTests {
     }
 
     @Test func overlayDefaultsKeyAndLabel() throws {
+        // overlay is now in (modaliser dsl) and is window-agnostic, so
+        // defaults are generic ("?", "Overlay") rather than windows-
+        // specific. Configs declare their own key/label.
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser window-actions))")
         try engine.evaluate("(define g (overlay (default-layout-block)))")
-        #expect(try engine.evaluate("(equal? (cdr (assoc 'key g)) \"w\")") == .true)
-        #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Windows\")") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'key g)) \"?\")") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Overlay\")") == .true)
     }
 
     @Test func divisionsBuilderGeneratesKeysForMatrix() throws {
@@ -67,7 +70,7 @@ struct ModaliserWindowActionsLibraryTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
         try engine.evaluate("""
-          (define b (list-block 'show-chips #t))
+          (define b (list-block 'chip-options '()))
           (define bc (cdr (assoc 'block-children b)))
         """)
         #expect(try engine.evaluate("(= (length bc) 1)") == .true)
@@ -84,7 +87,7 @@ struct ModaliserWindowActionsLibraryTests {
         try engine.evaluate("""
           (define g (overlay 'key "w" 'label "Windows"
                       (layout-block (divisions '(("d" "f" "g"))))
-                      (list-block 'show-chips #t)))
+                      (list-block 'chip-options '())))
           (define ch (cdr (assoc 'children g)))
         """)
         // 3 panel keys + 1 window-range = 4 children
@@ -95,16 +98,18 @@ struct ModaliserWindowActionsLibraryTests {
         #expect(try engine.evaluate("(and (find-child g \"5\") #t)") == .true)
     }
 
-    @Test func overlayAppliesOnLeaveHintsHide() throws {
-        // Replaces the now-removed on-enter (chip-painting moved to
-        // the window-list block's on-render-fn). on-leave clears chips
-        // when the overlay closes.
+    @Test func windowListBlockContributesOnLeaveHook() throws {
+        // The window-list block (with 'chip-options '()) owns the chip
+        // lifecycle end-to-end: its 'on-leave-fn calls (hints-hide)
+        // when the overlay closes. The generic overlay constructor in
+        // (modaliser dsl) collects 'on-leave-fn from every block and
+        // composes them into the group's on-leave hook.
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
         try engine.evaluate("""
           (define g (overlay 'key "w" 'label "Windows"
                       (default-layout-block)
-                      (list-block 'show-chips #t)))
+                      (list-block 'chip-options '())))
         """)
         #expect(try engine.evaluate("(procedure? (node-on-leave g))") == .true)
     }
@@ -129,7 +134,7 @@ struct ModaliserWindowActionsLibraryTests {
                       (default-layout-block)
                       (make-which-key-block
                         (key "r" "Restore" (lambda () #t)))
-                      (list-block 'show-chips #t)))
+                      (list-block 'chip-options '())))
           (define payload (block-list-payload-json g))
         """)
         let p = try engine.evaluate("payload").asString()

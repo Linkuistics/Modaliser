@@ -5,19 +5,34 @@ import Testing
 @Suite("(modaliser blocks window-list) library")
 struct BlocksWindowListLibraryTests {
 
-    @Test func makeWindowListBlockDefaultShowChipsIsFalse() throws {
+    @Test func makeWindowListBlockWithoutChipOptionsHasNoChipHooks() throws {
+        // Absent 'chip-options → block renders the row list only,
+        // no on-render-fn (chip painting) and no on-leave-fn (cleanup).
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser blocks window-list))")
         try engine.evaluate("(define b (make-window-list-block))")
         #expect(try engine.evaluate("(eq? (cdr (assoc 'type b)) 'window-list)") == .true)
-        // No on-render-fn when show-chips defaulted to #f
         #expect(try engine.evaluate("(not (assoc 'on-render-fn b))") == .true)
+        #expect(try engine.evaluate("(not (assoc 'on-leave-fn b))") == .true)
     }
 
-    @Test func makeWindowListBlockWithShowChipsAttachesOnRenderFn() throws {
+    @Test func makeWindowListBlockWithEmptyChipOptionsEnablesChips() throws {
+        // 'chip-options '() enables chips with default styling: the
+        // presence of the option (regardless of value) is the signal.
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser blocks window-list))")
-        try engine.evaluate("(define b (make-window-list-block 'show-chips #t))")
+        try engine.evaluate("(define b (make-window-list-block 'chip-options '()))")
+        #expect(try engine.evaluate("(procedure? (cdr (assoc 'on-render-fn b)))") == .true)
+        #expect(try engine.evaluate("(procedure? (cdr (assoc 'on-leave-fn b)))") == .true)
+    }
+
+    @Test func makeWindowListBlockWithChipOverridesEnablesChips() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks window-list))")
+        try engine.evaluate("""
+          (define b (make-window-list-block
+                      'chip-options (list (cons 'background "red"))))
+        """)
         #expect(try engine.evaluate("(procedure? (cdr (assoc 'on-render-fn b)))") == .true)
     }
 
