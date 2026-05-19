@@ -70,8 +70,10 @@ struct ConfigDslTests {
 
     @Test func selectorProducesCorrectAlist() throws {
         let engine = try loadDsl()
+        // selector is undecorated; (key K L (selector …)) injects key/label.
         try engine.evaluate("""
-            (define test-sel (selector "a" "Find Apps" 'prompt "Find app…" 'remember "apps"))
+            (define test-sel (key "a" "Find Apps"
+              (selector 'prompt "Find app…" 'remember "apps")))
             """)
         #expect(try engine.evaluate("(cdr (assoc 'kind test-sel))") == .symbol(engine.context.symbols.intern("selector")))
         #expect(try engine.evaluate("(cdr (assoc 'key test-sel))").asString() == "a")
@@ -83,7 +85,7 @@ struct ConfigDslTests {
     @Test func selectorIsRecognizedByPredicate() throws {
         let engine = try loadDsl()
         try engine.evaluate("""
-            (define test-sel (selector "a" "Find Apps" 'prompt "Search…"))
+            (define test-sel (key "a" "Find Apps" (selector 'prompt "Search…")))
             """)
         #expect(try engine.evaluate("(selector? test-sel)") == .true)
         #expect(try engine.evaluate("(command? test-sel)") == .false)
@@ -95,9 +97,8 @@ struct ConfigDslTests {
         try engine.evaluate("""
             (define my-source (lambda () '(("a" "b"))))
             (define my-handler (lambda (c) c))
-            (define test-sel (selector "f" "Find File"
-              'source my-source
-              'on-select my-handler))
+            (define test-sel (key "f" "Find File"
+              (selector 'source my-source 'on-select my-handler)))
             """)
         #expect(try engine.evaluate("(procedure? (cdr (assoc 'source test-sel)))") == .true)
         #expect(try engine.evaluate("(procedure? (cdr (assoc 'on-select test-sel)))") == .true)
@@ -106,11 +107,11 @@ struct ConfigDslTests {
     @Test func selectorWithActionsListContainingActionNodes() throws {
         let engine = try loadDsl()
         try engine.evaluate("""
-            (define test-sel (selector "a" "Find Apps"
-              'prompt "Find app…"
-              'actions (list
-                (action "Open" 'description "Launch" 'key 'primary)
-                (action "Reveal" 'description "Show in Finder" 'key 'secondary))))
+            (define test-sel (key "a" "Find Apps"
+              (selector 'prompt "Find app…"
+                        'actions (list
+                          (action "Open" 'description "Launch" 'key 'primary)
+                          (action "Reveal" 'description "Show in Finder" 'key 'secondary)))))
             """)
         let result = try engine.evaluate("(cdr (assoc 'actions test-sel))")
         #expect(result != .false)
@@ -152,9 +153,8 @@ struct ConfigDslTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define-tree 'global
-              (selector "f" "Find File"
-                'prompt "Search…"
-                'source (lambda () '())))
+              (key "f" "Find File"
+                (selector 'prompt "Search…" 'source (lambda () '()))))
             """)
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         #expect(try engine.evaluate("modal-active?") == .true)
@@ -170,9 +170,8 @@ struct ConfigDslTests {
         try engine.evaluate("""
             (define-tree 'global
               (group "f" "Find"
-                (selector "a" "Find Apps"
-                  'prompt "Find app…"
-                  'source (lambda () '()))
+                (key "a" "Find Apps"
+                  (selector 'prompt "Find app…" 'source (lambda () '())))
                 (key "e" "Emoji" (lambda () 'ok))))
             """)
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -248,22 +247,22 @@ struct ConfigDslTests {
             (define-tree 'global
               (key "s" "Safari" (lambda () 'ok))
               (group "f" "Find"
-                (selector "a" "Find Apps"
-                  'prompt "Find app…"
-                  'source (lambda () '())
-                  'on-select (lambda (c) c)
-                  'actions (list
-                    (action "Open" 'description "Launch" 'key 'primary
-                      'run (lambda (c) c))
-                    (action "Reveal" 'description "Show in Finder" 'key 'secondary
-                      'run (lambda (c) c))))
+                (key "a" "Find Apps"
+                  (selector 'prompt "Find app…"
+                            'source (lambda () '())
+                            'on-select (lambda (c) c)
+                            'actions (list
+                              (action "Open" 'description "Launch" 'key 'primary
+                                'run (lambda (c) c))
+                              (action "Reveal" 'description "Show in Finder" 'key 'secondary
+                                'run (lambda (c) c)))))
                 (key "e" "Emoji" (lambda () 'ok)))
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))
-                (selector "s" "Switch Window"
-                  'prompt "Select window…"
-                  'source (lambda () '())
-                  'on-select (lambda (c) c))))
+                (key "s" "Switch Window"
+                  (selector 'prompt "Select window…"
+                            'source (lambda () '())
+                            'on-select (lambda (c) c)))))
 
             (define-tree 'com.apple.Safari
               (group "t" "Tabs"

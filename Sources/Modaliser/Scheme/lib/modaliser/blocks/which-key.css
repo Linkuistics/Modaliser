@@ -11,25 +11,52 @@
   border-top: 1px solid var(--color-separator);
 }
 
-.block-which-key .wk-columns {
-  column-width: 14rem;
-  column-count: auto;
-  column-fill: auto;
-  column-gap: 1.5rem;
+/* First block of the overlay needs no separator — there's nothing above
+ * it to separate from. Targets the first .block (regardless of which
+ * renderer it carries), scoped under the block-list body so unrelated
+ * .block-which-key usages outside the overlay aren't affected. */
+.overlay-custom-body[data-renderer="blocks"] > .block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
+/* Two which-key blocks in a row visually belong together (the auto-pack
+ * split into uncategorised + categorised lives here) — suppress the
+ * separator line between them, but keep a bit of breathing room. */
+.block-which-key + .block-which-key {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.block-which-key .wk-columns {
+  /* CSS grid lets each segment claim one column cell and flow left to
+   * right (row-major default), wrapping onto a new grid row when the
+   * overlay runs out of horizontal room. --overlay-cols is the
+   * Scheme-side aspect-ratio-driven column count; falls back to an
+   * auto-fit that picks columns based on segment width. */
+  display: grid;
+  grid-template-columns:
+    repeat(var(--overlay-cols, auto-fit), minmax(14rem, 1fr));
+  gap: 0.6rem 1.5rem;
+  align-items: start;
+}
+
+.block-which-key .wk-misc,
 .block-which-key .wk-category {
-  break-inside: avoid;
-  margin-bottom: 0.4rem;
+  display: flex;
+  flex-direction: column;
 }
 
 .block-which-key .wk-category-label {
   margin: 0 0 2px 0;
   padding-bottom: 2px;
-  border-bottom: 1px solid var(--color-separator);
+  border-bottom: 1px solid var(--color-category);
   font-size: var(--font-size);
   font-weight: 600;
-  color: var(--color-label);
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  color: var(--color-category);
 }
 
 .block-which-key .wk-row {
@@ -43,7 +70,10 @@
 .block-which-key .wk-row .entry-key { color: var(--color-key); font-weight: 600; }
 .block-which-key .wk-row .entry-arrow { color: var(--color-arrow); }
 .block-which-key .wk-row .entry-label { color: var(--color-label); }
-.block-which-key .wk-row .group-label { color: var(--color-label); }
+/* Bindings that open a panel (sub-overlay or chooser) take the accent
+ * colour — matches the legacy list renderer so commands and panels are
+ * visually distinct at a glance. */
+.block-which-key .wk-row .group-label { color: var(--color-group); }
 .block-which-key .wk-row .entry-sticky-marker {
   font-size: calc(var(--font-size) + 4px);
   position: relative;

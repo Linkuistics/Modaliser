@@ -24,7 +24,7 @@
     modal-active? modal-current-node modal-root-node modal-current-path
     modal-leader-keycode modal-overlay-generation modal-overlay-delay
     overlay-target-aspect-ratio
-    modal-root-segments set-modal-root-segments! modal-stack
+    modal-root-segments set-modal-root-segments! modal-stack modal-stack-empty?
     modal-current-context modal-apply-context!
     ;; Modal lifecycle
     modal-enter modal-exit modal-step-back modal-handle-key
@@ -105,16 +105,23 @@
   (let ((scope-str (if (symbol? scope) (symbol->string scope) scope)))
     (let loop ((args rest)
                (on-enter #f) (on-leave #f)
-               (sticky #f) (display-name #f) (exit-unk #f))
+               (sticky #f) (display-name #f) (exit-unk #f)
+               (extras '()))     ; reverse-accumulated opaque kw/val pairs
       (cond
         ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
          (case (car args)
-           ((on-enter)        (loop (cddr args) (cadr args) on-leave sticky display-name exit-unk))
-           ((on-leave)        (loop (cddr args) on-enter (cadr args) sticky display-name exit-unk))
-           ((sticky)          (loop (cddr args) on-enter on-leave (cadr args) display-name exit-unk))
-           ((display-name)    (loop (cddr args) on-enter on-leave sticky (cadr args) exit-unk))
-           ((exit-on-unknown) (loop (cddr args) on-enter on-leave sticky display-name (cadr args)))
-           (else (error "register-tree!: unknown keyword" (car args)))))
+           ((on-enter)        (loop (cddr args) (cadr args) on-leave sticky display-name exit-unk extras))
+           ((on-leave)        (loop (cddr args) on-enter (cadr args) sticky display-name exit-unk extras))
+           ((sticky)          (loop (cddr args) on-enter on-leave (cadr args) display-name exit-unk extras))
+           ((display-name)    (loop (cddr args) on-enter on-leave sticky (cadr args) exit-unk extras))
+           ((exit-on-unknown) (loop (cddr args) on-enter on-leave sticky display-name (cadr args) extras))
+           (else
+             ;; Unknown keyword — pass through as opaque alist entry on the
+             ;; registered group. Mirrors `group`'s extras pattern; used by
+             ;; define-tree to carry 'renderer 'blocks 'blocks (...) at the
+             ;; root, so the top-level overlay renders as a block-list.
+             (loop (cddr args) on-enter on-leave sticky display-name exit-unk
+                   (cons (cons (car args) (cadr args)) extras)))))
         (else
           (let* ((acc (list (cons 'kind 'group)
                             (cons 'key "")
@@ -124,7 +131,8 @@
                  (acc (if on-enter     (cons (cons 'on-enter on-enter)         acc) acc))
                  (acc (if sticky       (cons (cons 'sticky #t)                 acc) acc))
                  (acc (if exit-unk     (cons (cons 'exit-on-unknown #t)        acc) acc))
-                 (acc (if display-name (cons (cons 'display-name display-name) acc) acc)))
+                 (acc (if display-name (cons (cons 'display-name display-name) acc) acc))
+                 (acc (append (reverse extras) acc)))
             (hash-table-set! tree-registry scope-str acc)))))))
 
 ;; Look up a tree by scope. Returns #f if not found.
@@ -392,6 +400,12 @@
 ;; iTerm launcher tree → focus mode → backspace → launcher reappears).
 ;; Cleared by modal-exit so an Escape from any depth fully tears down.
 (define modal-stack '())
+
+;; Functional accessor. Reading `modal-stack` directly from .scm files
+;; loaded outside any library captures a stale binding under LispKit;
+;; procedures defined inside this library reliably see live mutations.
+;; Overlay code uses this to decide if backspace has somewhere to pop to.
+(define (modal-stack-empty?) (null? modal-stack))
 
 ;; Snapshot the current modal context for the stack.
 (define (modal-current-context)

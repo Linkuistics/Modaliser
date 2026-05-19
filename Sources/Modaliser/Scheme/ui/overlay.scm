@@ -207,7 +207,12 @@
 (define (back-available-for-path? path)
   (cond
     ((not (null? path)) #t)
-    ((and (in-sticky-context?) (not (null? modal-stack))) #t)
+    ;; Use modal-stack-empty? rather than reading modal-stack directly:
+    ;; LispKit captures a stale binding for top-level identifiers when
+    ;; referenced from a .scm file loaded outside a define-library. The
+    ;; accessor lives inside (modaliser state-machine), so it always
+    ;; reads the live mutable cell.
+    ((and (in-sticky-context?) (not (modal-stack-empty?))) #t)
     (else #f)))
 
 (define (footer-html-for-path path)
@@ -339,31 +344,70 @@
 ;;   - else      → emit a {"kind":"misc","row":<row>} segment.
 ;; Hidden entries (cons (cons 'hidden #t) …) are skipped.
 (define (which-key-payload-json children)
-  (let ((segments
-          (let loop ((xs children) (acc '()))
-            (cond
-              ((null? xs) (reverse acc))
-              (else
-                (let ((c (car xs)))
-                  (cond
-                    ((category? c)
-                     (let* ((label (let ((e (assoc 'label c))) (if e (cdr e) "")))
-                            (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
-                            (rows (filtered-rows inner))
-                            (seg (string-append
-                                   "{\"kind\":\"category\",\"label\":\""
-                                   (js-escape-overlay label)
-                                   "\",\"rows\":["
-                                   (string-join-comma rows) "]}")))
-                       (loop (cdr xs) (cons seg acc))))
-                    (else
-                     (let ((row (entry->row-json c)))
-                       (if row
-                         (loop (cdr xs)
-                               (cons (string-append "{\"kind\":\"misc\",\"row\":" row "}") acc))
-                         (loop (cdr xs) acc)))))))))))
-    (string-append "{\"type\":\"which-key\",\"segments\":["
-                   (string-join-comma segments) "]}")))
+  ;; Partition `children` into ordered segments suitable for column-style
+  ;; layout. Each (category …) is its own segment; consecutive non-
+  ;; category entries coalesce into one misc segment in their declared
+  ;; position. The auto-pack in (modaliser dsl) splits implicit runs
+  ;; into a misc which-key-block and a category which-key-block already,
+  ;; so a single block is typically homogeneous; mixing only happens
+  ;; inside an explicit user-written (which-key-block …), and we honour
+  ;; their authored order. Misc rows and category rows sort internally.
+  ;; Column count is computed from total visible row count so the
+  ;; aspect-ratio target reflects what actually fills the overlay.
+  (let* ((segments (partition-which-key-segments children))
+         (row-count (segments-row-count segments))
+         (cols (overlay-column-count row-count)))
+    (string-append "{\"type\":\"which-key\",\"cols\":" (number->string cols)
+                   ",\"segments\":[" (string-join-comma (map render-segment segments)) "]}")))
+
+;; Partition into segments, preserving declaration order. Consecutive
+;; non-category entries flush into one ('misc <nodes>) segment; each
+;; category becomes its own ('category <label> <inner>) segment.
+(define (partition-which-key-segments children)
+  (let loop ((xs children) (pending '()) (acc '()))
+    (cond
+      ((null? xs)
+       (let ((acc (if (null? pending)
+                    acc
+                    (cons (list 'misc (reverse pending)) acc))))
+         (reverse acc)))
+      ((category? (car xs))
+       (let* ((c     (car xs))
+              (label (let ((e (assoc 'label c)))    (if e (cdr e) "")))
+              (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
+              (acc   (if (null? pending)
+                       acc
+                       (cons (list 'misc (reverse pending)) acc)))
+              (acc   (cons (list 'category label inner) acc)))
+         (loop (cdr xs) '() acc)))
+      (else
+       (loop (cdr xs) (cons (car xs) pending) acc)))))
+
+;; Total visible rows across all segments. Categories add one row for the
+;; heading. Used to drive aspect-ratio-aware column-count selection.
+(define (segments-row-count segments)
+  (let loop ((rest segments) (total 0))
+    (cond
+      ((null? rest) total)
+      (else
+       (let* ((seg (car rest))
+              (kind (car seg))
+              (rows (cond ((eq? kind 'misc)     (length (cadr seg)))
+                          ((eq? kind 'category) (+ 1 (length (caddr seg))))
+                          (else                 0))))
+         (loop (cdr rest) (+ total rows)))))))
+
+(define (render-segment seg)
+  (cond
+    ((eq? (car seg) 'misc)
+     (let ((rows (filtered-rows (sort-children (cadr seg)))))
+       (string-append "{\"kind\":\"misc\",\"rows\":["
+                      (string-join-comma rows) "]}")))
+    (else  ; 'category
+     (let ((rows (filtered-rows (sort-children (caddr seg)))))
+       (string-append "{\"kind\":\"category\",\"label\":\""
+                      (js-escape-overlay (cadr seg))
+                      "\",\"rows\":[" (string-join-comma rows) "]}")))))
 
 ;; (filtered-rows children) → list of JSON strings (each a row)
 (define (filtered-rows children)
@@ -464,12 +508,33 @@
       ((not (symbol? (car (car xs)))) #f)
       (else (loop (cdr xs))))))
 
-;; Sort children alphabetically by key (insertion sort)
+;; Sort children alphabetically by key (insertion sort).
+;;
+;; Comparator is case-insensitive on the primary, with a stable tiebreak
+;; that places lowercase before its uppercase variant — so the visible
+;; order is "a A b B …" rather than ASCII's "A B … a b …" or a strict
+;; lowercase-only ordering. Mixed-case configs read more naturally that
+;; way; the user model is "letters in the alphabet, lowercase first".
+(define (sort-key-lt? a b)
+  ;; Categories and other entries without a binding key carry #f here;
+  ;; coerce to "" so they sort before any letter rather than crashing.
+  (let* ((a (or a ""))
+         (b (or b ""))
+         (la (string-downcase a))
+         (lb (string-downcase b)))
+    (cond
+      ((string<? la lb) #t)
+      ((string<? lb la) #f)
+      ;; Same letter, different case: lowercase first. ASCII gives
+      ;; uppercase a LOWER code point, so a > b under string<? means
+      ;; a is the lowercase variant.
+      (else (string>? a b)))))
+
 (define (sort-children children)
   (define (insert item sorted)
     (cond
       ((null? sorted) (list item))
-      ((string<? (node-key item) (node-key (car sorted)))
+      ((sort-key-lt? (node-key item) (node-key (car sorted)))
        (cons item sorted))
       (else (cons (car sorted) (insert item (cdr sorted))))))
   (let loop ((rest children) (sorted '()))
@@ -509,11 +574,54 @@
          (renderer (and current (node-renderer current))))
     (cond
       (renderer
-        (let ((payload (block-list-payload-json current)))
+        ;; Custom-renderer payload carries both the block body AND the
+        ;; chrome (breadcrumb segments, sticky flag, footer HTML) so the
+        ;; JS update can refresh the header/footer alongside the body.
+        ;; Without this, navigating from the root list into a block-list
+        ;; group leaves stale chrome from the previous depth — notably
+        ;; the root footer with no backspace hint.
+        (let* ((body (block-list-payload-json current))
+               (segments-json (path-segments-json node path))
+               (path-json     (path-keys-json path))
+               (sticky?       (and (deepest-sticky-on-path node path) #t))
+               (footer-html   (footer-html-for-path path))
+               (chrome (string-append
+                         ",\"rootSegments\":" segments-json
+                         ",\"path\":"         path-json
+                         ",\"sticky\":"       (if sticky? "true" "false")
+                         ",\"footer\":\""     (js-escape-overlay footer-html) "\""))
+               ;; body looks like `{"type":"blocks","blocks":[…]}`; splice
+               ;; the chrome fields in just before the closing brace.
+               (open  (substring body 0 (- (string-length body) 1)))
+               (with-chrome (string-append open chrome "}")))
           (webview-eval overlay-webview-id
-            (string-append "updateOverlay(" payload ")"))))
+            (string-append "updateOverlay(" with-chrome ")"))))
       (else
         (push-overlay-update-default node current path)))))
+
+(define (path-segments-json node path)
+  (let* ((root-segs (modal-root-segments))
+         (segs (append root-segs (path-labels node path))))
+    (string-append "["
+      (let loop ((xs segs) (out ""))
+        (if (null? xs)
+          out
+          (loop (cdr xs)
+                (string-append out
+                               (if (string=? out "") "" ",")
+                               "\"" (js-escape-overlay (car xs)) "\""))))
+      "]")))
+
+(define (path-keys-json path)
+  (string-append "["
+    (let loop ((xs path) (out ""))
+      (if (null? xs)
+        out
+        (loop (cdr xs)
+              (string-append out
+                             (if (string=? out "") "" ",")
+                             "\"" (js-escape-overlay (car xs)) "\""))))
+    "]"))
 
 ;; Default list-renderer push (formerly the body of push-overlay-update).
 ;; Takes the root `node` (needed by path-labels / deepest-sticky-on-path),

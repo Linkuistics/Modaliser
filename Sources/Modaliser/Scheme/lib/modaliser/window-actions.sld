@@ -8,14 +8,16 @@
 ;;           (prefix (modaliser window-actions) window:))
 ;;
 ;;   (define-tree 'global
-;;     (overlay 'key "w" 'label "Windows"
-;;       (window:default-layout-block)
-;;       (which-key-block
-;;         (selector "n" "Named…" 'prompt "Select window…"
-;;                                 'source list-windows
-;;                                 'on-select focus-window)
-;;         (key "r" "Restore" (lambda () (restore-window))))
-;;       (window:list-block 'show-chips #t)))
+;;     (key "w" "Windows"
+;;       (overlay
+;;         (window:default-layout-block)
+;;         (which-key-block
+;;           (key "n" "Named…"
+;;             (selector 'prompt "Select window…"
+;;                       'source list-windows
+;;                       'on-select focus-window))
+;;           (key "r" "Restore" (lambda () (restore-window))))
+;;         (window:list-block 'chip-options '()))))
 ;;
 ;; Each block carries its dispatch keys as 'block-children; overlay
 ;; lifts them onto the group's 'children so the state machine routes

@@ -24,7 +24,6 @@
         (prefix (modaliser window-actions)  window:)
         (modaliser blocks which-key)        ; which-key-block
         (modaliser window)                  ; list-windows, focus-window
-        (prefix (modaliser space-switching) space:)
         (prefix (modaliser web-search)      web-search:)
         (prefix (modaliser apps safari)     safari:)
         (prefix (modaliser apps iterm)      iterm:))
@@ -53,64 +52,80 @@
 
 (define-tree 'global
 
-  (settings:actions)
+  ;; `key`'s third arg is evaluated at config-load: if it returns a
+  ;; procedure, that's the action thunk; if it returns a pair (a node
+  ;; alist), the node is decorated with this key/label. For inline
+  ;; side-effecting calls like (launch-app "X"), wrap in (lambda () …)
+  ;; so the call fires on key press rather than at config-load.
 
-  (space:switch-actions)
+  ;; Map 1..9 to switch spaces. `keys` is the multi-key sibling of `key`:
+  ;; one labelled row, action gets (key index keylist).
+  (keys '("1" ..) "Switch Space" (λ (k i ks) (send-keystroke '(ctrl) k)))
 
-  ;; Quick-launch keys. `key` is a macro that auto-wraps a procedure-
-  ;; call third argument into a thunk, so (launch-app "X") fires on key
-  ;; press instead of at config-load. Use an explicit (lambda () …) for
-  ;; multi-step actions or `'sticky-target` tails.
-  (key "b" "Browser - Dia"    (launch-app "Dia"))
-  (key "e" "Editor - Zed"     (launch-app "Zed"))
-  (key "t" "Terminal - iTerm" (launch-app "iTerm"))
-
-  (key "j" "Jump Desktop"  (launch-app "Jump Desktop"))
-
-  (key "c" "ChatGPT"        (launch-app "ChatGPT"))
-  (key "C" "Claude Desktop" (launch-app "Claude"))
-
-  (key "m" "Mail"  (launch-app "Mail"))
-  (key "n" "Notes" (launch-app "Notes"))
-
-  (key "o" "Obsidian" (launch-app "Obsidian"))
-  (key "z" "Zotero"   (launch-app "Zotero"))
-
-  (web-search:google)
-
-  (launcher:find-application)
-  (launcher:find-file)
+  ;; Factory-returned nodes — call site decides the binding key/label.
+  (key "," "Settings"         (settings:actions))
 
   ;; Window manager overlay ("w"). Each block is declared explicitly so
   ;; the structure of the overlay is visible at the config level. Swap
   ;; in different (window:divisions …) matrices to change the layout,
   ;; or override chip-options to match your theme.
   (key "w" "Windows"
-    (overlay
-      ;; Top: panel grid + matching move-window key bindings. Each form
-      ;; is a matrix of keys (with #f for empty cells), or (center K)
-      ;; for the inward-arrows centre panel.
-      (window:layout-block
-        (("d" "f" "g"))                           ; full thirds
-        (("D" "F" "G")
-         ("C" "V" "B"))                           ; half thirds
-        (("e" "e" #f))                            ; left two-thirds
-        ((#f "t" "t"))                            ; right two-thirds
-        (("m"))                                   ; maximise (full cell)
-        (center "c"))                             ; centre (inward arrows)
-      ;; Middle: which-key strip listing the remaining bindings.
-      (which-key-block
-        (selector "n" "Named…"
-          'prompt "Select window…"
-          'source list-windows
-          'on-select focus-window)
-        (key "r" "Restore" (restore-window)))
-      ;; Bottom: labelled windows list. The presence of 'chip-options
-      ;; (even '()) enables the on-screen window chips; the alist value
-      ;; supplies overrides. Other keys (font-size, padding, color,
-      ;; faded-background, …) inherit from the block's defaults — see
-      ;; (modaliser blocks window-list).
-      (window:list-block 'chip-options `((background . ,the-color))))))
+       (overlay
+        ;; Top: panel grid + matching move-window key bindings. Each form
+        ;; is a matrix of keys (with #f for empty cells), or (center K)
+        ;; for the inward-arrows centre panel.
+
+        (window:layout-block
+         (("d" "f" "g"))                           ; full thirds
+         (("D" "F" "G")
+          ("C" "V" "B"))                           ; half thirds
+         (("e" "e" #f))                            ; left two-thirds
+         ((#f "t" "t"))                            ; right two-thirds
+         (("m"))                                   ; maximise (full cell)
+         (center "c"))                             ; centre (inward arrows)
+
+        ;; Middle: which-key strip listing the remaining bindings.
+
+        (key "s" "Select Window"
+             (selector 'prompt "Select window by name…"
+                       'source list-windows
+                       'on-select focus-window))
+        (key "r" "Restore" (λ () (restore-window)))
+
+        ;; Bottom: labelled windows list. The presence of 'chip-options
+        ;; (even '()) enables the on-screen window chips; the alist value
+        ;; supplies overrides. Other keys (font-size, padding, color,
+        ;; faded-background, …) inherit from the block's defaults — see
+        ;; (modaliser blocks window-list).
+
+        (window:list-block 'chip-options `((background . ,the-color)))))
+
+  ;; (category LABEL . CHILDREN) groups a slice of the overlay into a
+  ;; labelled column. Categories may appear anywhere a (key …) can; the
+  ;; renderer flows categories and loose-key runs as columns, left to
+  ;; right, wrapping onto a new row when the overlay runs out of width.
+
+  (category "Instant Apps"
+    (key "b" "Browser"          (λ () (launch-app "Dia")))
+    (key "e" "Editor"           (λ () (launch-app "Zed")))
+    (key "t" "Terminal"         (λ () (launch-app "iTerm"))))
+
+  (category "AI"
+    (key "c" "ChatGPT"          (λ () (launch-app "ChatGPT")))
+    (key "C" "Claude Desktop"   (λ () (launch-app "Claude"))))
+
+  (category "Search"
+    (key "g" "Google"           (web-search:google))
+    (key "a" "Find Application" (launcher:find-application))
+    (key "f" "Find File"        (launcher:find-file)))
+
+  (category "Apps"
+    (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
+    (key "m" "Mail"             (λ () (launch-app "Mail")))
+    (key "n" "Notes"            (λ () (launch-app "Notes")))
+    (key "o" "Obsidian"         (λ () (launch-app "Obsidian")))
+    (key "z" "Zotero"           (λ () (launch-app "Zotero"))))
+)
 
 ;; ─── Per-app trees (F17 when that app is focused) ────────────────
 
@@ -121,4 +136,4 @@
 ;; everything else (label set, font, padding, etc.) defaults inside
 ;; the library.
 (iterm:register!
-  'hint-options `((background . ,the-color)))
+ 'hint-options `((background . ,the-color)))

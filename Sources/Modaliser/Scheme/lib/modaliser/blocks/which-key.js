@@ -2,16 +2,19 @@
  *
  * Payload shape:
  *   { type: "which-key",
+ *     cols: N,                         // overlay column count
  *     segments: [
- *       {kind: "misc",     row: {key, label, isGroup, isSticky}},
- *       {kind: "category", label: "Move", rows: [<row>, ...]},
+ *       {kind: "misc",     rows: [<row>, ...]},                 // coalesced loose entries
+ *       {kind: "category", label: "Move", rows: [<row>, ...]},  // explicit category
  *       ...
  *     ] }
  *
- * Lays segments out in a CSS multi-column flow (column-fill: auto)
- * scoped under .block-which-key. Categories are atomic units
- * (.wk-category, break-inside: avoid). Misc rows are bare siblings
- * with no break rule — each flows independently across columns.
+ * Each row: {key, label, isGroup, isSticky}.
+ *
+ * Lays segments out as columns in a CSS grid that flows left-to-right
+ * (row-major) and wraps onto a new row when the overlay runs out of
+ * horizontal room. `--overlay-cols` is set inline by this renderer
+ * from the precomputed Scheme-side column count.
  */
 
 (function() {
@@ -50,6 +53,14 @@
     );
   }
 
+  function renderMisc(seg) {
+    const col = el('div', { class: 'wk-misc' });
+    for (const row of (seg.rows || [])) {
+      col.appendChild(renderRow(row));
+    }
+    return col;
+  }
+
   function renderCategory(seg) {
     const cat = el('div', { class: 'wk-category' });
     cat.appendChild(el('h4', { class: 'wk-category-label', text: seg.label }));
@@ -63,11 +74,16 @@
   window.overlayBlockRenderers['which-key'] = function(block, container) {
     while (container.firstChild) container.removeChild(container.firstChild);
     const cols = el('div', { class: 'wk-columns' });
+    // Column count is precomputed Scheme-side to match the legacy list
+    // renderer's aspect-ratio-based layout; default to 1 if absent.
+    if (typeof block.cols === 'number' && block.cols > 0) {
+      cols.style.setProperty('--overlay-cols', String(block.cols));
+    }
     for (const seg of (block.segments || [])) {
       if (seg.kind === 'category') {
         cols.appendChild(renderCategory(seg));
       } else if (seg.kind === 'misc') {
-        cols.appendChild(renderRow(seg.row));
+        cols.appendChild(renderMisc(seg));
       }
     }
     container.appendChild(cols);

@@ -71,10 +71,10 @@ struct ChooserIntegrationTests {
             (define (test-source) test-items)
             (define test-selected #f)
             (define-tree 'global
-              (selector "a" "Find App"
+              (key "a" "Find App" (selector
                 'prompt "Find app..."
                 'source test-source
-                'on-select (lambda (item) (set! test-selected item))))
+                'on-select (lambda (item) (set! test-selected item)))))
             """)
 
         // Enter modal
@@ -100,10 +100,10 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Chrome") (cons 'bundleId "com.google.Chrome"))))
             (define (test-source) test-items)
             (define-tree 'global
-              (selector "a" "Find App"
+              (key "a" "Find App" (selector
                 'prompt "Find app..."
                 'source test-source
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -125,10 +125,10 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Firefox"))))
             (define (test-source) test-items)
             (define-tree 'global
-              (selector "a" "Find"
+              (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -155,10 +155,10 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Charlie"))))
             (define (test-source) test-items)
             (define-tree 'global
-              (selector "a" "Find"
+              (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -177,10 +177,10 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Chrome") (cons 'bundleId "com.google.Chrome"))))
             (define (test-source) test-items)
             (define-tree 'global
-              (selector "a" "Find App"
+              (key "a" "Find App" (selector
                 'prompt "Find app..."
                 'source test-source
-                'on-select (lambda (item) (set! test-selected item))))
+                'on-select (lambda (item) (set! test-selected item)))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -206,10 +206,10 @@ struct ChooserIntegrationTests {
             (define test-items (list (list (cons 'text "Safari"))))
             (define (test-source) test-items)
             (define-tree 'global
-              (selector "a" "Find"
+              (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -230,10 +230,10 @@ struct ChooserIntegrationTests {
             (define (test-source) test-items)
             (set-leader! 'global F18)
             (define-tree 'global
-              (selector "a" "Find"
+              (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         // Open chooser via selector
@@ -256,13 +256,13 @@ struct ChooserIntegrationTests {
             (define test-items (list (list (cons 'text "Safari"))))
             (define (test-source) test-items)
             (define-tree 'global
-              (selector "a" "Find"
+              (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
                 'on-select (lambda (item) #t)
                 'actions (list
                   (action "Open" 'description "Launch" 'key 'primary)
-                  (action "Copy" 'description "Copy path"))))
+                  (action "Copy" 'description "Copy path")))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -286,7 +286,7 @@ struct ChooserIntegrationTests {
               (list (list (cons 'text "Safari") (cons 'path "/Apps/Safari.app"))))
             (define (test-source) test-items)
             (define-tree 'global
-              (selector "a" "Find"
+              (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
                 'on-select (lambda (item) #t)
@@ -294,7 +294,7 @@ struct ChooserIntegrationTests {
                   (action "Open" 'description "Launch" 'key 'primary
                     'run (lambda (item) #t))
                   (action "Reveal" 'description "Show in Finder" 'key 'secondary
-                    'run (lambda (item) (set! secondary-fired #t))))))
+                    'run (lambda (item) (set! secondary-fired #t)))))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -318,10 +318,10 @@ struct ChooserIntegrationTests {
             (define (test-source) test-items)
             (define test-selected #f)
             (define-tree 'global
-              (selector "a" "Find"
+              (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
-                'on-select (lambda (item) (set! test-selected item))))
+                'on-select (lambda (item) (set! test-selected item)))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -351,10 +351,10 @@ struct ChooserIntegrationTests {
             (set-leader! 'global F18)
             (define-tree 'global
               (group "f" "Find"
-                (selector "a" "Find App"
+                (key "a" "Find App" (selector
                   'prompt "Find app..."
                   'source test-source
-                  'on-select (lambda (item) (set! test-result item)))))
+                  'on-select (lambda (item) (set! test-result item))))))
             """)
 
         // Enter modal directly (simulates hotkey handler)
@@ -391,10 +391,10 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Charlie"))))
             (define (test-source) test-items)
             (define-tree 'global
-              (selector "a" "Find"
+              (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
