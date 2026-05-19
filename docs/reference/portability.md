@@ -38,7 +38,7 @@ user-shipped `.sld` file may import from:
    - *Pure-Scheme* libraries (`dsl`, `keymap`, `state-machine`,
      `event-dispatch`, `util`, `ax-hints`, `terminal`, `leader`,
      `window-actions`, `apps/iterm`, `apps/safari`, `apps/chrome`,
-     `launchers`, `web-search`, `settings-menu`, `window`,
+     `launchers`, `web-search`, `settings-menu`,
      `blocks/which-key`, `blocks/window-list`, `blocks/window-diagram`)
      port verbatim across hosts.
    - *Native* libraries (`shell`, `app`, `keyboard`, `window`,
@@ -58,7 +58,7 @@ Two pieces of the bundled tree are *not* expected to port:
    `root.scm` via `(include …)` and may use `(lispkit …)` bindings
    freely. They handle overlay rendering, the chooser UI, and the
    Google-search helper — pieces that lean on LispKit's WebView and
-   JSON bindings. Phase D leaves these alone by design (spec
+   JSON bindings. the portability slice leaves these alone by design (spec
    non-goal: "Internal pieces that are unlikely to port (e.g.
    WebView, AX) can continue to lean on Foundation / AppKit through
    the existing native libraries; only the user-facing surface needs
@@ -85,10 +85,10 @@ mention `(scheme …)`, `(srfi …)`, and other `(modaliser …)`
 libraries. If you find yourself wanting a LispKit-only primitive,
 the right answer is one of:
 
-- Implement it locally in pure Scheme (as Phase D did for
+- Implement it locally in pure Scheme (as the portability slice did for
   `string-split` / `string-trim`).
 - Re-export it from `(modaliser util)` through a portable backend
-  (as Phase D did for the hashtable primitives via SRFI 69).
+  (as the portability slice did for the hashtable primitives via SRFI 69).
 - Expose it as a *new* `(modaliser …)` native library on the Swift
   side, with the contract that future hosts will re-implement it.
 

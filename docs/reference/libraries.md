@@ -194,7 +194,6 @@ uses `layout-block` + `list-block` together inside a single `(overlay
 | Keyword | Default | Description |
 |---|---|---|
 | `'chip-options` | omitted | When present (even `'()`), enables on-screen window chips. Value is an alist of overrides merged into the chip defaults below. Omitting the keyword disables chips entirely. |
-| `'show-chips` | derived | Defaults to `#t` iff `'chip-options` is present. |
 
 **Default chip options** (overridable via `'chip-options`):
 
@@ -329,10 +328,12 @@ leader press to track the live pane layout.
 (iterm:register! 'hint-options `((background . ,the-color)))
 ```
 
-The transient iTerm tree gets `c` (Copy Mode), `z` (Toggle Zoom),
-hjkl focus moves (each carries `'sticky-target 'iterm-panes-focus` so
-the first press lands the user in the sticky mode), and an `x` split
-subgroup. The sticky focus mode (`'iterm-panes-focus`) holds only the
+The transient iTerm tree gets `c` (Copy Mode), `z` (Toggle Zoom), a
+`(category "Focus" …)` wrapping the four hjkl focus moves (each
+carries `'sticky-target 'iterm-panes-focus` so the first press lands
+the user in the sticky mode), and an `x` split subgroup. The
+`category` is rendered as a labelled column but stays transparent for
+dispatch, so the keys still fire as direct children of the tree. The sticky focus mode (`'iterm-panes-focus`) holds only the
 four hjkl Cmd+Alt focus moves and uses `'exit-on-unknown #t` so typing
 any non-binding key returns control to iTerm.
 

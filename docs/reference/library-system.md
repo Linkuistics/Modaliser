@@ -99,7 +99,7 @@ When Modaliser starts, it logs `hello from example/hello` to Console.
 
 ## What `(modaliser …)` libraries you can import
 
-Phase B published the foundational set. From a user `.sld` or
+The foundational set is always available. From a user `.sld` or
 `config.scm` you can:
 
 ```scheme
@@ -121,9 +121,9 @@ See [dsl.md](dsl.md) for the full DSL surface with signatures and
 examples. The native `(modaliser shell)`, `(modaliser app)`,
 `(modaliser keyboard)`, etc. are also importable from a user `.sld`.
 
-## Bundled stdlib libraries (Phase C)
+## Bundled stdlib libraries
 
-Phase C ships an opt-in stdlib of per-app trees and helpers. Each
+Modaliser ships an opt-in stdlib of per-app trees and helpers. Each
 library exports a builder returning a tree node plus a convenience
 that registers the tree under a sensible default scope. Builders
 accept alist-style keyword options; the simplest call is always
@@ -141,7 +141,9 @@ different libraries don't collide:
                                                        ; iterm:context-suffix-handler
         (prefix (modaliser apps safari)     safari:)   ; safari:tree, safari:register!
         (prefix (modaliser apps chrome)     chrome:)   ; chrome:tree, chrome:register!
-        (prefix (modaliser window-actions)  window:)   ; window:actions, window:register!
+        (prefix (modaliser window-actions)  window:)   ; window:layout-block,
+                                                       ; window:list-block,
+                                                       ; window:default-layout-block
         (prefix (modaliser launchers)       launcher:) ; launcher:find-application,
                                                        ; launcher:find-file
         (prefix (modaliser settings-menu)   settings:) ; settings:actions
@@ -181,10 +183,10 @@ without an `(import …)` line.
 
 These modules are intentionally *not* exposed as `(modaliser …)`
 libraries: they lean on LispKit-specific bindings (WebView, JSON) and
-the spec's Phase D non-goal explicitly keeps them that way — only
-the user-facing **library** surface needs to be portable, not every
-internal `.scm` file. See [portability.md](portability.md)
-for the formal portability contract.
+the portability contract explicitly keeps them that way — only the
+user-facing **library** surface needs to be portable, not every
+internal `.scm` file. See [portability.md](portability.md) for the
+formal portability contract.
 
 If you want to use any of those top-level helpers from your own
 `(import …)`-based config, you have two options:

@@ -64,7 +64,9 @@ For scope-asymmetric options use `(set-global-leader! …)` and
 ### `(set-leader! [mode] keycode [keyword value]...)`
 
 The single-scope primitive. From `(modaliser dsl)`. Mode is `'global`,
-`'local`, or omitted (defaults to global). Keywords:
+`'local`, or omitted; when omitted, the handler resolves at trigger
+time to the focused app's local tree if one exists, falling back to
+the global tree. Keywords:
 
 | Keyword | Type | Description |
 |---|---|---|
@@ -147,8 +149,9 @@ or override CSS variables via `set-host-header!` and block options.
 
 ### `(define-tree scope [keyword value]... . content)`
 
-Registers a command tree under `scope` (a symbol like `'global` or a
-bundle-id string like `"com.apple.Safari"`). The `content` is a list of
+Registers a command tree under `scope` — a symbol (or string) like
+`'global`, `'com.apple.Safari`, or `'iterm-panes-focus`. Symbols and
+strings are equivalent; `register-tree!` normalises both. The `content` is a list of
 node-forms (`(key …)`, `(category …)`, …) and block specs
 (`(which-key-block …)`, `(window:list-block …)`, …).
 
@@ -339,7 +342,7 @@ A fuzzy-finder chooser. Returns an **undecorated** node — wrap with
 | Keyword | Type | Description |
 |---|---|---|
 | `'prompt` | string | Prompt shown in the chooser input field. |
-| `'source` | procedure or list | Item source. A procedure is called once on open; a list is used directly. |
+| `'source` | procedure | Item source. Called once when the chooser opens. Return a list of items (strings or alists). For a static list, wrap with `(lambda () my-list)`. |
 | `'on-select` | procedure | `(lambda (item) …)` — fires when the user picks an item with Return. |
 | `'dynamic-search` | procedure | `(lambda (query) …)` — replaces fuzzy filtering with a per-query call (e.g. for HTTP search). |
 | `'file-roots` | string list | Restricts file-source matches to these roots. |
