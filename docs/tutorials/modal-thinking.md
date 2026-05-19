@@ -241,5 +241,34 @@ So: input box ⇒ list selection ⇒ Enter fires `'on-select`. The input
 isn't a window-focus action by itself; it's a navigator for the list
 underneath it.
 
+## Step 5 — The window list, with chips
+
+Add `(window:list-block 'chips? #t)` to the bottom of the overlay:
+
+```scheme
+(overlay
+  ...
+  (window:list-block 'chips? #t))
+```
+
+**Relaunch. Press F18 w.** Two things happen at once: the overlay
+gains a third block at the bottom listing your visible windows by
+title, *and* the real windows on screen acquire little chips with
+labels that match the rows in that block. The chips are the link
+between "I see a row in the overlay" and "I see which window it talks
+about".
+
+You've now seen three different blocks in one overlay
+(`window:layout-block`, the implicit which-key block of loose
+`(key …)` forms, and `window:list-block`), plus one selector
+(`Select Window`). Each fires once and the overlay dismisses; control
+returns to whatever you were doing before F18.
+
+That's Part 1 done. Everything you've built so far is the **launcher
+pattern**: a tree you step through, a single action, dismiss. Most of
+Modaliser looks like this — the global tree, the per-app trees, the
+launchers themselves. Part 2 is one new idea: what if some bindings
+*didn't* dismiss?
+
 The selector fired, then dismissed. Same shape as everything in
 Part 1: tree → leaf → action → dismiss.
