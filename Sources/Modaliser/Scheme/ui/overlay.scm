@@ -25,7 +25,7 @@
 ;; Renderer of the node the WebView's current DOM was rendered for. Used by
 ;; overlay-update-impl to detect when an incremental push-overlay-update
 ;; would target a DOM shape that no longer matches (e.g. navigating from a
-;; list-renderer root into a 'diagram group) — in that case we fall back
+;; list-renderer root into a 'blocks group) — in that case we fall back
 ;; to a full webview-set-html! so the new renderer's JS can find its
 ;; expected container. Symbol or #f.
 (define overlay-current-renderer #f)
@@ -268,10 +268,7 @@
 ;; into the renderer registry. Initial-render payload mirrors what
 ;; push-overlay-update sends for incremental updates.
 (define (render-overlay-custom cls segments current renderer path)
-  (let* ((payload-json
-           (cond
-             ((eq? renderer 'blocks) (block-list-payload-json current))
-             (else (custom-renderer-payload-json current renderer))))
+  (let* ((payload-json (block-list-payload-json current))
          ;; data-payload is single-quoted so the inner JSON's double
          ;; quotes don't need HTML entity-encoding. JS reads via
          ;; getAttribute('data-payload') + JSON.parse, which sees the
@@ -294,106 +291,6 @@
                                 "overlay-footer overlay-footer-root"
                                 "overlay-footer")))
         (make-raw-html (footer-html-for-path path))))))
-
-;; (panel-bound-keys panels) → list of key strings
-;; Walks every panel spec and returns the set of keys painted on
-;; panels (grid cells, center, fill). Used to filter the entries
-;; passed to custom renderers so panel keys don't appear twice
-;; (once on the panel, once in the text entries strip).
-;;
-;; Mirrored in (modaliser blocks window-diagram) which serves the
-;; 'blocks renderer; this copy serves the legacy 'diagram renderer
-;; only. If the panel-spec format ever changes, update both.
-(define (panel-bound-keys panels)
-  (if (or (not panels) (null? panels))
-    '()
-    (let loop ((ps panels) (acc '()))
-      (if (null? ps)
-        acc
-        (let* ((p (car ps))
-               (ptype (let ((e (assoc 'type p))) (and e (cdr e)))))
-          (cond
-            ((eq? ptype 'grid)
-             (let* ((cells-entry (assoc 'cells p))
-                    (cells (and cells-entry (cdr cells-entry))))
-               (loop (cdr ps)
-                     (let cells-loop ((cs (or cells '())) (a acc))
-                       (if (null? cs)
-                         a
-                         (let* ((c (car cs))
-                                (ke (assoc 'key c))
-                                (k (and ke (cdr ke))))
-                           (cells-loop (cdr cs)
-                                       (if k (cons k a) a))))))))
-            ((or (eq? ptype 'center) (eq? ptype 'fill))
-             (let* ((ke (assoc 'key p))
-                    (k (and ke (cdr ke))))
-               (loop (cdr ps) (if k (cons k acc) acc))))
-            (else (loop (cdr ps) acc))))))))
-
-;; (custom-renderer-payload-json current renderer) → JSON string
-;; Base: {type: RENDERER, panels: (...), entries: (...)}.
-;; The diagram renderer reads 'panels off the group; the entries field
-;; carries any non-panel children as a list of {key, label, isGroup}
-;; alists. Children whose key is bound to a panel cell/center/fill are
-;; skipped so they aren't rendered twice.
-;;
-;; If the group declares 'dynamic-data-fn (a thunk), it's called on every
-;; render and its returned alist is merged into the JSON. Used e.g. by
-;; the windows tree to attach a live "windows" list with per-row
-;; visibility flags that the renderer turns into a dulled-or-not row.
-(define (custom-renderer-payload-json current renderer)
-  (let* ((panels  (node-renderer-payload current 'panels))
-         (bound   (panel-bound-keys panels))
-         (children (node-children current))
-         (text-entries
-           (let loop ((xs children) (acc '()))
-             (if (null? xs)
-               (reverse acc)
-               (let* ((c (car xs))
-                      (k (node-key c))
-                      (lbl (node-label c))
-                      (is-grp (group? c))
-                      ;; Nodes carrying '(hidden . #t) participate in
-                      ;; binding (state machine still sees them) but
-                      ;; are omitted from the entries strip — used by
-                      ;; the windows group to suppress the redundant
-                      ;; "1.. → Window <n>" row when the windows-list
-                      ;; section already conveys the mapping.
-                      (hidden-pair (assoc 'hidden c))
-                      (hidden? (and hidden-pair (cdr hidden-pair))))
-                 (cond
-                   (hidden? (loop (cdr xs) acc))
-                   ((member k bound) (loop (cdr xs) acc))
-                   (else
-                     (loop (cdr xs)
-                           (cons (string-append
-                                   "{\"key\":\"" (js-escape-overlay k)
-                                   "\",\"label\":\"" (js-escape-overlay lbl)
-                                   "\",\"isGroup\":" (if is-grp "true" "false")
-                                   "}")
-                                 acc))))))))
-         (dyn-fn  (node-renderer-payload current 'dynamic-data-fn))
-         (dyn-data (if (procedure? dyn-fn) (dyn-fn) '()))
-         (dyn-pairs
-           (let dynloop ((rest dyn-data) (acc '()))
-             (cond
-               ((null? rest) (reverse acc))
-               (else
-                 (let* ((entry (car rest))
-                        (k (symbol->string (car entry)))
-                        (v (cdr entry))
-                        (pair (string-append "\"" k "\":" (alist->json v))))
-                   (dynloop (cdr rest) (cons pair acc)))))))
-         (dyn-section
-           (if (null? dyn-pairs)
-             ""
-             (string-append "," (string-join-comma dyn-pairs)))))
-    (string-append "{\"type\":\"" (symbol->string renderer)
-      "\",\"panels\":" (panels->json panels)
-      ",\"entries\":[" (string-join-comma text-entries) "]"
-      dyn-section
-      "}")))
 
 ;; (block-list-payload-json current) → JSON string
 ;; Payload: {"type":"blocks","blocks":[<block-json>, ...]}
@@ -529,17 +426,6 @@
                             "\":" (alist->json v))
                           acc)))))))))
 
-;; (panels->json panels-list) → JSON array string
-;; Each panel is itself an alist (panel-spec) — pass to alist->json
-;; for a generic conversion. The diagram-panel library (Task 6) is
-;; the only producer for now; the format is documented there.
-(define (panels->json panels)
-  (if (or (not panels) (null? panels))
-    "[]"
-    (string-append "["
-      (string-join-comma (map alist->json panels))
-      "]")))
-
 ;; Helper: comma-separated join.
 (define (string-join-comma xs)
   (let loop ((rest xs) (acc ""))
@@ -629,10 +515,7 @@
          (renderer (and current (node-renderer current))))
     (cond
       (renderer
-        (let ((payload
-                (cond
-                  ((eq? renderer 'blocks) (block-list-payload-json current))
-                  (else (custom-renderer-payload-json current renderer)))))
+        (let ((payload (block-list-payload-json current)))
           (webview-eval overlay-webview-id
             (string-append "updateOverlay(" payload ")"))))
       (else

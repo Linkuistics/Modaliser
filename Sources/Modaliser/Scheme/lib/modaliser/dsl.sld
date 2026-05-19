@@ -123,7 +123,7 @@
          ((exit-on-unknown) (loop (cddr args) on-enter on-leave sticky (cadr args) extras children))
          (else
            ;; Unknown keyword — accumulate as opaque alist entry.
-           ;; Used by renderer-style extensions like 'renderer 'diagram 'panels (...).
+           ;; Used by renderer extensions like 'renderer 'blocks 'blocks (...).
            (loop (cddr args) on-enter on-leave sticky exit-unk
                  (cons (cons (car args) (cadr args)) extras)
                  children))))
