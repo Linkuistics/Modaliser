@@ -12,6 +12,7 @@
 (define-library (modaliser dsl)
   (export key key-range group selector action
           category overlay
+          λ
           define-tree set-theme!
           modifier-symbols->mask set-leader!
           ;; Re-exported from (modaliser state-machine) so user configs
@@ -38,33 +39,54 @@
 ;;                            the overlay renders a marker on the cell.
 ;;                            Composes with sticky ancestors (overrides
 ;;                            transient/sticky cleanup on this command).
-;; `key` is a macro that dispatches on the shape of the third arg:
+;; `key` is a macro that dispatches on the shape AND runtime value of
+;; the third arg:
 ;;
-;;   (key K L (overlay …))            → decorate the sub-overlay
-;;   (key K L (group …))              → decorate the sub-group
 ;;   (key K L (lambda …))             → command, lambda is the action thunk
-;;   (key K L identifier)             → command, identifier is the action thunk
-;;   (key K L (fn arg …) [kw val …])  → command, (fn arg …) auto-wrapped
-;;                                       in (lambda () (fn arg …)). The
-;;                                       optional trailing 'sticky-target
-;;                                       kwarg works on all command shapes.
+;;   (key K L identifier [kw v …])    → identifier is evaluated; if a
+;;                                       procedure, used as action thunk;
+;;                                       if a pair (a node alist), the
+;;                                       node is decorated with K/L
+;;   (key K L (fn arg …) [kw v …])    → (fn arg …) is evaluated eagerly;
+;;                                       same procedure-vs-pair dispatch
+;;                                       on the result
 ;;
-;; Auto-wrapping makes `(key "x" "Launch" (launch-app "X"))` Just Work
-;; without an explicit lambda. Procedures that build thunks (instead of
-;; firing immediately) won't work under the macro form — use the bare
-;; identifier or an explicit lambda in that case.
+;; The third-arg call form is evaluated AT TREE-BUILD TIME. That works
+;; cleanly for factories that return values without side effects (a
+;; selector node, a thunk that fires the action later). It does NOT
+;; defer side-effecting calls — for `(launch-app "X")` and friends,
+;; wrap in an explicit `(lambda () …)` so the action fires on key press
+;; rather than at config load. Symmetric thunk-returning helpers like
+;; `keystroke` can be used directly: `(keystroke '(cmd) "c")` returns
+;; a procedure, so it lands cleanly as the action.
 (define-syntax key
-  (syntax-rules (lambda overlay group)
-    ((_ k label (overlay arg ...))
-     (decorate-node k label (overlay arg ...)))
-    ((_ k label (group arg ...))
-     (decorate-node k label (group arg ...)))
+  (syntax-rules (lambda λ)
     ((_ k label (lambda formals body ...) opts ...)
      (key-cmd k label (lambda formals body ...) opts ...))
+    ((_ k label (λ formals body ...) opts ...)
+     (key-cmd k label (lambda formals body ...) opts ...))
     ((_ k label (fn arg ...) opts ...)
-     (key-cmd k label (lambda () (fn arg ...)) opts ...))
+     (key-build k label (fn arg ...) opts ...))
     ((_ k label id opts ...)
-     (key-cmd k label id opts ...))))
+     (key-build k label id opts ...))))
+
+;; (λ formals body ...) — Unicode alias for `lambda`. Useful for keeping
+;; `(key K L (λ () (foo)))` compact in configs. Expands to `(lambda …)`.
+(define-syntax λ
+  (syntax-rules ()
+    ((_ formals body ...) (lambda formals body ...))))
+
+;; Runtime dispatch helper for `key`. Inspects the evaluated value:
+;;   - procedure  → command with action = procedure
+;;   - pair       → node, decorated with K/L (selector/group/overlay/…)
+;; Anything else is a misuse — a side-effecting call that should have
+;; been wrapped in `(lambda () …)`.
+(define (key-build k label value . opts)
+  (cond
+    ((procedure? value) (apply key-cmd k label value opts))
+    ((pair? value) (decorate-node k label value))
+    (else
+     (error "key: third arg must be a procedure or a node (was neither — wrap a side-effecting call in (lambda () …))" value))))
 
 ;; The runtime helper invoked by the `key` macro for command shapes.
 ;; Keep the alist-building logic here so the macro stays purely

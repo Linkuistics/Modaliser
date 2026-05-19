@@ -53,33 +53,37 @@
 
 (define-tree 'global
 
-  (settings:actions)
+  ;; `key`'s third arg is evaluated at config-load: if it returns a
+  ;; procedure, that's the action thunk; if it returns a pair (a node
+  ;; alist), the node is decorated with this key/label. For inline
+  ;; side-effecting calls like (launch-app "X"), wrap in (lambda () …)
+  ;; so the call fires on key press rather than at config-load.
 
-  (space:switch-actions)
+  ;; Factory-returned nodes — call site decides the binding key/label.
+  (key "," "Settings"         (settings:actions))
+  (space:switch-actions)      ; key-range; binds many keys at once
 
-  ;; Quick-launch keys. `key` is a macro that auto-wraps a procedure-
-  ;; call third argument into a thunk, so (launch-app "X") fires on key
-  ;; press instead of at config-load. Use an explicit (lambda () …) for
-  ;; multi-step actions or `'sticky-target` tails.
-  (key "b" "Browser - Dia"    (launch-app "Dia"))
-  (key "e" "Editor - Zed"     (launch-app "Zed"))
-  (key "t" "Terminal - iTerm" (launch-app "iTerm"))
+  ;; Quick-launch keys — λ (Unicode lambda) is exported from
+  ;; (modaliser dsl) as an alias for `lambda` so these stay compact.
+  (key "b" "Browser - Dia"    (λ () (launch-app "Dia")))
+  (key "e" "Editor - Zed"     (λ () (launch-app "Zed")))
+  (key "t" "Terminal - iTerm" (λ () (launch-app "iTerm")))
 
-  (key "j" "Jump Desktop"  (launch-app "Jump Desktop"))
+  (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
 
-  (key "c" "ChatGPT"        (launch-app "ChatGPT"))
-  (key "C" "Claude Desktop" (launch-app "Claude"))
+  (key "c" "ChatGPT"          (λ () (launch-app "ChatGPT")))
+  (key "C" "Claude Desktop"   (λ () (launch-app "Claude")))
 
-  (key "m" "Mail"  (launch-app "Mail"))
-  (key "n" "Notes" (launch-app "Notes"))
+  (key "m" "Mail"             (λ () (launch-app "Mail")))
+  (key "n" "Notes"            (λ () (launch-app "Notes")))
 
-  (key "o" "Obsidian" (launch-app "Obsidian"))
-  (key "z" "Zotero"   (launch-app "Zotero"))
+  (key "o" "Obsidian"         (λ () (launch-app "Obsidian")))
+  (key "z" "Zotero"           (λ () (launch-app "Zotero")))
 
-  (web-search:google)
-
-  (launcher:find-application)
-  (launcher:find-file)
+  ;; Selector factories — pair-returning, so dispatch decorates.
+  (key "g" "Google"           (web-search:google))
+  (key "a" "Find Application" (launcher:find-application))
+  (key "f" "Find File"        (launcher:find-file))
 
   ;; Window manager overlay ("w"). Each block is declared explicitly so
   ;; the structure of the overlay is visible at the config level. Swap
@@ -104,7 +108,7 @@
           'prompt "Select window…"
           'source list-windows
           'on-select focus-window)
-        (key "r" "Restore" (restore-window)))
+        (key "r" "Restore" (λ () (restore-window))))
       ;; Bottom: labelled windows list. The presence of 'chip-options
       ;; (even '()) enables the on-screen window chips; the alist value
       ;; supplies overrides. Other keys (font-size, padding, color,
