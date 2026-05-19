@@ -145,17 +145,20 @@
     ;; the .chip rule in base.css + ~/.config/modaliser/overlay.css. The
     ;; old 'hint-options keyword raises a migration error.
     (define (rebuild-tree! . opts)
-      (let* ((alist        (apply props->alist opts))
-             (labels       (alist-ref alist 'pane-labels default-pane-labels))
-             (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
-             (sticky-id    (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
-             (raw-panes    (ax-find-elements-named
-                             "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
-             (panes        (label-pairs labels raw-panes))
-             (session-ids  (iterm-list-session-ids)))
+      (let ((alist (apply props->alist opts)))
+        ;; Guard runs before any AX / AppleScript work so a stale config
+        ;; passing the legacy keyword fails fast instead of paying the
+        ;; full discovery cost first.
         (when (assoc 'hint-options alist)
           (error
             "rebuild-tree!: 'hint-options removed — edit .chip in ~/.config/modaliser/overlay.css instead"))
+        (let* ((labels       (alist-ref alist 'pane-labels default-pane-labels))
+               (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
+               (sticky-id    (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
+               (raw-panes    (ax-find-elements-named
+                               "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
+               (panes        (label-pairs labels raw-panes))
+               (session-ids  (iterm-list-session-ids)))
         (apply define-tree 'com.googlecode.iterm2
           'on-enter (lambda ()
                       (hints-show
@@ -186,7 +189,7 @@
                 (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
                 (key "j" "Down"  (keystroke '(cmd ctrl shift) "j"))
                 (key "k" "Up"    (keystroke '(cmd ctrl shift) "k"))
-                (key "l" "Right" (keystroke '(cmd ctrl shift) "l"))))))))
+                (key "l" "Right" (keystroke '(cmd ctrl shift) "l")))))))))
 
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
     ;; the transient tree via any of its hjkl keys (each carries a

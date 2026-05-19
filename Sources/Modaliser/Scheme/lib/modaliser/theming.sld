@@ -37,7 +37,10 @@
 (define-library (modaliser theming)
   (export current-chip-theme
           theming-set-css-source!
-          run-chip-theme-probe!)
+          run-chip-theme-probe!
+          ;; Exposed so tests can verify the probe-result coercion
+          ;; without spinning up a real WKWebView.
+          coerce-chip-alist)
   (import (scheme base)
           (modaliser util)
           (modaliser webview))
@@ -162,6 +165,33 @@
         "<script>" probe-script "</script>"
         "</body></html>"))
 
+    ;; Keys whose values MUST round-trip as Scheme exact integers so
+    ;; HintsLibrary.swift's SchemeAlistLookup.lookupFixnum (which only
+    ;; matches .fixnum, not .flonum) accepts them. JS parseFloat returns
+    ;; a Number; WKScriptMessage bridges those to NSNumber, which Swift
+    ;; may decode as .fixnum (integer-valued) or .flonum (any other
+    ;; value, e.g. when the user writes `font-size: 56.5px`). Coerce to
+    ;; .fixnum at probe-receive time so the bridging quirk and the
+    ;; user-CSS edge cases both resolve to the painter-required type in
+    ;; one place. offset-{x,y}-frac stay as-is — they're multipliers
+    ;; consumed by Scheme arithmetic, never by lookupFixnum.
+    (define integer-chip-keys
+      '(font-size padding corner-radius border-width))
+
+    (define (coerce-chip-alist alist)
+      (let loop ((rest alist) (acc '()))
+        (cond
+          ((null? rest) (reverse acc))
+          (else
+           (let* ((entry (car rest))
+                  (k (car entry))
+                  (v (cdr entry))
+                  (coerced
+                    (if (and (number? v) (memq k integer-chip-keys))
+                      (cons k (exact (round v)))
+                      entry)))
+             (loop (cdr rest) (cons coerced acc)))))))
+
     ;; Message handler. Gate on type so spurious messages (e.g. the
     ;; {type:"cancel"} the WebViewManager dispatches on outside-clicks
     ;; for non-activating panels) don't poison the cache.
@@ -173,8 +203,10 @@
             ;; LispKit excludes set-cdr! (per
             ;; feedback_lispkit_no_mutable_pairs) — assign fresh alists
             ;; with set! rather than mutating in place.
-            (when (pair? normal) (set! chip-theme-normal normal))
-            (when (pair? faded)  (set! chip-theme-faded  faded))
+            (when (pair? normal)
+              (set! chip-theme-normal (coerce-chip-alist normal)))
+            (when (pair? faded)
+              (set! chip-theme-faded  (coerce-chip-alist faded)))
             (webview-close probe-panel-id)))))
 
     ;; Spawn the probe. Panel is 100×100 (just big enough that WKWebView
