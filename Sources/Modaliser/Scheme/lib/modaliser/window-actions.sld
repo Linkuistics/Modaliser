@@ -1,14 +1,14 @@
 ;; (modaliser window-actions) — windows-overlay block constructors.
 ;;
-;; Provides the `overlay` group constructor + the high-level block
-;; wrappers users compose in their config:
+;; Provides the high-level block wrappers users compose with the
+;; generic (overlay …) constructor from (modaliser dsl):
 ;;
 ;;   (import (modaliser dsl)
 ;;           (modaliser blocks which-key)               ; make-which-key-block
 ;;           (prefix (modaliser window-actions) window:))
 ;;
 ;;   (define-tree 'global
-;;     (window:overlay 'key "w" 'label "Windows"
+;;     (overlay 'key "w" 'label "Windows"
 ;;       (window:default-layout-block)
 ;;       (make-which-key-block
 ;;         (selector "n" "Named…" 'prompt "Select window…"
@@ -17,15 +17,14 @@
 ;;         (key "r" "Restore" (lambda () (restore-window))))
 ;;       (window:list-block 'show-chips #t)))
 ;;
-;; The overlay constructor: opts ('key, 'label) then positional blocks.
-;; Each block declares its own 'block-children for dispatch; overlay
+;; Each block carries its dispatch keys as 'block-children; overlay
 ;; lifts them onto the group's 'children so the state machine routes
-;; keys correctly. Auto-applies 'on-leave (hints-hide) so chips clear
-;; when the overlay closes.
+;; keys correctly. The window-list block (with 'show-chips #t) also
+;; carries its own 'on-leave-fn that calls (hints-hide) — chip cleanup
+;; lives with the block that paints chips, not at the overlay level.
 
 (define-library (modaliser window-actions)
-  (export overlay
-          layout-block
+  (export layout-block
           default-layout-block
           list-block
           divisions
@@ -34,7 +33,6 @@
           (modaliser dsl)
           (modaliser util)
           (modaliser window)
-          (modaliser hints)
           (modaliser diagram-panel)
           (modaliser blocks window-diagram)
           (modaliser blocks window-list))
@@ -146,41 +144,5 @@
       (let ((base (apply make-window-list-block opts)))
         (append base (list (cons 'block-children
                                  (list (window-range)))))))
-
-    ;; ─── Group constructor ─────────────────────────────────────
-
-    ;; (overlay . args) → group node with 'renderer 'blocks
-    ;;
-    ;; Leading args are keyword/value opt pairs ('key STRING,
-    ;; 'label STRING). Positional args after the opts are blocks —
-    ;; alists carrying ('type . SYM) and optionally ('block-children
-    ;; . LIST). The block-children from every block are lifted into the
-    ;; group's 'children so the state machine dispatches them. The
-    ;; group auto-applies 'on-leave (hints-hide) so any painted chips
-    ;; clear when the overlay closes.
-    (define (overlay . args)
-      (let loop ((rest args) (key #f) (label #f))
-        (cond
-          ;; Recognised opts consume two args.
-          ((and (pair? rest) (eq? (car rest) 'key) (pair? (cdr rest)))
-           (loop (cddr rest) (cadr rest) label))
-          ((and (pair? rest) (eq? (car rest) 'label) (pair? (cdr rest)))
-           (loop (cddr rest) key (cadr rest)))
-          ;; Everything from here is positional blocks.
-          (else
-           (let* ((blocks rest)
-                  (block-children
-                    (apply append
-                      (map (lambda (b)
-                             (let ((e (assoc 'block-children b)))
-                               (if e (cdr e) '())))
-                           blocks))))
-             (apply group
-                    (or key "w")
-                    (or label "Windows")
-                    'renderer 'blocks
-                    'blocks blocks
-                    'on-leave (lambda () (hints-hide))
-                    block-children))))))
 
     ))

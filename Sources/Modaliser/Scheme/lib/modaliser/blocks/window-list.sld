@@ -256,17 +256,25 @@
     ;;   set-cdr!, so live in-place mutation isn't an option — the
     ;;   thunk-resolver pattern is the documented fallback.
     (define (make-window-list-block . opts)
+      ;; Presence of 'chip-options (even '()) enables on-screen chips;
+      ;; absence means the block just renders the row list with no
+      ;; chip painting. The value supplies overrides that get merged
+      ;; into the block's chip styling defaults.
       (let* ((alist (apply props->alist opts))
-             (show-chips? (alist-ref alist 'show-chips #f))
-             (chip-overrides (alist-ref alist 'chip-options '()))
-             (chip-opts (merge-chip-options chip-overrides)))
+             (chip-entry (assoc 'chip-options alist)))
         (cond
-          (show-chips?
-            (list (cons 'type 'window-list)
-                  (cons 'on-render-fn
-                    (lambda ()
-                      (paint-and-snapshot! chip-opts)
-                      (list (cons 'windows current-windows-data))))))
+          (chip-entry
+            (let ((chip-opts (merge-chip-options (cdr chip-entry))))
+              ;; The block owns the chip lifecycle end-to-end:
+              ;;   on-render-fn paints chips and snapshots windows-data
+              ;;   on-leave-fn  clears the chips when the overlay closes
+              (list (cons 'type 'window-list)
+                    (cons 'on-render-fn
+                      (lambda ()
+                        (paint-and-snapshot! chip-opts)
+                        (list (cons 'windows current-windows-data))))
+                    (cons 'on-leave-fn
+                      (lambda () (hints-hide))))))
           (else
             (list (cons 'type 'window-list)
                   (cons 'windows '()))))))

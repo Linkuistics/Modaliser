@@ -82,7 +82,7 @@
   ;; the structure of the overlay is visible at the config level. Swap
   ;; in different (window:divisions …) matrices to change the layout,
   ;; or override chip-options to match your theme.
-  (window:overlay 'key "w" 'label "Windows"
+  (overlay 'key "w" 'label "Windows"
     ;; Top: panel grid + matching move-window key bindings.
     (window:layout-block
       ;; Row 1 of the panel grid.
@@ -101,13 +101,12 @@
         'source list-windows
         'on-select focus-window)
       (key "r" "Restore" (lambda () (restore-window))))
-    ;; Bottom: labelled windows list with on-screen chips.
-    (window:list-block 'show-chips #t
-      'chip-options (list
-        ;; All other chip options inherit from the block's built-in
-        ;; defaults — see (modaliser blocks window-list) for the full
-        ;; list (font-size, padding, color, faded-background, …).
-        (cons 'background the-color)))))
+    ;; Bottom: labelled windows list. The presence of 'chip-options
+    ;; (even '()) enables the on-screen window chips; the alist value
+    ;; supplies overrides. Other keys (font-size, padding, color,
+    ;; faded-background, …) inherit from the block's defaults — see
+    ;; (modaliser blocks window-list).
+    (window:list-block 'chip-options `((background . ,the-color)))))
 
 ;; ─── Per-app trees (F17 when that app is focused) ────────────────
 
@@ -118,4 +117,4 @@
 ;; everything else (label set, font, padding, etc.) defaults inside
 ;; the library.
 (iterm:register!
-  'hint-options (list (cons 'background the-color)))
+  'hint-options `((background . ,the-color)))

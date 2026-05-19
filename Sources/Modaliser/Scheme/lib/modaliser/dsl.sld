@@ -11,7 +11,7 @@
 
 (define-library (modaliser dsl)
   (export key key-range group selector action
-          category
+          category overlay
           define-tree set-theme!
           modifier-symbols->mask set-leader!
           ;; Re-exported from (modaliser state-machine) so user configs
@@ -143,6 +143,87 @@
   (list (cons 'kind 'category)
         (cons 'label label)
         (cons 'children children)))
+
+;; (overlay [keyword value]... block...) → group alist with 'renderer 'blocks
+;;
+;; Generic block-list group constructor. Opts:
+;;
+;;   'key      STRING  — leader key (default "?")
+;;   'label    STRING  — group label (default "Overlay")
+;;   'on-enter THUNK   — user-supplied enter hook (composed with block hooks)
+;;   'on-leave THUNK   — user-supplied leave hook (composed with block hooks)
+;;
+;; Positional args after the opts are block specs (alists carrying
+;; ('type . SYM)). Each block can opt into the modal lifecycle and
+;; dispatch via three optional fields read by `overlay`:
+;;
+;;   'block-children  — dispatch keys, lifted onto the group's 'children
+;;   'on-enter-fn     — thunk run when the overlay becomes visible
+;;   'on-leave-fn     — thunk run when the overlay closes
+;;
+;; User-supplied on-enter/on-leave run BEFORE the block-contributed
+;; ones, then each block's hooks fire in declaration order. on-render-fn
+;; is part of the rendering protocol (see ui/overlay.scm's
+;; block-list-payload-json), not collected here.
+(define (overlay . args)
+  (let loop ((rest args) (key #f) (label #f) (user-on-enter #f) (user-on-leave #f))
+    (cond
+      ((and (pair? rest) (eq? (car rest) 'key) (pair? (cdr rest)))
+       (loop (cddr rest) (cadr rest) label user-on-enter user-on-leave))
+      ((and (pair? rest) (eq? (car rest) 'label) (pair? (cdr rest)))
+       (loop (cddr rest) key (cadr rest) user-on-enter user-on-leave))
+      ((and (pair? rest) (eq? (car rest) 'on-enter) (pair? (cdr rest)))
+       (loop (cddr rest) key label (cadr rest) user-on-leave))
+      ((and (pair? rest) (eq? (car rest) 'on-leave) (pair? (cdr rest)))
+       (loop (cddr rest) key label user-on-enter (cadr rest)))
+      (else
+        ;; Everything from here is positional blocks.
+        (let* ((blocks rest)
+               (block-children
+                 (apply append
+                   (map (lambda (b)
+                          (let ((e (assoc 'block-children b)))
+                            (if e (cdr e) '())))
+                        blocks)))
+               (on-enter-fns
+                 (filter-fns blocks 'on-enter-fn))
+               (on-leave-fns
+                 (filter-fns blocks 'on-leave-fn))
+               (composed-on-enter
+                 (compose-hooks user-on-enter on-enter-fns))
+               (composed-on-leave
+                 (compose-hooks user-on-leave on-leave-fns)))
+          (apply group
+                 (or key "?")
+                 (or label "Overlay")
+                 'renderer 'blocks
+                 'blocks blocks
+                 'on-enter composed-on-enter
+                 'on-leave composed-on-leave
+                 block-children))))))
+
+;; Collect the procedure values of `tag` across `blocks`, preserving order.
+(define (filter-fns blocks tag)
+  (let loop ((rest blocks) (acc '()))
+    (cond
+      ((null? rest) (reverse acc))
+      (else
+        (let* ((b (car rest))
+               (e (assoc tag b))
+               (v (and e (cdr e))))
+          (loop (cdr rest)
+                (if (procedure? v) (cons v acc) acc)))))))
+
+;; Compose user-thunk (or #f) with a list of block thunks into a single
+;; thunk. Returns #f when nothing to run, so the state machine's
+;; node-on-enter/leave accessors see a clean #f rather than a no-op proc.
+(define (compose-hooks user-thunk block-thunks)
+  (cond
+    ((and (not user-thunk) (null? block-thunks)) #f)
+    (else
+      (lambda ()
+        (when user-thunk (user-thunk))
+        (for-each (lambda (fn) (fn)) block-thunks)))))
 
 ;; (selector k label . props) → selector alist
 (define (selector k label . props)
