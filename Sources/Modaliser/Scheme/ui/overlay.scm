@@ -207,7 +207,12 @@
 (define (back-available-for-path? path)
   (cond
     ((not (null? path)) #t)
-    ((and (in-sticky-context?) (not (null? modal-stack))) #t)
+    ;; Use modal-stack-empty? rather than reading modal-stack directly:
+    ;; LispKit captures a stale binding for top-level identifiers when
+    ;; referenced from a .scm file loaded outside a define-library. The
+    ;; accessor lives inside (modaliser state-machine), so it always
+    ;; reads the live mutable cell.
+    ((and (in-sticky-context?) (not (modal-stack-empty?))) #t)
     (else #f)))
 
 (define (footer-html-for-path path)

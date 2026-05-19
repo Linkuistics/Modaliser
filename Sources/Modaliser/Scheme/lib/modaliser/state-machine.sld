@@ -24,7 +24,7 @@
     modal-active? modal-current-node modal-root-node modal-current-path
     modal-leader-keycode modal-overlay-generation modal-overlay-delay
     overlay-target-aspect-ratio
-    modal-root-segments set-modal-root-segments! modal-stack
+    modal-root-segments set-modal-root-segments! modal-stack modal-stack-empty?
     modal-current-context modal-apply-context!
     ;; Modal lifecycle
     modal-enter modal-exit modal-step-back modal-handle-key
@@ -400,6 +400,12 @@
 ;; iTerm launcher tree → focus mode → backspace → launcher reappears).
 ;; Cleared by modal-exit so an Escape from any depth fully tears down.
 (define modal-stack '())
+
+;; Functional accessor. Reading `modal-stack` directly from .scm files
+;; loaded outside any library captures a stale binding under LispKit;
+;; procedures defined inside this library reliably see live mutations.
+;; Overlay code uses this to decide if backspace has somewhere to pop to.
+(define (modal-stack-empty?) (null? modal-stack))
 
 ;; Snapshot the current modal context for the stack.
 (define (modal-current-context)

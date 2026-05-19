@@ -11,6 +11,24 @@
   border-top: 1px solid var(--color-separator);
 }
 
+/* First block of the overlay needs no separator — there's nothing above
+ * it to separate from. Targets the first .block (regardless of which
+ * renderer it carries), scoped under the block-list body so unrelated
+ * .block-which-key usages outside the overlay aren't affected. */
+.overlay-custom-body[data-renderer="blocks"] > .block:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Two which-key blocks in a row visually belong together (the auto-pack
+ * split into uncategorised + categorised lives here) — suppress the
+ * separator line between them, but keep a bit of breathing room. */
+.block-which-key + .block-which-key {
+  border-top: 0;
+  padding-top: 0;
+}
+
 .block-which-key .wk-columns {
   /* CSS grid lets each segment claim one column cell and flow left to
    * right (row-major default), wrapping onto a new grid row when the
