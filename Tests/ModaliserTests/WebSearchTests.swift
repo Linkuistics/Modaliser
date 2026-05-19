@@ -182,10 +182,10 @@ struct WebSearchTests {
         // Open a dynamic chooser with web-search-handler
         try engine.evaluate("""
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler
-                'on-select web-search-on-select))
+                'on-select web-search-on-select)))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -216,10 +216,10 @@ struct WebSearchTests {
 
         try engine.evaluate("""
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler
-                'on-select web-search-on-select))
+                'on-select web-search-on-select)))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -241,10 +241,10 @@ struct WebSearchTests {
 
         try engine.evaluate("""
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler
-                'on-select web-search-on-select))
+                'on-select web-search-on-select)))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -278,10 +278,10 @@ struct WebSearchTests {
             (set-web-search-fetch! (lambda (url callback)
               (set! http-get-calls (cons url http-get-calls))))
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler
-                'on-select web-search-on-select))
+                'on-select web-search-on-select)))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -310,10 +310,10 @@ struct WebSearchTests {
 
         try engine.evaluate("""
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler
-                'on-select web-search-on-select))
+                'on-select web-search-on-select)))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")

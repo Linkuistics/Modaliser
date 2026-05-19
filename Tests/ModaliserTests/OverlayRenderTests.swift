@@ -55,12 +55,14 @@ struct OverlayRenderTests {
     @Test func renderOverlayBodyEmitsColumnCountStyle() throws {
         let engine = try loadOverlay()
         // 20 entries → 2 cols at default 1.6 ratio (see other test).
+        // Use a bare (group …) — top-level (define-tree …) now uses the
+        // block-list renderer; this test drives the default list renderer.
         let keys = "abcdefghijklmnopqrst"
         var bindings = ""
         for c in keys { bindings += "(key \"\(c)\" \"\(c)\" (lambda () 'ok)) " }
-        try engine.evaluate("(define-tree 'global \(bindings))")
+        try engine.evaluate("(define test-node (group \"g\" \"G\" \(bindings)))")
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html test-node '("Global") '())
             """).asString()
         #expect(html.contains("--overlay-cols: 2"),
                 "Expected --overlay-cols: 2 inline on .overlay-entries; got HTML did not match")
@@ -73,12 +75,12 @@ struct OverlayRenderTests {
         // across all entries regardless of which CSS-multi-column column
         // they land in.
         try engine.evaluate("""
-            (define-tree 'global
+            (define test-node (group "g" "G"
               (key "a" "Apple" (lambda () 'ok))
-              (key "abc" "Three-char" (lambda () 'ok)))
+              (key "abc" "Three-char" (lambda () 'ok))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html test-node '("Global") '())
             """).asString()
         #expect(html.contains("--entry-key-ch: 3"),
                 "Expected --entry-key-ch: 3 (widest key 'abc'); got HTML did not match")
@@ -89,12 +91,12 @@ struct OverlayRenderTests {
         // All single-char keys — the clamp keeps the key column at 2ch
         // for breathing room before the arrow track.
         try engine.evaluate("""
-            (define-tree 'global
+            (define test-node (group "g" "G"
               (key "a" "Apple" (lambda () 'ok))
-              (key "b" "Banana" (lambda () 'ok)))
+              (key "b" "Banana" (lambda () 'ok))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html test-node '("Global") '())
             """).asString()
         #expect(html.contains("--entry-key-ch: 2"))
     }
@@ -232,13 +234,13 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlSortsEntriesByKey() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (define test-node (group "g" "G"
               (key "z" "Zoom" (lambda () 'ok))
               (key "a" "Alacritty" (lambda () 'ok))
-              (key "m" "Messages" (lambda () 'ok)))
+              (key "m" "Messages" (lambda () 'ok))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html test-node '("Global") '())
             """).asString()
         // 'a' should appear before 'm', and 'm' before 'z'
         let aPos = html.range(of: "Alacritty")!.lowerBound
@@ -251,12 +253,12 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlShowsGroupWithEllipsis() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (define test-node (group "g" "G"
               (group "w" "Windows"
-                (key "c" "Center" (lambda () 'ok))))
+                (key "c" "Center" (lambda () 'ok)))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html test-node '("Global") '())
             """).asString()
         // Group entries show label with ellipsis and group-label class
         #expect(html.contains("Windows \u{2026}"))
@@ -320,11 +322,11 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlEscapesLabelContent() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
-              (key "s" "Open <Script>" (lambda () 'ok)))
+            (define test-node (group "g" "G"
+              (key "s" "Open <Script>" (lambda () 'ok))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html test-node '("Global") '())
             """).asString()
         // Label should be HTML-escaped
         #expect(html.contains("&lt;Script&gt;"))

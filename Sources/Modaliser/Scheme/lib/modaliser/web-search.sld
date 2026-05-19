@@ -245,23 +245,19 @@
 
     ;; ─── Selector factory ────────────────────────────────────────
     ;;
-    ;; Drop-in selector node for the global tree:
+    ;; Returns an undecorated selector node. Bind it via the call site:
     ;;
     ;;   (import (prefix (modaliser web-search) web-search:))
     ;;   (define-tree 'global
-    ;;     (web-search:google)
+    ;;     (key "g" "Google" (web-search:google))
     ;;     …)
     ;;
     ;; Options:
-    ;;   'key    — leader key (default "g")
-    ;;   'label  — overlay label (default "Google Search")
     ;;   'prompt — chooser prompt (default "Search Google…")
     (define (google . opts)
       (let* ((alist  (apply props->alist opts))
-             (key-   (alist-ref alist 'key "g"))
-             (label  (alist-ref alist 'label "Google Search"))
              (prompt (alist-ref alist 'prompt "Search Google…")))
-        (selector key- label
+        (selector
           'prompt prompt
           'dynamic-search web-search-handler
           'on-select web-search-on-select)))))

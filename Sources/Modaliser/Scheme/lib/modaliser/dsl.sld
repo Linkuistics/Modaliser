@@ -10,7 +10,7 @@
 ;; only (scheme …) and other (modaliser …) — no host-specific libraries.
 
 (define-library (modaliser dsl)
-  (export key key-range group selector action
+  (export key key-range keys group selector action
           category overlay
           λ
           define-tree set-theme!
@@ -22,7 +22,8 @@
           (scheme bitwise)
           (modaliser state-machine)
           (modaliser event-dispatch)
-          (modaliser keyboard))
+          (modaliser keyboard)
+          (modaliser blocks which-key))
   (begin
 
 ;; Pure Scheme node constructors for the command tree. These produce
@@ -147,6 +148,133 @@
         (cons 'label label)
         (cons 'action action-fn)))
 
+;; (keys KEYLIST LABEL ACTION-FN [keyword value]...) → range-command alist
+;;
+;; Higher-level surface form for binding many keys to one labelled action.
+;; ACTION-FN is invoked as (ACTION-FN matched-key index keylist) so the
+;; action can branch on slot without closing over the list itself.
+;;
+;; KEYLIST supports two abbreviations alongside literal lists:
+;;
+;;   '("a" .. "z")   — inclusive single-char range, by code point
+;;   '("1" ..)       — open-ended digit range; expands to "n".."9"
+;;
+;; The display-key in the overlay is derived from the expanded keylist:
+;;
+;;   contiguous chars        → "<first>..<last>"      e.g. "a..c"
+;;   digit range ending at 9 → "<first>.."             e.g. "1.."
+;;   otherwise               → "/"-joined keys          e.g. "a/c/e"
+;;
+;; Examples:
+;;   (keys '("1" ..) "Goto Space <n>"
+;;     (lambda (k i ks) (send-keystroke '(ctrl) k)))
+;;
+;; Optional trailing keyword/value pairs:
+;;   'display-key STRING — override the computed display key
+(define (keys keylist label action-fn . opts)
+  (let* ((expanded (expand-key-range keylist)))
+    (let loop ((rest opts) (display #f))
+      (cond
+        ((null? rest)
+         (let ((disp (or display (compute-keys-display expanded))))
+           (key-range disp label expanded
+             (lambda (k)
+               (let scan ((tail expanded) (i 0))
+                 (cond
+                   ((null? tail)          (action-fn k -1 expanded))
+                   ((equal? (car tail) k) (action-fn k i  expanded))
+                   (else                  (scan (cdr tail) (+ i 1)))))))))
+        ((or (null? (cdr rest)) (not (symbol? (car rest))))
+         (error "keys: expected trailing keyword/value pairs" rest))
+        ((eq? (car rest) 'display-key)
+         (loop (cddr rest) (cadr rest)))
+        (else
+         (error "keys: unknown keyword" (car rest)))))))
+
+;; Expand `..` shorthand inside a keylist:
+;;   ("X" .. "Y" rest…) → splice (X X+1 … Y) before rest
+;;   ("X" ..)           → splice (X X+1 … "9") when X is a digit
+;; Plain entries pass through unchanged. Non-matching uses of `..` raise.
+(define (expand-key-range keylist)
+  (cond
+    ((null? keylist) '())
+    ((null? (cdr keylist)) keylist)
+    ((eq? (cadr keylist) '..)
+     (cond
+       ;; ("X" ..) — trailing open-end. Requires X to be a single digit.
+       ((null? (cddr keylist))
+        (if (digit-key? (car keylist))
+          (char-range-strings (car keylist) "9")
+          (error "keys: trailing `..` requires a digit start key" (car keylist))))
+       ;; ("X" .. "Y" rest…) — generic inclusive range.
+       ((and (string? (car keylist)) (string? (car (cddr keylist)))
+             (= 1 (string-length (car keylist)))
+             (= 1 (string-length (car (cddr keylist)))))
+        (append (char-range-strings (car keylist) (car (cddr keylist)))
+                (expand-key-range (cdr (cddr keylist)))))
+       (else
+        (error "keys: `..` must sit between two single-char strings or trail a digit"
+               keylist))))
+    (else (cons (car keylist) (expand-key-range (cdr keylist))))))
+
+(define (digit-key? s)
+  (and (string? s) (= 1 (string-length s))
+       (let ((c (char->integer (string-ref s 0))))
+         (and (>= c 48) (<= c 57)))))
+
+(define (char-range-strings from to)
+  (let ((a (char->integer (string-ref from 0)))
+        (b (char->integer (string-ref to 0))))
+    (when (> a b)
+      (error "keys: `..` range is empty (from > to)" from to))
+    (let loop ((i b) (out '()))
+      (if (< i a) out (loop (- i 1) (cons (string (integer->char i)) out))))))
+
+;; Pick the overlay display key from an already-expanded keylist.
+;; Singletons render as the key itself; contiguous single-char runs render
+;; as "<first>..<last>" (or "<first>.." for digit runs ending at "9");
+;; everything else falls through to a "/"-joined list.
+(define (compute-keys-display keylist)
+  (cond
+    ((null? keylist) "")
+    ((null? (cdr keylist)) (car keylist))
+    ((all-single-char? keylist)
+     (let* ((first (car keylist))
+            (last  (last-of keylist)))
+       (cond
+         ((not (contiguous-single-chars? keylist))
+          (slash-join keylist))
+         ((and (digit-key? first) (string=? last "9"))
+          (string-append first ".."))
+         (else
+          (string-append first ".." last)))))
+    (else (slash-join keylist))))
+
+(define (all-single-char? lst)
+  (or (null? lst)
+      (and (string? (car lst))
+           (= 1 (string-length (car lst)))
+           (all-single-char? (cdr lst)))))
+
+(define (contiguous-single-chars? lst)
+  (let loop ((rest lst) (prev #f))
+    (cond
+      ((null? rest) #t)
+      ((not prev)
+       (loop (cdr rest) (char->integer (string-ref (car rest) 0))))
+      (else
+       (let ((c (char->integer (string-ref (car rest) 0))))
+         (and (= c (+ prev 1)) (loop (cdr rest) c)))))))
+
+(define (last-of lst)
+  (if (null? (cdr lst)) (car lst) (last-of (cdr lst))))
+
+(define (slash-join lst)
+  (cond
+    ((null? lst) "")
+    ((null? (cdr lst)) (car lst))
+    (else (string-append (car lst) "/" (slash-join (cdr lst))))))
+
 ;; (group k label [keyword value]... . children) → group alist
 ;;
 ;; Optional leading keyword/value pairs. Recognized keywords:
@@ -248,8 +376,12 @@
       ((and (pair? rest) (eq? (car rest) 'on-leave) (pair? (cdr rest)))
        (loop (cddr rest) key label user-on-enter (cadr rest)))
       (else
-        ;; Everything from here is positional blocks.
-        (let* ((blocks rest)
+        ;; Everything from here is positional content. Consecutive
+        ;; node-forms (e.g. (key …)) are auto-packed into a single
+        ;; which-key-block; block forms pass through. This mirrors
+        ;; define-tree, so the same structural shorthand works inside
+        ;; nested overlays without explicit (which-key-block …).
+        (let* ((blocks (pack-node-runs rest))
                (block-children
                  (apply append
                    (map (lambda (b)
@@ -296,11 +428,14 @@
         (when user-thunk (user-thunk))
         (for-each (lambda (fn) (fn)) block-thunks)))))
 
-;; (selector k label . props) → selector alist
-(define (selector k label . props)
-  (let loop ((rest props) (entries (list (cons 'kind 'selector)
-                                         (cons 'key k)
-                                         (cons 'label label))))
+;; (selector . props) → selector alist (undecorated)
+;;
+;; Returns a selector node without 'key or 'label. Wrap with
+;; `(key K L (selector …))` to bind it; the wrapping `key` macro
+;; injects 'key/'label via `decorate-node`. Mirrors how `(key K L
+;; (overlay …))` works for groups.
+(define (selector . props)
+  (let loop ((rest props) (entries (list (cons 'kind 'selector))))
     (if (or (null? rest) (null? (cdr rest)))
       (reverse entries)
       (loop (cdr (cdr rest))
@@ -314,10 +449,82 @@
       (loop (cdr (cdr rest))
             (cons (cons (car rest) (car (cdr rest))) entries)))))
 
-;; (define-tree scope . children) → registers tree
-;; scope: symbol or string (e.g. 'global, 'com.apple.Safari)
-(define (define-tree scope . children)
-  (apply register-tree! scope children))
+;; (define-tree scope [keyword value]... . content) → registers tree
+;;
+;; A top-level tree behaves like an overlay: its content is a list of
+;; blocks (alists with 'type) interleaved with node-forms (alists with
+;; 'kind). Consecutive runs of node-forms are auto-packed into a single
+;; (which-key-block …), so a config can write
+;;
+;;   (define-tree 'global
+;;     (key "a" "X" …)
+;;     (key "b" "Y" …)
+;;     (key "w" "Windows" (overlay …)))
+;;
+;; and the three (key …) forms collapse into one which-key-block at the
+;; root. Blocks pass through untouched. The registered group carries
+;; 'renderer 'blocks so the top-level overlay always renders as a
+;; block-list — uniform with nested overlays.
+;;
+;; Optional leading keyword/value pairs (same set as register-tree!):
+;;   'on-enter THUNK / 'on-leave THUNK / 'sticky BOOL
+;;   'display-name STRING / 'exit-on-unknown BOOL
+(define (define-tree scope . args)
+  (let loop ((rest args)
+             (on-enter #f) (on-leave #f)
+             (sticky #f) (display-name #f) (exit-unk #f))
+    (cond
+      ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
+            (memq (car rest) '(on-enter on-leave sticky display-name exit-on-unknown)))
+       (case (car rest)
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky display-name exit-unk))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky display-name exit-unk))
+         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) display-name exit-unk))
+         ((display-name)    (loop (cddr rest) on-enter on-leave sticky (cadr rest) exit-unk))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky display-name (cadr rest)))))
+      (else
+        ;; rest is the positional content. Pack node-runs into which-key-blocks.
+        (let* ((blocks (pack-node-runs rest))
+               (block-children
+                 (apply append
+                   (map (lambda (b)
+                          (let ((e (assoc 'block-children b)))
+                            (if e (cdr e) '())))
+                        blocks)))
+               (on-enter-fns (filter-fns blocks 'on-enter-fn))
+               (on-leave-fns (filter-fns blocks 'on-leave-fn))
+               (composed-on-enter (compose-hooks on-enter on-enter-fns))
+               (composed-on-leave (compose-hooks on-leave on-leave-fns))
+               (head (append
+                       (if composed-on-enter (list 'on-enter composed-on-enter) '())
+                       (if composed-on-leave (list 'on-leave composed-on-leave) '())
+                       (if sticky            (list 'sticky sticky)              '())
+                       (if display-name      (list 'display-name display-name)  '())
+                       (if exit-unk          (list 'exit-on-unknown exit-unk)   '())
+                       (list 'renderer 'blocks 'blocks blocks))))
+          (apply register-tree! scope (append head block-children)))))))
+
+;; Partition `items` into a list of blocks. Consecutive node-forms
+;; (alists with a 'kind entry) are packed into a single which-key-block;
+;; block forms (alists with a 'type entry) pass through. Order preserved.
+(define (pack-node-runs items)
+  (let loop ((rest items) (pending '()) (out '()))
+    (cond
+      ((null? rest)
+       (reverse (if (null? pending)
+                  out
+                  (cons (apply which-key-block (reverse pending)) out))))
+      ((node-form? (car rest))
+       (loop (cdr rest) (cons (car rest) pending) out))
+      (else
+       (loop (cdr rest) '()
+             (cons (car rest)
+                   (if (null? pending)
+                     out
+                     (cons (apply which-key-block (reverse pending)) out))))))))
+
+(define (node-form? x)
+  (and (pair? x) (pair? (car x)) (assoc 'kind x) #t))
 
 ;; (set-theme! . args) → no-op stub for backward compatibility
 ;; Theming moves to CSS in Phase 3.

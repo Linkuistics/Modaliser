@@ -11,8 +11,8 @@
 ;; are short and collide easily with peer libraries):
 ;;   (import (prefix (modaliser launchers) launcher:))
 ;;   (define-tree 'global
-;;     (launcher:find-application)
-;;     (launcher:find-file)
+;;     (key "a" "Find Application" (launcher:find-application))
+;;     (key "f" "Find File"        (launcher:find-file))
 ;;     …)
 ;;
 ;; Both factories accept keyword-style options with defaults that match
@@ -33,17 +33,16 @@
 
     ;; ─── Applications selector ────────────────────────────────────
     ;;
+    ;; Returns an undecorated selector node. Bind it via the call site:
+    ;;   (key "a" "Find Application" (launcher:find-application))
+    ;;
     ;; Options:
-    ;;   'key           — leader key (default "a")
-    ;;   'label         — overlay label (default "Applications")
     ;;   'prompt        — chooser prompt (default "Find app…")
     ;;   'remember      — MRU bucket name; #f disables MRU (default "apps")
     ;;   'extra-actions — list of (action …) nodes appended to the defaults
 
     (define (find-application . opts)
       (let* ((alist    (apply props->alist opts))
-             (key-     (alist-ref alist 'key "a"))
-             (label    (alist-ref alist 'label "Applications"))
              (prompt   (alist-ref alist 'prompt "Find app…"))
              (remember (alist-ref alist 'remember "apps"))
              (extra    (alist-ref alist 'extra-actions '()))
@@ -64,7 +63,7 @@
                    'description "Copy app bundle identifier"
                    'run (lambda (c) (set-clipboard! (cdr (assoc 'bundleId c)))))))
              (actions (append defaults extra)))
-        (selector key- label
+        (selector
           'prompt prompt
           'source find-installed-apps
           'on-select activate-app
@@ -74,9 +73,10 @@
 
     ;; ─── Files selector ───────────────────────────────────────────
     ;;
+    ;; Returns an undecorated selector node. Bind it via the call site:
+    ;;   (key "f" "Find File" (launcher:find-file))
+    ;;
     ;; Options:
-    ;;   'key           — leader key (default "f")
-    ;;   'label         — overlay label (default "Files")
     ;;   'prompt        — chooser prompt (default "File…")
     ;;   'file-roots    — list of roots to search (default '("~"))
     ;;   'editor        — app name for the "Open in editor" action
@@ -85,8 +85,6 @@
 
     (define (find-file . opts)
       (let* ((alist      (apply props->alist opts))
-             (key-       (alist-ref alist 'key "f"))
-             (label      (alist-ref alist 'label "Files"))
              (prompt     (alist-ref alist 'prompt "File…"))
              (file-roots (alist-ref alist 'file-roots (list "~")))
              (editor     (alist-ref alist 'editor "Zed"))
@@ -112,7 +110,7 @@
                    'description (string-append "Open file in " editor)
                    'run (lambda (c) (open-with editor (cdr (assoc 'path c)))))))
              (actions (append defaults extra)))
-        (selector key- label
+        (selector
           'prompt prompt
           'file-roots file-roots
           'on-select open-path

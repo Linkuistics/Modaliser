@@ -22,9 +22,7 @@
         (prefix (modaliser settings-menu)   settings:)
         (prefix (modaliser launchers)       launcher:)
         (prefix (modaliser window-actions)  window:)
-        (modaliser blocks which-key)        ; which-key-block
         (modaliser window)                  ; list-windows, focus-window
-        (prefix (modaliser space-switching) space:)
         (prefix (modaliser web-search)      web-search:)
         (prefix (modaliser apps safari)     safari:)
         (prefix (modaliser apps iterm)      iterm:))
@@ -61,7 +59,14 @@
 
   ;; Factory-returned nodes — call site decides the binding key/label.
   (key "," "Settings"         (settings:actions))
-  (space:switch-actions)      ; key-range; binds many keys at once
+
+  ;; Bind digits 1..9 to macOS Space switching. `keys` is the multi-key
+  ;; sibling of `key`: one labelled row, action gets (key index keylist).
+  ;; `("1" ..)` expands to the open-ended digit range 1..9 and renders
+  ;; in the overlay as "1..". Requires "Mission Control → Switch to
+  ;; Desktop N" enabled in System Settings → Keyboard → Keyboard Shortcuts.
+  (keys '("1" ..) "Goto Space <n>"
+    (λ (k i ks) (send-keystroke '(ctrl) k)))
 
   ;; Quick-launch keys — λ (Unicode lambda) is exported from
   ;; (modaliser dsl) as an alias for `lambda` so these stay compact.
@@ -103,12 +108,13 @@
         (("m"))                                   ; maximise (full cell)
         (center "c"))                             ; centre (inward arrows)
       ;; Middle: which-key strip listing the remaining bindings.
-      (which-key-block
-        (selector "n" "Named…"
-          'prompt "Select window…"
-          'source list-windows
-          'on-select focus-window)
-        (key "r" "Restore" (λ () (restore-window))))
+      ;; Consecutive (key …) forms inside (overlay …) are auto-packed
+      ;; into a (which-key-block …); no explicit wrapper needed.
+      (key "n" "Named…"
+        (selector 'prompt "Select window…"
+                  'source list-windows
+                  'on-select focus-window))
+      (key "r" "Restore" (λ () (restore-window)))
       ;; Bottom: labelled windows list. The presence of 'chip-options
       ;; (even '()) enables the on-screen window chips; the alist value
       ;; supplies overrides. Other keys (font-size, padding, color,

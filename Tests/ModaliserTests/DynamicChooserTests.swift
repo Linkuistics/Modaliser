@@ -65,10 +65,10 @@ struct DynamicChooserTests {
             (define (my-dynamic-search query)
               (set! search-queries (cons query search-queries)))
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -91,10 +91,10 @@ struct DynamicChooserTests {
             (define (my-dynamic-search query)
               (set! search-queries (cons query search-queries)))
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -118,10 +118,10 @@ struct DynamicChooserTests {
             (define (my-dynamic-search query)
               (set! search-queries (cons query search-queries)))
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -148,10 +148,10 @@ struct DynamicChooserTests {
                 (list (list (cons 'text "Result A"))
                       (list (cons 'text "Result B")))))
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -177,10 +177,10 @@ struct DynamicChooserTests {
                 (list (list (cons 'text "Alpha"))
                       (list (cons 'text "Beta")))))
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -213,10 +213,10 @@ struct DynamicChooserTests {
                       (list (cons 'text "Second"))
                       (list (cons 'text "Third")))))
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
-                'on-select (lambda (item) (set! selected-item item))))
+                'on-select (lambda (item) (set! selected-item item)))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -244,10 +244,10 @@ struct DynamicChooserTests {
         try engine.evaluate("""
             (define (my-dynamic-search query) #t)
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -268,10 +268,10 @@ struct DynamicChooserTests {
                     (list (cons 'text "Chrome"))))
             (define (test-source) test-items)
             (define-tree 'global
-              (selector "a" "Find App"
+              (key "a" "Find App" (selector
                 'prompt "Find app…"
                 'source test-source
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
@@ -294,10 +294,10 @@ struct DynamicChooserTests {
                 (list (list (cons 'text "He said \\"hello\\""))
                       (list (cons 'text "Line1\\nLine2")))))
             (define-tree 'global
-              (selector "g" "Google"
+              (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t)))
+                'on-select (lambda (item) #t))))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
