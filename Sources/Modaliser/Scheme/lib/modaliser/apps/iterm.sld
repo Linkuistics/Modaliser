@@ -127,53 +127,66 @@
             "split " axis " with same profile' "
             "2>/dev/null"))))
 
-    ;; Split iTerm "before" the focused pane (new pane appears left
-    ;; or above). iTerm's AppleScript `split` verb has no `before`
-    ;; parameter, so we split "after" (right or below) — which always
-    ;; transfers focus to the new pane — then fire iTerm's
-    ;; Swap-With-Split-Pane-on-<direction> action via a keystroke.
-    ;; The swap exchanges the focused pane with its left/above
-    ;; neighbour, leaving the freshly-created pane in the desired
-    ;; "before" position with focus intact.
-    ;;
-    ;; Required iTerm key bindings (Settings → Keys → Key Bindings),
-    ;; shared with the Move Pane modal below:
-    ;;   Cmd+Ctrl+Shift+H → Swap With Split Pane on Left
-    ;;   Cmd+Ctrl+Shift+J → Swap With Split Pane Below
-    ;;   Cmd+Ctrl+Shift+K → Swap With Split Pane Above
-    ;;   Cmd+Ctrl+Shift+L → Swap With Split Pane on Right
-    ;;
-    ;; The send-keystroke path is reliable here because Swap-With-…
-    ;; lives in iTerm's GlobalKeyMap (not an NSMenu key equivalent),
-    ;; so CGEvent posting reaches it cleanly.
-    (define (iterm-split-before direction)
-      (cond
-        ((eq? direction 'left)
-         (iterm-split 'vertical)
-         (send-keystroke '(cmd ctrl shift) "h"))
-        ((eq? direction 'up)
-         (iterm-split 'horizontal)
-         (send-keystroke '(cmd ctrl shift) "k"))
-        (else (error "iterm-split-before: unknown direction" direction))))
+    ;; Return the UUID of iTerm's currently-focused session. iTerm's
+    ;; `split` verb leaves the new pane focused, so calling this
+    ;; immediately after iterm-split yields the freshly-created
+    ;; session's id — which the split-pane-* wrappers use to
+    ;; re-anchor focus on the new pane after intervening operations
+    ;; (the swap keystroke for left/up; Modaliser's overlay
+    ;; deactivate/reactivate cycle for any direction) may have
+    ;; shifted iTerm's "current session".
+    (define (iterm-current-session-id)
+      (string-trim
+        (run-shell
+          (string-append
+            "osascript -e 'tell application \"iTerm\" to "
+            "id of current session of current window' "
+            "2>/dev/null"))))
 
     ;; ─── Public pane operations ──────────────────────────────────
     ;;
     ;; Twelve 0-arg procedures that consumers can drop straight into
     ;; `(key ... ACTION ...)` slots without wrapping in a lambda. They
     ;; encapsulate the underlying mechanism (AppleScript split for
-    ;; right/down, AppleScript-split-then-swap for left/up, keystroke
-    ;; synthesis for focus/move) so config sites don't need to know
-    ;; which iTerm surface backs each direction.
+    ;; right/down, AppleScript-split-then-swap-then-refocus for left/up,
+    ;; keystroke synthesis for focus/move) so config sites don't need
+    ;; to know which iTerm surface backs each direction.
+    ;;
+    ;; All four split-pane-* procs end by `select`-ing the new pane by
+    ;; UUID so callers can rely on the post-split focus contract:
+    ;; after split-pane-X, the freshly-created pane is focused.
+    ;;
+    ;; Required iTerm key bindings (Settings → Keys → Key Bindings),
+    ;; shared with the Move Pane modal:
+    ;;   Cmd+Ctrl+Shift+H → Swap With Split Pane on Left
+    ;;   Cmd+Ctrl+Shift+J → Swap With Split Pane Below
+    ;;   Cmd+Ctrl+Shift+K → Swap With Split Pane Above
+    ;;   Cmd+Ctrl+Shift+L → Swap With Split Pane on Right
 
     (define (focus-pane-left)  (send-keystroke '(cmd alt) "left"))
     (define (focus-pane-right) (send-keystroke '(cmd alt) "right"))
     (define (focus-pane-up)    (send-keystroke '(cmd alt) "up"))
     (define (focus-pane-down)  (send-keystroke '(cmd alt) "down"))
 
-    (define (split-pane-left)  (iterm-split-before 'left))
-    (define (split-pane-right) (iterm-split 'vertical))
-    (define (split-pane-up)    (iterm-split-before 'up))
-    (define (split-pane-down)  (iterm-split 'horizontal))
+    (define (split-pane-right)
+      (iterm-split 'vertical)
+      (iterm-select-session-by-id (iterm-current-session-id)))
+
+    (define (split-pane-down)
+      (iterm-split 'horizontal)
+      (iterm-select-session-by-id (iterm-current-session-id)))
+
+    (define (split-pane-left)
+      (iterm-split 'vertical)
+      (let ((new (iterm-current-session-id)))
+        (send-keystroke '(cmd ctrl shift) "h")
+        (iterm-select-session-by-id new)))
+
+    (define (split-pane-up)
+      (iterm-split 'horizontal)
+      (let ((new (iterm-current-session-id)))
+        (send-keystroke '(cmd ctrl shift) "k")
+        (iterm-select-session-by-id new)))
 
     (define (move-pane-left)  (send-keystroke '(cmd ctrl shift) "h"))
     (define (move-pane-right) (send-keystroke '(cmd ctrl shift) "l"))
@@ -262,8 +275,9 @@
                 (key "k" "Up"    focus-pane-up    'sticky-target sticky-id)
                 (key "l" "Right" focus-pane-right 'sticky-target sticky-id))
               ;; Right/down split directly; left/up split-then-swap.
-              ;; See split-pane-* and iterm-split-before for the iTerm
-              ;; key bindings the split-before path depends on.
+              ;; All four refocus the new pane by UUID — see
+              ;; split-pane-* for the iTerm bindings the swap step
+              ;; depends on.
               (group "x" "Split"
                 (key "h" "Left"  split-pane-left)
                 (key "j" "Down"  split-pane-down)
