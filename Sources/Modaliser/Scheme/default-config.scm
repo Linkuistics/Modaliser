@@ -135,9 +135,26 @@
 ;; overlay open, so panes added or moved between presses Just Work
 ;; without a separate tree rebuild step.
 ;;
-;; The hjkl bindings carry 'sticky-target so the first press lands in
-;; the sticky 'iterm-panes-focus mode (defined below), then keeps
-;; moving without another leader.
+;; Splits and pane moves rely on these iTerm key bindings — set them
+;; once in iTerm → Settings → Keys → Key Bindings:
+;;   Cmd+Ctrl+Shift+H → Swap With Split Pane on Left
+;;   Cmd+Ctrl+Shift+J → Swap With Split Pane Below
+;;   Cmd+Ctrl+Shift+K → Swap With Split Pane Above
+;;   Cmd+Ctrl+Shift+L → Swap With Split Pane on Right
+
+;; AppleScript split helper — iTerm's AppleScript split verb supports
+;; only "after" directions (new pane on the right or below). Firing
+;; via osascript means the split doesn't depend on any iTerm key
+;; binding (unlike Cmd+D / Cmd+Shift+D, which are NSMenu shortcuts
+;; that don't fire reliably from synthesized CGEvents).
+(define (iterm-split direction)
+  (let ((axis (if (eq? direction 'horizontal) "horizontally" "vertically")))
+    (run-shell
+      (string-append
+        "osascript -e 'tell application \"iTerm\" to "
+        "tell current session of current window to "
+        "split " axis " with same profile' 2>/dev/null"))))
+
 (define-tree 'com.googlecode.iterm2
 
   (key "c" "Copy Mode"   (λ () (send-keystroke '(cmd shift) "c")))
@@ -157,7 +174,23 @@
     (key "l" "Right" (λ () (send-keystroke '(cmd alt) "right"))
       'sticky-target 'iterm-panes-focus))
 
+  ;; Right/down: AppleScript split directly. Left/up: split-after then
+  ;; fire Swap-With-Split-Pane-on-<dir> to land the new pane in the
+  ;; "before" position with focus intact (AppleScript's split verb
+  ;; has no `before` parameter).
   (group "x" "Split"
+    (key "h" "Left"  (λ () (iterm-split 'vertical)
+                            (send-keystroke '(cmd ctrl shift) "h")))
+    (key "j" "Down"  (λ () (iterm-split 'horizontal)))
+    (key "k" "Up"    (λ () (iterm-split 'horizontal)
+                            (send-keystroke '(cmd ctrl shift) "k")))
+    (key "l" "Right" (λ () (iterm-split 'vertical))))
+
+  ;; Move Pane sticky modal — m enters the group, hjkl swap the focused
+  ;; pane in that direction and stay; any other key exits.
+  (group "m" "Move Pane"
+    'sticky #t
+    'exit-on-unknown #t
     (key "h" "Left"  (λ () (send-keystroke '(cmd ctrl shift) "h")))
     (key "j" "Down"  (λ () (send-keystroke '(cmd ctrl shift) "j")))
     (key "k" "Up"    (λ () (send-keystroke '(cmd ctrl shift) "k")))
