@@ -216,8 +216,27 @@ function bootstrapCustomBody() {
   }
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', bootstrapCustomBody);
-} else {
+// Default-renderer counterpart to bootstrapCustomBody. The Scheme side
+// emits data-cols / data-key-ch on .overlay-entries; promote them to
+// the --overlay-cols / --entry-key-ch custom properties the CSS reads.
+// Mirrors the update-path code in the list renderer above. Until this
+// runs, base.css fallbacks (1 col, 2ch) cover the first-paint window.
+function applyOverlayEntryProps() {
+  var ul = document.querySelector('.overlay-entries');
+  if (!ul) return;
+  var cols = ul.dataset.cols;        // data-cols
+  var keyCh = ul.dataset.keyCh;      // data-key-ch (kebab → camel)
+  if (cols) ul.style.setProperty('--overlay-cols', cols);
+  if (keyCh) ul.style.setProperty('--entry-key-ch', keyCh);
+}
+
+function bootstrapInitialRender() {
   bootstrapCustomBody();
+  applyOverlayEntryProps();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootstrapInitialRender);
+} else {
+  bootstrapInitialRender();
 }

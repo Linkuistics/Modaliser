@@ -52,7 +52,7 @@ struct OverlayRenderTests {
         }
     }
 
-    @Test func renderOverlayBodyEmitsColumnCountStyle() throws {
+    @Test func renderOverlayBodyEmitsColumnCountAttr() throws {
         let engine = try loadOverlay()
         // 20 entries → 2 cols at default 1.6 ratio (see other test).
         // Use a bare (group …) — top-level (define-tree …) now uses the
@@ -64,8 +64,8 @@ struct OverlayRenderTests {
         let html = try engine.evaluate("""
             (render-overlay-html test-node '("Global") '())
             """).asString()
-        #expect(html.contains("--overlay-cols: 2"),
-                "Expected --overlay-cols: 2 inline on .overlay-entries; got HTML did not match")
+        #expect(html.contains("data-cols=\"2\""),
+                "Expected data-cols=\"2\" attribute on .overlay-entries; got HTML did not match")
     }
 
     @Test func renderOverlayBodyEmitsKeyChFromWidestKey() throws {
@@ -82,8 +82,8 @@ struct OverlayRenderTests {
         let html = try engine.evaluate("""
             (render-overlay-html test-node '("Global") '())
             """).asString()
-        #expect(html.contains("--entry-key-ch: 3"),
-                "Expected --entry-key-ch: 3 (widest key 'abc'); got HTML did not match")
+        #expect(html.contains("data-key-ch=\"3\""),
+                "Expected data-key-ch=\"3\" attribute (widest key 'abc'); got HTML did not match")
     }
 
     @Test func renderOverlayBodyKeyChClampsToTwo() throws {
@@ -98,7 +98,7 @@ struct OverlayRenderTests {
         let html = try engine.evaluate("""
             (render-overlay-html test-node '("Global") '())
             """).asString()
-        #expect(html.contains("--entry-key-ch: 2"))
+        #expect(html.contains("data-key-ch=\"2\""))
     }
 
     @Test func overlayColumnCountFollowsTargetAspectRatio() throws {

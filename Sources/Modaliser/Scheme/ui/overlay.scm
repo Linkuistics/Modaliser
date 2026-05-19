@@ -258,11 +258,12 @@
          (n-items  (length sorted))
          (n-cols   (overlay-column-count n-items))
          (key-ch   (max-key-chars sorted))
+         ;; overlay.js promotes these to --overlay-cols / --entry-key-ch
+         ;; custom properties on initial render, mirroring the update path.
          (entries-attrs
            (list (cons 'class "overlay-entries")
-                 (cons 'style
-                   (string-append "--overlay-cols: "  (number->string n-cols)
-                                  "; --entry-key-ch: " (number->string key-ch))))))
+                 (cons 'data-cols   (number->string n-cols))
+                 (cons 'data-key-ch (number->string key-ch)))))
     (div (list (cons 'class cls))
       (render-header-breadcrumb "overlay-header" segments)
       (apply ul (cons entries-attrs (map render-entry sorted)))
