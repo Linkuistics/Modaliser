@@ -4,13 +4,13 @@
 ;; generic (overlay …) constructor from (modaliser dsl):
 ;;
 ;;   (import (modaliser dsl)
-;;           (modaliser blocks which-key)               ; make-which-key-block
+;;           (modaliser blocks which-key)               ; which-key-block
 ;;           (prefix (modaliser window-actions) window:))
 ;;
 ;;   (define-tree 'global
 ;;     (overlay 'key "w" 'label "Windows"
 ;;       (window:default-layout-block)
-;;       (make-which-key-block
+;;       (which-key-block
 ;;         (selector "n" "Named…" 'prompt "Select window…"
 ;;                                 'source list-windows
 ;;                                 'on-select focus-window)
@@ -82,33 +82,59 @@
 
     ;; ─── Block constructors ────────────────────────────────────
 
-    ;; (layout-block . panel-pairs) → block spec
-    ;; Each panel-pair is (panel-spec key-list) as returned by
-    ;; `divisions` or `center-panel`. Combines them into a single
-    ;; window-diagram block and attaches the union of all panel keys as
-    ;; 'block-children so overlay can lift them for dispatch.
-    (define (layout-block . panel-pairs)
-      (let* ((panel-specs (map car panel-pairs))
-             (panel-keys  (apply append (map cadr panel-pairs)))
+    ;; (layout-block form ...) → block spec
+    ;;
+    ;; Macro that quasiquotes each form so config authors can write
+    ;; matrices and (center K) directly without explicit quoting:
+    ;;
+    ;;   (layout-block
+    ;;     (("d" "f" "g"))                ; full thirds — matrix arg
+    ;;     (("D" "F" "G") ("C" "V" "B"))  ; half thirds — matrix arg
+    ;;     (center "c"))                  ; centre panel — head symbol
+    ;;
+    ;; Each form is dispatched at runtime by layout-form->pair:
+    ;;   - (center K)  → (center-panel K) — outer frame + inward arrows
+    ;;   - any other   → (divisions form) — interpreted as a matrix
+    ;;
+    ;; Forms are quasiquoted, so `,expr` injects a dynamic value:
+    ;;   (layout-block (center ,(my-centre-key)))
+    (define-syntax layout-block
+      (syntax-rules ()
+        ((_ form ...)
+         (compose-layout-block (list `form ...)))))
+
+    ;; Runtime helper invoked by the layout-block macro. Dispatches
+    ;; each form, combines the results into one window-diagram block
+    ;; with the matching dispatch keys lifted to 'block-children.
+    (define (compose-layout-block forms)
+      (let* ((pairs (map layout-form->pair forms))
+             (panel-specs (map car pairs))
+             (panel-keys  (apply append (map cadr pairs)))
              (base (make-window-diagram-block panel-specs)))
         (append base (list (cons 'block-children panel-keys)))))
+
+    (define (layout-form->pair form)
+      (cond
+        ((and (pair? form) (eq? (car form) 'center))
+         (center-panel (cadr form)))
+        ((pair? form)
+         (divisions form))
+        (else
+         (error "layout-block: unrecognised form" form))))
 
     ;; Default 6-panel layout matching the v19 mockup:
     ;;   Row 1: full thirds (d/f/g), half thirds (D/F/G over C/V/B),
     ;;          two two-thirds spans (e and t).
     ;;   Row 2: maximise fill (m), centre (c).
-    (define (default-divisions)
-      (list
-        (divisions '(("d" "f" "g")))           ; full thirds
-        (divisions '(("D" "F" "G")
-                     ("C" "V" "B")))           ; half thirds
-        (divisions '(("e" "e" #f)))            ; left two-thirds
-        (divisions '((#f "t" "t")))            ; right two-thirds
-        (divisions '(("m")))                   ; maximise
-        (center-panel "c")))                   ; centre
-
     (define (default-layout-block)
-      (apply layout-block (default-divisions)))
+      (layout-block
+        (("d" "f" "g"))                ; full thirds
+        (("D" "F" "G")
+         ("C" "V" "B"))                ; half thirds
+        (("e" "e" #f))                 ; left two-thirds
+        ((#f "t" "t"))                 ; right two-thirds
+        (("m"))                        ; maximise (full cell)
+        (center "c")))                 ; centre (inward arrows)
 
     ;; ─── Numbered window dispatch ──────────────────────────────
 

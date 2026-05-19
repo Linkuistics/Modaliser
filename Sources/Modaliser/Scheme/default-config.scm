@@ -22,7 +22,7 @@
         (prefix (modaliser settings-menu)   settings:)
         (prefix (modaliser launchers)       launcher:)
         (prefix (modaliser window-actions)  window:)
-        (modaliser blocks which-key)        ; make-which-key-block
+        (modaliser blocks which-key)        ; which-key-block
         (modaliser window)                  ; list-windows, focus-window
         (prefix (modaliser space-switching) space:)
         (prefix (modaliser web-search)      web-search:)
@@ -57,21 +57,24 @@
 
   (space:switch-actions)
 
-  ;; Quick-launch keys
-  (key "b" "Browser - Dia"    (lambda () (launch-app "Dia")))
-  (key "e" "Editor - Zed"     (lambda () (launch-app "Zed")))
-  (key "t" "Terminal - iTerm" (lambda () (launch-app "iTerm")))
+  ;; Quick-launch keys. `key` is a macro that auto-wraps a procedure-
+  ;; call third argument into a thunk, so (launch-app "X") fires on key
+  ;; press instead of at config-load. Use an explicit (lambda () …) for
+  ;; multi-step actions or `'sticky-target` tails.
+  (key "b" "Browser - Dia"    (launch-app "Dia"))
+  (key "e" "Editor - Zed"     (launch-app "Zed"))
+  (key "t" "Terminal - iTerm" (launch-app "iTerm"))
 
-  (key "j" "Jump Desktop"  (lambda () (launch-app "Jump Desktop")))
+  (key "j" "Jump Desktop"  (launch-app "Jump Desktop"))
 
-  (key "c" "ChatGPT"        (lambda () (launch-app "ChatGPT")))
-  (key "C" "Claude Desktop" (lambda () (launch-app "Claude")))
+  (key "c" "ChatGPT"        (launch-app "ChatGPT"))
+  (key "C" "Claude Desktop" (launch-app "Claude"))
 
-  (key "m" "Mail"  (lambda () (launch-app "Mail")))
-  (key "n" "Notes" (lambda () (launch-app "Notes")))
+  (key "m" "Mail"  (launch-app "Mail"))
+  (key "n" "Notes" (launch-app "Notes"))
 
-  (key "o" "Obsidian" (lambda () (launch-app "Obsidian")))
-  (key "z" "Zotero"   (lambda () (launch-app "Zotero")))
+  (key "o" "Obsidian" (launch-app "Obsidian"))
+  (key "z" "Zotero"   (launch-app "Zotero"))
 
   (web-search:google)
 
@@ -82,31 +85,32 @@
   ;; the structure of the overlay is visible at the config level. Swap
   ;; in different (window:divisions …) matrices to change the layout,
   ;; or override chip-options to match your theme.
-  (overlay 'key "w" 'label "Windows"
-    ;; Top: panel grid + matching move-window key bindings.
-    (window:layout-block
-      ;; Row 1 of the panel grid.
-      (window:divisions '(("d" "f" "g")))         ; full thirds
-      (window:divisions '(("D" "F" "G")
-                          ("C" "V" "B")))         ; half thirds
-      (window:divisions '(("e" "e" #f)))          ; left two-thirds
-      ;; Row 2 of the panel grid.
-      (window:divisions '((#f "t" "t")))          ; right two-thirds
-      (window:divisions '(("m")))                 ; maximise (full cell)
-      (window:center-panel "c"))                  ; centre (inward arrows)
-    ;; Middle: which-key strip listing the remaining bindings.
-    (make-which-key-block
-      (selector "n" "Named…"
-        'prompt "Select window…"
-        'source list-windows
-        'on-select focus-window)
-      (key "r" "Restore" (lambda () (restore-window))))
-    ;; Bottom: labelled windows list. The presence of 'chip-options
-    ;; (even '()) enables the on-screen window chips; the alist value
-    ;; supplies overrides. Other keys (font-size, padding, color,
-    ;; faded-background, …) inherit from the block's defaults — see
-    ;; (modaliser blocks window-list).
-    (window:list-block 'chip-options `((background . ,the-color)))))
+  (key "w" "Windows"
+    (overlay
+      ;; Top: panel grid + matching move-window key bindings. Each form
+      ;; is a matrix of keys (with #f for empty cells), or (center K)
+      ;; for the inward-arrows centre panel.
+      (window:layout-block
+        (("d" "f" "g"))                           ; full thirds
+        (("D" "F" "G")
+         ("C" "V" "B"))                           ; half thirds
+        (("e" "e" #f))                            ; left two-thirds
+        ((#f "t" "t"))                            ; right two-thirds
+        (("m"))                                   ; maximise (full cell)
+        (center "c"))                             ; centre (inward arrows)
+      ;; Middle: which-key strip listing the remaining bindings.
+      (which-key-block
+        (selector "n" "Named…"
+          'prompt "Select window…"
+          'source list-windows
+          'on-select focus-window)
+        (key "r" "Restore" (restore-window)))
+      ;; Bottom: labelled windows list. The presence of 'chip-options
+      ;; (even '()) enables the on-screen window chips; the alist value
+      ;; supplies overrides. Other keys (font-size, padding, color,
+      ;; faded-background, …) inherit from the block's defaults — see
+      ;; (modaliser blocks window-list).
+      (window:list-block 'chip-options `((background . ,the-color))))))
 
 ;; ─── Per-app trees (F17 when that app is focused) ────────────────
 

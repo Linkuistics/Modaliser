@@ -70,8 +70,12 @@
             (cons 'border-width 1)
             (cons 'border-color "black")))
 
+    ;; Immediate-fire wrapper for send-keystroke. Under the (modaliser
+    ;; dsl) `key` macro, (key K L (keystroke …)) auto-wraps the call
+    ;; into a thunk, so this can fire on invocation rather than build
+    ;; a thunk itself.
     (define (keystroke mods key-name)
-      (lambda () (send-keystroke mods key-name)))
+      (send-keystroke mods key-name))
 
     ;; Query iTerm for the UUIDs of every session in the focused window's
     ;; current tab. iTerm's `id of every session` returns "U1, U2, ..."

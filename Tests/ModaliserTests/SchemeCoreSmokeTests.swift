@@ -30,7 +30,10 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
-        #expect(try engine.evaluate("(procedure? key)") == .true)
+        // `key` is now a syntactic keyword (macro), not a procedure.
+        // Smoke-check that it expands to a command node.
+        try engine.evaluate("(define cmd (key \"x\" \"X\" (lambda () #t)))")
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'kind cmd)) 'command)") == .true)
         #expect(try engine.evaluate("(procedure? group)") == .true)
         #expect(try engine.evaluate("(procedure? define-tree)") == .true)
         #expect(try engine.evaluate("(procedure? set-leader!)") == .true)

@@ -38,7 +38,38 @@
 ;;                            the overlay renders a marker on the cell.
 ;;                            Composes with sticky ancestors (overrides
 ;;                            transient/sticky cleanup on this command).
-(define (key k label action . opts)
+;; `key` is a macro that dispatches on the shape of the third arg:
+;;
+;;   (key K L (overlay …))            → decorate the sub-overlay
+;;   (key K L (group …))              → decorate the sub-group
+;;   (key K L (lambda …))             → command, lambda is the action thunk
+;;   (key K L identifier)             → command, identifier is the action thunk
+;;   (key K L (fn arg …) [kw val …])  → command, (fn arg …) auto-wrapped
+;;                                       in (lambda () (fn arg …)). The
+;;                                       optional trailing 'sticky-target
+;;                                       kwarg works on all command shapes.
+;;
+;; Auto-wrapping makes `(key "x" "Launch" (launch-app "X"))` Just Work
+;; without an explicit lambda. Procedures that build thunks (instead of
+;; firing immediately) won't work under the macro form — use the bare
+;; identifier or an explicit lambda in that case.
+(define-syntax key
+  (syntax-rules (lambda overlay group)
+    ((_ k label (overlay arg ...))
+     (decorate-node k label (overlay arg ...)))
+    ((_ k label (group arg ...))
+     (decorate-node k label (group arg ...)))
+    ((_ k label (lambda formals body ...) opts ...)
+     (key-cmd k label (lambda formals body ...) opts ...))
+    ((_ k label (fn arg ...) opts ...)
+     (key-cmd k label (lambda () (fn arg ...)) opts ...))
+    ((_ k label id opts ...)
+     (key-cmd k label id opts ...))))
+
+;; The runtime helper invoked by the `key` macro for command shapes.
+;; Keep the alist-building logic here so the macro stays purely
+;; syntactic. `opts` is the optional trailing 'sticky-target tail.
+(define (key-cmd k label action . opts)
   (let loop ((rest opts) (acc (list (cons 'kind 'command)
                                     (cons 'key k)
                                     (cons 'label label)
@@ -51,6 +82,24 @@
        (loop (cddr rest) (cons (cons 'sticky-target (cadr rest)) acc)))
       (else
        (error "key: unknown keyword" (car rest))))))
+
+;; (decorate-node k label node) → node with its 'key and 'label
+;; replaced. Used by the `key` macro for the (overlay …) / (group …)
+;; sub-form dispatch — the wrapping `(key K L …)` decides how the node
+;; appears in the parent tree.
+(define (decorate-node k label node)
+  (let loop ((rest node) (acc '()) (saw-key? #f) (saw-label? #f))
+    (cond
+      ((null? rest)
+       (let* ((acc (if saw-key?   acc (cons (cons 'key k)     acc)))
+              (acc (if saw-label? acc (cons (cons 'label label) acc))))
+         (reverse acc)))
+      ((eq? (car (car rest)) 'key)
+       (loop (cdr rest) (cons (cons 'key k)     acc) #t saw-label?))
+      ((eq? (car (car rest)) 'label)
+       (loop (cdr rest) (cons (cons 'label label) acc) saw-key? #t))
+      (else
+       (loop (cdr rest) (cons (car rest) acc) saw-key? saw-label?)))))
 
 ;; (key-range display-key label keys action-fn) → range-command alist
 ;;
