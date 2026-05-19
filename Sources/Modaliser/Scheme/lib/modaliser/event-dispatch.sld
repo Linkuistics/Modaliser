@@ -15,6 +15,7 @@
           resolve-app-tree
           make-leader-handler)
   (import (scheme base)
+          (scheme char)              ; string-upcase (used for shift handling)
           (modaliser keymap)
           (modaliser keyboard)
           (modaliser app)

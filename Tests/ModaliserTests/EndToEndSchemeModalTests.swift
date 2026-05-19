@@ -47,6 +47,30 @@ struct EndToEndSchemeModalTests {
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
+    @Test func shiftedLetterDispatchesToUppercaseBinding() throws {
+        // Regression: modal-key-handler upcases via (string-upcase …) when
+        // the shift modifier is held. string-upcase lives in (scheme char),
+        // not (scheme base) — if event-dispatch doesn't import it, the
+        // handler errors at runtime and the modal becomes unresponsive
+        // (catch-all gets deregistered by the Swift safety wrapper).
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        try engine.evaluate("""
+            (define test-result #f)
+            (define-tree 'global
+              (key "H" "Split Left" (lambda () (set! test-result 'shift-H-fired))))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        // keycode 4 = 'h'; pass MOD-SHIFT so the handler upcases to "H".
+        try engine.evaluate("(modal-key-handler 4 MOD-SHIFT)")
+        #expect(try engine.evaluate("test-result") == .symbol(engine.context.symbols.intern("shift-H-fired")))
+    }
+
     @Test func f18ThenGroupThenCommand() throws {
         let engine = try SchemeEngine()
 
