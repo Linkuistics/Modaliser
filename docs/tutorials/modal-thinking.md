@@ -270,5 +270,57 @@ Modaliser looks like this — the global tree, the per-app trees, the
 launchers themselves. Part 2 is one new idea: what if some bindings
 *didn't* dismiss?
 
+## Step 6 — Staying in a mode: a sticky sub-group
+
+Everything so far has been the launcher pattern: press a key, an
+action fires, the overlay dismisses. That's perfect for one-shot
+gestures like *maximise* or *restore*. But what about a sequence of
+actions you'd like to do without re-leading each time — flipping a
+focused window through different half-screen arrangements while you
+decide on a layout, say? Pressing F18 w between each press is too
+many keystrokes.
+
+Add an `(a Arrange)` sub-group inside the overlay, bound to hjkl:
+
+```scheme
+(group "a" "Arrange"
+       'sticky #t
+       'exit-on-unknown #t
+  (key "h" "Left half"   (λ () (move-window 0    0    0.5  1)))
+  (key "j" "Bottom half" (λ () (move-window 0    0.5  1    0.5)))
+  (key "k" "Top half"    (λ () (move-window 0    0    1    0.5)))
+  (key "l" "Right half"  (λ () (move-window 0.5  0    0.5  1))))
+```
+
+(The four `move-window` calls are the same primitive you wrote
+literally in Step 1, just with different fractions — each takes the
+focused window to one half of the screen.)
+
+Two new keywords are doing the work:
+
+- **`'sticky #t`** — when a binding inside this group fires, the
+  modal navigation *stays in this group* instead of dismissing the
+  whole overlay. You can press another binding right away.
+- **`'exit-on-unknown #t`** — any key that *isn't* one of `h/j/k/l`
+  exits the modal cleanly. Without this, unknown keys are
+  swallowed — the modal stays open and you're stuck until you find
+  something it recognises. Combined with `Esc` semantics, this gives
+  the reader a forgiving "I'm done" gesture.
+
+**Relaunch. Press F18 w a h l j k.** After the first `h`, the overlay
+*does not dismiss* — it shows the four half-snap bindings and waits.
+Press `l` — the window flips to the right half, overlay still open.
+Press `j`, `k` — bottom half, top half. Press Esc — the overlay
+closes and you're back in your app.
+
+That's the **modal pattern**. The reader is now *inside* a mode and
+stays until they explicitly exit. iTerm's `Focus` mode (look at
+[`Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld) later) is the
+same shape applied to iTerm pane navigation.
+
+Notice the cost, though: to start arranging a window you press *three*
+keys — `w`, `a`, `h`. That's one too many for something you might do
+dozens of times an hour. Step 7 fixes it with a small refactor.
+
 The selector fired, then dismissed. Same shape as everything in
 Part 1: tree → leaf → action → dismiss.
