@@ -118,3 +118,67 @@ That's the **launcher** pattern in miniature — the reader (you) steps
 into the tree, picks an entry, the entry fires, the tree disappears.
 Steps 3–5 enrich the launcher; you won't change its essential shape
 until Part 2.
+
+## Step 3 — A layout block
+
+So far the overlay's contents are all `(key …)` forms — bindings that
+get one row each in the menu. Try writing a window manager with nine
+move/resize bindings that way and the overlay is unreadable.
+
+A *block* solves this. A block is a renderer-aware overlay ingredient
+that brings *both* bindings *and* chrome (a diagram, a chip strip,
+custom layout). `window:layout-block` is the one you want here: you
+hand it a sequence of letter matrices describing the screen regions
+each key should target, and it paints a grid of mini screen-diagrams
+with the letters in the regions they bind to.
+
+Replace the contents of the overlay with a `window:layout-block`, and
+keep *Restore* as a loose `(key …)` so you can see a block and a key
+coexisting:
+
+```scheme
+(import (modaliser dsl)
+        (modaliser keyboard)
+        (modaliser leader)
+        (modaliser window)
+        (prefix (modaliser window-actions) window:))
+
+(define-tree 'global
+  (key "w" "Windows"
+    (overlay
+      (window:layout-block
+        (("d" "f" "g"))                  ; full thirds
+        (("e" "e" #f))                   ; left two-thirds
+        ((#f "t" "t"))                   ; right two-thirds
+        (("m"))                          ; maximise (full cell)
+        (center "c"))                    ; centre (inward arrows)
+      (key "r" "Restore" (λ () (restore-window))))))
+```
+
+Each matrix is a row-major description of a panel: `(("d" "f" "g"))`
+is one row of three cells (full-thirds), `(("e" "e" #f))` is one row
+where the same letter spanning two adjacent cells produces one wider
+binding (left two-thirds), and `#f` marks an empty cell. `(("m"))`
+is a 1×1 matrix — one binding that fills the full cell, which is
+exactly the `(move-window 0 0 1 1)` call you wrote literally in
+Step 1. The `(center "c")` head-symbol form is the one exception —
+it doesn't fit a grid, so it gets its own panel rendered with inward
+arrows.
+
+**Relaunch. Press F18 w.** You see the diagram strip with the letters
+laid out spatially, and a single text row for *r Restore* underneath.
+Press **d** — the window snaps to the left third. Press **e** —
+left two-thirds. Press **m** — full-screen. Press **c** — centred.
+
+Two ideas live in that snippet. First: an overlay can hold *multiple*
+blocks alongside *loose* `(key …)` forms; you'll add more in Steps
+4–5. Second: a block carries chrome the renderer paints (the grid),
+not just a flat list of choices. Most of the visual richness in
+Modaliser overlays comes from blocks — `window:layout-block` here,
+`window:list-block` in Step 5, `which-key-block` automatically wrapped
+around your loose keys.
+
+If you want a denser layout, the bundled `default-config.scm` adds a
+half-thirds row (`(("D" "F" "G") ("C" "V" "B"))`) between full-thirds
+and two-thirds for 3×2 sub-cells; the form is the same, just one more
+matrix in the sequence.
