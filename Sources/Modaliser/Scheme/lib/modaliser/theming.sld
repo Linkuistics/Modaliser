@@ -36,6 +36,7 @@
 
 (define-library (modaliser theming)
   (export current-chip-theme
+          chip-host-padding
           theming-set-css-source!
           run-chip-theme-probe!
           ;; Exposed so tests can verify the probe-result coercion
@@ -47,6 +48,19 @@
   (begin
 
     (define probe-panel-id "modaliser-chip-probe")
+
+    ;; Canonical chip inset / clearance, in pixels. Used as:
+    ;;   • The chip's natural-position offset from its host's top-left
+    ;;     (window-chip-for, ax-target-hints).
+    ;;   • The clearance `find-chip-position` requires between a chip
+    ;;     and any occluding window edge.
+    ;;   • The gap `resolve-occluded-against-visible` leaves when
+    ;;     dodging a chip around another chip.
+    ;;
+    ;; A single value keeps all three concepts in lockstep — chips
+    ;; that fit at the natural inset, that fit on an unoccluded patch,
+    ;; and that dodge each other all share the same visual rhythm.
+    (define (chip-host-padding) 12)
 
     ;; CSS-stack producer. Root.scm injects a thunk returning the live
     ;; concatenated CSS string at boot time, after the user config has
@@ -69,9 +83,7 @@
             (cons 'padding 16)
             (cons 'corner-radius 8)
             (cons 'border-width 1)
-            (cons 'border-color "#000000")
-            (cons 'offset-x-frac 0.02)
-            (cons 'offset-y-frac 0.02)))
+            (cons 'border-color "#000000")))
 
     (define chip-theme-faded
       (list (cons 'color "#ffffff")
@@ -80,9 +92,7 @@
             (cons 'padding 16)
             (cons 'corner-radius 8)
             (cons 'border-width 1)
-            (cons 'border-color "#000000")
-            (cons 'offset-x-frac 0.02)
-            (cons 'offset-y-frac 0.02)))
+            (cons 'border-color "#000000")))
 
     ;; (current-chip-theme [variant]) — variant is 'normal (default) or 'faded.
     (define (current-chip-theme . args)
@@ -98,9 +108,8 @@
     ;; body so getComputedStyle reports their resolved styles. The
     ;; <script> walks them, converts colours to #rrggbb (so
     ;; HintsLibrary.swift's existing CSS-colour parser handles the
-    ;; values unchanged), strips "px" from length values, reads the
-    ;; --chip-offset-{x,y}-frac custom properties from :root, then
-    ;; posts a single message back to Scheme.
+    ;; values unchanged), strips "px" from length values, and posts a
+    ;; single message back to Scheme.
     (define probe-script
       (string-append
         ;; "rgb(...)" / "rgba(...)" → "#rrggbb" or "#rrggbbaa".
@@ -135,17 +144,8 @@
         "'border-color':_hex(cs.borderTopColor)"
         "};"
         "}"
-        ;; getPropertyValue returns the literal token (e.g. "0.02"),
-        ;; which parseFloat handles.
-        "var root=getComputedStyle(document.documentElement);"
-        "var offx=parseFloat(root.getPropertyValue('--chip-offset-x-frac'));"
-        "var offy=parseFloat(root.getPropertyValue('--chip-offset-y-frac'));"
         "var normal=_probe(document.getElementById('probe-normal'));"
         "var faded=_probe(document.getElementById('probe-faded'));"
-        "normal['offset-x-frac']=offx;"
-        "normal['offset-y-frac']=offy;"
-        "faded['offset-x-frac']=offx;"
-        "faded['offset-y-frac']=offy;"
         "window.webkit.messageHandlers.modaliser.postMessage({"
         "type:'chip-theme',normal:normal,faded:faded"
         "});"))
@@ -173,8 +173,7 @@
     ;; value, e.g. when the user writes `font-size: 56.5px`). Coerce to
     ;; .fixnum at probe-receive time so the bridging quirk and the
     ;; user-CSS edge cases both resolve to the painter-required type in
-    ;; one place. offset-{x,y}-frac stay as-is — they're multipliers
-    ;; consumed by Scheme arithmetic, never by lookupFixnum.
+    ;; one place.
     (define integer-chip-keys
       '(font-size padding corner-radius border-width))
 

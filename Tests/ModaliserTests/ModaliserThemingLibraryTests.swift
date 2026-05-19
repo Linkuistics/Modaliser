@@ -66,19 +66,18 @@ struct ModaliserThemingLibraryTests {
         #expect(try engine.evaluate("(= (cdr (assoc 'padding result)) 16)") == .true)
     }
 
-    @Test func coerceChipAlistLeavesNonIntegerKeysAlone() throws {
-        // offset-{x,y}-frac are fractional multipliers, consumed by
-        // Scheme arithmetic — never by lookupFixnum. They must stay
-        // flonum so subsequent (* ww offx) keeps its precision.
+    @Test func coerceChipAlistLeavesColorStringsAlone() throws {
+        // Non-integer keys (notably colours, which are strings) pass
+        // through unchanged — coerce-chip-alist only touches the
+        // integer-typed keys consumed by lookupFixnum.
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser theming))")
         try engine.evaluate("""
           (define result (coerce-chip-alist
-                          (list (cons 'offset-x-frac 0.02)
-                                (cons 'offset-y-frac 0.04)
-                                (cons 'color "#ff0000"))))
+                          (list (cons 'color "#ff0000")
+                                (cons 'background "#00ff00"))))
         """)
-        #expect(try engine.evaluate("(inexact? (cdr (assoc 'offset-x-frac result)))") == .true)
         #expect(try engine.evaluate("(equal? (cdr (assoc 'color result)) \"#ff0000\")") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'background result)) \"#00ff00\")") == .true)
     }
 }

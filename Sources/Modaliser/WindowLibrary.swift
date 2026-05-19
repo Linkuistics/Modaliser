@@ -30,6 +30,7 @@ final class WindowLibrary: NativeLibrary {
         self.define(Procedure("restore-window", restoreWindowFunction))
         self.define(Procedure("primary-screen-size", primaryScreenSizeFunction))
         self.define(Procedure("window-visible-at?", windowVisibleAtFunction))
+        self.define(Procedure("find-chip-position", findChipPositionFunction))
     }
 
     // MARK: - Functions
@@ -191,6 +192,111 @@ final class WindowLibrary: NativeLibrary {
             return .false
         }
         return .true  // No window covers this point.
+    }
+
+    /// (find-chip-position wid pid wx wy ww wh nx ny cw ch padding)
+    ///   → ((x . X) (y . Y))   ;; placement for the chip's top-left
+    ///   → #f                   ;; no fragment can host the chip
+    ///
+    /// Args:
+    ///   wid, pid       — target window identity (matches `window-visible-at?`).
+    ///   wx, wy, ww, wh — target window rect (AX top-left origin).
+    ///   nx, ny         — caller-computed natural chip origin (the place
+    ///                    the chip would land in the absence of occlusion;
+    ///                    typically `(wx + ww·offset-frac, wy + wh·offset-frac)`).
+    ///   cw, ch         — chip size.
+    ///   padding        — clearance required around the chip on all sides.
+    ///
+    /// Walk on-screen windows front-to-back (z-ordered by
+    /// `CGWindowListCopyWindowInfo`) and collect the rects of windows
+    /// in front of the target. Target's visible region = window rect ∖
+    /// ⋃ occluders, as disjoint axis-aligned fragments. Prefer the
+    /// natural origin when its padded chip rect fits cleanly in some
+    /// fragment; otherwise relocate to the top-left-most fragment that
+    /// can host the chip.
+    ///
+    /// Occluder collection mirrors `window-visible-at?` to stay
+    /// consistent with how visibility is judged elsewhere:
+    ///   • Skip Modaliser's own panels.
+    ///   • Stop at the target — match by `kCGWindowNumber` first, then
+    ///     fall back to owner pid (`_AXUIElementGetWindow` disagrees
+    ///     with CGWindowList for some apps; see the comment block in
+    ///     `windowVisibleAtFunction`). Same-app windows count as the
+    ///     target, not as occluders.
+    ///   • Skip translucent overlays (alpha < 1.0).
+    ///
+    /// If the target isn't found in the on-screen list, we treat the
+    /// window as unoccluded — same bias-to-visible policy
+    /// `windowVisibleAtFunction` uses on empty info.
+    private func findChipPositionFunction(_ args: Arguments) throws -> Expr {
+        guard args.count == 11 else {
+            throw RuntimeError.argumentCount(num: 11, args: .makeList(args))
+        }
+        let a = Array(args)
+        let wid = try a[0].asInt64()
+        let pid = try a[1].asInt64()
+        let wx = CGFloat(try a[2].asInt64())
+        let wy = CGFloat(try a[3].asInt64())
+        let ww = CGFloat(try a[4].asInt64())
+        let wh = CGFloat(try a[5].asInt64())
+        let nx = CGFloat(try a[6].asInt64())
+        let ny = CGFloat(try a[7].asInt64())
+        let cw = CGFloat(try a[8].asInt64())
+        let ch = CGFloat(try a[9].asInt64())
+        let padding = CGFloat(try a[10].asInt64())
+
+        let occluders = collectOccluderRects(targetWid: wid, targetPid: pid)
+        guard let pos = ChipPlacement.chipPosition(
+            windowRect: CGRect(x: wx, y: wy, width: ww, height: wh),
+            occluders: occluders,
+            naturalOrigin: CGPoint(x: nx, y: ny),
+            chipSize: CGSize(width: cw, height: ch),
+            padding: padding
+        ) else {
+            return .false
+        }
+        return SchemeAlistLookup.makeAlist([
+            ("x", .fixnum(Int64(pos.x))),
+            ("y", .fixnum(Int64(pos.y))),
+        ], symbols: self.context.symbols)
+    }
+
+    /// Walk `CGWindowListCopyWindowInfo` (front-to-back z-order) and
+    /// collect the rects of windows in front of the target. Stops at
+    /// the first wid- or pid-match. See `findChipPositionFunction`
+    /// docstring for the matching/skip rules.
+    private func collectOccluderRects(targetWid: Int64, targetPid: Int64) -> [CGRect] {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+            as? [[String: Any]] else {
+            return []
+        }
+        let myPID = Int64(ProcessInfo.processInfo.processIdentifier)
+        var occluders: [CGRect] = []
+        for entry in list {
+            let entryWid = (entry[kCGWindowNumber as String] as? NSNumber)?.int64Value ?? 0
+            let entryPid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int64Value ?? 0
+
+            if entryPid == myPID { continue }
+            // Hit the target — everything before is in front, stop.
+            if targetWid > 0 && entryWid == targetWid { return occluders }
+            if targetPid > 0 && entryPid == targetPid { return occluders }
+
+            let alpha = (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1.0
+            if alpha < 1.0 { continue }
+
+            guard let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+                  let bx = (bounds["X"] as? NSNumber)?.doubleValue,
+                  let by = (bounds["Y"] as? NSNumber)?.doubleValue,
+                  let bw = (bounds["Width"] as? NSNumber)?.doubleValue,
+                  let bh = (bounds["Height"] as? NSNumber)?.doubleValue
+            else { continue }
+            occluders.append(CGRect(x: bx, y: by, width: bw, height: bh))
+        }
+        // Target not in list — no occluders established. Caller will
+        // see the natural origin returned, matching `window-visible-at?`'s
+        // bias-to-visible on missing info.
+        return []
     }
 
     // MARK: - Helpers

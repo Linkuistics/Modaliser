@@ -47,8 +47,12 @@
 
     ;; ─── Chip placement helpers — lifted from window-actions.sld ────
     ;; Kept private to this library so it owns chip painting end-to-end.
+    ;;
+    ;; The clearance between a chip and its host's top-left, between a
+    ;; chip and any occluding window edge, and between two chips that
+    ;; dodge each other are all the same value: `(chip-host-padding)`
+    ;; from (modaliser theming). See its docstring for the rationale.
 
-    (define chip-overlap-gap 4)
     (define chip-resolve-max-attempts 64)
 
     (define (chips-overlap? a b)
@@ -91,13 +95,11 @@
 
     (define (window-chip-for digit win opts)
       (let* ((wx (cdr (assoc 'x win))) (wy (cdr (assoc 'y win)))
-             (ww (cdr (assoc 'w win))) (wh (cdr (assoc 'h win)))
              (font-size (cdr (assoc 'font-size opts)))
              (padding (cdr (assoc 'padding opts)))
-             (offx (cdr (assoc 'offset-x-frac opts)))
-             (offy (cdr (assoc 'offset-y-frac opts)))
-             (chip-x (+ wx (exact (round (* ww offx)))))
-             (chip-y (+ wy (exact (round (* wh offy)))))
+             (host-pad (chip-host-padding))
+             (chip-x (+ wx host-pad))
+             (chip-y (+ wy host-pad))
              (chip-size (+ font-size (* 2 padding))))
         (list (cons 'label digit)
               (cons 'x chip-x) (cons 'y chip-y)
@@ -140,8 +142,8 @@
                                  (cf-y (cdr (assoc 'y conflict)))
                                  (cf-w (cdr (assoc 'w conflict)))
                                  (cf-h (cdr (assoc 'h conflict)))
-                                 (try-y (+ cf-y cf-h chip-overlap-gap))
-                                 (try-x-right (+ cf-x cf-w chip-overlap-gap))
+                                 (try-y (+ cf-y cf-h (chip-host-padding)))
+                                 (try-x-right (+ cf-x cf-w (chip-host-padding)))
                                  (new-c
                                    (cond
                                      ((<= (+ try-y ch) sh)
@@ -194,20 +196,35 @@
                (map (lambda (lw)
                       (window-chip-for (car lw) (cdr lw) normal-theme))
                     labelled))
+             ;; Ask the window system for the best chip placement on
+             ;; each window: find-chip-position walks the on-screen
+             ;; z-order, subtracts front-er-window rects from the target
+             ;; rect, and either honours the natural top-left (when its
+             ;; padded chip rect fits cleanly in some fragment) or
+             ;; relocates the chip to the top-left of the next clear
+             ;; fragment. #f means no fragment can host the chip — the
+             ;; chip keeps its natural position, gets faded styling,
+             ;; and is re-resolved against other chips by
+             ;; `resolve-occluded-against-visible` downstream.
              (annotated
                (map (lambda (lw chip)
                       (let* ((win (cdr lw))
                              (wid (cdr (assoc 'windowId win)))
                              (pid (cdr (assoc 'ownerPid win)))
+                             (wx (cdr (assoc 'x win))) (wy (cdr (assoc 'y win)))
+                             (ww (cdr (assoc 'w win))) (wh (cdr (assoc 'h win)))
                              (cx (cdr (assoc 'x chip))) (cy (cdr (assoc 'y chip)))
                              (cw (cdr (assoc 'w chip))) (ch (cdr (assoc 'h chip)))
-                             (test-x (+ cx (quotient cw 2)))
-                             (test-y (+ cy (quotient ch 2)))
-                             (visible? (window-visible-at? wid pid test-x test-y))
-                             (styled (if visible?
-                                       chip
-                                       (chip-with-background chip faded-bg))))
-                        (cons visible? styled)))
+                             (placement
+                               (find-chip-position wid pid wx wy ww wh
+                                                   cx cy cw ch (chip-host-padding))))
+                        (cond
+                          (placement
+                            (let ((nx (cdr (assoc 'x placement)))
+                                  (ny (cdr (assoc 'y placement))))
+                              (cons #t (chip-with-position chip nx ny))))
+                          (else
+                            (cons #f (chip-with-background chip faded-bg))))))
                     labelled raw-chips))
              (windows-data
                (map (lambda (lw vc)

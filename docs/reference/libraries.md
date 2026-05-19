@@ -403,7 +403,8 @@ whatever the user puts in `~/.config/modaliser/theme.css`.
 
 | Export | Signature | Description |
 |---|---|---|
-| `current-chip-theme` | `(current-chip-theme [variant])` | `variant` is `'normal` (default) or `'faded`. Returns an alist with keys `color`, `background`, `font-size`, `padding`, `corner-radius`, `border-width`, `border-color`, `offset-x-frac`, `offset-y-frac`. Colours are hex (`#rrggbb` / `#rrggbbaa`); numeric values are bare ints/floats. |
+| `current-chip-theme` | `(current-chip-theme [variant])` | `variant` is `'normal` (default) or `'faded`. Returns an alist with keys `color`, `background`, `font-size`, `padding`, `corner-radius`, `border-width`, `border-color`. Colours are hex (`#rrggbb` / `#rrggbbaa`); numeric values are bare ints. |
+| `chip-host-padding` | `(chip-host-padding)` | Canonical pixel inset used by chip painters: distance between the chip and its host's top-left corner, clearance the chip-placement search requires around an occluder edge, and gap left when two chips dodge each other. One value keeps the visual rhythm consistent across window-list and AX-hint chips. |
 
 Resolution mechanism: a hidden offscreen probe WebView spawned at boot
 loads the full overlay CSS cascade plus two probe `<div>`s, reads
