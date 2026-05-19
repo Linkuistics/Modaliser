@@ -17,7 +17,7 @@
           modifier-symbols->mask set-leader!
           ;; Re-exported from (modaliser state-machine) so user configs
           ;; can do a single (import (modaliser dsl)) for the common case.
-          set-host-header! set-overlay-delay! set-overlay-aspect-ratio!)
+          set-overlay-delay! set-overlay-aspect-ratio!)
   (import (scheme base)
           (scheme bitwise)
           (modaliser state-machine)

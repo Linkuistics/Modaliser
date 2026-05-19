@@ -286,15 +286,4 @@ struct ChooserRenderTests {
         #expect(html.contains("Find app"))
     }
 
-    @Test func renderChooserHtmlIncludesHostCssWhenColoursSet() throws {
-        let engine = try loadAllModules()
-        try engine.evaluate(
-            "(set-host-header! 'name \"x\" 'background \"#abc\" 'foreground \"#def\")")
-        try engine.evaluate("(set-modal-root-segments! '(\"x\" \"Global\"))")
-        let html = try engine.evaluate("""
-            (render-chooser-html "Find app…" '() "" 0 #f '())
-            """).asString()
-        #expect(html.contains("--color-host-bg: #abc"))
-        #expect(html.contains("--color-host-fg: #def"))
-    }
 }

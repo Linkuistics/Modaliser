@@ -11,7 +11,7 @@
 ;;   (iterm:register!)
 ;;
 ;; Chip appearance (font size, colour, border, etc.) lives in the .chip
-;; CSS rule in base.css / ~/.config/modaliser/overlay.css — see
+;; CSS rule in base.css / ~/.config/modaliser/theme.css — see
 ;; (modaliser theming). Pass overrides by editing CSS, not by threading
 ;; option alists through the library.
 ;;
@@ -142,7 +142,7 @@
     ;;
     ;; Chip styling is no longer threaded through opts. Hint chips read
     ;; their resolved appearance from (current-chip-theme), driven by
-    ;; the .chip rule in base.css + ~/.config/modaliser/overlay.css. The
+    ;; the .chip rule in base.css + ~/.config/modaliser/theme.css. The
     ;; old 'hint-options keyword raises a migration error.
     (define (rebuild-tree! . opts)
       (let ((alist (apply props->alist opts)))
@@ -151,7 +151,7 @@
         ;; full discovery cost first.
         (when (assoc 'hint-options alist)
           (error
-            "rebuild-tree!: 'hint-options removed — edit .chip in ~/.config/modaliser/overlay.css instead"))
+            "rebuild-tree!: 'hint-options removed — edit .chip in ~/.config/modaliser/theme.css instead"))
         (let* ((labels       (alist-ref alist 'pane-labels default-pane-labels))
                (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
                (sticky-id    (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))

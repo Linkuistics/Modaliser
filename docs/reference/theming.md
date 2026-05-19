@@ -4,7 +4,7 @@ The overlay and chooser are HTML rendered into WKWebView panels. All
 visuals come from CSS — there's no native styling layer. Theming
 ranges from a one-line variable override to wholesale custom CSS.
 
-User CSS lives in `~/.config/modaliser/overlay.css`. The file is
+User CSS lives in `~/.config/modaliser/theme.css`. The file is
 auto-loaded at startup and concatenated into the cascade *after*
 `base.css` and all block-supplied stylesheets, so user declarations win
 on equal specificity. Edit the file, relaunch Modaliser, done.
@@ -22,8 +22,7 @@ CSS load order (last wins on equal specificity):
 1. `base.css`
 2. Each block library's CSS (registered via
    `(add-overlay-asset-file! 'css PATH)`) in import order.
-3. `~/.config/modaliser/overlay.css` (your user CSS).
-4. The dynamic `:root { … }` block emitted by `set-host-header!`.
+3. `~/.config/modaliser/theme.css` (your user CSS).
 
 ## CSS variables
 
@@ -59,19 +58,27 @@ CSS load order (last wins on equal specificity):
 | `--color-header` | `rgba(128, 128, 128, 1)` | Breadcrumb default colour, footer text. |
 | `--color-separator` | `rgba(204, 204, 204, 1)` | Header / footer rules. |
 
-### Host header (set via `(set-host-header! …)`)
+### Host theme
 
-| Variable | Set by | Description |
+| Variable | Default | Used for |
 |---|---|---|
-| `--color-host-bg` | `'background` | Header strip background. |
-| `--color-host-fg` | `'foreground` (defaults to `"white"` when bg is set) | Header text. |
-| `--color-host-sep` | `'separator-color` | Breadcrumb separator. Falls back to `--color-host-fg` then `--color-arrow`. |
+| `--color-host-bg` | unset | Overlay/chooser header strip background, sticky-mode border, sticky-target cell marker, **chip background**. |
+| `--color-host-fg` | unset | Overlay/chooser header text, chip foreground. |
+| `--color-host-sep` | unset | Breadcrumb separator colour. Falls back to `--color-host-fg` then `--color-arrow`. |
 
-These variables also drive the sticky-mode border accent
-(`.overlay.sticky` border-color) and the `'sticky-target` cell marker
-(`.entry-sticky-marker` color) — so threading a single colour through
-`set-host-header!` recolours both the chrome and the persistent-mode
-visual cues.
+These are *unset by default* — declare them in your `theme.css` to
+adopt a host theme:
+
+```css
+:root {
+  --color-host-bg: dodgerblue;
+  --color-host-fg: white;
+}
+```
+
+A single colour pair recolours the overlay header, the chooser header,
+the sticky-mode border accent, sticky-target markers, and every chip on
+screen — every visual that consumes `var(--color-host-*)`.
 
 ### Chooser (also in `base.css`)
 
@@ -115,11 +122,11 @@ From `blocks/window-diagram.css`:
 | `--chip-offset-x-frac` | `0.02` | Chip top-left x-offset, as a fraction of the host element's width. |
 | `--chip-offset-y-frac` | `0.02` | y-offset, fraction of host height. |
 
-Chips inherit the host-header colour automatically — calling
-`(set-host-header! 'background "tomato")` recolours both the header
-strip and every chip on screen in one step. Override the rule directly
-(see "Customising chips" below) when you want chips to look unlike the
-host header.
+Chips inherit the host theme automatically when `--color-host-bg` is
+declared in your `theme.css` — setting that one variable recolours
+the header strip *and* every chip on screen. Override the `.chip` rule
+directly (see "Customising chips" below) when you want chips to look
+unlike the host header.
 
 ## Class inventory
 
@@ -194,25 +201,29 @@ host header.
 
 ## Customisation paths
 
-### Smallest change: tint the host header
+### Smallest change: tint the host theme
 
-```scheme
-(set-host-header! 'background "darkorchid")
+```css
+/* ~/.config/modaliser/theme.css */
+:root {
+  --color-host-bg: darkorchid;
+  --color-host-fg: white;
+}
 ```
 
-`--color-host-bg`, `--color-host-fg` (defaults to white),
-`--color-host-sep` (falls through) are set. The overlay header strip,
-the sticky-mode border, `'sticky-target` cell markers, **and the chips
-on every window-list / iTerm hint overlay** all inherit the colour
-through `var(--color-host-*)` references in `base.css`.
+The overlay header strip, the chooser header, the sticky-mode border,
+`'sticky-target` cell markers, **and the chips on every window-list /
+iTerm hint overlay** all inherit the colour through
+`var(--color-host-*)` references in `base.css`. One declaration,
+overlay-wide effect.
 
 ### Override variables only
 
-User CSS in `~/.config/modaliser/overlay.css` sits *after* `base.css`
+User CSS in `~/.config/modaliser/theme.css` sits *after* `base.css`
 in the cascade, so a `:root { … }` override block applies cleanly:
 
 ```css
-/* ~/.config/modaliser/overlay.css */
+/* ~/.config/modaliser/theme.css */
 :root {
   --color-key: #5b9bd5;
   --color-group: #d68a2d;
@@ -244,7 +255,7 @@ The `.chip` rule is the chip styling surface. Override it the same way
 as any other class:
 
 ```css
-/* ~/.config/modaliser/overlay.css */
+/* ~/.config/modaliser/theme.css */
 .chip {
   background: tomato;
   border-radius: 12px;
@@ -263,13 +274,13 @@ as any other class:
 
 Chip values are pulled out of the cascade at boot by a hidden probe
 WebView (see "How chip values are resolved" below), so edits to
-`overlay.css` take effect on the next relaunch — same reload story as
+`theme.css` take effect on the next relaunch — same reload story as
 every other Modaliser config change.
 
 ### A worked dark-mode override
 
 ```css
-/* ~/.config/modaliser/overlay.css */
+/* ~/.config/modaliser/theme.css */
 :root {
   --overlay-bg: rgba(28, 28, 30, 0.96);
   --overlay-border: rgba(255, 255, 255, 0.18);
@@ -319,9 +330,9 @@ Older versions threaded chip styling through block constructors:
 (iterm:register!   'hint-options `((background . ,the-color)))
 ```
 
-That surface was removed. The replacement: set `(set-host-header!
-'background …)` (chips inherit automatically) or edit `.chip` in
-`~/.config/modaliser/overlay.css`. The block constructors now accept
+That surface was removed. The replacement: declare `--color-host-bg`
+(chips inherit automatically) or override `.chip` directly in
+`~/.config/modaliser/theme.css`. The block constructors now accept
 only `'chips? #t` (window-list) and the iTerm registration takes no
 chip-style options:
 
@@ -334,16 +345,35 @@ chip-style options:
 Passing the legacy keywords raises a migration error pointing at the
 new CSS surface.
 
-## Migrating from `(set-overlay-css! …)`
+## Migrating from `(set-overlay-css! …)` and `(set-host-header! …)`
 
-The Scheme setter was removed. The migration is a one-liner: paste the
-CSS string contents into `~/.config/modaliser/overlay.css` and delete
-the `(set-overlay-css! …)` call. The cascade order is unchanged.
+Both Scheme setters were removed. The migration is a one-liner: write
+the equivalent CSS in `~/.config/modaliser/theme.css`.
+
+```scheme
+;; OLD:
+(set-host-header! 'background "dodgerblue")
+(set-overlay-css! ":root { --color-key: #5b9bd5; }")
+```
+
+```css
+/* NEW — ~/.config/modaliser/theme.css: */
+:root {
+  --color-host-bg: dodgerblue;
+  --color-host-fg: white;
+  --color-key: #5b9bd5;
+}
+```
+
+The cascade order is unchanged. Note that `set-host-header!` previously
+also prepended a hostname segment to the overlay breadcrumb; that
+breadcrumb prefix was removed along with the setter. Users who want
+multi-instance identification can add a top-level `(category "…")` to
+their tree or override the breadcrumb via CSS pseudo-element content.
 
 ## See also
 
 - [renderer-protocol.md](renderer-protocol.md) — how blocks emit HTML
   the CSS targets.
-- [dsl.md](dsl.md#set-host-header-keyword-value) — `set-host-header!`.
 - [libraries.md](libraries.md#modaliser-theming) — `(modaliser theming)`,
   `current-chip-theme`.

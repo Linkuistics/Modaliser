@@ -3,7 +3,7 @@
 ;; Chip painters (window-list, iterm panes) need concrete pixel/colour
 ;; values to forward to (modaliser hints). The authoring surface for
 ;; those values is CSS — the .chip / .chip.faded rules in base.css, plus
-;; whatever the user puts in ~/.config/modaliser/overlay.css. To resolve
+;; whatever the user puts in ~/.config/modaliser/theme.css. To resolve
 ;; those rules to concrete values without reimplementing a CSS engine in
 ;; Scheme, we spawn a hidden 1×1 offscreen WKWebView at boot, load the
 ;; full overlay CSS stack into it, and have a tiny inline <script> read
@@ -13,7 +13,7 @@
 ;; Probe lifecycle:
 ;;   1. root.scm calls (theming-set-css-source! thunk) once at boot,
 ;;      passing a thunk that returns the same CSS string the overlay
-;;      uses (base + asset extras + overlay-custom-css + host-header).
+;;      uses (base + asset extras + user-theme-css).
 ;;   2. root.scm then calls (run-chip-theme-probe!). The library creates
 ;;      a non-activating, transparent, offscreen panel, installs a
 ;;      message handler, and posts the HTML. WKWebView runs the script,
@@ -26,10 +26,10 @@
 ;; so the first chip paint never shows "uninitialised" values. After,
 ;; callers see the resolved values.
 ;;
-;; No refresh API. Edit overlay.css and relaunch — same reload story as
+;; No refresh API. Edit theme.css and relaunch — same reload story as
 ;; every other Modaliser config change. The probe library can't see
-;; top-level overlay-base-css / overlay-custom-css / host-header-css
-;; from inside its define-library body (LispKit scope rule, see
+;; top-level overlay-base-css / user-theme-css from inside its
+;; define-library body (LispKit scope rule, see
 ;; feedback_lispkit_library_scope.md), so root.scm wires the CSS stack
 ;; producer in via theming-set-css-source! — same deferred-resolution
 ;; pattern (modaliser overlay-assets) uses for its file resolver.
@@ -50,7 +50,7 @@
 
     ;; CSS-stack producer. Root.scm injects a thunk returning the live
     ;; concatenated CSS string at boot time, after the user config has
-    ;; loaded and overlay.css has been slurped.
+    ;; loaded and theme.css has been slurped.
     (define css-stack-producer (lambda () ""))
     (define (theming-set-css-source! thunk)
       (set! css-stack-producer thunk))

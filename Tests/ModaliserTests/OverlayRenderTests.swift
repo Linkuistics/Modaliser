@@ -384,114 +384,6 @@ struct OverlayRenderTests {
         #expect(try engine.evaluate("(overlay-open?)") == .false)
     }
 
-    @Test func setHostHeaderStoresAllThreeFields() throws {
-        let engine = try loadOverlay()
-        try engine.evaluate("""
-            (set-host-header!
-              'name "my-server"
-              'background "#7a1f3d"
-              'foreground "#ffffff")
-            """)
-        #expect(try engine.evaluate("host-header-name").asString() == "my-server")
-        #expect(try engine.evaluate("host-header-background").asString() == "#7a1f3d")
-        #expect(try engine.evaluate("host-header-foreground").asString() == "#ffffff")
-    }
-
-    @Test func setHostHeaderAcceptsNameOnly() throws {
-        let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header! 'name \"local\")")
-        #expect(try engine.evaluate("host-header-name").asString() == "local")
-        #expect(try engine.evaluate("host-header-background") == .false)
-        #expect(try engine.evaluate("host-header-foreground") == .false)
-    }
-
-    @Test func setHostHeaderRejectsUnknownKeyword() throws {
-        let engine = try loadOverlay()
-        #expect(throws: (any Error).self) {
-            try engine.evaluate("(set-host-header! 'name \"x\" 'unknown 1)")
-        }
-    }
-
-    @Test func setHostHeaderTrimsWhitespaceFromAllValues() throws {
-        // (run-shell "hostname -s") and similar return a trailing newline;
-        // callers shouldn't have to know to trim before passing.
-        let engine = try loadOverlay()
-        try engine.evaluate("""
-            (set-host-header!
-              'name            "  Bach\\n"
-              'background      "  steelblue\\n"
-              'foreground      "  white\\n"
-              'separator-color "  #888\\n")
-            """)
-        #expect(try engine.evaluate("host-header-name").asString() == "Bach")
-        #expect(try engine.evaluate("host-header-background").asString() == "steelblue")
-        #expect(try engine.evaluate("host-header-foreground").asString() == "white")
-        #expect(try engine.evaluate("host-header-separator-color").asString() == "#888")
-    }
-
-    @Test func setHostHeaderSeparatorColorIsOptional() throws {
-        let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header! 'name \"x\")")
-        #expect(try engine.evaluate("host-header-separator-color") == .false)
-    }
-
-    @Test func hostHeaderCssEmitsSeparatorVariableWhenSet() throws {
-        let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header! 'name \"x\" 'separator-color \"#abc\")")
-        let css = try engine.evaluate("(host-header-css)").asString()
-        #expect(css.contains("--color-host-sep: #abc"))
-    }
-
-    @Test func hostHeaderCssEmptyWhenNoColoursSet() throws {
-        let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header! 'name \"x\")")
-        let css = try engine.evaluate("(host-header-css)").asString()
-        #expect(css == "")
-    }
-
-    @Test func hostHeaderCssEmitsBothVariables() throws {
-        let engine = try loadOverlay()
-        try engine.evaluate("""
-            (set-host-header! 'name "x" 'background "#000" 'foreground "#fff")
-            """)
-        let css = try engine.evaluate("(host-header-css)").asString()
-        #expect(css.contains(":root"))
-        #expect(css.contains("--color-host-bg: #000"))
-        #expect(css.contains("--color-host-fg: #fff"))
-    }
-
-    @Test func backgroundOnlySetsForegroundToWhiteDefault() throws {
-        // Seed-config use case: callers thread the theme through by
-        // supplying 'background; foreground defaults to "white" so the
-        // header reads against the coloured chip without callers having
-        // to spell it out.
-        let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header! 'name \"x\" 'background \"#abc\")")
-        let css = try engine.evaluate("(host-header-css)").asString()
-        #expect(css.contains("--color-host-bg: #abc"))
-        #expect(css.contains("--color-host-fg: white"))
-    }
-
-    @Test func backgroundDefaultForegroundIsOverridable() throws {
-        // Explicit 'foreground wins over the implicit "white" that kicks
-        // in when only 'background is supplied.
-        let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header! 'name \"x\" 'background \"#abc\" 'foreground \"#000\")")
-        let css = try engine.evaluate("(host-header-css)").asString()
-        #expect(css.contains("--color-host-fg: #000"))
-        #expect(!css.contains("--color-host-fg: white"))
-    }
-
-    @Test func nameDefaultsToShellHostname() throws {
-        // With no 'name supplied, the library calls (run-shell "hostname -s")
-        // so the seed config can be a one-liner.
-        let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header!)")
-        let name = try engine.evaluate("host-header-name").asString()
-        #expect(!name.isEmpty)
-        #expect(!name.contains("\n"))
-    }
-
     @Test func resolveAppSegmentsResolvesPlainBundleId() throws {
         let engine = try loadOverlay()
         // Stub the Swift native function with a Scheme one for predictability.
@@ -552,52 +444,29 @@ struct OverlayRenderTests {
         #expect(result == .pair(.makeString("Safari"), .null))
     }
 
-    @Test func computeRootSegmentsPrependsHostWhenSet() throws {
-        let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header! 'name \"my-server\")")
-        try engine.evaluate("""
-            (define (app-display-name id)
-              (if (equal? id "com.googlecode.iterm2") "iTerm" #f))
-            """)
-        // List → ("my-server" "iTerm" "nvim"). Pre-bind to a Scheme variable
-        // so the assertions can index into it without re-evaluating the expression.
-        try engine.evaluate("""
-            (define segs (compute-root-segments "com.googlecode.iterm2/nvim"))
-            """)
-        #expect(try engine.evaluate("(length segs)") == .fixnum(3))
-        #expect(try engine.evaluate("(list-ref segs 0)").asString() == "my-server")
-        #expect(try engine.evaluate("(list-ref segs 1)").asString() == "iTerm")
-        #expect(try engine.evaluate("(list-ref segs 2)").asString() == "nvim")
-    }
-
     @Test func modalEnterPopulatesRootSegments() throws {
         let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header! 'name \"box\")")
         try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
         // Stub the keymap registrations (modal-enter calls register-all-keys!).
         try engine.evaluate("(define (register-all-keys! h) #t)")
         try engine.evaluate("(define (unregister-all-keys!) #t)")
         try engine.evaluate("(modal-enter (lookup-tree \"global\") 0)")
-        let len = try engine.evaluate("(length (modal-root-segments))")
-        #expect(len == .fixnum(2))
-        #expect(try engine.evaluate("(list-ref (modal-root-segments) 0)").asString() == "box")
-        #expect(try engine.evaluate("(list-ref (modal-root-segments) 1)").asString() == "Global")
+        #expect(try engine.evaluate("(length (modal-root-segments))") == .fixnum(1))
+        #expect(try engine.evaluate("(list-ref (modal-root-segments) 0)").asString() == "Global")
     }
 
     @Test func modalExitPreservesRootSegmentsForChooserHandoff() throws {
         // Selector keys call (modal-exit) immediately before (open-chooser …),
         // and the chooser reads modal-root-segments to render its breadcrumb.
-        // If modal-exit cleared the segments the chooser would lose host + scope.
+        // If modal-exit cleared the segments the chooser would lose the scope.
         let engine = try loadOverlay()
-        try engine.evaluate("(set-host-header! 'name \"box\")")
         try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
         try engine.evaluate("(define (register-all-keys! h) #t)")
         try engine.evaluate("(define (unregister-all-keys!) #t)")
         try engine.evaluate("(modal-enter (lookup-tree \"global\") 0)")
         try engine.evaluate("(modal-exit)")
-        #expect(try engine.evaluate("(length (modal-root-segments))") == .fixnum(2))
-        #expect(try engine.evaluate("(list-ref (modal-root-segments) 0)").asString() == "box")
-        #expect(try engine.evaluate("(list-ref (modal-root-segments) 1)").asString() == "Global")
+        #expect(try engine.evaluate("(length (modal-root-segments))") == .fixnum(1))
+        #expect(try engine.evaluate("(list-ref (modal-root-segments) 0)").asString() == "Global")
     }
 
     @Test func renderOverlayHtmlPrependsHostSegment() throws {
@@ -662,18 +531,6 @@ struct OverlayRenderTests {
         // Path is sent as labels, not raw key chars.
         #expect(js.contains("\"path\":[\"Windows\"]"))
         #expect(!js.contains("\"path\":[\"w\"]"))
-    }
-
-    @Test func renderOverlayHtmlIncludesHostCssWhenColoursSet() throws {
-        let engine = try loadOverlay()
-        try engine.evaluate(
-            "(set-host-header! 'name \"x\" 'background \"#abc\" 'foreground \"#def\")")
-        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
-        let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("x" "Global") '())
-            """).asString()
-        #expect(html.contains("--color-host-bg: #abc"))
-        #expect(html.contains("--color-host-fg: #def"))
     }
 
     @Test func renderOverlayHtmlOmitsHostCssWhenNotSet() throws {

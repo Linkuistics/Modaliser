@@ -10,8 +10,8 @@ and [`leader.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/leader.sld).
 The DSL splits into three groups:
 
 1. **Configuration setters** — global state (`set-leaders!`,
-   `set-overlay-delay!`, `set-host-header!`, …) called once near the
-   top of `config.scm`.
+   `set-overlay-delay!`, `set-overlay-aspect-ratio!`) called once near
+   the top of `config.scm`.
 2. **Tree definition** — `define-tree` registers a command tree under
    a scope.
 3. **Node and block constructors** — `key`, `keys`, `group`, `category`,
@@ -29,10 +29,10 @@ The common case is one import:
 That surfaces `key`, `keys`, `key-range`, `group`, `category`,
 `selector`, `action`, `overlay`, `λ`, `define-tree`,
 `modifier-symbols->mask`, `set-leader!`, `set-theme!`,
-`set-host-header!`, `set-overlay-delay!`, and
-`set-overlay-aspect-ratio!`. The bundled seed config also pulls in
-`(modaliser leader)` (for `set-leaders!`) and a handful of native
-libraries (`(modaliser app)`, `(modaliser keyboard)`, etc.).
+`set-overlay-delay!`, and `set-overlay-aspect-ratio!`. The bundled
+seed config also pulls in `(modaliser leader)` (for `set-leaders!`)
+and a handful of native libraries (`(modaliser app)`,
+`(modaliser keyboard)`, etc.).
 
 ---
 
@@ -100,40 +100,20 @@ wider, shorter overlays.
 (set-overlay-aspect-ratio! 1.6)
 ```
 
-### `(set-host-header! [keyword value]...)`
+### Theming
 
-Adds an optional banner identifying which Modaliser instance owns the
-overlay (useful when running multiple installs across different
-machines). Keywords are all optional:
+All visual customisation — colours, fonts, spacing, host-theme
+variables (`--color-host-bg`, `--color-host-fg`, …), chip styling —
+lives in `~/.config/modaliser/theme.css`. Modaliser auto-loads that
+file at startup. No Scheme setter for CSS is involved.
 
-| Keyword | Type | Description |
-|---|---|---|
-| `'name` | string | Display name. Default: `(run-shell "hostname -s")`. |
-| `'background` | CSS colour | Header background. |
-| `'foreground` | CSS colour | Header text. Defaults to `"white"` when `'background` is set, otherwise `#f`. |
-| `'separator-color` | CSS colour | Override the breadcrumb separator colour. |
-
-All string values are whitespace-trimmed, so `(run-shell …)` outputs
-work directly without stripping the trailing newline.
-
-```scheme
-(set-host-header! 'background "dodgerblue")
-```
-
-Translates to `--color-host-bg`, `--color-host-fg`, and
-`--color-host-sep` CSS variables on `:root`. See
-[theming.md](theming.md) for the full variable inventory.
-
-For per-instance CSS customisation (overrides, dark mode, chip colours,
-etc.), edit `~/.config/modaliser/overlay.css` directly — see
-[theming.md](theming.md). Modaliser auto-loads that file at startup; no
-Scheme setter is involved.
+See [theming.md](theming.md) for the full variable inventory and
+worked examples.
 
 ### `(set-theme! …)`
 
 Deprecated no-op stub. Theming moved to CSS — edit
-`~/.config/modaliser/overlay.css` or override CSS variables via
-`set-host-header!`.
+`~/.config/modaliser/theme.css`.
 
 ---
 

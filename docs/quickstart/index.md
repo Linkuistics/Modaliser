@@ -122,9 +122,9 @@ You now have the loop: edit `config.scm`, relaunch, try the binding.
 - **State machine** — transient vs. sticky modes, `'sticky-target`,
   `'exit-on-unknown`, `on-enter` / `on-leave` hooks.
   → [reference/state-machine.md](../reference/state-machine.md)
-- **Theming** — edit `~/.config/modaliser/overlay.css` to override
-  any CSS variable, class, or chip rule; `set-host-header!` for
-  one-line host colouring.
+- **Theming** — edit `~/.config/modaliser/theme.css` to override any
+  CSS variable, class, or chip rule. Setting `--color-host-bg` alone
+  recolours the overlay header, chooser header, and every chip.
   → [reference/theming.md](../reference/theming.md)
 - **Splitting configs across files** — `(import …)` from your own
   `.sld` libraries under `~/.config/modaliser/`, the `sys/` mirror of

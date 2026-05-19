@@ -28,10 +28,6 @@
         (prefix (modaliser apps safari)     safari:)
         (prefix (modaliser apps iterm)      iterm:))
 
-;; ─── Theme ───────────────────────────────────────────────────────
-
-(define the-color "dodgerblue")
-
 ;; ─── Leader keys ─────────────────────────────────────────────────
 ;; F18 global, F17 local. arm-when-frontmost suppresses leader arming
 ;; while the Jump Desktop remote viewer is in front (its modifiers are
@@ -43,10 +39,10 @@
 
 (set-overlay-delay! 0.3)
 
-;; Host header: 'name defaults to (run-shell "hostname -s"), 'foreground
-;; defaults to "white" when 'background is set, so the seed only needs to
-;; supply the theme colour.
-(set-host-header! 'background the-color)
+;; Theme colours and any other styling live in
+;; ~/.config/modaliser/theme.css (auto-loaded at boot). The bundled
+;; defaults — including the chip colours — pick up --color-host-bg /
+;; --color-host-fg from there. See docs/reference/theming.md.
 
 ;; ─── Global command tree (F18) ───────────────────────────────────
 
@@ -69,7 +65,7 @@
   ;; the structure of the overlay is visible at the config level. Swap
   ;; in different (window:divisions …) matrices to change the layout;
   ;; chip styling lives in the .chip CSS rule (base.css +
-  ;; ~/.config/modaliser/overlay.css — see docs/reference/theming.md).
+  ;; ~/.config/modaliser/theme.css — see docs/reference/theming.md).
   (key "w" "Windows"
        (overlay
         ;; Top: panel grid + matching move-window key bindings. Each form

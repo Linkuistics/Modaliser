@@ -42,7 +42,7 @@ struct ModaliserThemingLibraryTests {
     // Coerce keys are the ones HintsLibrary.swift's lookupFixnum will
     // ultimately read out of the chip alist — they MUST be Scheme exact
     // integers (LispKit .fixnum). JS parseFloat emits doubles for any
-    // non-integer CSS value (e.g. "56.5px" from a user's overlay.css);
+    // non-integer CSS value (e.g. "56.5px" from a user's theme.css);
     // those would arrive as .flonum without this coercion and silently
     // break chip painting downstream.
 
