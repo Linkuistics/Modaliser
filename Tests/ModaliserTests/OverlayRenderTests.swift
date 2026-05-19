@@ -98,7 +98,8 @@ struct OverlayRenderTests {
         let html = try engine.evaluate("""
             (render-overlay-html test-node '("Global") '())
             """).asString()
-        #expect(html.contains("data-key-ch=\"2\""))
+        #expect(html.contains("data-key-ch=\"2\""),
+                "Expected data-key-ch=\"2\" attribute (single-char keys clamp to min 2); got HTML did not match")
     }
 
     @Test func overlayColumnCountFollowsTargetAspectRatio() throws {
