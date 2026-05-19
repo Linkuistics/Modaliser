@@ -320,57 +320,6 @@ chip styling, same as every other config change in Modaliser. The
 Scheme accessor is `(current-chip-theme)` / `(current-chip-theme
 'faded)` — see [libraries.md](libraries.md#modaliser-theming).
 
-## Migrating from `'chip-options` / `'hint-options`
-
-Older versions threaded chip styling through block constructors:
-
-```scheme
-;; OLD:
-(window:list-block 'chip-options `((background . ,the-color)))
-(iterm:register!   'hint-options `((background . ,the-color)))
-```
-
-That surface was removed. The replacement: declare `--color-host-bg`
-(chips inherit automatically) or override `.chip` directly in
-`~/.config/modaliser/theme.css`. The block constructors now accept
-only `'chips? #t` (window-list) and the iTerm registration takes no
-chip-style options:
-
-```scheme
-;; NEW:
-(window:list-block 'chips? #t)
-(iterm:register!)
-```
-
-Passing the legacy keywords raises a migration error pointing at the
-new CSS surface.
-
-## Migrating from `(set-overlay-css! …)` and `(set-host-header! …)`
-
-Both Scheme setters were removed. The migration is a one-liner: write
-the equivalent CSS in `~/.config/modaliser/theme.css`.
-
-```scheme
-;; OLD:
-(set-host-header! 'background "dodgerblue")
-(set-overlay-css! ":root { --color-key: #5b9bd5; }")
-```
-
-```css
-/* NEW — ~/.config/modaliser/theme.css: */
-:root {
-  --color-host-bg: dodgerblue;
-  --color-host-fg: white;
-  --color-key: #5b9bd5;
-}
-```
-
-The cascade order is unchanged. Note that `set-host-header!` previously
-also prepended a hostname segment to the overlay breadcrumb; that
-breadcrumb prefix was removed along with the setter. Users who want
-multi-instance identification can add a top-level `(category "…")` to
-their tree or override the breadcrumb via CSS pseudo-element content.
-
 ## See also
 
 - [renderer-protocol.md](renderer-protocol.md) — how blocks emit HTML
