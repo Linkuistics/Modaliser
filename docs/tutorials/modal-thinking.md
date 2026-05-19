@@ -393,5 +393,78 @@ to AppleScript pane-focus instead of window arrangement. Your `w h`
 is structurally identical to iTerm's per-app pane Focus — same
 sticky-target plumbing, different action surface.
 
+## Step 8 — Why this is "modal"
+
+You just built two patterns. Both live in the same `w` overlay; both
+are the same DSL forms, composed differently. Naming them explicitly
+is what closes the conceptual loop.
+
+### The launcher pattern (Steps 1–5)
+
+A tree the reader steps through. Each leaf fires once and the overlay
+dismisses. Steps 1–5 built this from the ground up: a one-binding
+leader, an overlay, a layout-block, a selector, a window-list. Most
+of what ships in `default-config.scm` is this pattern — the global
+tree, per-app trees, instant-app launchers, the search category.
+
+When a feature should be "type X, get Y, done", this is the shape.
+
+### The modal pattern (Steps 6–7)
+
+A sticky tree the reader enters and stays inside until an unrecognised
+key exits. Step 6 built it the explicit way (a parent key `a` opening
+a sticky sub-group). Step 7 refactored to the *sticky-target* shape
+the rest of the system uses (a binding both fires and transitions
+into a separately-registered sticky tree, in one key press). The two
+forms are equivalent for the same end state; sticky-target costs one
+less keystroke per session.
+
+When a feature should be "stay in this tiny vocabulary until I tell
+you to leave", this is the shape. The canonical example is iTerm's
+pane Focus — open
+[`Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld) and read
+the `Focus` category alongside the `focus-mode-tree` definition. It's
+structurally identical to your `w` overlay's hjkl + `'window-arrange`
+tree.
+
+### Why this matters
+
+The system's surface area looks bigger than it is because there are
+two patterns multiplying through every layer. Per-app trees? Launcher
+pattern, with the tree selected by frontmost-app. `(category …)`?
+A layout marker for one launcher overlay. Selectors? A launcher leaf
+that runs a fuzzy-finder before firing `'on-select`. Sticky modes?
+The modal pattern, scoped to a named tree. Sticky-target? The modal
+pattern's polite way of saying "first press does both jobs."
+
+Once you can name *which* pattern a thing is, the rest of the docs
+read as combinations of forms you've already met.
+
+## Where to go next
+
+- [How to add a binding](../how-to/add-a-binding.md) — recipe for
+  adding a one-shot launcher leaf to the global tree.
+- [How to add a per-app tree](../how-to/add-a-per-app-tree.md) — give
+  one application its own bindings under F17.
+- [How to add a sticky mode](../how-to/sticky-mode.md) — recipe
+  treatment of `'sticky`, `'sticky-target`, and `'exit-on-unknown`,
+  for when you want to write your own.
+- [How to customise the theme](../how-to/customise-theme.md) — colours,
+  fonts, and chip styling via `~/.config/modaliser/theme.css`.
+- [DSL reference](../reference/dsl.md) — every form, exhaustively.
+
+## Restoring your config
+
+The tutorial overwrote `~/.config/modaliser/config.scm` as it went.
+If you'd like to go back to what you had before Step 1, copy your
+backup back:
+
+```bash
+cp ~/.config/modaliser/config.scm.tutorial-bak ~/.config/modaliser/config.scm
+```
+
+Then pick **Relaunch** from the menu bar icon. Or keep the `w` overlay
+you just built — it's a real config, not a throwaway.
+
 The selector fired, then dismissed. Same shape as everything in
 Part 1: tree → leaf → action → dismiss.
