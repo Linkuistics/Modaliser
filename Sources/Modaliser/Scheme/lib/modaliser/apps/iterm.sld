@@ -106,42 +106,41 @@
           "whose id is \"" session-id "\" to select' "
           "2>/dev/null")))
 
-    ;; Split the focused iTerm session via the Scripting Bridge.
-    ;; Direction is 'horizontal (new pane below) or 'vertical (new
-    ;; pane right). We don't use CGEvent-posted Cmd+D / Cmd+Shift+D
-    ;; because those are NSMenu key equivalents — Cocoa's
-    ;; performKeyEquivalent: is finicky about synthesized events that
-    ;; carry the cmd flag on the keystroke but no separate flagsChanged
-    ;; event, so the menu shortcut sometimes fails to fire. AppleScript
-    ;; bypasses the menu plumbing and invokes iTerm's split verb
-    ;; directly, matching the pattern used by iterm-select-session-by-id.
+    ;; Split the focused iTerm session via the Scripting Bridge and
+    ;; return the new session's UUID. Direction is 'horizontal (new
+    ;; pane below) or 'vertical (new pane right).
+    ;;
+    ;; We don't use CGEvent-posted Cmd+D / Cmd+Shift+D because those
+    ;; are NSMenu key equivalents — Cocoa's performKeyEquivalent: is
+    ;; finicky about synthesized events that carry the cmd flag on
+    ;; the keystroke but no separate flagsChanged event, so the menu
+    ;; shortcut sometimes fails to fire. AppleScript bypasses the
+    ;; menu plumbing and invokes iTerm's split verb directly.
+    ;;
+    ;; The returned UUID is captured from `split`'s return value, not
+    ;; from a subsequent "id of current session" query: iTerm's
+    ;; focus-shift-on-split logic only runs when iTerm is the
+    ;; frontmost app — and Modaliser's overlay has *just* deactivated
+    ;; iTerm. So iTerm's "current session" still names the
+    ;; pre-split pane immediately after a background AppleScript
+    ;; split. The verb's return value is authoritative regardless of
+    ;; focus state.
     (define (iterm-split direction)
       (let ((axis (cond
                     ((eq? direction 'horizontal) "horizontally")
                     ((eq? direction 'vertical)   "vertically")
                     (else (error "iterm-split: unknown direction" direction)))))
-        (run-shell
-          (string-append
-            "osascript -e 'tell application \"iTerm\" to "
-            "tell current session of current window to "
-            "split " axis " with same profile' "
-            "2>/dev/null"))))
-
-    ;; Return the UUID of iTerm's currently-focused session. iTerm's
-    ;; `split` verb leaves the new pane focused, so calling this
-    ;; immediately after iterm-split yields the freshly-created
-    ;; session's id — which the split-pane-* wrappers use to
-    ;; re-anchor focus on the new pane after intervening operations
-    ;; (the swap keystroke for left/up; Modaliser's overlay
-    ;; deactivate/reactivate cycle for any direction) may have
-    ;; shifted iTerm's "current session".
-    (define (iterm-current-session-id)
-      (string-trim
-        (run-shell
-          (string-append
-            "osascript -e 'tell application \"iTerm\" to "
-            "id of current session of current window' "
-            "2>/dev/null"))))
+        (string-trim
+          (run-shell
+            (string-append
+              "osascript "
+              "-e 'tell application \"iTerm\"' "
+              "-e '  tell current session of current window' "
+              "-e '    set newSession to split " axis " with same profile' "
+              "-e '  end tell' "
+              "-e '  id of newSession' "
+              "-e 'end tell' "
+              "2>/dev/null")))))
 
     ;; ─── Public pane operations ──────────────────────────────────
     ;;
@@ -169,22 +168,18 @@
     (define (focus-pane-down)  (send-keystroke '(cmd alt) "down"))
 
     (define (split-pane-right)
-      (iterm-split 'vertical)
-      (iterm-select-session-by-id (iterm-current-session-id)))
+      (iterm-select-session-by-id (iterm-split 'vertical)))
 
     (define (split-pane-down)
-      (iterm-split 'horizontal)
-      (iterm-select-session-by-id (iterm-current-session-id)))
+      (iterm-select-session-by-id (iterm-split 'horizontal)))
 
     (define (split-pane-left)
-      (iterm-split 'vertical)
-      (let ((new (iterm-current-session-id)))
+      (let ((new (iterm-split 'vertical)))
         (send-keystroke '(cmd ctrl shift) "h")
         (iterm-select-session-by-id new)))
 
     (define (split-pane-up)
-      (iterm-split 'horizontal)
-      (let ((new (iterm-current-session-id)))
+      (let ((new (iterm-split 'horizontal)))
         (send-keystroke '(cmd ctrl shift) "k")
         (iterm-select-session-by-id new)))
 
