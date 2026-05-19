@@ -86,3 +86,35 @@ global tree, declared with `define-tree`), containing a *command*
 (`(key "w" "Maximise" …)`). Three concepts, one for every level of
 the nesting you just typed. Each of the next six steps adds exactly
 one more.
+
+## Step 2 — Make `w` into a menu
+
+In Step 1 you bound `w` directly to a thunk, so pressing it fired
+maximise and dismissed the overlay. But a leader is supposed to open a
+*menu* — and a one-entry menu isn't really one. Here you'll replace
+the thunk with an `(overlay …)` and put three bindings inside it.
+
+Edit `config.scm`:
+
+```scheme
+(define-tree 'global
+  (key "w" "Windows"
+    (overlay
+      (key "m" "Maximise" (λ () (move-window 0 0 1 1)))
+      (key "c" "Centre"   (λ () (center-window)))
+      (key "r" "Restore"  (λ () (restore-window))))))
+```
+
+Notice what `(key "w" "Windows" (overlay …))` does: `(overlay …)`
+*returns a node*, and the outer `(key …)` *decorates* it with the key
+(`"w"`) and label (`"Windows"`). The same dispatch you'd use for any
+sub-tree — overlays, groups, selectors — happens here.
+
+**Relaunch. Press F18 w.** Three rows appear: *m Maximise*,
+*c Centre*, *r Restore*. Press one of the letters; the action fires
+and the overlay dismisses.
+
+That's the **launcher** pattern in miniature — the reader (you) steps
+into the tree, picks an entry, the entry fires, the tree disappears.
+Steps 3–5 enrich the launcher; you won't change its essential shape
+until Part 2.
