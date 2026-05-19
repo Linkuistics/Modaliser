@@ -21,21 +21,16 @@ on the live system, with the user in the loop.
   `docs/superpowers/specs/2026-05-19-docs-phase3-tutorial-modal-thinking-design.md`
 - **Plan (the thing you execute):**
   `docs/superpowers/plans/2026-05-19-docs-phase3-tutorial-modal-thinking.md`
-- **Worktree (already exists):**
-  `.claude/worktrees/docs-phase3-tutorials` on branch
-  `worktree-docs-phase3-tutorials`. Both artefacts above are committed
-  on that branch.
 
-If `git worktree list` does not show that worktree, something has been
-cleaned up — stop and ask the user how to proceed rather than
-re-creating it. (The worktree carries unmerged commits.)
+Both are committed on `main`. The brainstorm/planning worktree they
+were drafted in has been removed; you start from clean `main`.
 
 ## How to run
 
-1. **Enter the existing worktree.** Use `EnterWorktree` with
-   `path: <repo>/.claude/worktrees/docs-phase3-tutorials`. Do **not**
-   create a new worktree — the spec, plan, and branch already exist
-   there.
+1. **Open a fresh worktree.** Use `EnterWorktree` with a new name
+   (suggested: `docs-phase3-tutorial-modal-thinking`). The harness
+   default base is `origin/main`; if local `main` is ahead, fast-
+   forward with `git merge --ff-only main` before starting.
 2. **Invoke `superpowers:executing-plans`.** Point it at the plan file
    above. The plan is structured for inline execution: tasks are
    small, each has explicit checkboxes, and commits happen frequently.
@@ -154,8 +149,8 @@ in the commit message so this kickoff and its descendants don't drift.
 
 ## Final note
 
-The previous session's brainstorm and plan-writing left this branch
-in a clean state with two unmerged commits (spec + plan). You're
-picking it up cold. Read the plan first (it's ~1500 lines, but most
-of it is task bodies you'll consume one at a time), then start with
-Task 1.
+The previous session's brainstorm and plan-writing have been merged
+to `main` and that working branch was deleted. You're picking up
+cold from a clean `main`. Read the plan first (it's ~1500 lines, but
+most of it is task bodies you'll consume one at a time), then start
+with Task 1.
