@@ -569,11 +569,54 @@
          (renderer (and current (node-renderer current))))
     (cond
       (renderer
-        (let ((payload (block-list-payload-json current)))
+        ;; Custom-renderer payload carries both the block body AND the
+        ;; chrome (breadcrumb segments, sticky flag, footer HTML) so the
+        ;; JS update can refresh the header/footer alongside the body.
+        ;; Without this, navigating from the root list into a block-list
+        ;; group leaves stale chrome from the previous depth — notably
+        ;; the root footer with no backspace hint.
+        (let* ((body (block-list-payload-json current))
+               (segments-json (path-segments-json node path))
+               (path-json     (path-keys-json path))
+               (sticky?       (and (deepest-sticky-on-path node path) #t))
+               (footer-html   (footer-html-for-path path))
+               (chrome (string-append
+                         ",\"rootSegments\":" segments-json
+                         ",\"path\":"         path-json
+                         ",\"sticky\":"       (if sticky? "true" "false")
+                         ",\"footer\":\""     (js-escape-overlay footer-html) "\""))
+               ;; body looks like `{"type":"blocks","blocks":[…]}`; splice
+               ;; the chrome fields in just before the closing brace.
+               (open  (substring body 0 (- (string-length body) 1)))
+               (with-chrome (string-append open chrome "}")))
           (webview-eval overlay-webview-id
-            (string-append "updateOverlay(" payload ")"))))
+            (string-append "updateOverlay(" with-chrome ")"))))
       (else
         (push-overlay-update-default node current path)))))
+
+(define (path-segments-json node path)
+  (let* ((root-segs (modal-root-segments))
+         (segs (append root-segs (path-labels node path))))
+    (string-append "["
+      (let loop ((xs segs) (out ""))
+        (if (null? xs)
+          out
+          (loop (cdr xs)
+                (string-append out
+                               (if (string=? out "") "" ",")
+                               "\"" (js-escape-overlay (car xs)) "\""))))
+      "]")))
+
+(define (path-keys-json path)
+  (string-append "["
+    (let loop ((xs path) (out ""))
+      (if (null? xs)
+        out
+        (loop (cdr xs)
+              (string-append out
+                             (if (string=? out "") "" ",")
+                             "\"" (js-escape-overlay (car xs)) "\""))))
+    "]"))
 
 ;; Default list-renderer push (formerly the body of push-overlay-update).
 ;; Takes the root `node` (needed by path-labels / deepest-sticky-on-path),

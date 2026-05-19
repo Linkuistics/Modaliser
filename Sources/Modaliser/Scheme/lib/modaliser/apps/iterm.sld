@@ -180,20 +180,23 @@
             (iterm-pane-bindings panes session-ids range-label)
             (list
               (key "c" "Copy Mode" (keystroke '(cmd shift) "c"))
+              (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
               ;; hjkl: focus-move AND transition into the sticky focus
               ;; mode in a single press. First leader → h moves left and
               ;; lands the user in 'iterm-panes-focus, so subsequent hjkl
               ;; keys keep moving without another leader. The overlay
-              ;; paints a ↻ marker on each (via 'sticky-target).
-              (key "h" "Focus Left"  (keystroke '(cmd alt) "left")
-                'sticky-target sticky-id)
-              (key "j" "Focus Down"  (keystroke '(cmd alt) "down")
-                'sticky-target sticky-id)
-              (key "k" "Focus Up"    (keystroke '(cmd alt) "up")
-                'sticky-target sticky-id)
-              (key "l" "Focus Right" (keystroke '(cmd alt) "right")
-                'sticky-target sticky-id)
-              (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
+              ;; paints a ↻ marker on each (via 'sticky-target). Grouped
+              ;; into a "Focus" category so the cluster reads as one
+              ;; semantic unit at the top of the overlay.
+              (category "Focus"
+                (key "h" "Left"  (keystroke '(cmd alt) "left")
+                  'sticky-target sticky-id)
+                (key "j" "Down"  (keystroke '(cmd alt) "down")
+                  'sticky-target sticky-id)
+                (key "k" "Up"    (keystroke '(cmd alt) "up")
+                  'sticky-target sticky-id)
+                (key "l" "Right" (keystroke '(cmd alt) "right")
+                  'sticky-target sticky-id))
               (group "x" "Split"
                 (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
                 (key "j" "Down"  (keystroke '(cmd ctrl shift) "j"))

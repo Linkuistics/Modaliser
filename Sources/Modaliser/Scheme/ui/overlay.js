@@ -129,6 +129,15 @@ window.overlayRenderers.list = function(data) {
 window.overlayBlockRenderers = window.overlayBlockRenderers || {};
 
 window.overlayRenderers.blocks = function(data, container) {
+  // Update chrome (breadcrumb, sticky flag, footer) alongside the body.
+  // The Scheme-side push includes these fields on every update so the
+  // header/footer track the navigation depth — e.g. so the backspace
+  // hint appears once the user descends into a nested block-list group.
+  // The bootstrap path passes a `container` and skips chrome (initial
+  // HTML already has it baked in by render-overlay-custom).
+  if (!container) {
+    updateOverlayChrome(data);
+  }
   var root = container || document.querySelector('.overlay-custom-body[data-renderer="blocks"]');
   if (!root) return;
   while (root.firstChild) root.removeChild(root.firstChild);
@@ -151,6 +160,33 @@ window.overlayRenderers.blocks = function(data, container) {
   }
   notifyResize();
 };
+
+// Shared chrome update — breadcrumb, sticky flag, footer. Used by both
+// the list renderer and the blocks renderer so navigation depth changes
+// look consistent regardless of which renderer is showing the body.
+function updateOverlayChrome(data) {
+  var root = document.querySelector('.overlay');
+  if (root) {
+    if (data.sticky) root.classList.add('sticky');
+    else root.classList.remove('sticky');
+  }
+  var header = document.querySelector('.overlay-header');
+  if (header && Array.isArray(data.rootSegments)) {
+    var segments = data.rootSegments.concat(data.path || []);
+    var html = '';
+    for (var i = 0; i < segments.length; i++) {
+      if (i > 0) html += '<span class="breadcrumb-sep">»</span>';
+      html += escapeHtml(segments[i]);
+    }
+    header.innerHTML = '<span class="breadcrumb">' + html + '</span>';
+  }
+  var footer = document.querySelector('.overlay-footer');
+  if (footer && typeof data.footer === 'string') {
+    footer.innerHTML = data.footer;
+    var atRoot = !data.path || data.path.length === 0;
+    footer.classList.toggle('overlay-footer-root', atRoot);
+  }
+}
 
 // Custom renderers send {type: TYPE, ...}; built-in payloads omit
 // type. Both dispatch the same way: lookup by type, fallback to
