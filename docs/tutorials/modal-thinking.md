@@ -231,11 +231,15 @@ in your imports — it provides `list-windows` and `focus-window`):
                   'on-select focus-window)))))
 ```
 
-**Relaunch. Press F18 w s.** You get a list of your visible windows.
-Type characters to narrow it (the matcher prefers contiguous matches,
-so a few letters from anywhere in a title usually gets you close).
-Press Enter — the highlighted window comes to the front and the
-overlay closes.
+**Relaunch. Press F18 w s.** You get a list of your visible windows
+and an input box. The input drives *which entry in the list is
+selected* — type a few characters from a title and the closest match
+becomes the highlighted row. Press Enter — the action (`focus-window`)
+runs against that highlighted entry and the overlay closes.
+
+So: input box ⇒ list selection ⇒ Enter fires `'on-select`. The input
+isn't a window-focus action by itself; it's a navigator for the list
+underneath it.
 
 The selector fired, then dismissed. Same shape as everything in
 Part 1: tree → leaf → action → dismiss.
