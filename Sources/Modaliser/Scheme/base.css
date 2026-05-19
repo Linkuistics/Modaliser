@@ -451,15 +451,6 @@ body {
  * --color-host-bg / --color-host-fg are declared in the user's
  * theme.css. Without those, chips fall back to white-on-dodgerblue. */
 
-:root {
-  /* Chip top-left offset, as a fraction of the host element's size.
-   * No DOM analogue (chip placement is computed in Scheme, not via
-   * layout), so we expose the values as custom properties that the
-   * probe reads via getPropertyValue. */
-  --chip-offset-x-frac: 0.02;
-  --chip-offset-y-frac: 0.02;
-}
-
 .chip {
   color: var(--color-host-fg, white);
   background: var(--color-host-bg, dodgerblue);

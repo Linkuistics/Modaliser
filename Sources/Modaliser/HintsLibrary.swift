@@ -41,24 +41,41 @@ final class HintsLibrary: NativeLibrary {
     ///   color       — optional CSS color: hex ("#ff3030") or named ("tomato"), default red
     ///   background  — optional CSS color: hex or named, default semi-transparent dark
     ///   font-size   — optional fixnum, default = min(w, h) * 0.5
+    ///
+    /// AppKit panel construction must happen on the main thread. In normal
+    /// app use Scheme already evaluates on the main thread, but tests (and
+    /// any future background renderers) may not — marshal to main so the
+    /// call is safe from anywhere.
     private func hintsShowFunction(_ hintsExpr: Expr) throws -> Expr {
-        // Always close any prior set first — hints are an exclusive overlay.
-        closeAllPanels()
-
-        var current = hintsExpr
-        while case .pair(let entry, let tail) = current {
-            if let panel = makeHintPanel(from: entry) {
-                panels.append(panel)
+        runOnMain {
+            self.closeAllPanels()
+            var current = hintsExpr
+            while case .pair(let entry, let tail) = current {
+                if let panel = self.makeHintPanel(from: entry) {
+                    self.panels.append(panel)
+                }
+                current = tail
             }
-            current = tail
         }
         return .void
     }
 
     /// (hints-hide) → void
     private func hintsHideFunction() -> Expr {
-        closeAllPanels()
+        runOnMain { self.closeAllPanels() }
         return .void
+    }
+
+    /// Run `block` synchronously on the main thread. Safe to call from
+    /// the main thread (runs inline) or any other thread (dispatches).
+    /// `DispatchQueue.main.sync` from main would deadlock — the
+    /// `isMainThread` guard avoids that.
+    private func runOnMain(_ block: () -> Void) {
+        if Thread.isMainThread {
+            block()
+        } else {
+            DispatchQueue.main.sync(execute: block)
+        }
     }
 
     // MARK: - Panel construction

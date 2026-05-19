@@ -23,7 +23,8 @@
           ax-target-hints)
   (import (scheme base)
           (modaliser dsl)
-          (modaliser accessibility))
+          (modaliser accessibility)
+          (modaliser theming))
   (begin
 
     ;; ─── Hint chip appearance ──────────────────────────────────────
@@ -33,14 +34,16 @@
     ;; shows one tuned for very large pane chips.
     ;;
     ;; Keys (all optional):
-    ;;   offset-x-frac, offset-y-frac  — chip top-left as fraction of element size
     ;;   font-size, padding, corner-radius, border-width  — pixels
     ;;   color, background, border-color  — CSS colour: "#rgb"/"#rrggbb"/
     ;;     "#rrggbbaa", or any CSS named colour ("red", "tomato", etc.)
+    ;;
+    ;; Chip placement (distance from the host element's top-left) is
+    ;; not configurable here — it uses the canonical
+    ;; `(chip-host-padding)` from (modaliser theming) so AX-hint chips
+    ;; and window-list chips have the same visual rhythm.
     (define default-hint-options
-      (list (cons 'offset-x-frac 0.02)
-            (cons 'offset-y-frac 0.02)
-            (cons 'font-size 24)
+      (list (cons 'font-size 24)
             (cons 'padding 6)
             (cons 'corner-radius 6)
             (cons 'color "#000000")
@@ -96,19 +99,22 @@
 
     ;; (ax-target-hints labelled-elements opts) → list ready for hints-show
     ;;
-    ;; Each chip is sized to (font-size + 2*padding) square and positioned at
-    ;; the configured fractional offset from the element's top-left corner.
+    ;; Each chip is sized to (font-size + 2*padding) square and placed
+    ;; (chip-host-padding) pixels in from the element's top-left corner —
+    ;; the same canonical inset window-list chips use, so AX-hint chips
+    ;; (iTerm panes today, browser tabs tomorrow) share the visual
+    ;; rhythm. Panes never overlap so no occlusion search is needed; the
+    ;; placement is just top-left + padding.
     (define (ax-target-hints labelled-elements opts)
-      (let* ((offx-frac (hint-opt opts 'offset-x-frac 0.02))
-             (offy-frac (hint-opt opts 'offset-y-frac 0.02))
-             (font-size (hint-opt opts 'font-size 24))
+      (let* ((font-size (hint-opt opts 'font-size 24))
              (padding   (hint-opt opts 'padding 6))
              (corner    (hint-opt opts 'corner-radius 6))
              (color     (hint-opt opts 'color "#000000"))
              (background (hint-opt opts 'background "#ffffff"))
              (border-width (hint-opt opts 'border-width 0))
              (border-color (hint-opt opts 'border-color color))
-             (chip-size (+ font-size (* 2 padding))))
+             (chip-size (+ font-size (* 2 padding)))
+             (host-pad (chip-host-padding)))
         (let loop ((ps labelled-elements) (acc '()))
           (if (null? ps)
             (reverse acc)
@@ -117,10 +123,8 @@
                    (elem  (cdr entry))
                    (px (cdr (assoc 'x elem)))
                    (py (cdr (assoc 'y elem)))
-                   (pw (cdr (assoc 'w elem)))
-                   (ph (cdr (assoc 'h elem)))
-                   (hx (+ px (exact (round (* pw offx-frac)))))
-                   (hy (+ py (exact (round (* ph offy-frac))))))
+                   (hx (+ px host-pad))
+                   (hy (+ py host-pad)))
               (loop (cdr ps)
                     (cons (list (cons 'label label)
                                 (cons 'x hx) (cons 'y hy)

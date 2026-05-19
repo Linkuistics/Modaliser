@@ -49,6 +49,30 @@ struct WindowLibraryTests {
         #expect(try engine.evaluate("(procedure? restore-window)") == .true)
     }
 
+    @Test func findChipPositionIsProcedure() throws {
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? find-chip-position)") == .true)
+    }
+
+    @Test func findChipPositionReturnsAlistOrFalse() throws {
+        // Smoke: synthetic (wid, pid) won't match any real window, so the
+        // target-not-found path returns the natural origin. Assert
+        // structural shape — alist with x and y entries — without
+        // asserting specific coordinates (CGWindowList state isn't
+        // deterministic in CI).
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser window))")
+        try engine.evaluate("""
+          (define p (find-chip-position 999999999 999999999
+                                        0 0 1000 800
+                                        20 16
+                                        24 24 4))
+        """)
+        #expect(try engine.evaluate(
+            "(or (eq? p #f) (and (pair? p) (assoc 'x p) (assoc 'y p) #t))"
+        ) == .true)
+    }
+
     // MARK: - list-windows
 
     @Test func listWindowsReturnsList() throws {
