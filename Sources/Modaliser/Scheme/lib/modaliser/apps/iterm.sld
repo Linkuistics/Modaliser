@@ -124,6 +124,32 @@
             "split " axis " with same profile' "
             "2>/dev/null"))))
 
+    ;; Split iTerm "before" the focused pane (new pane appears left
+    ;; or above). iTerm's AppleScript `split` verb has no `before`
+    ;; parameter, so we split "after" (right or below) — which always
+    ;; transfers focus to the new pane — then fire iTerm's
+    ;; Swap-With-Split-Pane-on-<direction> action via a keystroke.
+    ;; The swap exchanges the focused pane with its left/above
+    ;; neighbour, leaving the freshly-created pane in the desired
+    ;; "before" position with focus intact.
+    ;;
+    ;; Required iTerm key bindings (Settings → Keys → Key Bindings):
+    ;;   Cmd+Opt+Shift+Left → Swap With Split Pane on Left   (ships as default in iTerm 3.6)
+    ;;   Cmd+Opt+Shift+Up   → Swap With Split Pane Above     (no default — bind manually)
+    ;;
+    ;; The send-keystroke path is reliable here because Swap-With-…
+    ;; lives in iTerm's GlobalKeyMap (not an NSMenu key equivalent),
+    ;; so CGEvent posting reaches it cleanly.
+    (define (iterm-split-before direction)
+      (cond
+        ((eq? direction 'left)
+         (iterm-split 'vertical)
+         (send-keystroke '(cmd alt shift) "left"))
+        ((eq? direction 'up)
+         (iterm-split 'horizontal)
+         (send-keystroke '(cmd alt shift) "up"))
+        (else (error "iterm-split-before: unknown direction" direction))))
+
     ;; Build a single (key-range ...) node covering every labelled pane.
     ;; Display key is "<first>.." reflecting actually-bound count (so a
     ;; 3-pane window reads "1.." rather than the full label list). If
@@ -209,14 +235,17 @@
                   'sticky-target sticky-id)
                 (key "l" "Right" (keystroke '(cmd alt) "right")
                   'sticky-target sticky-id))
-              ;; Splits invoke iTerm's AppleScript `split` verb directly
-              ;; (see iterm-split). Only right and down are exposed:
-              ;; AppleScript's verb has no `before` parameter, so
-              ;; left/up would require a split-then-swap dance — left
-              ;; for a future change. The previous left/up bindings
-              ;; relied on a now-removed iTerm Python RPC.
+              ;; Right/down use iTerm's AppleScript `split` verb
+              ;; directly (iterm-split). Left/up split-after then
+              ;; swap with the left/above neighbour via iTerm's
+              ;; built-in Swap-With-Split-Pane action — see
+              ;; iterm-split-before for the iTerm key bindings it
+              ;; depends on (Cmd+Opt+Shift+Left ships as default;
+              ;; Cmd+Opt+Shift+Up needs a one-time manual bind).
               (group "x" "Split"
+                (key "h" "Left"  (lambda () (iterm-split-before 'left)))
                 (key "j" "Down"  (lambda () (iterm-split 'horizontal)))
+                (key "k" "Up"    (lambda () (iterm-split-before 'up)))
                 (key "l" "Right" (lambda () (iterm-split 'vertical))))))))))
 
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
