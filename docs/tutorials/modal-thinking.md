@@ -328,5 +328,70 @@ Notice the cost, though: to start arranging a window you press *three*
 keys — `w`, `a`, `h`. That's one too many for something you might do
 dozens of times an hour. Step 7 fixes it with a small refactor.
 
+## Step 7 — Sticky-target: fire AND enter, in one press
+
+Look at iTerm's `Focus` mode — open
+[`Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld) and find the
+"Focus" category around line 179. It binds hjkl too, but you don't
+press an `a` first when you're in iTerm; the very first `h` *both*
+moves pane-focus *and* puts you in the sticky focus tree. How?
+
+`'sticky-target`. A trailing keyword on a `(key …)` binding: when the
+binding fires, the state machine (a) runs the action, then (b)
+transitions modal navigation into the sticky tree named by the
+symbol. One key press does two jobs. The overlay can paint a small
+marker on each cell so you can tell which keys are sticky-target
+leaders.
+
+The refactor: take the four hjkl bindings out of the `(group "a" …)`
+in Step 6, give them `'sticky-target 'window-arrange`, and put them
+directly into the `w` overlay. Register a *separate* sticky tree
+named `'window-arrange` for the modal navigation to land in:
+
+```scheme
+;; A new top-level form, outside (define-tree 'global …):
+
+(define-tree 'window-arrange
+  'sticky #t
+  'exit-on-unknown #t
+  'display-name "Arrange"
+  (key "h" "Left half"   (λ () (move-window 0    0    0.5  1)))
+  (key "j" "Bottom half" (λ () (move-window 0    0.5  1    0.5)))
+  (key "k" "Top half"    (λ () (move-window 0    0    1    0.5)))
+  (key "l" "Right half"  (λ () (move-window 0.5  0    0.5  1))))
+
+;; Inside the `w` overlay, in place of the (group "a" …) you wrote
+;; in Step 6:
+
+(key "h" "Left half"   (λ () (move-window 0    0    0.5  1))
+     'sticky-target 'window-arrange)
+(key "j" "Bottom half" (λ () (move-window 0    0.5  1    0.5))
+     'sticky-target 'window-arrange)
+(key "k" "Top half"    (λ () (move-window 0    0    1    0.5))
+     'sticky-target 'window-arrange)
+(key "l" "Right half"  (λ () (move-window 0.5  0    0.5  1))
+     'sticky-target 'window-arrange)
+```
+
+**Relaunch. Press F18 w h l j k.** The very first `h` snaps the window
+to the left half *and* swaps the overlay to the four-row Arrange tree;
+subsequent presses keep snapping the same window through the other
+halves. Esc exits. Compare: Step 6 needed `w a h`; Step 7 needs `w h`.
+
+Two concepts arrived together here. The obvious one is
+`'sticky-target` — fire-and-enter as a single press. The other is
+quieter but more useful: **sticky trees are *named, top-level trees***
+registered with their own `define-tree`. The launcher tree
+(`'global`), a per-app tree (e.g. `'com.googlecode.iterm2`), and a
+sticky tree (`'window-arrange`) are all sibling top-level forms — they
+look structurally identical; the only difference is what *references*
+them. Once you've seen three trees alongside each other, "tree"
+becomes the unit of mental composition for the whole system.
+
+iTerm's pane Focus mode is doing exactly what you just wrote, applied
+to AppleScript pane-focus instead of window arrangement. Your `w h`
+is structurally identical to iTerm's per-app pane Focus — same
+sticky-target plumbing, different action surface.
+
 The selector fired, then dismissed. Same shape as everything in
 Part 1: tree → leaf → action → dismiss.
