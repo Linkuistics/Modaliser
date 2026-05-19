@@ -110,14 +110,6 @@ changes (typography, spacing, custom widgets):
 
 The class inventory is in [reference/theming.md](../reference/theming.md).
 
-**Removed Scheme setters.** If you find old config snippets calling
-`(set-overlay-css! …)`, `(set-host-header! …)`, or passing
-`'chip-options` / `'hint-options` to block constructors, those APIs
-are gone. Rewrite against CSS — `--color-host-bg`, `.chip`, and the
-`--color-*` variables cover the cases those setters used to handle.
-The migration section of [reference/theming.md](../reference/theming.md)
-has direct old → new mappings.
-
 ## Related
 
 - [reference/theming.md](../reference/theming.md) — full variable
