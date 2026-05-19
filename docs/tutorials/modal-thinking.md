@@ -68,9 +68,9 @@ Replace `~/.config/modaliser/config.scm` with:
 
 `move-window` takes four unit fractions of the primary screen — x, y,
 width, height. Pass it `0 0 1 1` and the focused window covers the
-whole screen; that's what "maximise" means here. You'll meet
-`move-window` again in Step 3, where Modaliser computes those four
-numbers for you from a grid.
+whole screen; that's what "maximise" means here. Step 3 wraps
+`move-window` behind a grid you write as letter matrices; Steps 6 and
+7 use it directly again for half-screen snaps.
 
 The `(λ () …)` wrap is non-negotiable. Without it, the call
 `(move-window 0 0 1 1)` would fire once, at config-load time — the
@@ -104,6 +104,10 @@ Edit `config.scm`:
       (key "c" "Centre"   (λ () (center-window)))
       (key "r" "Restore"  (λ () (restore-window))))))
 ```
+
+No new imports are needed — `center-window` and `restore-window` come
+from the same `(modaliser window)` import you added in Step 1
+alongside `move-window`.
 
 Notice what `(key "w" "Windows" (overlay …))` does: `(overlay …)`
 *returns a node*, and the outer `(key …)` *decorates* it with the key
@@ -178,10 +182,6 @@ Modaliser overlays comes from blocks — `window:layout-block` here,
 `window:list-block` in Step 5, `which-key-block` automatically wrapped
 around your loose keys.
 
-If you want a denser layout, the bundled `default-config.scm` adds a
-half-thirds row (`(("D" "F" "G") ("C" "V" "B"))`) between full-thirds
-and two-thirds for 3×2 sub-cells; the form is the same, just one more
-matrix in the sequence.
 
 ## Step 4 — A selector
 
@@ -201,8 +201,8 @@ because of *how* they're bound. Look at the form you're about to type:
 ```
 
 The third arg to `(key …)` is a *call* — `(selector …)`. Modaliser
-evaluates it at config-load time. It returns a node — a Scheme pair
-describing a selector. The `(key …)` macro sees the pair and
+evaluates it at config-load time. It returns a node — an alist
+describing a selector. The `(key …)` macro sees that node and
 *decorates* it with `"s"` / `"Select Window"`. The same dispatch you
 saw on `(overlay …)` in Step 2.
 
@@ -233,19 +233,21 @@ in your imports — it provides `list-windows` and `focus-window`):
 
 **Relaunch. Press F18 w s.** You get a list of your visible windows
 and an input box. The input drives *which entry in the list is
-selected* — type characters from a title and the closest-matching row
-becomes the highlighted one. Press Enter — the action (`focus-window`)
-runs against that highlighted entry and the overlay closes.
+selected* — type characters from a title and the matcher walks the
+list looking for the best fit. Press Enter — the action
+(`focus-window`) runs against the highlighted entry and the overlay
+closes.
 
 So: input box ⇒ list selection ⇒ Enter fires `'on-select`. The input
 isn't a window-focus action by itself; it's a navigator for the list
 underneath it.
 
-> The matcher is conservative — it prefers contiguous character runs
-> in the title and may need most of the title's letters before settling
-> on the entry you want. If you find yourself typing nearly the whole
-> title, that's not the tutorial deceiving you; it's the matcher's
-> current threshold.
+> The matcher is conservative: it prefers contiguous character runs
+> and may need most of a title's letters before settling on the entry
+> you want — short subsequence queries ("saf" for *Safari — Apple
+> Developer Documentation*) often won't be enough. If you find
+> yourself typing nearly the whole title, that's the matcher's
+> current threshold, not a flaw in your config.
 
 ## Step 5 — The window list, with chips
 
@@ -465,6 +467,3 @@ cp ~/.config/modaliser/config.scm.tutorial-bak ~/.config/modaliser/config.scm
 
 Then pick **Relaunch** from the menu bar icon. Or keep the `w` overlay
 you just built — it's a real config, not a throwaway.
-
-The selector fired, then dismissed. Same shape as everything in
-Part 1: tree → leaf → action → dismiss.
