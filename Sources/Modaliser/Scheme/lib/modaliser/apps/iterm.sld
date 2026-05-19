@@ -103,6 +103,27 @@
           "whose id is \"" session-id "\" to select' "
           "2>/dev/null")))
 
+    ;; Split the focused iTerm session via the Scripting Bridge.
+    ;; Direction is 'horizontal (new pane below) or 'vertical (new
+    ;; pane right). We don't use CGEvent-posted Cmd+D / Cmd+Shift+D
+    ;; because those are NSMenu key equivalents — Cocoa's
+    ;; performKeyEquivalent: is finicky about synthesized events that
+    ;; carry the cmd flag on the keystroke but no separate flagsChanged
+    ;; event, so the menu shortcut sometimes fails to fire. AppleScript
+    ;; bypasses the menu plumbing and invokes iTerm's split verb
+    ;; directly, matching the pattern used by iterm-select-session-by-id.
+    (define (iterm-split direction)
+      (let ((axis (cond
+                    ((eq? direction 'horizontal) "horizontally")
+                    ((eq? direction 'vertical)   "vertically")
+                    (else (error "iterm-split: unknown direction" direction)))))
+        (run-shell
+          (string-append
+            "osascript -e 'tell application \"iTerm\" to "
+            "tell current session of current window to "
+            "split " axis " with same profile' "
+            "2>/dev/null"))))
+
     ;; Build a single (key-range ...) node covering every labelled pane.
     ;; Display key is "<first>.." reflecting actually-bound count (so a
     ;; 3-pane window reads "1.." rather than the full label list). If
@@ -188,17 +209,15 @@
                   'sticky-target sticky-id)
                 (key "l" "Right" (keystroke '(cmd alt) "right")
                   'sticky-target sticky-id))
-              ;; Splits fire iTerm's native split actions via their
-              ;; default keystrokes (Cmd+D / Cmd+Shift+D). Only right
-              ;; and down are exposed: iTerm has no native action for
-              ;; "split before" (left/up), and AppleScript's `split`
-              ;; verb has no `before` parameter. The previous left/up
-              ;; bindings relied on a now-removed iTerm Python RPC
-              ;; (modaliser_nvim_bridge.py); reintroduce them only
-              ;; alongside an AppleScript split-then-swap implementation.
+              ;; Splits invoke iTerm's AppleScript `split` verb directly
+              ;; (see iterm-split). Only right and down are exposed:
+              ;; AppleScript's verb has no `before` parameter, so
+              ;; left/up would require a split-then-swap dance — left
+              ;; for a future change. The previous left/up bindings
+              ;; relied on a now-removed iTerm Python RPC.
               (group "x" "Split"
-                (key "j" "Down"  (keystroke '(cmd shift) "d"))
-                (key "l" "Right" (keystroke '(cmd) "d")))))))))
+                (key "j" "Down"  (lambda () (iterm-split 'horizontal)))
+                (key "l" "Right" (lambda () (iterm-split 'vertical))))))))))
 
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
     ;; the transient tree via any of its hjkl keys (each carries a
