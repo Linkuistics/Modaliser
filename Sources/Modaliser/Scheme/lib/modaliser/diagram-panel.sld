@@ -1,5 +1,4 @@
-;; (modaliser diagram-panel) — renderer assets + panel-spec constructors
-;; for the diagrammatic overlay renderer.
+;; (modaliser diagram-panel) — panel-spec constructors.
 ;;
 ;; Three panel types (all alists):
 ;;
@@ -19,8 +18,9 @@
 ;; window-actions.sld to derive both keybindings (via move-window
 ;; computed from grid position) and the matching panel-spec.
 ;;
-;; The .js and .css that render these panels are registered with the
-;; overlay at library-load time via (add-overlay-asset! …).
+;; The panel-specs produced here are consumed by the window-diagram
+;; block (lib/modaliser/blocks/window-diagram.{sld,js,css}); rendering
+;; lives there. This library only builds the data.
 
 (define-library (modaliser diagram-panel)
   (export make-grid-panel-spec
@@ -29,8 +29,7 @@
           parse-matrix)
   (import (scheme base)
           (scheme cxr)
-          (modaliser util)
-          (modaliser overlay-assets))
+          (modaliser util))
   (begin
 
     ;; ─── Panel-spec constructors ───────────────────────────────
@@ -130,17 +129,4 @@
                     (cons 'row-span (+ (- max-r min-r) 1)))))
           keys)))
 
-    ;; ─── Asset registration ──────────────────────────────────
-    ;;
-    ;; Reads sibling .css and .js and pushes them into the overlay's
-    ;; asset registry. Runs once when the library is imported. The
-    ;; overlay concatenates extras into the panel HTML the next time
-    ;; render-overlay-html runs.
-
-    ;; Register the .css and .js sitting next to this .sld file.
-    ;; We push relative paths only — a library's begin block doesn't
-    ;; see the top-level *scheme-directory* binding, so the actual
-    ;; read happens lazily through overlay-assets-set-resolver! which
-    ;; overlay.scm wires up against *scheme-directory*.
-    (add-overlay-asset-file! 'css "lib/modaliser/diagram-panel.css")
-    (add-overlay-asset-file! 'js  "lib/modaliser/diagram-panel.js")))
+    ))
