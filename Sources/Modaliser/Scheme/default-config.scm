@@ -127,8 +127,54 @@
 
 (safari:register!)
 
-;; iTerm: dynamic-pane tree + sticky 'iterm-panes-focus mode + context-
-;; suffix handler. Pane chips inherit the host-header colour through the
-;; .chip CSS rule's var(--color-host-bg) reference — no per-callsite
-;; threading required.
-(iterm:register!)
+;; iTerm tree inlined here (formerly (iterm:register!)) so it's easy
+;; to tweak. The pane-selection mechanism is now the (iterm:list-panes)
+;; block: it paints pane chips, renders a row list at the bottom of the
+;; overlay (one per pane), and dispatches digits 1..0 to focus the
+;; matching pane by session UUID. Layout is re-snapshotted on every
+;; overlay open, so panes added or moved between presses Just Work
+;; without a separate tree rebuild step.
+;;
+;; The sticky 'iterm-panes-focus mode is still registered via the
+;; library — the hjkl bindings carry 'sticky-target to enter it on
+;; first press, then keep moving without another leader.
+(define-tree 'com.googlecode.iterm2
+
+  (key "c" "Copy Mode"   (λ () (send-keystroke '(cmd shift) "c")))
+  (key "z" "Toggle Zoom" (λ () (send-keystroke '(cmd shift) "return")))
+
+  ;; hjkl: focus-move AND transition into the sticky 'iterm-panes-focus
+  ;; mode in one press. First leader → h moves left and lands in the
+  ;; sticky mode, so subsequent hjkl keys keep moving without another
+  ;; leader. The overlay paints a ↻ marker on each via 'sticky-target.
+  (category "Focus"
+    (key "h" "Left"  (λ () (send-keystroke '(cmd alt) "left"))
+      'sticky-target 'iterm-panes-focus)
+    (key "j" "Down"  (λ () (send-keystroke '(cmd alt) "down"))
+      'sticky-target 'iterm-panes-focus)
+    (key "k" "Up"    (λ () (send-keystroke '(cmd alt) "up"))
+      'sticky-target 'iterm-panes-focus)
+    (key "l" "Right" (λ () (send-keystroke '(cmd alt) "right"))
+      'sticky-target 'iterm-panes-focus))
+
+  (group "x" "Split"
+    (key "h" "Left"  (λ () (send-keystroke '(cmd ctrl shift) "h")))
+    (key "j" "Down"  (λ () (send-keystroke '(cmd ctrl shift) "j")))
+    (key "k" "Up"    (λ () (send-keystroke '(cmd ctrl shift) "k")))
+    (key "l" "Right" (λ () (send-keystroke '(cmd ctrl shift) "l"))))
+
+  ;; Bottom: labelled panes list. 'chips? #t paints the pane chips and
+  ;; bundles a hidden digit key-range that focuses panes by UUID.
+  (iterm:list-panes 'chips? #t))
+
+;; Sticky focus-mode tree (entered by the hjkl 'sticky-target above).
+;; 'sticky #t keeps the mode armed across key presses; 'exit-on-unknown
+;; #t bounces out cleanly when an unrelated key arrives.
+(define-tree 'iterm-panes-focus
+  'sticky #t
+  'exit-on-unknown #t
+  'display-name "Focus"
+  (key "h" "Left"  (λ () (send-keystroke '(cmd alt) "left")))
+  (key "j" "Down"  (λ () (send-keystroke '(cmd alt) "down")))
+  (key "k" "Up"    (λ () (send-keystroke '(cmd alt) "up")))
+  (key "l" "Right" (λ () (send-keystroke '(cmd alt) "right"))))

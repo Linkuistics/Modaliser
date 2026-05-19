@@ -43,7 +43,9 @@
           focus-mode-register!
           context-suffix-handler
           register!
-          default-pane-labels)
+          default-pane-labels
+          list-panes
+          select-session-by-id)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -55,7 +57,8 @@
           (modaliser hints)
           (modaliser ax-hints)
           (modaliser terminal)
-          (modaliser theming))
+          (modaliser theming)
+          (modaliser blocks iterm-panes))
   (begin
 
     (define default-pane-labels
@@ -261,4 +264,45 @@
         (when install?
           (set-local-context-suffix!
             (lambda (bundle-id)
-              (apply context-suffix-handler bundle-id forwarded))))))))
+              (apply context-suffix-handler bundle-id forwarded))))))
+
+    ;; ─── Block-based pane selection ────────────────────────────────
+    ;;
+    ;; Companion to (modaliser blocks iterm-panes). Mirrors the
+    ;; window-actions:list-block shape: wrap the block constructor,
+    ;; bundle a hidden 1.. key-range so digits dispatch to the
+    ;; freshly-snapshotted pane UUIDs every time the overlay renders.
+    ;;
+    ;; Usage from config.scm:
+    ;;
+    ;;   (define-tree 'com.googlecode.iterm2
+    ;;     (overlay
+    ;;       (key "c" "Copy Mode" …)
+    ;;       …
+    ;;       (iterm:list-panes 'chips? #t)))
+    ;;
+    ;; The 1.. range is marked 'hidden so the which-key strip doesn't
+    ;; surface a redundant "1.. → Pane <n>" row — the pane list block
+    ;; already shows the mapping.
+
+    ;; Public passthrough so config-level code can dispatch by UUID
+    ;; without reaching into library internals.
+    (define (select-session-by-id session-id)
+      (iterm-select-session-by-id session-id))
+
+    (define (focus-by-digit d)
+      (let ((entry (assoc d (iterm-panes-current-targets))))
+        (when entry
+          (iterm-select-session-by-id (cdr entry)))))
+
+    (define (pane-range)
+      (cons (cons 'hidden #t)
+            (key-range "1.." "Pane <n>"
+              default-pane-labels
+              (lambda (k) (focus-by-digit k)))))
+
+    (define (list-panes . opts)
+      (let ((base (apply make-iterm-panes-block opts)))
+        (append base (list (cons 'block-children
+                                 (list (pane-range)))))))))
+
