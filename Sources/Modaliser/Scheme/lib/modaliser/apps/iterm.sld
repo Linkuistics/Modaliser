@@ -41,8 +41,6 @@
   (export rebuild-tree!
           focus-mode-tree
           focus-mode-register!
-          move-mode-tree
-          move-mode-register!
           context-suffix-handler
           register!
           default-pane-labels
@@ -210,7 +208,6 @@
         (let* ((labels       (alist-ref alist 'pane-labels default-pane-labels))
                (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
                (sticky-id    (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
-               (move-id      (alist-ref alist 'move-mode-id 'iterm-panes-move))
                (raw-panes    (ax-find-elements-named
                                "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
                (panes        (label-pairs labels raw-panes))
@@ -252,22 +249,20 @@
                 (key "j" "Down"  (lambda () (iterm-split 'horizontal)))
                 (key "k" "Up"    (lambda () (iterm-split-before 'up)))
                 (key "l" "Right" (lambda () (iterm-split 'vertical))))
-              ;; Move Pane modal — m prefix enters a sticky mode whose
+              ;; Move Pane modal — m prefix enters a sticky group whose
               ;; hjkl keys fire iTerm's Swap-With-Split-Pane-on-<dir>
               ;; actions, letting the user rearrange pane positions
-              ;; without re-entering the leader. First press performs
-              ;; the swap AND transitions into 'iterm-panes-move (per
-              ;; 'sticky-target), then subsequent hjkl keep swapping.
-              ;; Depends on the same iTerm bindings as iterm-split-before.
+              ;; without re-entering the leader. Each hjkl press swaps
+              ;; and stays in the group (per 'sticky #t); any other key
+              ;; exits (per 'exit-on-unknown #t). Depends on the same
+              ;; iTerm bindings as iterm-split-before.
               (group "m" "Move Pane"
-                (key "h" "Left"  (keystroke '(cmd ctrl shift) "h")
-                  'sticky-target move-id)
-                (key "j" "Down"  (keystroke '(cmd ctrl shift) "j")
-                  'sticky-target move-id)
-                (key "k" "Up"    (keystroke '(cmd ctrl shift) "k")
-                  'sticky-target move-id)
-                (key "l" "Right" (keystroke '(cmd ctrl shift) "l")
-                  'sticky-target move-id))))))))
+                'sticky #t
+                'exit-on-unknown #t
+                (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
+                (key "j" "Down"  (keystroke '(cmd ctrl shift) "j"))
+                (key "k" "Up"    (keystroke '(cmd ctrl shift) "k"))
+                (key "l" "Right" (keystroke '(cmd ctrl shift) "l")))))))))
 
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
     ;; the transient tree via any of its hjkl keys (each carries a
@@ -288,26 +283,6 @@
           'exit-on-unknown #t
           'display-name disp-name
           (focus-mode-tree))))
-
-    ;; Sticky move-pane mode children. Pure hjkl swaps, entered from
-    ;; the "m" group in the transient tree (each hjkl carries
-    ;; 'sticky-target → here) or via (enter-mode! 'iterm-panes-move).
-    (define (move-mode-tree)
-      (list
-        (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
-        (key "j" "Down"  (keystroke '(cmd ctrl shift) "j"))
-        (key "k" "Up"    (keystroke '(cmd ctrl shift) "k"))
-        (key "l" "Right" (keystroke '(cmd ctrl shift) "l"))))
-
-    (define (move-mode-register! . opts)
-      (let* ((alist     (apply props->alist opts))
-             (id        (alist-ref alist 'move-mode-id 'iterm-panes-move))
-             (disp-name (alist-ref alist 'move-display-name "Move")))
-        (apply define-tree id
-          'sticky #t
-          'exit-on-unknown #t
-          'display-name disp-name
-          (move-mode-tree))))
 
     ;; Variant string for the focused iTerm pane, used by the
     ;; (modaliser event-dispatch) dispatcher to select sub-tree variants
@@ -356,7 +331,6 @@
                           (cons (cadr kvs) (cons (car kvs) acc))))))))
         (apply rebuild-tree! forwarded)
         (apply focus-mode-register! forwarded)
-        (apply move-mode-register! forwarded)
         (when install?
           (set-local-context-suffix!
             (lambda (bundle-id)
