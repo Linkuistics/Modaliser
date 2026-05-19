@@ -188,11 +188,17 @@
                   'sticky-target sticky-id)
                 (key "l" "Right" (keystroke '(cmd alt) "right")
                   'sticky-target sticky-id))
+              ;; Splits fire iTerm's native split actions via their
+              ;; default keystrokes (Cmd+D / Cmd+Shift+D). Only right
+              ;; and down are exposed: iTerm has no native action for
+              ;; "split before" (left/up), and AppleScript's `split`
+              ;; verb has no `before` parameter. The previous left/up
+              ;; bindings relied on a now-removed iTerm Python RPC
+              ;; (modaliser_nvim_bridge.py); reintroduce them only
+              ;; alongside an AppleScript split-then-swap implementation.
               (group "x" "Split"
-                (key "h" "Left"  (keystroke '(cmd ctrl shift) "h"))
-                (key "j" "Down"  (keystroke '(cmd ctrl shift) "j"))
-                (key "k" "Up"    (keystroke '(cmd ctrl shift) "k"))
-                (key "l" "Right" (keystroke '(cmd ctrl shift) "l")))))))))
+                (key "j" "Down"  (keystroke '(cmd shift) "d"))
+                (key "l" "Right" (keystroke '(cmd) "d")))))))))
 
     ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
     ;; the transient tree via any of its hjkl keys (each carries a
