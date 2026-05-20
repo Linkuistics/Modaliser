@@ -209,6 +209,10 @@
     ;; expected Action code. One shell invocation, six PlistBuddy
     ;; probes. Action is sufficient to identify our bindings — the
     ;; swap keystrokes are obscure enough that a match means ours.
+    ;;
+    ;; ${1} is braced deliberately: run-shell executes via zsh, and a
+    ;; bare $1:Action lets zsh read ":A" as its absolute-path history
+    ;; modifier — rewriting the key to <cwd>/<key> so every probe fails.
     (define (iterm-probe-configured?)
       (let ((checks
               (apply string-append
@@ -223,7 +227,7 @@
                 "P=" iterm-plist-quoted "\n"
                 "ok=yes\n"
                 "ck() { v=$(/usr/libexec/PlistBuddy -c "
-                "\"Print :GlobalKeyMap:$1:Action\" \"$P\" 2>/dev/null); "
+                "\"Print :GlobalKeyMap:${1}:Action\" \"$P\" 2>/dev/null); "
                 "[ \"$v\" = \"$2\" ] || ok=no; }\n"
                 checks
                 "echo $ok")))
