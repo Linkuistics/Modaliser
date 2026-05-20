@@ -201,8 +201,15 @@
     ;; cfprefsd, not the on-disk plist (see iterm-probe-configured?),
     ;; so the .plist is never edited directly: export the live domain
     ;; to a temp snapshot, splice the eight bindings into the snapshot,
-    ;; and import it back through cfprefsd — which keeps cfprefsd's
-    ;; cache coherent, so no `killall cfprefsd` is needed.
+    ;; and import it back with `defaults import`.
+    ;;
+    ;; `killall cfprefsd` after the import is load-bearing. `defaults
+    ;; import` updates cfprefsd's in-memory copy, but its write-back to
+    ;; the .plist is asynchronous; iTerm2 relaunched immediately can
+    ;; read the still-stale file and then save its old keymap over the
+    ;; top — the bug this very flow once shipped with. killall forces
+    ;; cfprefsd to flush and restart, so the relaunched iTerm reads the
+    ;; committed file.
     ;;
     ;; iTerm is quit first — a running iTerm holds GlobalKeyMap in
     ;; memory and would overwrite the change on its next pref-save —
@@ -220,6 +227,8 @@
         (apply string-append (map iterm-replace-line iterm-binding-specs))
         "defaults import com.googlecode.iterm2 \"$SNAP\"\n"
         "rm -f \"$SNAP\"\n"
+        "killall cfprefsd 2>/dev/null || true\n"
+        "sleep 0.3\n"
         "open -a iTerm\n"))
 
     ;; Live check: #t when all eight bindings carry the expected
