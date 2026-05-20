@@ -206,9 +206,14 @@
         "open -a iTerm\n"))
 
     ;; Live check: #t when all six bindings are present with the
-    ;; expected Action code. One shell invocation, six PlistBuddy
-    ;; probes. Action is sufficient to identify our bindings — the
-    ;; swap keystrokes are obscure enough that a match means ours.
+    ;; expected Action code. Action alone identifies our bindings —
+    ;; the swap keystrokes are obscure enough that a match means ours.
+    ;;
+    ;; The snapshot comes from `defaults export`, not a direct read of
+    ;; com.googlecode.iterm2.plist: cfprefsd owns a running iTerm's
+    ;; preferences in memory and flushes the file lazily, so the
+    ;; on-disk plist can lag the live config by minutes and miss
+    ;; bindings that are actually set. defaults goes through cfprefsd.
     ;;
     ;; ${1} is braced deliberately: run-shell executes via zsh, and a
     ;; bare $1:Action lets zsh read ":A" as its absolute-path history
@@ -224,12 +229,14 @@
           (string-trim
             (run-shell
               (string-append
-                "P=" iterm-plist-quoted "\n"
+                "P=$(mktemp -t modaliser-iterm-probe)\n"
+                "defaults export com.googlecode.iterm2 \"$P\" 2>/dev/null\n"
                 "ok=yes\n"
                 "ck() { v=$(/usr/libexec/PlistBuddy -c "
                 "\"Print :GlobalKeyMap:${1}:Action\" \"$P\" 2>/dev/null); "
                 "[ \"$v\" = \"$2\" ] || ok=no; }\n"
                 checks
+                "rm -f \"$P\"\n"
                 "echo $ok")))
           "yes")))
 
