@@ -24,6 +24,7 @@
       for (const k in attrs) {
         if (k === 'class') e.className = attrs[k];
         else if (k === 'text') e.textContent = attrs[k];
+        else if (k === 'html') e.innerHTML = attrs[k];
         else e.setAttribute(k, attrs[k]);
       }
     }
@@ -47,7 +48,9 @@
       labelNode.textContent = labelText;
     }
     return el('div', { class: 'wk-row' },
-      el('span', { class: 'entry-key', text: displayKey }),
+      // key is ready HTML from key-display-html (modifier glyphs wrapped
+      // in <span class="sigil-mod">) — set as innerHTML, not textContent.
+      el('span', { class: 'entry-key', html: displayKey }),
       el('span', { class: 'entry-arrow', text: '→' }),
       labelNode
     );

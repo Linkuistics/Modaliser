@@ -129,7 +129,13 @@
          (label (node-label child))
          (is-group (group? child))
          (sticky-target (and (command? child) (node-sticky-target child)))
-         (display-key (if (equal? k " ") "\x2423;" k))
+         ;; key-display-html wraps modifier glyphs in <span class="sigil-mod">,
+         ;; so it's raw HTML — make-raw-html keeps the `span` builder from
+         ;; escaping it. The list-renderer update path (overlay.js) and the
+         ;; which-key block render the same key-display-html output.
+         (display-key (if (equal? k " ")
+                        "\x2423;"
+                        (make-raw-html (key-display-html k))))
          (display-label (if is-group
                           (string-append label " \x2026;")
                           label))
