@@ -71,6 +71,35 @@ struct EndToEndSchemeModalTests {
         #expect(try engine.evaluate("test-result") == .symbol(engine.context.symbols.intern("shift-H-fired")))
     }
 
+    @Test func ctrlAndAltModifiersDispatchToPrefixedBindings() throws {
+        // Ctrl contributes a "C-" prefix and Alt an "M-" prefix to the
+        // effective overlay key, so a binding can be declared on a
+        // modified key. Ctrl+Shift+I → "C-I"; Alt+I → "M-i".
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        try engine.evaluate("""
+            (define ctrl-result #f)
+            (define alt-result #f)
+            (define-tree 'global
+              (key "C-I" "Configure"  (lambda () (set! ctrl-result 'ctrl-shift-i)))
+              (key "M-i" "Alt Eye"    (lambda () (set! alt-result 'alt-i))))
+            """)
+
+        // keycode 34 = 'i'. Ctrl+Shift → "C-I".
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-key-handler 34 (bitwise-ior MOD-CTRL MOD-SHIFT))")
+        #expect(try engine.evaluate("ctrl-result") == .symbol(engine.context.symbols.intern("ctrl-shift-i")))
+
+        // Alt alone → "M-i".
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-key-handler 34 MOD-ALT)")
+        #expect(try engine.evaluate("alt-result") == .symbol(engine.context.symbols.intern("alt-i")))
+    }
+
     @Test func f18ThenGroupThenCommand() throws {
         let engine = try SchemeEngine()
 

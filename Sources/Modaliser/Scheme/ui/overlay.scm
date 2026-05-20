@@ -425,13 +425,24 @@
         (let ((row (entry->row-json (car xs))))
           (loop (cdr xs) (if row (cons row acc) acc)))))))
 
+;; (node-hidden? node) → boolean
+;; Resolve a node's 'hidden property. The value may be a literal
+;; (#t / #f) or a thunk evaluated here at render time — the latter
+;; lets a binding's visibility track runtime state (e.g. a cached
+;; "is this app configured?" flag) without rebuilding the tree.
+(define (node-hidden? node)
+  (let ((p (assoc 'hidden node)))
+    (and p
+         (let ((v (cdr p)))
+           (if (procedure? v) (v) v))
+         #t)))
+
 ;; (entry->row-json c) → JSON string OR #f if skipped
 ;; Skips hidden entries and nested category nodes (categories inside
 ;; categories — dispatch flattens through them via find-child, so
 ;; emitting a bogus empty row here would be inconsistent with dispatch).
 (define (entry->row-json c)
-  (let* ((hidden-pair (assoc 'hidden c))
-         (hidden? (and hidden-pair (cdr hidden-pair)))
+  (let* ((hidden? (node-hidden? c))
          (k (node-key c))
          (lbl (node-label c))
          (is-grp (group? c))
@@ -672,8 +683,7 @@
                           (and (command? item)
                                (node-sticky-target item)
                                #t))
-                        (hidden-pair (assoc 'hidden item))
-                        (hidden? (and hidden-pair (cdr hidden-pair))))
+                        (hidden? (node-hidden? item)))
                    (cond
                      (hidden? (loop (cdr items) result))
                      (else
