@@ -189,46 +189,77 @@
         ",\"Version\":2}"))
 
     ;; One `plutil -replace` line writing a single binding into the
-    ;; exported snapshot ($SNAP, set by iterm-provision-script). -json
-    ;; keeps Action/Version/Escaping as real integers; the `defaults`
-    ;; CLI can only express string-typed values.
+    ;; working snapshot ($SNAP). -json keeps Action/Version/Escaping
+    ;; as real integers; the `defaults` CLI can only express strings.
     (define (iterm-replace-line spec)
       (string-append
         "plutil -replace 'GlobalKeyMap." (car spec) "' "
         "-json '" (iterm-binding-json spec) "' \"$SNAP\"\n"))
 
-    ;; The full provisioning script. iTerm's preferences are owned by
-    ;; cfprefsd, not the on-disk plist (see iterm-probe-configured?),
-    ;; so the .plist is never edited directly: export the live domain
-    ;; to a temp snapshot, splice the eight bindings into the snapshot,
-    ;; and import it back with `defaults import`.
+    ;; Shell snippet (zsh) resolving where iTerm reads its preferences
+    ;; from. iTerm's "Load preferences from a custom folder" option
+    ;; (Preferences → General → Settings) makes it load — and on quit
+    ;; save — a plist under PrefsCustomFolder, ignoring the standard
+    ;; cfprefsd domain on launch. When it is on, both probing and
+    ;; provisioning must target that file: writing the standard domain
+    ;; has no lasting effect, as iTerm overwrites it from the custom
+    ;; folder on next launch.
     ;;
-    ;; `killall cfprefsd` after the import is load-bearing. `defaults
-    ;; import` updates cfprefsd's in-memory copy, but its write-back to
-    ;; the .plist is asynchronous; iTerm2 relaunched immediately can
-    ;; read the still-stale file and then save its old keymap over the
-    ;; top — the bug this very flow once shipped with. killall forces
-    ;; cfprefsd to flush and restart, so the relaunched iTerm reads the
-    ;; committed file.
+    ;; Sets TARGET to the custom-folder plist path, or leaves it empty
+    ;; when iTerm uses the standard domain. LoadPrefsFromCustomFolder
+    ;; and PrefsCustomFolder themselves live in the standard domain.
+    (define iterm-resolve-target-sh
+      (string-append
+        "CUSTOM=$(defaults read com.googlecode.iterm2 LoadPrefsFromCustomFolder 2>/dev/null)\n"
+        "CF=$(defaults read com.googlecode.iterm2 PrefsCustomFolder 2>/dev/null)\n"
+        "CF=\"${CF/#\\~/$HOME}\"\n"
+        "TARGET=\"\"\n"
+        "if [ \"$CUSTOM\" = \"1\" ] && [ -n \"$CF\" ]; then\n"
+        "  TARGET=\"$CF/com.googlecode.iterm2.plist\"\n"
+        "fi\n"))
+
+    ;; The full provisioning script.
     ;;
     ;; iTerm is quit first — a running iTerm holds GlobalKeyMap in
     ;; memory and would overwrite the change on its next pref-save —
-    ;; and relaunched at the end. The pre-edit snapshot is copied
-    ;; aside as a timestamped backup, restorable with `defaults
-    ;; import`. plutil still runs, but only on the throwaway snapshot.
+    ;; and relaunched at the end. A timestamped backup of the prefs
+    ;; as they were is saved alongside the standard domain plist.
+    ;;
+    ;; The eight bindings are spliced into a working snapshot ($SNAP)
+    ;; with plutil — `defaults` cannot write integer-typed values —
+    ;; and committed to wherever iTerm will read on next launch (see
+    ;; iterm-resolve-target-sh):
+    ;;
+    ;;  - Custom prefs folder: copy that folder's plist, edit it,
+    ;;    copy it back. iTerm reads the file directly on launch, so
+    ;;    no cfprefsd round-trip is involved.
+    ;;  - Standard domain: export the cfprefsd domain, edit it,
+    ;;    `defaults import` it back, then `killall cfprefsd`. The
+    ;;    import's write to disk is asynchronous; killing cfprefsd
+    ;;    forces a flush so the relaunched iTerm reads the committed
+    ;;    file rather than racing it.
     (define iterm-provision-script
       (string-append
+        iterm-resolve-target-sh
         "osascript -e 'tell application \"iTerm\" to quit' 2>/dev/null || true\n"
         "for i in $(seq 1 60); do pgrep -x iTerm2 >/dev/null 2>&1 || break; sleep 0.1; done\n"
         "SNAP=$(mktemp -t modaliser-iterm-provision)\n"
-        "defaults export com.googlecode.iterm2 \"$SNAP\" 2>/dev/null\n"
+        "if [ -n \"$TARGET\" ] && [ -f \"$TARGET\" ]; then\n"
+        "  cp \"$TARGET\" \"$SNAP\"\n"
+        "else\n"
+        "  defaults export com.googlecode.iterm2 \"$SNAP\" 2>/dev/null\n"
+        "fi\n"
         "cp \"$SNAP\" \"$HOME/Library/Preferences/com.googlecode.iterm2.modaliser-backup-$(date +%Y%m%d-%H%M%S).plist\" 2>/dev/null || true\n"
         "plutil -insert GlobalKeyMap -json '{}' \"$SNAP\" 2>/dev/null || true\n"
         (apply string-append (map iterm-replace-line iterm-binding-specs))
-        "defaults import com.googlecode.iterm2 \"$SNAP\"\n"
+        "if [ -n \"$TARGET\" ]; then\n"
+        "  cp \"$SNAP\" \"$TARGET\"\n"
+        "else\n"
+        "  defaults import com.googlecode.iterm2 \"$SNAP\"\n"
+        "  killall cfprefsd 2>/dev/null || true\n"
+        "  sleep 0.3\n"
+        "fi\n"
         "rm -f \"$SNAP\"\n"
-        "killall cfprefsd 2>/dev/null || true\n"
-        "sleep 0.3\n"
         "open -a iTerm\n"))
 
     ;; Live check: #t when all eight bindings carry the expected
@@ -236,11 +267,11 @@
     ;; identify ours; the Action-25 entries (splits, copy mode,
     ;; maximize) only confirm a menu binding exists on that key.
     ;;
-    ;; The snapshot comes from `defaults export`, not a direct read of
-    ;; com.googlecode.iterm2.plist: cfprefsd owns a running iTerm's
-    ;; preferences in memory and flushes the file lazily, so the
-    ;; on-disk plist can lag the live config by minutes and miss
-    ;; bindings that are actually set. defaults goes through cfprefsd.
+    ;; Probes the same file iTerm loads from — see
+    ;; iterm-resolve-target-sh. With a custom prefs folder, that
+    ;; folder's plist (read directly); otherwise a `defaults export`
+    ;; of the cfprefsd domain — never a raw read of the standard
+    ;; on-disk plist, which lags cfprefsd and would read stale.
     ;;
     ;; ${1} is braced deliberately: run-shell executes via zsh, and a
     ;; bare $1:Action lets zsh read ":A" as its absolute-path history
@@ -256,14 +287,19 @@
           (string-trim
             (run-shell
               (string-append
-                "P=$(mktemp -t modaliser-iterm-probe)\n"
-                "defaults export com.googlecode.iterm2 \"$P\" 2>/dev/null\n"
+                iterm-resolve-target-sh
+                "if [ -n \"$TARGET\" ]; then\n"
+                "  P=\"$TARGET\"\n"
+                "else\n"
+                "  P=$(mktemp -t modaliser-iterm-probe)\n"
+                "  defaults export com.googlecode.iterm2 \"$P\" 2>/dev/null\n"
+                "fi\n"
                 "ok=yes\n"
                 "ck() { v=$(/usr/libexec/PlistBuddy -c "
                 "\"Print :GlobalKeyMap:${1}:Action\" \"$P\" 2>/dev/null); "
                 "[ \"$v\" = \"$2\" ] || ok=no; }\n"
                 checks
-                "rm -f \"$P\"\n"
+                "[ -n \"$TARGET\" ] || rm -f \"$P\"\n"
                 "echo $ok")))
           "yes")))
 
