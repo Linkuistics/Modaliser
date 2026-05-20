@@ -48,7 +48,8 @@
           select-session-by-id
           focus-pane-left focus-pane-right focus-pane-up focus-pane-down
           split-pane-left split-pane-right split-pane-up split-pane-down
-          move-pane-left  move-pane-right  move-pane-up  move-pane-down)
+          move-pane-left  move-pane-right  move-pane-up  move-pane-down
+          configure-entry iterm-configured?)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -106,87 +107,190 @@
           "whose id is \"" session-id "\" to select' "
           "2>/dev/null")))
 
-    ;; Split the focused iTerm session via the Scripting Bridge and
-    ;; return the new session's UUID. Direction is 'horizontal (new
-    ;; pane below) or 'vertical (new pane right).
-    ;;
-    ;; We don't use CGEvent-posted Cmd+D / Cmd+Shift+D because those
-    ;; are NSMenu key equivalents — Cocoa's performKeyEquivalent: is
-    ;; finicky about synthesized events that carry the cmd flag on
-    ;; the keystroke but no separate flagsChanged event, so the menu
-    ;; shortcut sometimes fails to fire. AppleScript bypasses the
-    ;; menu plumbing and invokes iTerm's split verb directly.
-    ;;
-    ;; The returned UUID is captured from `split`'s return value, not
-    ;; from a subsequent "id of current session" query: iTerm's
-    ;; focus-shift-on-split logic only runs when iTerm is the
-    ;; frontmost app — and Modaliser's overlay has *just* deactivated
-    ;; iTerm. So iTerm's "current session" still names the
-    ;; pre-split pane immediately after a background AppleScript
-    ;; split. The verb's return value is authoritative regardless of
-    ;; focus state.
-    (define (iterm-split direction)
-      (let ((axis (cond
-                    ((eq? direction 'horizontal) "horizontally")
-                    ((eq? direction 'vertical)   "vertically")
-                    (else (error "iterm-split: unknown direction" direction)))))
-        (string-trim
-          (run-shell
-            (string-append
-              "osascript "
-              "-e 'tell application \"iTerm\"' "
-              "-e '  tell current session of current window' "
-              "-e '    set newSession to split " axis " with same profile' "
-              "-e '  end tell' "
-              "-e '  id of newSession' "
-              "-e 'end tell' "
-              "2>/dev/null")))))
-
     ;; ─── Public pane operations ──────────────────────────────────
     ;;
-    ;; Twelve 0-arg procedures that consumers can drop straight into
-    ;; `(key ... ACTION ...)` slots without wrapping in a lambda. They
-    ;; encapsulate the underlying mechanism (AppleScript split for
-    ;; right/down, AppleScript-split-then-swap-then-refocus for left/up,
-    ;; keystroke synthesis for focus/move) so config sites don't need
-    ;; to know which iTerm surface backs each direction.
+    ;; Twelve 0-arg procedures that consumers drop straight into
+    ;; `(key ... ACTION ...)` slots. Every pane op is a synthesized
+    ;; keystroke routed through iTerm's GlobalKeyMap — the reliable
+    ;; target for synthetic CGEvents (unlike NSMenu key equivalents).
     ;;
-    ;; All four split-pane-* procs end by `select`-ing the new pane by
-    ;; UUID so callers can rely on the post-split focus contract:
-    ;; after split-pane-X, the freshly-created pane is focused.
+    ;; A key-triggered split goes through iTerm's own key handler, so
+    ;; iTerm focuses the new pane natively — no UUID bookkeeping. iTerm
+    ;; has no native "split before", so left/up split after (Cmd+D /
+    ;; Cmd+Shift+D) then swap the new pane with its left/above
+    ;; neighbour.
     ;;
-    ;; Required iTerm key bindings (Settings → Keys → Key Bindings),
-    ;; shared with the Move Pane modal:
-    ;;   Cmd+Ctrl+Shift+H → Swap With Split Pane on Left
-    ;;   Cmd+Ctrl+Shift+J → Swap With Split Pane Below
-    ;;   Cmd+Ctrl+Shift+K → Swap With Split Pane Above
-    ;;   Cmd+Ctrl+Shift+L → Swap With Split Pane on Right
+    ;; Splits and moves depend on six iTerm key bindings the
+    ;; "Configure iTerm" action provisions (see iterm-binding-specs).
+    ;; Focus uses iTerm's shipped Cmd+Opt+Arrow defaults — no setup.
 
     (define (focus-pane-left)  (send-keystroke '(cmd alt) "left"))
     (define (focus-pane-right) (send-keystroke '(cmd alt) "right"))
     (define (focus-pane-up)    (send-keystroke '(cmd alt) "up"))
     (define (focus-pane-down)  (send-keystroke '(cmd alt) "down"))
 
-    (define (split-pane-right)
-      (iterm-select-session-by-id (iterm-split 'vertical)))
-
-    (define (split-pane-down)
-      (iterm-select-session-by-id (iterm-split 'horizontal)))
+    (define (split-pane-right) (send-keystroke '(cmd) "d"))
+    (define (split-pane-down)  (send-keystroke '(cmd shift) "d"))
 
     (define (split-pane-left)
-      (let ((new (iterm-split 'vertical)))
-        (send-keystroke '(cmd ctrl shift) "h")
-        (iterm-select-session-by-id new)))
+      (send-keystroke '(cmd) "d")              ; split right; iTerm focuses new pane
+      (send-keystroke '(cmd ctrl shift) "h"))  ; swap new pane leftward
 
     (define (split-pane-up)
-      (let ((new (iterm-split 'horizontal)))
-        (send-keystroke '(cmd ctrl shift) "k")
-        (iterm-select-session-by-id new)))
+      (send-keystroke '(cmd shift) "d")
+      (send-keystroke '(cmd ctrl shift) "k"))
 
     (define (move-pane-left)  (send-keystroke '(cmd ctrl shift) "h"))
     (define (move-pane-right) (send-keystroke '(cmd ctrl shift) "l"))
     (define (move-pane-up)    (send-keystroke '(cmd ctrl shift) "k"))
     (define (move-pane-down)  (send-keystroke '(cmd ctrl shift) "j"))
+
+    ;; ─── iTerm key-binding provisioning ──────────────────────────
+    ;;
+    ;; The pane ops above need six entries in iTerm's GlobalKeyMap.
+    ;; `configure-entry` surfaces a one-shot overlay action that adds
+    ;; them; it stays hidden once iTerm is configured.
+    ;;
+    ;; Each spec is (plist-key action-code json-text human-desc).
+    ;; Values are copied verbatim from what iTerm 3.6 writes when the
+    ;; bindings are added by hand: the swap actions use distinct codes
+    ;; (53–56) with empty Text; the splits share Action 25 and carry
+    ;; the direction in Text — including the doubled line iTerm emits.
+    ;; The Text strings are pre-escaped for JSON (\\n → newline).
+
+    (define iterm-split-text-v
+      "Split Vertically with Current Profile\\nSplit Vertically with Current Profile")
+    (define iterm-split-text-h
+      "Split Horizontally with Current Profile\\nSplit Horizontally with Current Profile")
+
+    (define iterm-binding-specs
+      (list
+        (list "0x48-0x160000-0x4"  53 ""                "swap pane left")
+        (list "0x4a-0x160000-0x26" 56 ""                "swap pane down")
+        (list "0x4b-0x160000-0x28" 55 ""                "swap pane up")
+        (list "0x4c-0x160000-0x25" 54 ""                "swap pane right")
+        (list "0x64-0x100000-0x2"  25 iterm-split-text-v "split pane right")
+        (list "0x44-0x120000-0x2"  25 iterm-split-text-h "split pane down")))
+
+    (define iterm-plist-quoted
+      "\"$HOME/Library/Preferences/com.googlecode.iterm2.plist\"")
+
+    ;; JSON dict for one binding spec — matches iTerm's stored shape.
+    (define (iterm-binding-json spec)
+      (string-append
+        "{\"Action\":" (number->string (cadr spec))
+        ",\"Apply Mode\":0,\"Escaping\":2"
+        ",\"Text\":\"" (list-ref spec 2) "\""
+        ",\"Version\":2}"))
+
+    ;; One `plutil -replace` line provisioning a single binding.
+    (define (iterm-replace-line spec)
+      (string-append
+        "plutil -replace 'GlobalKeyMap." (car spec) "' "
+        "-json '" (iterm-binding-json spec) "' " iterm-plist-quoted "\n"))
+
+    ;; The full provisioning script: back up the plist, quit iTerm,
+    ;; wait for it to terminate (a running iTerm would clobber the
+    ;; edit on its own pref-save), write the six bindings, drop the
+    ;; cfprefsd cache so the relaunched iTerm reads fresh, relaunch.
+    (define iterm-provision-script
+      (string-append
+        "P=" iterm-plist-quoted "\n"
+        "cp \"$P\" \"$P.modaliser-backup-$(date +%Y%m%d-%H%M%S)\" 2>/dev/null || true\n"
+        "osascript -e 'tell application \"iTerm\" to quit' 2>/dev/null || true\n"
+        "for i in $(seq 1 60); do pgrep -x iTerm2 >/dev/null 2>&1 || break; sleep 0.1; done\n"
+        "plutil -insert GlobalKeyMap -json '{}' \"$P\" 2>/dev/null || true\n"
+        (apply string-append (map iterm-replace-line iterm-binding-specs))
+        "killall cfprefsd 2>/dev/null || true\n"
+        "sleep 0.3\n"
+        "open -a iTerm\n"))
+
+    ;; Live check: #t when all six bindings are present with the
+    ;; expected Action code. One shell invocation, six PlistBuddy
+    ;; probes. Action is sufficient to identify our bindings — the
+    ;; swap keystrokes are obscure enough that a match means ours.
+    (define (iterm-probe-configured?)
+      (let ((checks
+              (apply string-append
+                (map (lambda (spec)
+                       (string-append "ck " (car spec) " "
+                                      (number->string (cadr spec)) "\n"))
+                     iterm-binding-specs))))
+        (string=?
+          (string-trim
+            (run-shell
+              (string-append
+                "P=" iterm-plist-quoted "\n"
+                "ok=yes\n"
+                "ck() { v=$(/usr/libexec/PlistBuddy -c "
+                "\"Print :GlobalKeyMap:$1:Action\" \"$P\" 2>/dev/null); "
+                "[ \"$v\" = \"$2\" ] || ok=no; }\n"
+                checks
+                "echo $ok")))
+          "yes")))
+
+    ;; Cached configured? flag. The overlay's 'hidden thunk reads
+    ;; iterm-configured? on every render, so the probe must be cheap
+    ;; — hence the cache. 'unknown forces a one-time lazy probe.
+    (define *iterm-configured* 'unknown)
+
+    (define (iterm-configured?)
+      (when (eq? *iterm-configured* 'unknown)
+        (set! *iterm-configured* (iterm-probe-configured?)))
+      *iterm-configured*)
+
+    (define (iterm-refresh-configured!)
+      (set! *iterm-configured* (iterm-probe-configured?))
+      *iterm-configured*)
+
+    (define iterm-configure-dialog-message
+      (string-append
+        "Modaliser drives iTerm pane splits and swaps through six "
+        "key bindings that are not yet all set up in iTerm.\n\n"
+        "Choosing Continue will:\n\n"
+        "  - Quit iTerm (any unsaved work in iTerm is lost)\n"
+        "  - Add these bindings to iTerm's preferences:\n"
+        "       Ctrl+Shift+H/J/K/L - swap pane left/down/up/right\n"
+        "       Cmd+D  - split pane right\n"
+        "       Cmd+Shift+D - split pane down\n"
+        "  - Relaunch iTerm\n\n"
+        "A timestamped backup of iTerm's preferences is saved first."))
+
+    ;; Show the confirm dialog; #t if the user chose Continue. The
+    ;; cancel button raises osascript error -128 → empty stdout, so
+    ;; "not Continue" is treated as cancelled.
+    (define (iterm-confirm-configure)
+      (string-contains?
+        (run-shell
+          (string-append
+            "osascript -e 'display dialog \""
+            iterm-configure-dialog-message
+            "\" with title \"Configure iTerm\" "
+            "buttons {\"Cancel\", \"Continue\"} "
+            "default button \"Cancel\" cancel button \"Cancel\" "
+            "with icon caution' 2>/dev/null"))
+        "Continue"))
+
+    ;; Overlay action: confirm, provision, re-probe. Idempotent — if
+    ;; iTerm is already configured (e.g. the key was pressed while the
+    ;; entry was hidden) it just syncs the cache and returns.
+    (define (iterm-configure!)
+      (cond
+        ((iterm-probe-configured?)
+         (iterm-refresh-configured!))
+        ((iterm-confirm-configure)
+         (run-shell iterm-provision-script)
+         (iterm-refresh-configured!))
+        (else #f)))
+
+    ;; A `(key …)` node for the iTerm tree, bound to Ctrl+Shift+I.
+    ;; Its 'hidden property is the iterm-configured? thunk, so the
+    ;; entry renders only while iTerm is unconfigured and vanishes —
+    ;; without a Modaliser reload — on the next overlay open after
+    ;; iterm-configure! re-probes.
+    (define (configure-entry)
+      (cons (cons 'hidden iterm-configured?)
+            (key "C-I" "Configure iTerm" iterm-configure!)))
 
     ;; Build a single (key-range ...) node covering every labelled pane.
     ;; Display key is "<first>.." reflecting actually-bound count (so a

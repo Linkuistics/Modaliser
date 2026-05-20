@@ -135,23 +135,24 @@
 ;; overlay open, so panes added or moved between presses Just Work
 ;; without a separate tree rebuild step.
 ;;
-;; Splits and pane moves rely on these iTerm key bindings — set them
-;; once in iTerm → Settings → Keys → Key Bindings:
-;;   Cmd+Ctrl+Shift+H → Swap With Split Pane on Left
-;;   Cmd+Ctrl+Shift+J → Swap With Split Pane Below
-;;   Cmd+Ctrl+Shift+K → Swap With Split Pane Above
-;;   Cmd+Ctrl+Shift+L → Swap With Split Pane on Right
+;; Splits and pane moves rely on six iTerm key bindings. The
+;; (iterm:configure-entry) action below provisions them — it appears
+;; in this overlay as "Configure iTerm" (Ctrl+Shift+I) only while
+;; iTerm is unconfigured, and vanishes once set up.
 
 (define-tree 'com.googlecode.iterm2
 
   (key "c" "Copy Mode"   (λ () (send-keystroke '(cmd shift) "c")))
   (key "z" "Toggle Zoom" (λ () (send-keystroke '(cmd shift) "return")))
 
+  ;; One-shot iTerm key-binding setup. Hidden once iTerm is configured.
+  (iterm:configure-entry)
+
   ;; Focus / Split / Move use the (modaliser apps iterm) factory's
   ;; named operations. Each is a 0-arg procedure, so it can be passed
   ;; directly as the `key` action without wrapping in a lambda. The
-  ;; AppleScript split, the split-then-swap sequencing for left/up,
-  ;; and the swap-keystroke emission all live inside the library.
+  ;; split, the split-then-swap sequencing for left/up, and the
+  ;; swap-keystroke emission all live inside the library.
 
   (category "Focus"
     (key "h" "Left"  iterm:focus-pane-left)
