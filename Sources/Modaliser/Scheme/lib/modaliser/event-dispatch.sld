@@ -43,16 +43,25 @@
     ;; Cmd+anything — pass through to system
     ((has-cmd? modifiers)
      #f)
-    ;; Regular key — map to character and handle. Shift upcases the
-    ;; base char; Ctrl and Alt contribute "C-" / "M-" prefixes so a
-    ;; binding can be declared on a modified key, e.g. (key "C-I" …)
-    ;; for Ctrl+Shift+I. Cmd is handled above (passthrough); the order
-    ;; is C- then M- so a fully-modified key reads "C-M-x".
+    ;; Regular key — map to character and handle. Modifiers build an
+    ;; effective key string a binding can be declared on:
+    ;;   - Shift on a letter upcases it ("h" → "H") — the case carries
+    ;;     the shift, no prefix.
+    ;;   - Shift on a non-letter (digit, symbol), where case can't, adds
+    ;;     an "S-" prefix ("1" → "S-1").
+    ;;   - Ctrl and Alt add "C-" / "M-" prefixes.
+    ;; Order is C- M- S- so a fully-modified key reads "C-M-S-x". Cmd
+    ;; is handled above (passthrough).
     (else
      (let ((char (keycode->char keycode)))
        (if char
-         (let* ((base      (if (has-shift? modifiers)
-                             (string-upcase char) char))
+         (let* ((shift?    (has-shift? modifiers))
+                (alpha?    (not (string=? (string-upcase char)
+                                          (string-downcase char))))
+                (base      (cond
+                             ((not shift?) char)
+                             (alpha?       (string-upcase char))
+                             (else         (string-append "S-" char))))
                 (with-alt  (if (has-alt? modifiers)
                              (string-append "M-" base) base))
                 (effective (if (has-ctrl? modifiers)

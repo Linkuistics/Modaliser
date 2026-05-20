@@ -267,19 +267,17 @@ body {
 }
 
 /* Modifier-key sigils (⌃ ⌥ ⇧) shown in the overlay key column for
- * bindings declared on a modified key, e.g. Ctrl+Shift+I rendered
- * ⌃⇧I. Like the footer .sigil glyphs these read small and sit low
- * in SF Mono / Menlo, so they get an explicit size and a vertical
- * nudge. They precede the key letter rather than surrounding body
- * text, so the size is tied to the letter (slightly under it — the
- * modifiers are secondary). Tune here or in
- * ~/.config/modaliser/overlay.css to taste. */
+ * bindings declared on a modified key, e.g. Ctrl+I rendered ⌃I.
+ * They carry as much meaning as the key letter itself, so they are
+ * sized slightly *above* the body font — like the footer .sigil
+ * glyphs — not shrunk. Tune the size and the vertical nudge here or
+ * in ~/.config/modaliser/overlay.css to taste. */
 .sigil-mod {
   display: inline-block;
-  font-size: calc(var(--font-size) - 1px);
+  font-size: calc(var(--font-size) + 1px);
   line-height: 1;
   vertical-align: middle;
-  transform: translateY(-0.5px);
+  transform: translateY(-1px);
 }
 
 /* ═══════════════════════════════════════════════════════════ */

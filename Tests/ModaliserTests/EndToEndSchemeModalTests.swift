@@ -100,6 +100,28 @@ struct EndToEndSchemeModalTests {
         #expect(try engine.evaluate("alt-result") == .symbol(engine.context.symbols.intern("alt-i")))
     }
 
+    @Test func shiftedNonLetterKeyGetsShiftPrefix() throws {
+        // Shift on a letter is carried by uppercasing it. Shift on a
+        // non-letter (a digit, here) can't be — case is a no-op — so
+        // the handler adds an "S-" prefix instead: Shift+1 → "S-1".
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        try engine.evaluate("""
+            (define result #f)
+            (define-tree 'global
+              (key "S-1" "Shifted One" (lambda () (set! result 'shift-1))))
+            """)
+
+        // keycode 18 = '1'. Shift+1 → "S-1".
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-key-handler 18 MOD-SHIFT)")
+        #expect(try engine.evaluate("result") == .symbol(engine.context.symbols.intern("shift-1")))
+    }
+
     @Test func f18ThenGroupThenCommand() throws {
         let engine = try SchemeEngine()
 

@@ -228,32 +228,36 @@
 
 ;; ─── Key display ──────────────────────────────────────────────
 ;;
-;; The modal encodes Ctrl as a "C-" prefix, Alt as "M-", and Shift
-;; by upcasing the letter (see modal-key-handler). For display we
-;; turn those back into macOS modifier glyphs: ⌃ ⌥ ⇧. Two views of
+;; The modal encodes Ctrl as a "C-" prefix, Alt as "M-", Shift on a
+;; non-letter as "S-", and Shift on a letter by upcasing it (see
+;; modal-key-handler). For display we turn the prefixes back into
+;; macOS modifier glyphs: ⌃ ⌥ ⇧. A shifted *letter* keeps its
+;; uppercase form and gets NO ⇧ glyph — the capital already carries
+;; the shift, and ⌃⇧I beside a capital I reads as doubled. The ⇧
+;; glyph appears only for the "S-" (non-letter) case. Two views of
 ;; the same parse — key-display-text for column-width counting, and
-;; key-display-html with the sigils wrapped in <span class="sigil-mod">
-;; so base.css can size and position them like the footer sigils.
+;; key-display-html with the sigils wrapped in <span class="sigil-mod">.
 
 ;; (parse-key k) → (list ctrl? alt? shift? base-string) or #f.
-;; #f when k is not a single (optionally C-/M- prefixed) keystroke —
-;; e.g. a "1.." range label — so it renders verbatim.
+;; shift? is true only for an "S-" prefix (non-letter shift); a
+;; shifted letter arrives already uppercased with no prefix. #f when
+;; k is not a single (optionally prefixed) keystroke — e.g. a "1.."
+;; range label — so it renders verbatim.
 (define (parse-key k)
-  (let loop ((s k) (ctrl #f) (alt #f))
+  (let loop ((s k) (ctrl #f) (alt #f) (shift #f))
     (cond
       ((and (>= (string-length s) 2) (string=? (substring s 0 2) "C-"))
-       (loop (substring s 2 (string-length s)) #t alt))
+       (loop (substring s 2 (string-length s)) #t alt shift))
       ((and (>= (string-length s) 2) (string=? (substring s 0 2) "M-"))
-       (loop (substring s 2 (string-length s)) ctrl #t))
+       (loop (substring s 2 (string-length s)) ctrl #t shift))
+      ((and (>= (string-length s) 2) (string=? (substring s 0 2) "S-"))
+       (loop (substring s 2 (string-length s)) ctrl alt #t))
       ((= (string-length s) 1)
-       (list ctrl alt
-             (and (string=? s (string-upcase s))
-                  (not (string=? s (string-downcase s))))
-             s))
+       (list ctrl alt shift s))
       (else #f))))
 
-;; Plain-glyph display form, e.g. "C-I" → "⌃⇧I". Its string-length
-;; is the visible column width (each glyph is one code point).
+;; Plain-glyph display form, e.g. "C-I" → "⌃I", "S-1" → "⇧1". Its
+;; string-length is the visible column width (one code point/glyph).
 (define (key-display-text k)
   (let ((p (parse-key k)))
     (if p
