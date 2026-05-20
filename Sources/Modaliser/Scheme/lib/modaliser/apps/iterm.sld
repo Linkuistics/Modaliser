@@ -120,7 +120,7 @@
     ;; Cmd+Shift+D) then swap the new pane with its left/above
     ;; neighbour.
     ;;
-    ;; Splits and moves depend on six iTerm key bindings the
+    ;; Splits and moves depend on iTerm key bindings the
     ;; "Configure iTerm" action provisions (see iterm-binding-specs).
     ;; Focus uses iTerm's shipped Cmd+Opt+Arrow defaults — no setup.
 
@@ -147,30 +147,38 @@
 
     ;; ─── iTerm key-binding provisioning ──────────────────────────
     ;;
-    ;; The pane ops above need six entries in iTerm's GlobalKeyMap.
+    ;; The pane ops above, plus the overlay's copy-mode and zoom
+    ;; keys, need eight entries in iTerm's GlobalKeyMap.
     ;; `configure-entry` surfaces a one-shot overlay action that adds
     ;; them; it stays hidden once iTerm is configured.
     ;;
     ;; Each spec is (plist-key action-code json-text human-desc).
     ;; Values are copied verbatim from what iTerm 3.6 writes when the
     ;; bindings are added by hand: the swap actions use distinct codes
-    ;; (53–56) with empty Text; the splits share Action 25 and carry
-    ;; the direction in Text — including the doubled line iTerm emits.
+    ;; (53–56) with empty Text; the splits, copy mode and maximize
+    ;; share Action 25 ("Select Menu Item") and carry the menu title
+    ;; in Text — including the doubled line iTerm emits.
     ;; The Text strings are pre-escaped for JSON (\\n → newline).
 
     (define iterm-split-text-v
       "Split Vertically with Current Profile\\nSplit Vertically with Current Profile")
     (define iterm-split-text-h
       "Split Horizontally with Current Profile\\nSplit Horizontally with Current Profile")
+    (define iterm-copy-mode-text
+      "Copy Mode\\nCopy Mode")
+    (define iterm-maximize-text
+      "Maximize Active Pane\\nMaximize Active Pane")
 
     (define iterm-binding-specs
       (list
-        (list "0x48-0x160000-0x4"  53 ""                "swap pane left")
-        (list "0x4a-0x160000-0x26" 56 ""                "swap pane down")
-        (list "0x4b-0x160000-0x28" 55 ""                "swap pane up")
-        (list "0x4c-0x160000-0x25" 54 ""                "swap pane right")
-        (list "0x64-0x100000-0x2"  25 iterm-split-text-v "split pane right")
-        (list "0x44-0x120000-0x2"  25 iterm-split-text-h "split pane down")))
+        (list "0x48-0x160000-0x4"  53 ""                   "swap pane left")
+        (list "0x4a-0x160000-0x26" 56 ""                   "swap pane down")
+        (list "0x4b-0x160000-0x28" 55 ""                   "swap pane up")
+        (list "0x4c-0x160000-0x25" 54 ""                   "swap pane right")
+        (list "0x64-0x100000-0x2"  25 iterm-split-text-v   "split pane right")
+        (list "0x44-0x120000-0x2"  25 iterm-split-text-h   "split pane down")
+        (list "0x43-0x120000-0x8"  25 iterm-copy-mode-text "copy mode")
+        (list "0xd-0x120000-0x24"  25 iterm-maximize-text  "maximize active pane")))
 
     ;; JSON dict for one binding spec — matches iTerm's stored shape.
     (define (iterm-binding-json spec)
@@ -192,7 +200,7 @@
     ;; The full provisioning script. iTerm's preferences are owned by
     ;; cfprefsd, not the on-disk plist (see iterm-probe-configured?),
     ;; so the .plist is never edited directly: export the live domain
-    ;; to a temp snapshot, splice the six bindings into the snapshot,
+    ;; to a temp snapshot, splice the eight bindings into the snapshot,
     ;; and import it back through cfprefsd — which keeps cfprefsd's
     ;; cache coherent, so no `killall cfprefsd` is needed.
     ;;
@@ -214,9 +222,10 @@
         "rm -f \"$SNAP\"\n"
         "open -a iTerm\n"))
 
-    ;; Live check: #t when all six bindings are present with the
-    ;; expected Action code. Action alone identifies our bindings —
-    ;; the swap keystrokes are obscure enough that a match means ours.
+    ;; Live check: #t when all eight bindings carry the expected
+    ;; Action code. The swap codes (53–56) are unique enough to
+    ;; identify ours; the Action-25 entries (splits, copy mode,
+    ;; maximize) only confirm a menu binding exists on that key.
     ;;
     ;; The snapshot comes from `defaults export`, not a direct read of
     ;; com.googlecode.iterm2.plist: cfprefsd owns a running iTerm's
@@ -280,14 +289,17 @@
 
     (define iterm-configure-dialog-message
       (string-append
-        "Modaliser drives iTerm pane splits and swaps through six "
-        "key bindings that are not yet all set up in iTerm.\n\n"
+        "Modaliser drives iTerm pane splits, swaps and menu actions "
+        "through eight key bindings that are not yet all set up in "
+        "iTerm.\n\n"
         "Choosing Continue will:\n\n"
         "  - Quit iTerm (any unsaved work in iTerm is lost)\n"
         "  - Add these bindings to iTerm's preferences:\n"
         "       Ctrl+Shift+H/J/K/L - swap pane left/down/up/right\n"
         "       Cmd+D  - split pane right\n"
         "       Cmd+Shift+D - split pane down\n"
+        "       Cmd+Shift+C - copy mode\n"
+        "       Cmd+Shift+Return - maximize active pane\n"
         "  - Relaunch iTerm\n\n"
         "A timestamped backup of iTerm's preferences is saved first."))
 
