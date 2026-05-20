@@ -135,10 +135,11 @@
 ;; overlay open, so panes added or moved between presses Just Work
 ;; without a separate tree rebuild step.
 ;;
-;; Splits and pane moves rely on six iTerm key bindings. The
-;; (iterm:configure-entry) action below provisions them — it appears
-;; in this overlay as "Configure iTerm" (Ctrl+Shift+I) only while
-;; iTerm is unconfigured, and vanishes once set up.
+;; Splits, pane moves, Copy Mode and Toggle Zoom rely on eight iTerm
+;; key bindings. The (iterm:configure-entry) action below provisions
+;; them — it appears in this overlay as "Configure iTerm"
+;; (Ctrl+Shift+I) only while iTerm is unconfigured, and vanishes once
+;; set up.
 
 (define-tree 'com.googlecode.iterm2
 

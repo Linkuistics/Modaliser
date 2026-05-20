@@ -301,6 +301,8 @@ leader press to track the live pane layout.
 | `focus-mode-tree` | The bindings inside the sticky mode (hjkl Cmd+Alt focus moves). Splice into your own custom mode if you need a different sticky-id. |
 | `context-suffix-handler` | The bundle-id → variant suffix function (`"/nvim"`, `"/zellij"`, `"/zellij+nvim"`). Install via `(set-local-context-suffix! …)` from `(modaliser event-dispatch)`. |
 | `default-pane-labels` | `("1" "2" … "9" "0")` — default pane-label list. |
+| `configure-entry` | A `(key …)` node for the one-shot **Configure iTerm** action (`Ctrl+Shift+I`). Splice into your iTerm tree; it auto-hides once iTerm is configured. |
+| `iterm-configured?` | `#t` when iTerm already carries the eight provisioned key bindings. Drives `configure-entry`'s hidden state. |
 
 **`register!` / `rebuild-tree!` options:**
 
@@ -327,6 +329,26 @@ the user in the sticky mode), and an `x` split subgroup. The
 dispatch, so the keys still fire as direct children of the tree. The sticky focus mode (`'iterm-panes-focus`) holds only the
 four hjkl Cmd+Alt focus moves and uses `'exit-on-unknown #t` so typing
 any non-binding key returns control to iTerm.
+
+**Configure iTerm.** The split, swap, copy-mode and zoom keys fire
+iTerm keyboard shortcuts that are not all iTerm defaults. The
+`configure-entry` node — bound to `Ctrl+Shift+I`, labelled "Configure
+iTerm" — provisions them. It is hidden via `iterm-configured?`, so it
+shows only while iTerm lacks the bindings and disappears once they are
+set. Triggering it shows a confirmation dialog; on Continue it quits
+iTerm, writes eight `GlobalKeyMap` bindings, and relaunches iTerm:
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Shift+H/J/K/L` | swap pane left / down / up / right |
+| `Cmd+D` | split pane right |
+| `Cmd+Shift+D` | split pane down |
+| `Cmd+Shift+C` | copy mode |
+| `Cmd+Shift+Return` | maximize active pane |
+
+A timestamped backup of iTerm's preferences is written first. If iTerm
+is set to load preferences from a custom folder, that folder's plist
+is the file updated.
 
 ---
 
