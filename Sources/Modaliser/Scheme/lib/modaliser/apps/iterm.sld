@@ -172,9 +172,6 @@
         (list "0x64-0x100000-0x2"  25 iterm-split-text-v "split pane right")
         (list "0x44-0x120000-0x2"  25 iterm-split-text-h "split pane down")))
 
-    (define iterm-plist-quoted
-      "\"$HOME/Library/Preferences/com.googlecode.iterm2.plist\"")
-
     ;; JSON dict for one binding spec — matches iTerm's stored shape.
     (define (iterm-binding-json spec)
       (string-append
@@ -183,26 +180,38 @@
         ",\"Text\":\"" (list-ref spec 2) "\""
         ",\"Version\":2}"))
 
-    ;; One `plutil -replace` line provisioning a single binding.
+    ;; One `plutil -replace` line writing a single binding into the
+    ;; exported snapshot ($SNAP, set by iterm-provision-script). -json
+    ;; keeps Action/Version/Escaping as real integers; the `defaults`
+    ;; CLI can only express string-typed values.
     (define (iterm-replace-line spec)
       (string-append
         "plutil -replace 'GlobalKeyMap." (car spec) "' "
-        "-json '" (iterm-binding-json spec) "' " iterm-plist-quoted "\n"))
+        "-json '" (iterm-binding-json spec) "' \"$SNAP\"\n"))
 
-    ;; The full provisioning script: back up the plist, quit iTerm,
-    ;; wait for it to terminate (a running iTerm would clobber the
-    ;; edit on its own pref-save), write the six bindings, drop the
-    ;; cfprefsd cache so the relaunched iTerm reads fresh, relaunch.
+    ;; The full provisioning script. iTerm's preferences are owned by
+    ;; cfprefsd, not the on-disk plist (see iterm-probe-configured?),
+    ;; so the .plist is never edited directly: export the live domain
+    ;; to a temp snapshot, splice the six bindings into the snapshot,
+    ;; and import it back through cfprefsd — which keeps cfprefsd's
+    ;; cache coherent, so no `killall cfprefsd` is needed.
+    ;;
+    ;; iTerm is quit first — a running iTerm holds GlobalKeyMap in
+    ;; memory and would overwrite the change on its next pref-save —
+    ;; and relaunched at the end. The pre-edit snapshot is copied
+    ;; aside as a timestamped backup, restorable with `defaults
+    ;; import`. plutil still runs, but only on the throwaway snapshot.
     (define iterm-provision-script
       (string-append
-        "P=" iterm-plist-quoted "\n"
-        "cp \"$P\" \"$P.modaliser-backup-$(date +%Y%m%d-%H%M%S)\" 2>/dev/null || true\n"
         "osascript -e 'tell application \"iTerm\" to quit' 2>/dev/null || true\n"
         "for i in $(seq 1 60); do pgrep -x iTerm2 >/dev/null 2>&1 || break; sleep 0.1; done\n"
-        "plutil -insert GlobalKeyMap -json '{}' \"$P\" 2>/dev/null || true\n"
+        "SNAP=$(mktemp -t modaliser-iterm-provision)\n"
+        "defaults export com.googlecode.iterm2 \"$SNAP\" 2>/dev/null\n"
+        "cp \"$SNAP\" \"$HOME/Library/Preferences/com.googlecode.iterm2.modaliser-backup-$(date +%Y%m%d-%H%M%S).plist\" 2>/dev/null || true\n"
+        "plutil -insert GlobalKeyMap -json '{}' \"$SNAP\" 2>/dev/null || true\n"
         (apply string-append (map iterm-replace-line iterm-binding-specs))
-        "killall cfprefsd 2>/dev/null || true\n"
-        "sleep 0.3\n"
+        "defaults import com.googlecode.iterm2 \"$SNAP\"\n"
+        "rm -f \"$SNAP\"\n"
         "open -a iTerm\n"))
 
     ;; Live check: #t when all six bindings are present with the
