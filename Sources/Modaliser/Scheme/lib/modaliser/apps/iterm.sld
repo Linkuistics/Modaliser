@@ -243,6 +243,21 @@
       (set! *iterm-configured* (iterm-probe-configured?))
       *iterm-configured*)
 
+    ;; Rewrite each ' to the POSIX '\'' idiom so the string is safe to
+    ;; interpolate inside a single-quoted /bin/zsh word. A single quote
+    ;; can't be backslash-escaped *within* single quotes — it must close
+    ;; the quote, emit an escaped literal ', then reopen. Without this an
+    ;; apostrophe (the dialog message has "iTerm's") terminates
+    ;; osascript's -e '...' argument mid-string.
+    (define (shell-sq-escape s)
+      (let loop ((cs (string->list s)) (acc '()))
+        (if (null? cs)
+          (list->string (reverse acc))
+          (loop (cdr cs)
+                (if (char=? (car cs) #\')
+                  (cons #\' (cons #\' (cons #\\ (cons #\' acc))))
+                  (cons (car cs) acc))))))
+
     (define iterm-configure-dialog-message
       (string-append
         "Modaliser drives iTerm pane splits and swaps through six "
@@ -264,7 +279,7 @@
         (run-shell
           (string-append
             "osascript -e 'display dialog \""
-            iterm-configure-dialog-message
+            (shell-sq-escape iterm-configure-dialog-message)
             "\" with title \"Configure iTerm\" "
             "buttons {\"Cancel\", \"Continue\"} "
             "default button \"Cancel\" cancel button \"Cancel\" "
