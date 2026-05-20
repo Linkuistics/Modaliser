@@ -98,7 +98,10 @@ window.overlayRenderers.list = function(data) {
     var entries = data.entries;
     for (var i = 0; i < entries.length; i++) {
       var e = entries[i];
-      var displayKey = e.key === ' ' ? '\u2423' : escapeHtml(e.key);
+      // e.key arrives as ready HTML from key-display-html in overlay.scm
+      // (modifier glyphs wrapped in <span class="sigil-mod">), so it is
+      // not escaped here \u2014 same trust model as data.footer.
+      var displayKey = e.key === ' ' ? '\u2423' : e.key;
       var labelClass = e.isGroup ? 'entry-label group-label' : 'entry-label';
       var displayLabel = e.isGroup ? escapeHtml(e.label) + ' \u2026' : escapeHtml(e.label);
       // Sticky-target leaves get a \u21bb marker BEFORE the label (kept in

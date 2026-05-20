@@ -226,16 +226,66 @@
     overlay-footer-html-deep
     overlay-footer-html-root))
 
+;; ─── Key display ──────────────────────────────────────────────
+;;
+;; The modal encodes Ctrl as a "C-" prefix, Alt as "M-", and Shift
+;; by upcasing the letter (see modal-key-handler). For display we
+;; turn those back into macOS modifier glyphs: ⌃ ⌥ ⇧. Two views of
+;; the same parse — key-display-text for column-width counting, and
+;; key-display-html with the sigils wrapped in <span class="sigil-mod">
+;; so base.css can size and position them like the footer sigils.
+
+;; (parse-key k) → (list ctrl? alt? shift? base-string) or #f.
+;; #f when k is not a single (optionally C-/M- prefixed) keystroke —
+;; e.g. a "1.." range label — so it renders verbatim.
+(define (parse-key k)
+  (let loop ((s k) (ctrl #f) (alt #f))
+    (cond
+      ((and (>= (string-length s) 2) (string=? (substring s 0 2) "C-"))
+       (loop (substring s 2 (string-length s)) #t alt))
+      ((and (>= (string-length s) 2) (string=? (substring s 0 2) "M-"))
+       (loop (substring s 2 (string-length s)) ctrl #t))
+      ((= (string-length s) 1)
+       (list ctrl alt
+             (and (string=? s (string-upcase s))
+                  (not (string=? s (string-downcase s))))
+             s))
+      (else #f))))
+
+;; Plain-glyph display form, e.g. "C-I" → "⌃⇧I". Its string-length
+;; is the visible column width (each glyph is one code point).
+(define (key-display-text k)
+  (let ((p (parse-key k)))
+    (if p
+      (string-append
+        (if (list-ref p 0) "⌃" "")
+        (if (list-ref p 1) "⌥" "")
+        (if (list-ref p 2) "⇧" "")
+        (list-ref p 3))
+      k)))
+
+;; HTML display form — modifier glyphs wrapped for CSS styling.
+(define (key-display-html k)
+  (let ((p (parse-key k))
+        (sig (lambda (g) (string-append "<span class=\"sigil-mod\">" g "</span>"))))
+    (if p
+      (string-append
+        (if (list-ref p 0) (sig "⌃") "")
+        (if (list-ref p 1) (sig "⌥") "")
+        (if (list-ref p 2) (sig "⇧") "")
+        (list-ref p 3))
+      k)))
+
 ;; (max-key-chars children) → integer ≥ 2
-;; The widest key string among `children` in characters, used to pin
-;; every entry's key column at that width. Clamped to a minimum of 2
-;; so single-char keys still get a bit of breathing room before the
-;; arrow column. Monospaced font → character count = column width in ch.
+;; The widest key column among `children`, measured in visible glyphs
+;; (key-display-text, so "⌃⇧I" counts 3 not "C-I"'s raw 3 — and
+;; "⇧H" counts 2 not "H"'s 1). Clamped to a minimum of 2 so
+;; single-char keys still get breathing room before the arrow column.
 (define (max-key-chars children)
   (let loop ((rest children) (best 2))
     (if (null? rest)
       best
-      (let ((n (string-length (node-key (car rest)))))
+      (let ((n (string-length (key-display-text (node-key (car rest))))))
         (loop (cdr rest) (if (> n best) n best))))))
 
 (define (render-overlay-body root-segments node path)
@@ -451,7 +501,7 @@
       ((category? c) #f)
       (hidden? #f)
       (else
-       (string-append "{\"key\":\"" (js-escape-overlay k)
+       (string-append "{\"key\":\"" (js-escape-overlay (key-display-html k))
                       "\",\"label\":\"" (js-escape-overlay lbl)
                       "\",\"isGroup\":" (if is-grp "true" "false")
                       ",\"isSticky\":" (if sticky-target "true" "false")
@@ -690,7 +740,7 @@
                        (loop (cdr items)
                              (string-append result
                                (if (string=? result "") "" ",")
-                               "{\"key\":\"" (js-escape-overlay k)
+                               "{\"key\":\"" (js-escape-overlay (key-display-html k))
                                "\",\"label\":\"" (js-escape-overlay lbl)
                                "\",\"isGroup\":" (if is-grp "true" "false")
                                ",\"isSticky\":" (if is-sticky-leaf "true" "false")
