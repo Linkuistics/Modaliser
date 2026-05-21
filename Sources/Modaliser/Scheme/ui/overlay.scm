@@ -74,6 +74,9 @@
 ;; (modaliser state-machine)). The monospaced font keeps these stable;
 ;; the exact values aren't critical — they only seed the integer search
 ;; below, and the user can re-tune via set-overlay-aspect-ratio!.
+;; overlay-col-width-px is now a loose proxy: which-key columns are
+;; content-width (see distribute-which-key-columns and the 2026-05-21
+;; overlay-category-packing spec), so the real column width varies.
 (define overlay-col-width-px 200)   ;; key + arrow + label + padding
 (define overlay-row-height-px 22)   ;; font-size 14 × line-height ≈ 1.4 + pad
 
