@@ -3,3 +3,4 @@
 *.iconset/
 dist/
 .claude/
+.superpowers/
