@@ -1,8 +1,8 @@
 /* which-key.css — multi-column layout for the which-key block.
  *
- * Container uses CSS columns with column-fill: auto for top-down
- * sequential packing. Categories are atomic (break-inside: avoid),
- * misc rows have no break rule so they can flow independently.
+ * Segments are pre-grouped into columns Scheme-side (see overlay.scm).
+ * .wk-columns is an equal-width CSS grid, one 1fr track per column;
+ * each .wk-col stacks its categories/misc segments vertically.
  */
 
 .block-which-key {
@@ -30,16 +30,22 @@
 }
 
 .block-which-key .wk-columns {
-  /* CSS grid lets each segment claim one column cell and flow left to
-   * right (row-major default), wrapping onto a new grid row when the
-   * overlay runs out of horizontal room. --overlay-cols is the
-   * Scheme-side aspect-ratio-driven column count; falls back to an
-   * auto-fit that picks columns based on segment width. */
+  /* One grid track per column. Tracks are 1fr — equal width — and inside
+   * the width:max-content overlay they resolve to the widest category's
+   * natural width. --overlay-cols is the Scheme-side column count, set
+   * inline by which-key.js. */
   display: grid;
-  grid-template-columns:
-    repeat(var(--overlay-cols, auto-fit), minmax(14rem, 1fr));
-  gap: 0.6rem 1.5rem;
+  grid-template-columns: repeat(var(--overlay-cols, 1), 1fr);
+  column-gap: 1.5rem;
   align-items: start;
+}
+
+.block-which-key .wk-col {
+  /* One column. Its categories/misc segments stack top-to-bottom; the
+   * 0.6rem gap replaces the row-gap the old wrapping grid provided. */
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
 .block-which-key .wk-misc,
