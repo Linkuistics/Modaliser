@@ -405,27 +405,29 @@
        (block-spec->json (append b dyn))))))
 
 ;; (which-key-payload-json children) → JSON object
-;; Walks `children` once. For each entry:
-;;   - category? → emit a {"kind":"category","label":…,"rows":[<row>,…]}
-;;     where rows is the category's children.
-;;   - else      → emit a {"kind":"misc","row":<row>} segment.
-;; Hidden entries (cons (cons 'hidden #t) …) are skipped.
+;;
+;; Partition `children` into ordered segments (each (category …) is its
+;; own segment; consecutive non-category entries coalesce into one misc
+;; segment in declared position), choose a column count from the total
+;; visible row count, then distribute the segments into that many columns
+;; so short categories backfill the space under other short ones.
+;;
+;; Shape: {"type":"which-key","columns":[[<seg>,…],[<seg>,…]]}
+;; — an array of columns, each an array of segment objects. The renderer
+;; draws one element per column; declared order reads top-down column 1,
+;; then column 2.
 (define (which-key-payload-json children)
-  ;; Partition `children` into ordered segments suitable for column-style
-  ;; layout. Each (category …) is its own segment; consecutive non-
-  ;; category entries coalesce into one misc segment in their declared
-  ;; position. The auto-pack in (modaliser dsl) splits implicit runs
-  ;; into a misc which-key-block and a category which-key-block already,
-  ;; so a single block is typically homogeneous; mixing only happens
-  ;; inside an explicit user-written (which-key-block …), and we honour
-  ;; their authored order. Misc rows and category rows sort internally.
-  ;; Column count is computed from total visible row count so the
-  ;; aspect-ratio target reflects what actually fills the overlay.
-  (let* ((segments (partition-which-key-segments children))
+  (let* ((segments  (partition-which-key-segments children))
          (row-count (segments-row-count segments))
-         (cols (overlay-column-count row-count)))
-    (string-append "{\"type\":\"which-key\",\"cols\":" (number->string cols)
-                   ",\"segments\":[" (string-join-comma (map render-segment segments)) "]}")))
+         (n-cols    (overlay-column-count row-count))
+         (columns   (distribute-which-key-columns segments n-cols)))
+    (string-append
+      "{\"type\":\"which-key\",\"columns\":["
+      (string-join-comma
+        (map (lambda (col)
+               (string-append "[" (string-join-comma (map render-segment col)) "]"))
+             columns))
+      "]}")))
 
 ;; Partition into segments, preserving declaration order. Consecutive
 ;; non-category entries flush into one ('misc <nodes>) segment; each

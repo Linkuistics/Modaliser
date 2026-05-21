@@ -195,4 +195,41 @@ struct BlocksWhichKeyLibraryTests {
         #expect(aIdx < mIdx)
         #expect(mIdx < zIdx)
     }
+
+    @Test func whichKeyPayloadEmitsNestedColumnGroups() throws {
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
+        try engine.evaluateFile(schemePath + "/ui/css.scm")
+        try engine.evaluateFile(schemePath + "/ui/overlay.scm")
+        try engine.evaluate("(import (modaliser blocks which-key))")
+        try engine.evaluate("""
+          (define grp
+            (group "w" "Win"
+              'renderer 'blocks
+              'blocks (list (which-key-block
+                              (category "Apps"
+                                (key "b" "Browser" (lambda () #t)))
+                              (category "AI"
+                                (key "c" "ChatGPT" (lambda () #t)))))))
+          (define html (render-overlay-html grp '("Root") '()))
+        """)
+        let html = try engine.evaluate("html").asString()
+        guard let s = html.range(of: "data-payload='") else { Issue.record("no payload"); return }
+        let after = html[s.upperBound...]
+        guard let e = after.firstIndex(of: "'") else { Issue.record("unterminated"); return }
+        let payload = String(after[..<e])
+        // New shape: segments nested inside a "columns" array of arrays.
+        #expect(payload.contains("\"type\":\"which-key\""))
+        #expect(payload.contains("\"columns\":[["))
+        // Old shape fields are gone.
+        #expect(!payload.contains("\"segments\":"))
+        #expect(!payload.contains("\"cols\":"))
+        // Segment objects still serialise unchanged.
+        #expect(payload.contains("\"kind\":\"category\""))
+        #expect(payload.contains("\"label\":\"Apps\""))
+    }
 }
