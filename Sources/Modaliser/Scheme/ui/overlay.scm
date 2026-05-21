@@ -450,19 +450,55 @@
       (else
        (loop (cdr xs) (cons (car xs) pending) acc)))))
 
-;; Total visible rows across all segments. Categories add one row for the
-;; heading. Used to drive aspect-ratio-aware column-count selection.
+;; (segment-row-count seg) → integer
+;; Visible row height of one segment. A misc segment is its row count; a
+;; category adds 1 for the heading row.
+(define (segment-row-count seg)
+  (let ((kind (car seg)))
+    (cond ((eq? kind 'misc)     (length (cadr seg)))
+          ((eq? kind 'category) (+ 1 (length (caddr seg))))
+          (else                 0))))
+
+;; (segments-row-count segments) → integer
+;; Total visible rows across all segments. Drives aspect-ratio-aware
+;; column-count selection.
 (define (segments-row-count segments)
   (let loop ((rest segments) (total 0))
-    (cond
-      ((null? rest) total)
-      (else
-       (let* ((seg (car rest))
-              (kind (car seg))
-              (rows (cond ((eq? kind 'misc)     (length (cadr seg)))
-                          ((eq? kind 'category) (+ 1 (length (caddr seg))))
-                          (else                 0))))
-         (loop (cdr rest) (+ total rows)))))))
+    (if (null? rest)
+      total
+      (loop (cdr rest) (+ total (segment-row-count (car rest)))))))
+
+;; (distribute-which-key-columns segments n) → list of column lists
+;;
+;; Column-major sequential fill. Walk `segments` in declared order,
+;; accumulating each into the current column; start the next column when
+;; the current one is non-empty AND adding the segment would push its
+;; height past the per-column target (ceil(total-rows / n)). The last
+;; column absorbs every remaining segment, so the result never exceeds
+;; `n` columns. Declared order is preserved — the overlay reads top-down
+;; column 1, then column 2. Purely functional (accumulate + reverse):
+;; LispKit has no set-cdr!.
+(define (distribute-which-key-columns segments n)
+  (let ((n (min n (length segments))))
+    (if (<= n 1)
+      (if (null? segments) '() (list segments))
+      (let* ((total  (segments-row-count segments))
+             (target (quotient (+ total n -1) n)))   ;; ceil(total / n)
+        (let loop ((rest  segments)
+                   (col   '())     ;; current column, reversed
+                   (col-h 0)
+                   (done  '()))    ;; completed columns, reversed
+          (if (null? rest)
+            (reverse (if (null? col) done (cons (reverse col) done)))
+            (let* ((seg (car rest))
+                   (h   (segment-row-count seg)))
+              (if (and (not (null? col))
+                       (> (+ col-h h) target)
+                       (< (length done) (- n 1)))
+                ;; close the current column, open a new one with `seg`
+                (loop (cdr rest) (list seg) h (cons (reverse col) done))
+                ;; append `seg` to the current column
+                (loop (cdr rest) (cons seg col) (+ col-h h) done)))))))))
 
 (define (render-segment seg)
   (cond

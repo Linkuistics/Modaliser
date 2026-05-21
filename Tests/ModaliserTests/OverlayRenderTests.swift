@@ -52,6 +52,103 @@ struct OverlayRenderTests {
         }
     }
 
+    // MARK: - Column packing (distribute-which-key-columns)
+
+    @Test func segmentRowCountCountsHeadingForCategory() throws {
+        let engine = try loadOverlay()
+        // A misc segment's height is its row count.
+        #expect(try engine.evaluate("(segment-row-count (list 'misc '(1 2)))").asInt64() == 2)
+        // A category adds one row for its heading.
+        #expect(try engine.evaluate("(segment-row-count (list 'category \"X\" '(1 2 3)))").asInt64() == 4)
+    }
+
+    @Test func distributeBackfillsShortCategoryUnderShortCategory() throws {
+        let engine = try loadOverlay()
+        // Global overlay: Apps(8 rows) Search(3) AI(2) → heights 9/4/3,
+        // target ceil(16/2)=8. Apps fills column 1; Search+AI pack column 2.
+        try engine.evaluate("""
+          (define cols
+            (distribute-which-key-columns
+              (list (list 'category "Apps"   '(1 2 3 4 5 6 7 8))
+                    (list 'category "Search" '(1 2 3))
+                    (list 'category "AI"     '(1 2)))
+              2))
+        """)
+        #expect(try engine.evaluate("(length cols)").asInt64() == 2)
+        #expect(try engine.evaluate("(length (car cols))").asInt64() == 1)
+        #expect(try engine.evaluate("(cadr (caar cols))").asString() == "Apps")
+        #expect(try engine.evaluate("(length (cadr cols))").asInt64() == 2)
+        #expect(try engine.evaluate("(cadr (car (cadr cols)))").asString() == "Search")
+        #expect(try engine.evaluate("(cadr (cadr (cadr cols)))").asString() == "AI")
+    }
+
+    @Test func distributePreservesDeclaredOrder() throws {
+        let engine = try loadOverlay()
+        // Four equal categories, 2 columns → column 1 = [A,B], column 2 = [C,D].
+        try engine.evaluate("""
+          (define cols
+            (distribute-which-key-columns
+              (list (list 'category "A" '(1 2))
+                    (list 'category "B" '(1 2))
+                    (list 'category "C" '(1 2))
+                    (list 'category "D" '(1 2)))
+              2))
+        """)
+        #expect(try engine.evaluate("(cadr (caar cols))").asString() == "A")
+        #expect(try engine.evaluate("(cadr (cadr (car cols)))").asString() == "B")
+        #expect(try engine.evaluate("(cadr (car (cadr cols)))").asString() == "C")
+        #expect(try engine.evaluate("(cadr (cadr (cadr cols)))").asString() == "D")
+    }
+
+    @Test func distributeLastColumnAbsorbsRemainder() throws {
+        let engine = try loadOverlay()
+        // One tall category then three short ones, 2 columns: the short
+        // ones all land in column 2 — never a third column.
+        try engine.evaluate("""
+          (define cols
+            (distribute-which-key-columns
+              (list (list 'category "Tall" '(1 2 3 4 5 6 7 8))
+                    (list 'category "S1"   '(1))
+                    (list 'category "S2"   '(1))
+                    (list 'category "S3"   '(1)))
+              2))
+        """)
+        #expect(try engine.evaluate("(length cols)").asInt64() == 2)
+        #expect(try engine.evaluate("(length (car cols))").asInt64() == 1)
+        #expect(try engine.evaluate("(length (cadr cols))").asInt64() == 3)
+    }
+
+    @Test func distributeSingleColumnWhenNIsOne() throws {
+        let engine = try loadOverlay()
+        try engine.evaluate("""
+          (define cols
+            (distribute-which-key-columns
+              (list (list 'category "A" '(1 2))
+                    (list 'category "B" '(1 2)))
+              1))
+        """)
+        #expect(try engine.evaluate("(length cols)").asInt64() == 1)
+        #expect(try engine.evaluate("(length (car cols))").asInt64() == 2)
+    }
+
+    @Test func distributeNeverMoreColumnsThanSegments() throws {
+        let engine = try loadOverlay()
+        // 5 columns requested but only 2 segments → at most 2 columns.
+        try engine.evaluate("""
+          (define cols
+            (distribute-which-key-columns
+              (list (list 'category "A" '(1 2 3))
+                    (list 'category "B" '(1 2 3)))
+              5))
+        """)
+        #expect(try engine.evaluate("(length cols)").asInt64() == 2)
+    }
+
+    @Test func distributeEmptySegmentsYieldsNoColumns() throws {
+        let engine = try loadOverlay()
+        #expect(try engine.evaluate("(null? (distribute-which-key-columns '() 2))") == .true)
+    }
+
     @Test func renderOverlayBodyEmitsColumnCountAttr() throws {
         let engine = try loadOverlay()
         // 20 entries → 2 cols at default 1.6 ratio (see other test).
