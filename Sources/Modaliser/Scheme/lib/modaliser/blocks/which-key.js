@@ -2,19 +2,23 @@
  *
  * Payload shape:
  *   { type: "which-key",
- *     cols: N,                         // overlay column count
- *     segments: [
- *       {kind: "misc",     rows: [<row>, ...]},                 // coalesced loose entries
- *       {kind: "category", label: "Move", rows: [<row>, ...]},  // explicit category
+ *     columns: [                              // one entry per overlay column
+ *       [ <segment>, <segment>, ... ],        // column 1, top-to-bottom
+ *       [ <segment>, ... ],                   // column 2
  *       ...
  *     ] }
  *
+ * Each segment is either:
+ *   {kind: "misc",     rows: [<row>, ...]}                 // coalesced loose entries
+ *   {kind: "category", label: "Move", rows: [<row>, ...]}  // explicit category
+ *
  * Each row: {key, label, isGroup, isSticky}.
  *
- * Lays segments out as columns in a CSS grid that flows left-to-right
- * (row-major) and wraps onto a new row when the overlay runs out of
- * horizontal room. `--overlay-cols` is set inline by this renderer
- * from the precomputed Scheme-side column count.
+ * Columns are precomputed Scheme-side (distribute-which-key-columns in
+ * overlay.scm) so short categories backfill the space under other short
+ * ones. This renderer draws one .wk-col element per column; which-key.css
+ * lays them out as an equal-width grid. --overlay-cols is set inline here
+ * from the column count.
  */
 
 (function() {
@@ -77,17 +81,16 @@
   window.overlayBlockRenderers['which-key'] = function(block, container) {
     while (container.firstChild) container.removeChild(container.firstChild);
     const cols = el('div', { class: 'wk-columns' });
-    // Column count is precomputed Scheme-side to match the legacy list
-    // renderer's aspect-ratio-based layout; default to 1 if absent.
-    if (typeof block.cols === 'number' && block.cols > 0) {
-      cols.style.setProperty('--overlay-cols', String(block.cols));
-    }
-    for (const seg of (block.segments || [])) {
-      if (seg.kind === 'category') {
-        cols.appendChild(renderCategory(seg));
-      } else if (seg.kind === 'misc') {
-        cols.appendChild(renderMisc(seg));
+    const columns = block.columns || [];
+    // One grid track per column; CSS reads --overlay-cols.
+    cols.style.setProperty('--overlay-cols', String(Math.max(1, columns.length)));
+    for (const column of columns) {
+      const colEl = el('div', { class: 'wk-col' });
+      for (const seg of column) {
+        if (seg.kind === 'category') colEl.appendChild(renderCategory(seg));
+        else if (seg.kind === 'misc') colEl.appendChild(renderMisc(seg));
       }
+      cols.appendChild(colEl);
     }
     container.appendChild(cols);
   };
