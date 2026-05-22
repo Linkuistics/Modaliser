@@ -96,6 +96,9 @@ final class KeyboardLibrary: NativeLibrary {
             return result == .suppress ? .suppress : .passThrough
         }
         try capture.start()
+        // Mirror the frontmost app into a cache the tap thread can read —
+        // dispatch's arm path must not touch NSWorkspace off the main thread.
+        registry.startTrackingFrontmostApp()
         keyboardCapture = capture
         // Also store globally to prevent GC from collecting the library
         KeyboardLibrary.sharedCapture = capture
@@ -108,6 +111,7 @@ final class KeyboardLibrary: NativeLibrary {
     private func stopCaptureFunction() -> Expr {
         keyboardCapture?.stop()
         keyboardCapture = nil
+        handlerRegistry.stopTrackingFrontmostApp()
         NSLog("KeyboardLibrary: capture stopped")
         return .void
     }
@@ -119,15 +123,17 @@ final class KeyboardLibrary: NativeLibrary {
     /// passthrough-bundle-ids defaults to '() (always capture).
     ///
     /// Optimistic capture pattern. When the hotkey fires:
-    ///   1. Synchronously install a capture buffer in the tap callback (just
-    ///      sets a property, microseconds). Subsequent key events queue into
-    ///      the buffer instead of leaking to the focused app.
-    ///   2. Yield the tap callback so the kernel doesn't disable us by
-    ///      timeout — Scheme leader handlers can shell out to osascript /
-    ///      ps / lsof when probing iTerm panes, which can easily exceed the
-    ///      tap's 1-second budget.
-    ///   3. Dispatch the Scheme handler asynchronously on the main run loop.
-    ///   4. After the Scheme handler returns, finalise:
+    ///   1. Synchronously install a capture buffer (registry.beginCapture).
+    ///      Subsequent key events — delivered on the dedicated event-tap
+    ///      thread — queue into the buffer instead of leaking to the focused
+    ///      app or racing the in-flight handler.
+    ///   2. Dispatch the Scheme handler asynchronously on the main thread.
+    ///      A leader handler may block the main thread for seconds shelling
+    ///      out to osascript / ps / lsof when probing iTerm panes. Because
+    ///      the tap runs on its own thread (see KeyboardCapture), that block
+    ///      neither stalls the tap nor lets the kernel disable it — the
+    ///      buffer keeps absorbing keystrokes for the whole probe.
+    ///   3. After the Scheme handler returns, finalise:
     ///      - If a catch-all was installed (modal-enter fired): drain the
     ///        buffered events through it so they reach modal-key-handler in
     ///        arrival order.
@@ -172,14 +178,13 @@ final class KeyboardLibrary: NativeLibrary {
     private func fireHotkeyHandler(_ handler: Expr,
                                     evaluator: Evaluator,
                                     registry: KeyboardHandlerRegistry) {
-        // Step 1: install the buffer synchronously. After this returns the
-        // tap callback finishes; subsequent key events queue here.
-        let buffer = CaptureBuffer()
-        registry.captureBuffer = buffer
+        // Step 1: install the buffer. Subsequent key events arriving on the
+        // tap thread queue here instead of leaking to the focused app.
+        let buffer = registry.beginCapture()
 
-        // Step 2: dispatch Scheme work asynchronously. This yields the tap
-        // callback immediately — even if Scheme spends seconds shelling out
-        // to AppleScript probes, the kernel never disables our tap.
+        // Step 2: dispatch Scheme work asynchronously on the main thread.
+        // Even if Scheme spends seconds shelling out to AppleScript probes,
+        // the tap (on its own thread) keeps buffering keystrokes meanwhile.
         DispatchQueue.main.async { [weak self] in
             let result = evaluator.execute { machine in
                 try machine.apply(handler, to: .null)
@@ -195,24 +200,22 @@ final class KeyboardLibrary: NativeLibrary {
     /// re-inject them if the leader handler didn't take ownership.
     private func finalizeCapture(buffer: CaptureBuffer,
                                   registry: KeyboardHandlerRegistry) {
-        // Only finalize if we're still the active buffer — a nested leader
-        // press could have replaced us with its own buffer in between.
-        guard registry.captureBuffer === buffer else { return }
-        registry.captureBuffer = nil
+        // Detach the buffer under the registry lock. Returns nil if a nested
+        // leader press already replaced us with its own buffer — that newer
+        // buffer owns finalization, so there is nothing to do here.
+        guard let events = registry.takeBufferIfCurrent(buffer) else { return }
 
         if let catchAll = registry.catchAllHandler {
             // Modal active — feed events through in arrival order so the
             // user sees deterministic dispatch regardless of how slow the
             // Scheme handler was.
-            for buffered in buffer.events {
-                if buffered.isKeyDown {
-                    _ = catchAll(buffered.keyCode, buffered.modifiers)
-                }
+            for buffered in events where buffered.isKeyDown {
+                _ = catchAll(buffered.keyCode, buffered.modifiers)
             }
         } else {
             // Modal didn't enter — re-inject so the focused app sees the
             // keys it would have if our tap weren't here.
-            for buffered in buffer.events {
+            for buffered in events {
                 postSyntheticKeyEvent(buffered)
             }
         }

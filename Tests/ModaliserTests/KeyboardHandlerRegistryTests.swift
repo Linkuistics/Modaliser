@@ -189,4 +189,76 @@ struct KeyboardHandlerRegistryTests {
         _ = registry.dispatch(keyCode: 79, modifiers: [], isKeyDown: true)
         #expect(registry.armState == .armed(leaderKey: HotkeyKey(keyCode: 79, modifiers: [])))
     }
+
+    // MARK: - Thread safety
+
+    /// Lock-guarded box so a test thread can hand a value back to the test
+    /// thread without tripping data-race diagnostics.
+    final class Locked<T> {
+        private let lock = NSLock()
+        private var _value: T
+        init(_ value: T) { _value = value }
+        var value: T {
+            get { lock.lock(); defer { lock.unlock() }; return _value }
+            set { lock.lock(); defer { lock.unlock() }; _value = newValue }
+        }
+        func withLock<R>(_ body: (inout T) -> R) -> R {
+            lock.lock(); defer { lock.unlock() }; return body(&_value)
+        }
+    }
+
+    /// In production `dispatch` runs on the dedicated event-tap thread, not
+    /// the main thread — it must be safe to call from any thread.
+    @Test func dispatchFromBackgroundThreadFiresHandler() {
+        let fireCount = Locked(0)
+        let (registry, _) = makeRegistry(frontmost: "com.apple.Safari")
+        registry.hotkeyHandlers[HotkeyKey(keyCode: 79, modifiers: [])] =
+            makeEntry { fireCount.withLock { $0 += 1 } }
+
+        let result = Locked<KeyboardDispatchResult>(.passThrough)
+        let done = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            result.value = registry.dispatch(keyCode: 79, modifiers: [], isKeyDown: true)
+            done.signal()
+        }
+        done.wait()
+
+        #expect(fireCount.value == 1)
+        #expect(result.value == .suppress)
+    }
+
+    /// Hammer dispatch (the tap-thread role) against handler registration and
+    /// catch-all mutation (the main-thread role) from many threads at once.
+    /// The registry lock must keep this crash-free, and the registry must
+    /// still dispatch correctly afterwards.
+    @Test func concurrentDispatchAndRegistrationStaysConsistent() {
+        let (registry, _) = makeRegistry(frontmost: "com.apple.Safari")
+        let key = HotkeyKey(keyCode: 79, modifiers: [])
+        registry.hotkeyHandlers[key] = makeEntry()
+
+        DispatchQueue.concurrentPerform(iterations: 600) { i in
+            switch i % 4 {
+            case 0:
+                _ = registry.dispatch(keyCode: 79, modifiers: [], isKeyDown: true)
+            case 1:
+                registry.hotkeyHandlers[HotkeyKey(keyCode: CGKeyCode(i % 50), modifiers: [])] =
+                    self.makeEntry()
+            case 2:
+                registry.catchAllHandler = { _, _ in true }
+            default:
+                registry.catchAllHandler = nil
+            }
+        }
+
+        // After the storm the registry is intact: clear the catch-all, then a
+        // plain hotkey press fires its handler exactly once and suppresses.
+        registry.catchAllHandler = nil
+        let fireCount = Locked(0)
+        registry.hotkeyHandlers[key] = makeEntry { fireCount.withLock { $0 += 1 } }
+
+        let result = registry.dispatch(keyCode: 79, modifiers: [], isKeyDown: true)
+
+        #expect(result == .suppress)
+        #expect(fireCount.value == 1)
+    }
 }

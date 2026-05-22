@@ -11,10 +11,32 @@ enum KeyEventHandlingResult: Equatable {
 
 /// Captures global keyboard events via a CGEvent tap.
 /// Requires Accessibility permissions to function.
+///
+/// ## Why a dedicated thread
+///
+/// The tap's run-loop source runs on its own thread, not the main run loop.
+/// A CGEvent tap whose run loop stops servicing events for ~1 second is
+/// disabled by the kernel (`.tapDisabledByTimeout`), after which keystrokes
+/// bypass the tap entirely until it is re-enabled.
+///
+/// Leader-key handling deliberately blocks the *main* thread: Scheme leader
+/// handlers shell out to osascript / ps when probing iTerm panes, and a cold
+/// AppleScript round-trip can take seconds. If the tap shared the main run
+/// loop, that block would stall the tap and the kernel would disable it —
+/// dropping any key the user pressed during the probe. Running the tap on its
+/// own thread keeps it servicing events (into the optimistic-capture buffer)
+/// regardless of what the main thread is doing.
 final class KeyboardCapture {
     private var onKeyEvent: (CapturedKeyEvent) -> KeyEventHandlingResult
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+
+    /// The dedicated thread servicing the tap, and its run loop. The run loop
+    /// is published by the thread itself and read by `stop()`; `runLoopReady`
+    /// guarantees it is set before `start()` returns.
+    private var tapThread: Thread?
+    private var tapRunLoop: CFRunLoop?
+    private let runLoopReady = DispatchSemaphore(value: 0)
 
     init(onKeyEvent: @escaping (CapturedKeyEvent) -> KeyEventHandlingResult) {
         self.onKeyEvent = onKeyEvent
@@ -62,19 +84,50 @@ final class KeyboardCapture {
 
         eventTap = tap
         runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-        NSLog("KeyboardCapture: tap enabled and added to run loop")
+
+        // Service the tap on a dedicated, high-priority thread so a blocked
+        // main thread can never stall it (see the type doc above).
+        let thread = Thread { [weak self] in
+            guard let self else { return }
+            let runLoop = CFRunLoopGetCurrent()
+            self.tapRunLoop = runLoop
+            CFRunLoopAddSource(runLoop, source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            self.runLoopReady.signal()
+
+            // A timed run loop (rather than a bare CFRunLoopRun) guarantees
+            // the cancellation flag is re-checked even if CFRunLoopStop races
+            // the wakeup during shutdown.
+            while !Thread.current.isCancelled {
+                _ = CFRunLoopRunInMode(.defaultMode, 0.25, false)
+            }
+        }
+        thread.name = "com.modaliser.keyboard-tap"
+        thread.qualityOfService = .userInteractive
+        tapThread = thread
+        thread.start()
+
+        // Block until the thread has published its run loop and enabled the
+        // tap, so a subsequent stop() always has a run loop to stop.
+        runLoopReady.wait()
+        NSLog("KeyboardCapture: tap enabled on dedicated thread")
     }
 
-    /// Stop capturing keyboard events and clean up resources.
+    /// Stop capturing keyboard events and tear down the dedicated thread.
     func stop() {
+        tapThread?.cancel()
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        if let runLoop = tapRunLoop {
+            if let source = runLoopSource {
+                CFRunLoopRemoveSource(runLoop, source, .commonModes)
+            }
+            // Wake the run loop so the thread observes its cancellation flag.
+            CFRunLoopStop(runLoop)
         }
+        tapThread = nil
+        tapRunLoop = nil
         eventTap = nil
         runLoopSource = nil
     }
@@ -86,7 +139,7 @@ final class KeyboardCapture {
     /// merely skip our normal dispatch for that event — a benign degradation.
     static let reInjectionMagic: Int64 = 0x4d6f64616c6c69ef  // "Modalliª"
 
-    /// Called from the C callback on the main thread.
+    /// Called from the C callback on the dedicated tap thread.
     fileprivate func handleEvent(_ proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         // If the tap gets disabled by the system (e.g. timeout), re-enable it
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {

@@ -18,30 +18,64 @@ import CoreGraphics
 ///      it fires only on the second trigger within the arm window.
 ///    - Otherwise: fire handler, return suppress.
 /// 5. Pass through.
+///
+/// ## Threading
+///
+/// `dispatch` runs on the dedicated event-tap thread (see `KeyboardCapture`),
+/// whereas handler registration, the optimistic-capture finalizer, and the
+/// arm-window timer all run on the main thread. Every access to the mutable
+/// state below therefore goes through `lock`.
+///
+/// The lock is held only for the brief decision section of `dispatch` — never
+/// across a call-out to a hotkey handler, the catch-all, or the Escape poster.
+/// Those call-outs can shell out to slow AppleScript probes; holding the lock
+/// across them would let a slow Scheme handler stall the tap thread, which is
+/// exactly the failure this design avoids.
 final class KeyboardHandlerRegistry {
+
+    /// Serializes access to all mutable state below. Held for microseconds at
+    /// a time; never held across a handler call-out.
+    private let lock = NSLock()
+
+    // MARK: - Shared state (guarded by `lock`)
+
+    private var _catchAllHandler: ((CGKeyCode, CGEventFlags) -> Bool)?
+    private var _hotkeyHandlers: [HotkeyKey: HotkeyEntry] = [:]
+    private var _captureBuffer: CaptureBuffer?
+    private var _armState: ArmState = .idle
+    private var _armedHandler: (() -> Void)?
+    private var _armTimer: DispatchSourceTimer?
+    private var _armWindow: TimeInterval = 0.5
+    private var _cachedFrontmostBundleId: String?
+
+    // MARK: - Public accessors
 
     /// Handler for all keys (used during modal mode).
     /// Receives (keyCode, modifiers). Returns true to suppress, false to pass through.
-    var catchAllHandler: ((_ keyCode: CGKeyCode, _ modifiers: CGEventFlags) -> Bool)?
+    var catchAllHandler: ((_ keyCode: CGKeyCode, _ modifiers: CGEventFlags) -> Bool)? {
+        get { lock.lock(); defer { lock.unlock() }; return _catchAllHandler }
+        set { lock.lock(); defer { lock.unlock() }; _catchAllHandler = newValue }
+    }
 
     /// Handlers for specific (keycode, modifiers) combinations.
-    var hotkeyHandlers: [HotkeyKey: HotkeyEntry] = [:]
-
-    /// Active capture buffer, set when a hotkey handler is mid-flight to
-    /// prevent its (asynchronously-running) Scheme handler from racing the
-    /// next keystroke. Either drained through the resulting catch-all (if
-    /// the handler installed one) or re-injected (if it didn't).
-    var captureBuffer: CaptureBuffer?
-
-    /// Frontmost-app bundle ID lookup. Injectable for tests.
-    var frontmostBundleId: () -> String? = {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    var hotkeyHandlers: [HotkeyKey: HotkeyEntry] {
+        get { lock.lock(); defer { lock.unlock() }; return _hotkeyHandlers }
+        set { lock.lock(); defer { lock.unlock() }; _hotkeyHandlers = newValue }
     }
+
+    /// Frontmost-app bundle ID lookup. Injectable for tests. The production
+    /// default reads a cache refreshed on the main thread by
+    /// `startTrackingFrontmostApp` — it never touches AppKit from the tap
+    /// thread, where `NSWorkspace` access would be unsupported.
+    var frontmostBundleId: () -> String? = { nil }
 
     /// Arm window — how long after a trigger over an arm-bundle app the
     /// second trigger counts as "cancel remote and enter local modal".
     /// Configured from Scheme via (set-arm-delay! seconds).
-    var armWindow: TimeInterval = 0.5
+    var armWindow: TimeInterval {
+        get { lock.lock(); defer { lock.unlock() }; return _armWindow }
+        set { lock.lock(); defer { lock.unlock() }; _armWindow = newValue }
+    }
 
     /// How to send the cancellation Escape to the focused window when the
     /// second trigger fires. The default posts a magic-tagged synthetic
@@ -52,15 +86,75 @@ final class KeyboardHandlerRegistry {
 
     /// Current arm state. Read-only outside the registry; mutated only via
     /// dispatch and the timer callback.
-    private(set) var armState: ArmState = .idle
-    private var armedHandler: (() -> Void)?
-    private var armTimer: DispatchSourceTimer?
+    var armState: ArmState {
+        lock.lock(); defer { lock.unlock() }
+        return _armState
+    }
+
+    private var frontmostObserver: NSObjectProtocol?
+
+    init() {
+        frontmostBundleId = { [weak self] in
+            guard let self else { return nil }
+            self.lock.lock(); defer { self.lock.unlock() }
+            return self._cachedFrontmostBundleId
+        }
+    }
+
+    deinit {
+        stopTrackingFrontmostApp()
+    }
+
+    // MARK: - Frontmost-app tracking
+
+    /// Begin mirroring the frontmost application's bundle ID into a cache that
+    /// `dispatch` can read from the tap thread without touching AppKit. Call
+    /// once, on the main thread, after keyboard capture starts.
+    func startTrackingFrontmostApp() {
+        let workspace = NSWorkspace.shared
+        let seed = workspace.frontmostApplication?.bundleIdentifier
+        lock.lock(); _cachedFrontmostBundleId = seed; lock.unlock()
+
+        guard frontmostObserver == nil else { return }
+        frontmostObserver = workspace.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
+                as? NSRunningApplication
+            let bundleId = app?.bundleIdentifier
+            self.lock.lock(); self._cachedFrontmostBundleId = bundleId; self.lock.unlock()
+        }
+    }
+
+    /// Stop mirroring the frontmost application. Idempotent.
+    func stopTrackingFrontmostApp() {
+        if let observer = frontmostObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            frontmostObserver = nil
+        }
+    }
+
+    // MARK: - Dispatch
 
     /// Dispatch a key event. Returns whether to suppress or pass through.
+    /// Safe to call from any thread; runs on the event-tap thread in production.
     func dispatch(keyCode: CGKeyCode, modifiers: CGEventFlags, isKeyDown: Bool) -> KeyboardDispatchResult {
-        if let buffer = captureBuffer {
+        let normalizedKey = HotkeyKey(
+            keyCode: keyCode,
+            modifiers: modifiers.intersection(KeyboardHandlerRegistry.primaryModifiers))
+
+        lock.lock()
+
+        // Optimistic-capture buffer active — a hotkey handler is mid-flight.
+        // Queue the event (key-up included, so we can drain or re-inject
+        // without leaving keys "stuck down" in the focused app) and suppress.
+        if let buffer = _captureBuffer {
             buffer.events.append(
                 BufferedKeyEvent(keyCode: keyCode, modifiers: modifiers, isKeyDown: isKeyDown))
+            lock.unlock()
             return .suppress
         }
 
@@ -68,80 +162,111 @@ final class KeyboardHandlerRegistry {
         // lookups: the user is in a transient "double-tap" window and any
         // key resolves it. Key-up events pass through unchanged so the
         // window doesn't see stuck modifiers.
-        if case .armed(let leaderKey) = armState, isKeyDown {
-            let normalized = HotkeyKey(
-                keyCode: keyCode,
-                modifiers: modifiers.intersection(KeyboardHandlerRegistry.primaryModifiers))
-            if normalized == leaderKey {
-                let handler = armedHandler
-                disarm()
+        if case .armed(let leaderKey) = _armState, isKeyDown {
+            if normalizedKey == leaderKey {
+                let handler = _armedHandler
+                disarmLocked()
+                lock.unlock()
                 postEscapeKeystroke()
                 handler?()
                 return .suppress
             }
             // Any other key: cancel the arm and let the key flow naturally.
-            disarm()
+            disarmLocked()
+            lock.unlock()
             return .passThrough
         }
 
         // Catch-all and hotkey handlers only fire on key-down — key-up just
         // passes through so the focused app gets a clean release event for
         // any modifier that was held when modal began.
-        guard isKeyDown else { return .passThrough }
-
-        if let catchAll = catchAllHandler {
-            let shouldSuppress = catchAll(keyCode, modifiers)
-            return shouldSuppress ? .suppress : .passThrough
+        guard isKeyDown else {
+            lock.unlock()
+            return .passThrough
         }
 
-        if let entry = findEntry(keyCode: keyCode, modifiers: modifiers) {
-            if !entry.armBundleIds.isEmpty,
-               let bundleId = frontmostBundleId(),
-               entry.armBundleIds.contains(bundleId)
-            {
-                let normalized = HotkeyKey(
-                    keyCode: keyCode,
-                    modifiers: modifiers.intersection(KeyboardHandlerRegistry.primaryModifiers))
-                arm(leaderKey: normalized, handler: entry.handler)
-                return .passThrough
-            }
-            entry.handler()
-            return .suppress
+        if let catchAll = _catchAllHandler {
+            // Released before the call-out: the catch-all may evaluate Scheme.
+            lock.unlock()
+            return catchAll(keyCode, modifiers) ? .suppress : .passThrough
         }
 
-        return .passThrough
+        guard let entry = _hotkeyHandlers[normalizedKey] else {
+            lock.unlock()
+            return .passThrough
+        }
+        let armBundleIds = entry.armBundleIds
+        let handler = entry.handler
+        lock.unlock()
+
+        // Pass-and-arm: over an arm-bundle app the trigger flows to the
+        // window and we enter the armed state instead of firing now.
+        if !armBundleIds.isEmpty,
+           let bundleId = frontmostBundleId(),
+           armBundleIds.contains(bundleId)
+        {
+            lock.lock()
+            armLocked(leaderKey: normalizedKey, handler: handler)
+            lock.unlock()
+            return .passThrough
+        }
+
+        handler()
+        return .suppress
     }
 
+    // MARK: - Optimistic-capture buffer
+
+    /// Install a fresh optimistic-capture buffer and return it. Until the
+    /// buffer is drained, subsequent key events queue into it (suppressed)
+    /// instead of leaking to the focused app or racing the in-flight handler.
+    func beginCapture() -> CaptureBuffer {
+        let buffer = CaptureBuffer()
+        lock.lock(); _captureBuffer = buffer; lock.unlock()
+        return buffer
+    }
+
+    /// If `buffer` is still the active capture buffer, detach it and return a
+    /// snapshot of its queued events (taken under the lock, so the tap thread
+    /// can no longer append to it). Returns nil if a newer leader press has
+    /// already replaced it — in which case the newer buffer owns finalization.
+    func takeBufferIfCurrent(_ buffer: CaptureBuffer) -> [BufferedKeyEvent]? {
+        lock.lock(); defer { lock.unlock() }
+        guard _captureBuffer === buffer else { return nil }
+        _captureBuffer = nil
+        return buffer.events
+    }
+
+    // MARK: - Arm state
+
     /// Enter the armed state. Cancels any in-flight arm timer (re-arm after
-    /// a stray trigger restarts the window). Visible to tests so they can
-    /// drive the state machine without real CGEvent dispatch.
-    func arm(leaderKey: HotkeyKey, handler: @escaping () -> Void) {
-        armTimer?.cancel()
-        armState = .armed(leaderKey: leaderKey)
-        armedHandler = handler
+    /// a stray trigger restarts the window). Caller must hold `lock`.
+    private func armLocked(leaderKey: HotkeyKey, handler: @escaping () -> Void) {
+        _armTimer?.cancel()
+        _armState = .armed(leaderKey: leaderKey)
+        _armedHandler = handler
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + armWindow)
+        timer.schedule(deadline: .now() + _armWindow)
         timer.setEventHandler { [weak self] in
             self?.disarm()
         }
-        armTimer = timer
+        _armTimer = timer
         timer.resume()
     }
 
-    /// Return to idle. Idempotent.
-    func disarm() {
-        armTimer?.cancel()
-        armTimer = nil
-        armState = .idle
-        armedHandler = nil
+    /// Return to idle. Caller must hold `lock`.
+    private func disarmLocked() {
+        _armTimer?.cancel()
+        _armTimer = nil
+        _armState = .idle
+        _armedHandler = nil
     }
 
-    /// Exact-key lookup. Modifiers are normalized to the four primary bits
-    /// (cmd/shift/alt/ctrl) before lookup, so Caps Lock and friends don't
-    /// affect matching.
-    private func findEntry(keyCode: CGKeyCode, modifiers: CGEventFlags) -> HotkeyEntry? {
-        let normalized = modifiers.intersection(KeyboardHandlerRegistry.primaryModifiers)
-        return hotkeyHandlers[HotkeyKey(keyCode: keyCode, modifiers: normalized)]
+    /// Return to idle. Idempotent. Safe to call from any thread — used by the
+    /// arm-window timer (main queue) and by tests.
+    func disarm() {
+        lock.lock(); defer { lock.unlock() }
+        disarmLocked()
     }
 
     /// Production Escape post: synthesise a magic-tagged keyDown+keyUp pair
@@ -194,7 +319,7 @@ enum ArmState: Equatable {
 }
 
 /// Result of keyboard dispatch — tells the CGEvent tap what to do.
-enum KeyboardDispatchResult {
+enum KeyboardDispatchResult: Equatable {
     case suppress
     case passThrough
 }
@@ -209,8 +334,8 @@ struct BufferedKeyEvent {
 }
 
 /// Reference type so the entry.handler closure and the async finalizer
-/// share the same buffer instance (and so the registry's `captureBuffer`
-/// reference can be compared by identity if needed).
+/// share the same buffer instance (and so the registry's capture buffer
+/// can be compared by identity in `takeBufferIfCurrent`).
 final class CaptureBuffer {
     var events: [BufferedKeyEvent] = []
 }
