@@ -9,9 +9,11 @@ Document two capabilities that are implemented in Modaliser but currently
 undocumented:
 
 1. **Terminal-pane-aware local trees** — varying an app-local (F17) tree by
-   what is running in the focused terminal pane, including reaching through a
-   multiplexer (zellij/tmux) and interacting with the focused program (nvim)
-   to decide tree contents.
+   what is running in the focused terminal split. The **primary case is a
+   terminal's native splits** (e.g. iTerm panes), where the focused split's own
+   program is directly detectable at per-split granularity. A **secondary case
+   reaches through a multiplexer** (zellij/tmux). Both can interact with the
+   focused program (nvim) to decide tree contents.
 2. **The pass-and-arm leader mechanism** — letting a host and a remote
    Modaliser coexist when both capture the same trigger keys (Jump Desktop /
    VNC / RDP).
@@ -57,12 +59,17 @@ are the load-bearing facts, each traced to source.
 ### Detection primitives — `(modaliser terminal)`
 
 - `focused-terminal-foreground-command` → the command string of the foreground
-  **process group** of the focused terminal pane's tty. **iTerm2-only** today
-  (it obtains the tty via iTerm AppleScript). The process-group-of-the-tty
-  model means one probe answers "what TUI is in the pane" for any program
-  (`terminal.sld:1-7`).
-- With zellij as the splitter, this returns `zellij` — it detects "zellij is
-  running", not the focused zellij pane's contents.
+  **process group** of the focused terminal split's tty. **iTerm2-only** today;
+  it obtains the tty via `tell current session of current window` — iTerm's
+  *focused* split — so for **iTerm native splits it yields the actual program
+  in the focused split** (vim, htop, lazygit, plain shell — anything), at full
+  per-split granularity. The process-group-of-the-tty model means one probe
+  answers "what is in the focused split" for any program (`terminal.sld:1-7`,
+  `terminal.sld:28-37`).
+- That per-split granularity holds only for **native splits**. When a
+  multiplexer (zellij/tmux) does the splitting, the host tty's foreground
+  process is the multiplexer itself — the probe sees `zellij`, not the focused
+  zellij pane's contents.
 - nvim RPC: `focused-nvim-socket` scans all running nvim processes (`lsof`) and
   picks the one reporting `g:modaliser_focused == 1`. This is **terminal- and
   multiplexer-agnostic** — it needs no host-tty probe. `nvim-remote-expr` /
@@ -75,7 +82,7 @@ are the load-bearing facts, each traced to source.
 
 ### Capability matrix — host terminals
 
-| Terminal  | Focused-pane tty without a multiplexer            | Notes                                   |
+| Terminal  | Native-split focused-pane detection               | Notes                                   |
 |-----------|---------------------------------------------------|-----------------------------------------|
 | iTerm2    | Yes — AppleScript (`focused-terminal-foreground-command`) | Only terminal with library support today |
 | WezTerm   | Yes — `wezterm cli list` (tty/pid per pane)       | DIY recipe                              |
@@ -90,10 +97,20 @@ are the load-bearing facts, each traced to source.
 | tmux        | Yes — `tmux display-message -p '#{pane_current_command}'` / `#{pane_tty}` | Finest granularity; host-terminal-independent |
 | zellij      | No per-pane tty/command query comparable to tmux                | Detect "zellij running" + nvim-via-RPC; a non-nvim focused zellij pane is not resolvable |
 
-**Practical conclusion:** when splitting is delegated to a multiplexer, the
-host terminal only needs identifying (per-app tree by bundle ID) — detection is
-the multiplexer's job. tmux gives per-pane detail; zellij gives "zellij +
-(optionally) the focused nvim".
+**Practical conclusion — two cases, native splits first:**
+
+- **Native splits** — the primary case (e.g. iTerm panes, the user's daily
+  driver). The terminal exposes the focused split's tty, so
+  `focused-terminal-foreground-command` resolves the actual focused-split
+  program at full granularity. Supported today for iTerm; achievable for
+  WezTerm/Kitty via their CLIs; unavailable for Ghostty/Alacritty.
+- **Multiplexer panes** — the secondary case (some users run tmux/zellij inside
+  any terminal). Detection is delegated to the multiplexer: tmux gives per-pane
+  detail (`display-message`); zellij gives only "zellij is running" plus, via
+  RPC, the focused nvim.
+
+The how-to leads with native splits; the multiplexer case is documented as an
+additional path, not the default framing.
 
 ### The arm mechanism — `KeyboardHandlerRegistry.swift`
 
@@ -128,8 +145,13 @@ Sections:
   `'com.googlecode.iterm2/nvim` etc.
 - If you inlined your iTerm tree — re-add the hook (the user's exact
   situation), via `set-local-context-suffix!` or `'install-context-suffix? #f`.
-- Worked example — an nvim variant tree; a binding that uses `nvim-remote-expr`
-  to reflect live nvim state.
+- Worked example (native iTerm splits) — a custom `set-local-context-suffix!`
+  handler that probes the focused split with `focused-terminal-foreground-command`
+  and returns a suffix per program (`/nvim`, `/lazygit`, `#f`, …), with matching
+  `(define-tree 'com.googlecode.iterm2/nvim …)` variant trees. Then the
+  nvim-depth bit: a binding using `nvim-remote-expr` to reflect live nvim state.
+  This is the original ask — bindings that change with what is running in the
+  focused iTerm split.
 - Verify / troubleshoot.
 - Related links.
 
@@ -141,15 +163,19 @@ Sections:
 - The foreground-process-group-of-the-tty model — why one probe answers
   "what's in the pane".
 - `(modaliser terminal)` API surface.
-- Getting the tty per host terminal — iTerm (built in), WezTerm / Kitty
-  (recipes), Ghostty / Alacritty (limits).
-- Reaching through multiplexers — tmux recipe; zellij limits; the nvim-RPC
-  route that bypasses both.
+- Native splits — the primary case. Getting the focused split's tty per host
+  terminal: iTerm (built in, `focused-terminal-foreground-command`), WezTerm /
+  Kitty (`run-shell` recipes via their CLIs), Ghostty / Alacritty (no
+  native-split introspection — limits stated plainly).
+- Reaching through multiplexers — the secondary case: tmux recipe
+  (`display-message`); zellij limits; the nvim-RPC route that bypasses both and
+  works under either.
 - The nvim side — the `g:modaliser_focused` `FocusGained` / `FocusLost`
   autocmds (full snippet, both vimscript and lua).
 - Capability matrix (the two tables above).
-- Limits — what is not resolvable (a non-nvim program in a focused zellij
-  pane).
+- Limits — scoped clearly: a non-nvim program in a focused **zellij** pane is
+  not resolvable; the same program in a focused **native iTerm split** *is*.
+  Ghostty / Alacritty have no native-split introspection.
 
 ### Doc 3 — `docs/how-to/remote-desktop.md` (how-to + explanation)
 
