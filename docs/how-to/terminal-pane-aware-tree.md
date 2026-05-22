@@ -10,10 +10,11 @@ wires it up.
 
 On every local-leader press, a hook installed via
 `set-local-context-suffix!` is called with the focused app's bundle ID
-and returns a suffix string (e.g. `/nvim`) or `#f`. `resolve-app-tree`
-then prefers the tree registered under `"com.googlecode.iterm2/nvim"`,
-falling back to the plain `"com.googlecode.iterm2"` tree when no suffix
-matches. You register the variant trees with `define-tree`.
+and returns a suffix string (e.g. `/nvim`) or `#f`.
+`resolve-app-tree` (called internally by the leader handler) then
+prefers the tree registered under `"com.googlecode.iterm2/nvim"`,
+falling back to the plain `"com.googlecode.iterm2"` tree when no
+suffix matches. You register the variant trees with `define-tree`.
 
 For how detection works — what the TTY probe does, which terminals
 support it, and the nvim RPC route — see
@@ -74,12 +75,14 @@ choice to own the bindings; the next section shows exactly what to add.
 ## Worked example: a custom context suffix
 
 The general recipe — branch on the focused split's foreground command.
-Add this alongside your
-`(define-tree 'com.googlecode.iterm2 …)`:
+Add this alongside your `(define-tree 'com.googlecode.iterm2 …)`
+(your config already imports `(modaliser dsl)` for `define-tree`,
+`key`, and `λ`):
 
 ```scheme
 (import (modaliser event-dispatch)   ; set-local-context-suffix!
-        (modaliser terminal)         ; focused-terminal-foreground-command
+        (modaliser terminal)         ; focused-terminal-foreground-command, nvim-remote-expr
+        (modaliser input)            ; send-keystroke
         (modaliser util))            ; string-contains?
 
 ;; Runs on every F17 press. Probe the focused iTerm split and choose a
@@ -131,7 +134,7 @@ previously installed hook — it is not additive. If you use both the
 iTerm factory and your own hook, compose them: call
 `(iterm:register! 'install-context-suffix? #f)` and have your hook
 delegate the iTerm branch to
-`(iterm:context-suffix-handler bundle-id …)`:
+`(iterm:context-suffix-handler bundle-id)`:
 
 ```scheme
 (import (prefix (modaliser apps iterm) iterm:)
