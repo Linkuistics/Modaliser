@@ -2,9 +2,10 @@
 
 You want bindings that only fire when a specific app is frontmost —
 e.g. tab-navigation bindings for Safari, vim-style window moves for
-your editor. The local leader (F17 in the seeded config) routes to the
-per-app tree for the currently-focused app, falling back to the global
-tree if no per-app tree is registered.
+your editor. The local leader (F17 in the seeded config) opens the
+per-app tree for the currently-focused app. If that app has no
+per-app tree, the local leader does nothing — it does *not* fall back
+to the global tree; the global leader (F18) is always there for that.
 
 ## You'll need
 
@@ -89,9 +90,10 @@ replaces the first — there's no merging across calls. Reach for
 replacing.
 
 **Global vs local.** F18 fires the global tree regardless of frontmost
-app; F17 fires the per-app tree if one's registered, otherwise the
-global tree. Both leader keys are independently configurable — see
-`(set-leaders! …)` in [reference/dsl.md](../reference/dsl.md).
+app; F17 fires the per-app tree for the frontmost app, or does nothing
+if that app has no per-app tree — the local leader does not fall back
+to the global tree. Both leader keys are independently configurable —
+see `(set-leaders! …)` in [reference/dsl.md](../reference/dsl.md).
 
 **Bundle variants.** A scope like `'com.googlecode.iterm2/nvim` lets
 the dispatcher pick a sub-tree based on app state (the iTerm factory

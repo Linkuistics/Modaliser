@@ -64,9 +64,12 @@ For scope-asymmetric options use `(set-global-leader! …)` and
 ### `(set-leader! [mode] keycode [keyword value]...)`
 
 The single-scope primitive. From `(modaliser dsl)`. Mode is `'global`,
-`'local`, or omitted; when omitted, the handler resolves at trigger
-time to the focused app's local tree if one exists, falling back to
-the global tree. Keywords:
+`'local`, or omitted. `'global` always opens the global tree.
+`'local` opens the focused app's per-app tree and does nothing if
+that app has no tree — it does *not* fall back to the global tree.
+When the mode is omitted, the handler resolves at trigger time to the
+focused app's local tree if one exists, falling back to the global
+tree. Keywords:
 
 | Keyword | Type | Description |
 |---|---|---|
