@@ -11,8 +11,23 @@ This page walks you from install to first edit in five minutes.
 
 ## 1. Install
 
+Install Modaliser with [Homebrew](https://brew.sh):
+
 ```bash
-git clone https://github.com/<your-fork>/Modaliser
+brew install --cask linkuistics/taps/modaliser
+```
+
+This installs the pre-built `Modaliser.app` into `/Applications`.
+Requires macOS 14+ — the cask ships a signed binary, so there is
+nothing to compile.
+
+### Build from source instead
+
+If you would rather compile Modaliser yourself, clone the repository
+and run the install script:
+
+```bash
+git clone https://github.com/Linkuistics/Modaliser.git
 cd Modaliser
 ./scripts/install.sh
 ```
@@ -20,9 +35,8 @@ cd Modaliser
 That builds `Modaliser.app` and copies it to `/Applications`. The build
 code-signs with a `Modaliser Dev` certificate if one is available
 (preserves Accessibility TCC permissions across rebuilds) and falls back
-to ad-hoc signing otherwise.
-
-Requirements: macOS 14+, Swift 5.9+ / Xcode 15+.
+to ad-hoc signing otherwise. Building from source additionally requires
+Swift 5.9+ / Xcode 15+.
 
 ## 2. First launch
 
