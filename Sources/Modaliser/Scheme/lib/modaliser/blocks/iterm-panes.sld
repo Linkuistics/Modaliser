@@ -22,7 +22,8 @@
 (define-library (modaliser blocks iterm-panes)
   (export make-iterm-panes-block
           iterm-panes-current-targets
-          iterm-panes-current-labels)
+          iterm-panes-current-labels
+          iterm-panes-refresh!)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
@@ -132,12 +133,14 @@
                       ((string=? cwd "")  proc)
                       (else (string-append proc " · " cwd)))))))))))
 
-    ;; ─── on-render side-effect ─────────────────────────────────────
-    ;; Discover the current pane layout, snapshot label→UUID, and paint
-    ;; chips. AX provides the frames + a 0-based 'idx; AppleScript's
-    ;; enumeration order matches (NSView subview-tree DFS), so the
-    ;; N-th frame's UUID is (list-ref session-ids idx).
-    (define (paint-and-snapshot! labels)
+    ;; ─── Pane-layout snapshot ──────────────────────────────────────
+    ;; Discover the current pane layout and snapshot label→UUID into
+    ;; current-pane-targets (+ row data into current-panes-data). AX
+    ;; provides the frames + a 0-based 'idx; AppleScript's enumeration
+    ;; order matches (NSView subview-tree DFS), so the N-th frame's UUID
+    ;; is (list-ref session-ids idx). Returns the labelled panes so a
+    ;; caller that also paints chips has them to hand.
+    (define (snapshot-iterm-panes! labels)
       (let* ((raw-panes    (ax-find-elements-named
                              "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
              (panes        (label-pairs labels raw-panes))
@@ -148,7 +151,7 @@
             ((null? ps)
              (set! current-pane-targets (reverse targets))
              (set! current-panes-data   (reverse rows))
-             (hints-show (ax-target-hints panes (current-chip-theme 'normal))))
+             panes)
             (else
              (let* ((entry (car ps))
                     (label (car entry))
@@ -171,6 +174,20 @@
                (loop (cdr ps)
                      (if sid (cons (cons label sid) targets) targets)
                      (cons row rows))))))))
+
+    ;; on-render side-effect: snapshot the layout, then paint pane chips.
+    (define (paint-and-snapshot! labels)
+      (let ((panes (snapshot-iterm-panes! labels)))
+        (hints-show (ax-target-hints panes (current-chip-theme 'normal)))))
+
+    ;; Refresh the snapshot on demand, WITHOUT painting chips. The digit
+    ;; key-range dispatch (apps/iterm.sld) calls this when a pane key is
+    ;; pressed before the overlay — and therefore its on-render snapshot
+    ;; — has had a chance to run: a leader-then-digit press faster than
+    ;; the overlay delay would otherwise dispatch against an empty map.
+    (define (iterm-panes-refresh!)
+      (snapshot-iterm-panes! default-pane-labels)
+      current-pane-targets)
 
     ;; Constructor. See window-list.sld for the on-render-fn protocol:
     ;; the block-list renderer calls (fn) before serialising; any pair/

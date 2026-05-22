@@ -584,8 +584,15 @@
     (define (select-session-by-id session-id)
       (iterm-select-session-by-id session-id))
 
+    ;; A pane digit can be pressed before the overlay has rendered — a
+    ;; leader-then-digit press faster than the overlay delay — so the
+    ;; on-render pane snapshot may not have run yet. If the digit isn't
+    ;; in the current snapshot, refresh once on demand and look again.
     (define (focus-by-digit d)
-      (let ((entry (assoc d (iterm-panes-current-targets))))
+      (let ((entry (or (assoc d (iterm-panes-current-targets))
+                       (begin
+                         (iterm-panes-refresh!)
+                         (assoc d (iterm-panes-current-targets))))))
         (when entry
           (iterm-select-session-by-id (cdr entry)))))
 
