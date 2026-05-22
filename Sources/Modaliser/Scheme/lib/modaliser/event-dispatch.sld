@@ -85,10 +85,11 @@
              (and suffix (lookup-tree (string-append bundle-id suffix))))
            (lookup-tree bundle-id))))
 
-;; Create a leader key handler for a specific mode.
+;; Create a leader key handler for a specific mode. `mode` is always
+;; 'global or 'local — set-leader! requires it.
 ;; 'global → always uses the "global" tree
-;; 'local  → uses the app-specific tree for the focused app (no fallback)
-;; If mode is #f (single-arg set-leader!), behaves like global with app fallback.
+;; 'local  → uses the app-specific tree for the focused app; if that app
+;;           has no tree, nothing opens — no fallback to the global tree.
 ;;
 ;; Pass-and-arm passthrough is implemented entirely in Swift (see
 ;; KeyboardHandlerRegistry). When the focused app is in arm-bundle-ids,
@@ -109,8 +110,7 @@
               (tree (cond
                       ((eq? mode 'global) (lookup-tree "global"))
                       ((eq? mode 'local)  (resolve-app-tree bundle-id))
-                      (else (or (resolve-app-tree bundle-id)
-                                (lookup-tree "global"))))))
+                      (else (error "make-leader-handler: invalid mode" mode)))))
          (when tree
            (modal-enter tree leader-kc)))))))
 

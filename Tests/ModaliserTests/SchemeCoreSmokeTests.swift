@@ -198,7 +198,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("""
             (define-tree 'global
               (key "s" "Safari" (lambda () 'ok)))
-            (set-leader! F18)
+            (set-leader! 'global F18)
             """)
 
         // Verify the hotkey was registered in the keyboard library

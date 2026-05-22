@@ -578,39 +578,39 @@
       ((eq? (car s) 'ctrl)  (loop (cdr s) (bitwise-ior mask MOD-CTRL)))
       (else (loop (cdr s) mask)))))
 
-;; (set-leader! [mode] keycode [keyword value]...) → registers a hotkey
+;; (set-leader! mode keycode [keyword value]...) → registers a hotkey
 ;;
-;; Forms:
-;;   (set-leader! keycode)                  ; default mode
+;; `mode` is required and must be 'global or 'local:
 ;;   (set-leader! 'global keycode)
-;;   (set-leader! 'local keycode)
+;;   (set-leader! 'local  keycode)
+;;
+;; There is no modeless form — a leader is always scoped to either the
+;; global tree or the focused app's local tree. The local mode does not
+;; fall back to the global tree.
 ;;
 ;; Optional trailing keyword/value pairs:
 ;;   'modifiers <symbol-list>               ; e.g. '(shift) or '(cmd alt)
 ;;   'arm-when-frontmost <strs>             ; bundle IDs that trigger pass-and-arm
-;;
-;; Disambiguation: only 'global / 'local count as a leading mode arg —
-;; other symbols (e.g. 'modifiers) start the keyword tail.
 (define (set-leader! . args)
-  (let-values
-    (((mode keycode tail)
-      (if (and (pair? args)
-               (symbol? (car args))
-               (or (eq? (car args) 'global) (eq? (car args) 'local)))
-        (values (car args) (cadr args) (cddr args))
-        (values #f (car args) (cdr args)))))
-    (let loop ((rest tail) (mod-mask 0) (arm-bundle-ids '()))
-      (cond
-        ((null? rest)
-         (register-hotkey! keycode
-                           (make-leader-handler keycode mode)
-                           mod-mask
-                           arm-bundle-ids))
-        ((eq? (car rest) 'modifiers)
-         (loop (cddr rest) (modifier-symbols->mask (cadr rest)) arm-bundle-ids))
-        ((eq? (car rest) 'arm-when-frontmost)
-         (loop (cddr rest) mod-mask (cadr rest)))
-        (else
-         (error "set-leader!: unknown keyword" (car rest)))))))
+  (let ((mode (and (pair? args) (car args))))
+    (when (not (or (eq? mode 'global) (eq? mode 'local)))
+      (error "set-leader!: mode must be 'global or 'local; got" mode))
+    (when (null? (cdr args))
+      (error "set-leader!: missing keycode after mode"))
+    (let ((keycode (cadr args))
+          (tail    (cddr args)))
+      (let loop ((rest tail) (mod-mask 0) (arm-bundle-ids '()))
+        (cond
+          ((null? rest)
+           (register-hotkey! keycode
+                             (make-leader-handler keycode mode)
+                             mod-mask
+                             arm-bundle-ids))
+          ((eq? (car rest) 'modifiers)
+           (loop (cddr rest) (modifier-symbols->mask (cadr rest)) arm-bundle-ids))
+          ((eq? (car rest) 'arm-when-frontmost)
+           (loop (cddr rest) mod-mask (cadr rest)))
+          (else
+           (error "set-leader!: unknown keyword" (car rest))))))))
 
 )) ;; end begin / define-library

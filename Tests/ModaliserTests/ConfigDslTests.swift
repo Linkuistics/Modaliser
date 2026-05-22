@@ -314,20 +314,23 @@ struct ConfigDslTests {
         #expect(entry?.armBundleIds == ["com.foo"])
     }
 
-    @Test func setLeaderSingleArgFormStillWorks() throws {
+    // MARK: - set-leader! requires an explicit mode
+
+    @Test func setLeaderWithoutModeRaisesError() throws {
         let engine = try loadAllModules()
-        try engine.evaluate("(set-leader! F18)")
-        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
-        #expect(kbLib.handlerRegistry.hotkeyHandlers[
-            HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] != nil)
+        // The mode ('global / 'local) is required — a bare keycode
+        // must not be accepted.
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(set-leader! F18)")
+        }
     }
 
-    @Test func setLeaderSingleArgFormAcceptsModifiers() throws {
+    @Test func setLeaderOmittedModeWithKeywordsRaisesError() throws {
         let engine = try loadAllModules()
-        try engine.evaluate("(set-leader! F18 'modifiers '(shift))")
-        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
-        #expect(kbLib.handlerRegistry.hotkeyHandlers[
-            HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] != nil)
+        // A missing mode is an error even when keyword args follow.
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(set-leader! F18 'modifiers '(shift))")
+        }
     }
 
     @Test func setLeaderUnknownKeywordRaisesError() throws {
