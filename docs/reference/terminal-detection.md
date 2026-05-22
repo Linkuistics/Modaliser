@@ -17,9 +17,10 @@ Detection is two steps:
 
 1. Find the focused split's tty path (e.g. `/dev/ttys003`).
 2. Read that tty's foreground command
-   (`ps -t <name> -o pgid=,tpgid=,command=`).
+   (`ps -t <name> -o pgid=,tpgid=,command=`, piped through `awk`
+   to select the row where `pgid == tpgid`).
 
-Step (b) is universal. Step (a) is per-terminal and is what
+Step 2 is universal. Step 1 is per-terminal and is what
 varies between hosts.
 
 ## The `(modaliser terminal)` API
@@ -41,8 +42,9 @@ varies between hosts.
 
 `(list-nvim-sockets)`
 : Returns a list of Unix-socket paths bound by all running nvim
-  processes. Uses `pgrep -x nvim` + `lsof -p $pid -U` to find
-  each process's msgpack-RPC socket.
+  processes. Uses `pgrep -x nvim` + `lsof -p $pid -a -U -Fn`
+  (filter to Unix-domain sockets, name-only output format) to
+  find each process's msgpack-RPC socket.
 
 `(nvim-server-focused? sock)`
 : Returns `#t` if the nvim listening on `sock` reports
@@ -57,7 +59,8 @@ varies between hosts.
   typical n is 1–2.
 
 `(nvim-remote-send keys)`
-: Sends a keystring to the focused nvim's RPC socket.
+: Sends a keystring to the focused nvim's RPC socket. Has no
+  meaningful return value; used for its side effect.
 
 `(nvim-remote-expr expr)`
 : Evaluates `expr` in the focused nvim and returns the result
@@ -76,7 +79,8 @@ varies between hosts.
 Built-in library support. `focused-terminal-foreground-command`
 queries `current session of current window` via AppleScript (the
 focused split), then reads its tty's foreground command with
-`tty-foreground-command`. Nothing to write — it just works.
+`tty-foreground-command`. The library handles this; no
+configuration is required.
 
 ### WezTerm
 
@@ -88,21 +92,21 @@ wezterm cli list --format json
 ```
 
 The documented JSON fields per pane are `window_id`, `tab_id`,
-`pane_id`, `workspace`, `size`, `title`, and `cwd`. To identify
-which pane is active and read its foreground process, a recipe
-must query WezTerm's Lua API or combine `pane_id` with
-`wezterm cli get-text` / process-tree inspection. The sketch
-below uses `pane_id` to find the active pane via the JSON output
-and then shells out to `ps` against the pane's tty obtained
-through the Lua API:
+`pane_id`, `workspace`, `size`, `title`, and `cwd`. Identifying
+which pane is currently active is the part you must work out
+against your own WezTerm version — the JSON field that exposes
+the active pane (e.g. an `is_active` flag) is version-dependent
+and not guaranteed to be present. Check `wezterm cli list` output
+on your version to see what is actually available before writing
+focus-detection logic. There is no `get-active-pane-id`
+subcommand; do not rely on one.
 
 ```scheme
 ;; DIY recipe — no library support.  Adapt to your WezTerm version.
 ;; wezterm cli list --format json returns: window_id, tab_id,
 ;; pane_id, workspace, size, title, cwd per pane.
-;; The active pane can be identified from the pane_id that
-;; matches wezterm's current focus (query via wezterm cli
-;; get-active-pane-id or the Lua mux API).
+;; Your version may expose an active-pane flag — check the
+;; actual output on your system.
 ;;
 ;; This fragment illustrates the shape; wire it to your own
 ;; focus-detection logic.
@@ -144,6 +148,11 @@ DIY recipe sketch:
 ;; Requires: allow_remote_control yes in kitty.conf
 ;; kitty @ ls returns JSON with windows containing:
 ;;   is_focused (bool), foreground_processes [{cmdline, pid}]
+;; NOTE: The ordering of foreground_processes (outermost-first vs
+;; innermost-first) is not verified here.  Run `kitty @ ls` on
+;; your system and inspect the list order before selecting the
+;; foreground-most process — adjust the index or slice below
+;; accordingly.
 (define (kitty-focused-window-command)
   (let ((out (run-shell
                (string-append
@@ -152,12 +161,14 @@ DIY recipe sketch:
                  "python3 -c \""
                  "import json,sys; "
                  "data=json.load(sys.stdin); "
-                 "[print(p['cmdline'][0]) "
+                 "# Select the foreground-most process from the list; "
+                 "# verify ordering on your Kitty version first. "
+                 "[print(procs[0]['cmdline'][0]) "
                  " for w in data "
                  " for t in w.get('tabs',[]) "
                  " for win in t.get('windows',[]) "
                  " if win.get('is_focused') "
-                 " for p in win.get('foreground_processes',[])[:1]]"
+                 " if (procs := win.get('foreground_processes',[]))]"
                  "\" 2>/dev/null"))))
     (let ((trimmed (string-trim out)))
       (if (string=? trimmed "") #f trimmed))))
@@ -174,9 +185,13 @@ outside the process.
 
 **Alacritty** has no IPC and no splits by design — it is a
 single-pane terminal. There is no focused pane to query;
-Alacritty is always showing exactly one tty. If you need
-splitting under Ghostty or Alacritty, delegate to a multiplexer
-(see next section).
+Alacritty is always showing exactly one tty. Because there is
+only one tty, you already know which tty to probe: a `ps`-based
+foreground-process query against that tty works directly, with
+no split-disambiguation step needed.
+
+If you need splitting under Ghostty or Alacritty, delegate to a
+multiplexer (see next section).
 
 ## Reaching through a multiplexer
 
@@ -218,14 +233,15 @@ outside the process.
 For a focused nvim *inside* a zellij pane, use the nvim RPC route
 below — it bypasses the multiplexer entirely.
 
-### The nvim route bypasses both
+### The nvim RPC route
 
-`focused-nvim-socket` scans every running nvim system-wide and
-asks each whether it holds terminal focus via its RPC socket.
-Because the check goes directly to each nvim process, a focused
-nvim is found whether it is in a native split, a tmux pane, a
-zellij pane, or any other container — regardless of host
-terminal. No per-multiplexer glue is needed for the nvim case.
+`focused-nvim-socket` bypasses both native splits and
+multiplexers: it scans every running nvim system-wide and asks
+each whether it holds terminal focus via its RPC socket. Because
+the check goes directly to each nvim process, a focused nvim is
+found whether it is in a native split, a tmux pane, a zellij
+pane, or any other container — regardless of host terminal. No
+per-multiplexer glue is needed for the nvim case.
 
 ## The nvim side
 
@@ -275,7 +291,7 @@ than producing a Vim error.
 | WezTerm   | Yes — `wezterm cli list` (pane_id per pane)       | DIY recipe                              |
 | Kitty     | Yes — `kitty @ ls`; needs `allow_remote_control`  | DIY recipe, opt-in                      |
 | Ghostty   | No external pane API                              | Delegate splitting to a multiplexer     |
-| Alacritty | No IPC; no splits by design                       | Single pane only; process-tree walk     |
+| Alacritty | No IPC; no splits by design                       | Single pane only; probe its one tty directly with `ps` |
 
 | Multiplexer | Focused-pane query                                              | Notes                                              |
 |-------------|-----------------------------------------------------------------|----------------------------------------------------|
@@ -295,7 +311,7 @@ nvim is always resolvable via the RPC route regardless of host
 terminal or multiplexer, as long as the `FocusGained`/`FocusLost`
 autocmds are in place.
 
-## Related
+## See also
 
 - [terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md)
 - [add-a-per-app-tree.md](../how-to/add-a-per-app-tree.md)
