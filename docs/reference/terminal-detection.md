@@ -276,10 +276,10 @@ vim.api.nvim_create_autocmd("FocusLost", {
 })
 ```
 
-The terminal must have focus reporting enabled — modern terminals
-(iTerm2, WezTerm, Kitty) and multiplexers (tmux, zellij) forward
-the xterm focus escapes to the active pane, so exactly one nvim
-reports focus at a time. An nvim with no flag set reads as
+The terminal must have focus reporting enabled — most modern
+terminals, and the multiplexers tmux and zellij, forward the xterm
+focus escapes to the active pane, so exactly one nvim reports focus
+at a time. An nvim with no flag set reads as
 not-focused (`get(g:, "modaliser_focused", 0)` returns 0) rather
 than producing a Vim error.
 
@@ -288,7 +288,7 @@ than producing a Vim error.
 | Terminal  | Native-split focused-pane detection               | Notes                                   |
 |-----------|---------------------------------------------------|-----------------------------------------|
 | iTerm2    | Yes — AppleScript (`focused-terminal-foreground-command`) | Only terminal with library support today |
-| WezTerm   | Yes — `wezterm cli list` (pane_id per pane)       | DIY recipe                              |
+| WezTerm   | Partial — `wezterm cli list --format json`        | DIY recipe; active-pane field is version-dependent |
 | Kitty     | Yes — `kitty @ ls`; needs `allow_remote_control`  | DIY recipe, opt-in                      |
 | Ghostty   | No external pane API                              | Delegate splitting to a multiplexer     |
 | Alacritty | No IPC; no splits by design                       | Single pane only; probe its one tty directly with `ps` |
