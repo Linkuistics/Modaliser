@@ -22,7 +22,11 @@ support it, and the nvim RPC route — see
 
 ## You'll need
 
-- iTerm2 as your terminal (the suffix hook is iTerm-specific today).
+- iTerm2 as your terminal. The suffix hook itself is generic, but
+  the built-in detection primitive (`focused-terminal-foreground-command`)
+  is iTerm2-only today; for other terminals you supply the detection
+  yourself — see the recipes in
+  [terminal-detection.md](../reference/terminal-detection.md).
 - For nvim-variant trees: the `FocusGained`/`FocusLost` autocmds in
   your nvim config — see [The nvim side](
   ../reference/terminal-detection.md#the-nvim-side) in the
