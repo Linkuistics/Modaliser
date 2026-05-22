@@ -98,7 +98,9 @@ the dispatcher pick a sub-tree based on app state (the iTerm factory
 uses this to swap the tree based on whether neovim is focused inside
 the terminal). The variant suffix comes from `set-local-context-suffix!`
 — see `(modaliser event-dispatch)` in
-[reference/libraries.md](../reference/libraries.md).
+[reference/libraries.md](../reference/libraries.md). For a full
+walkthrough of pane-aware variant trees, see
+[terminal-pane-aware-tree.md](terminal-pane-aware-tree.md).
 
 ## Related
 

@@ -24,6 +24,12 @@ reaching for recipes, start with the tutorial:
   bindings out of `config.scm` into your own `.sld` libraries under
   `~/.config/modaliser/`.
 
+## Terminal integration
+
+- [Vary the terminal tree by what's in the focused pane](terminal-pane-aware-tree.md)
+  — make F17 show different bindings depending on whether nvim, a
+  git TUI, or a plain shell is running in the focused iTerm split.
+
 ## Modal navigation
 
 - [Set up a sticky mode](sticky-mode.md) — a focus-movement mode where
@@ -45,3 +51,6 @@ reaching for recipes, start with the tutorial:
 
 - [Debug "my binding does nothing"](debug-binding.md) — the checklist
   for the five most common reasons a binding silently no-ops.
+- [Use Modaliser over a remote desktop](remote-desktop.md) — the
+  pass-and-arm mechanism for when a host and a remote machine both
+  run Modaliser and see the same trigger keys.
