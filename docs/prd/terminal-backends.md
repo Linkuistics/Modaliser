@@ -22,7 +22,9 @@ hand from the Phase 1 docs.
 ### In
 
 A **single uniform surface** of 13 operations + 1 detection primitive,
-implemented per-backend, callable in two ways:
+exposed from `(modaliser terminal)` as generic procedures. The same
+procedures work whether the active backend is iTerm, WezTerm, Kitty,
+Ghostty, tmux, or zellij (and in any mux-inside-host composition).
 
 **Operations (13):**
 
@@ -37,105 +39,133 @@ implemented per-backend, callable in two ways:
 
 **Detection primitive (1):**
 
-- `detect-foreground-command` — the command currently running in the
-  focused pane (typically `bash` / `zsh` / `nvim` / `tmux` / `zellij`
-  / etc.). Drives the existing `set-local-context-suffix!` flow that
-  selects a variant tree per context.
+- `focused-terminal-foreground-command` — the command currently
+  running in the focused pane (typically `bash` / `zsh` / `nvim` /
+  `tmux` / `zellij` / `ssh` / etc.). Drives the existing
+  `set-local-context-suffix!` flow.
+
+**Capability predicates (4):**
+
+- `(supports-splits?)` — `#t` if the active backend implements all 12
+  focus/split/move ops.
+- `(supports-move-pane?)` — `#t` if the 4 `move-pane-*` ops work.
+- `(supports-digit-jump?)` — `#t` if `focus-pane-by-digit` works.
+- `(supports? 'focus-pane-left)` — universal introspection by op
+  symbol.
+
+**Provisioning (per backend, day-one):**
+
+- `(<backend>:configure-entry)` — overlay action that performs any
+  user-side configuration required for the backend to reach its full
+  surface (keybinds, config-file edits). Where not needed, the
+  backend omits this export.
 
 ### Deferred (out of scope)
 
 - `close-pane`, `resize-pane`, `zoom-pane`, `rotate-panes` — surface
   isn't locked yet; users can already invoke these via raw keystrokes.
-- Cross-host pane control over SSH.
+- Cross-host pane control from outside the SSH stream (e.g. driving a
+  remote tmux server from local CLI). Day-one SSH support is via
+  keystroke-proxy, not remote CLI.
 - Swift-side changes — Phase 2 is Scheme + shell only.
-- Multi-session disambiguation for tmux / zellij — single-session-per-
-  host is the documented common case; multi-session is treated as
-  undefined behaviour.
+- Title-based auto-detection of remote mux presence; day-one SSH
+  context is user-declared.
 
 ## Backends
 
-| Backend          | Type             | Detection | 13-op surface | Prerequisite / gate | One-line summary |
-|------------------|------------------|:---------:|:-------------:|---------------------|------------------|
-| iTerm2           | host, splits     | ✓ AppleScript + `ps` | **13/13** | — (defaults work; `(iterm:configure-entry)` provisions split/move keybinds the user's plist may lack) | Baseline; reference implementation. Keystroke-proxy ops + AX-discovered chip geometry. |
-| WezTerm          | host, splits     | ✓ `wezterm cli list --format json` (`tty_name`, `is_active`) | **12/13** (no `move-pane`) | mux-server installed by the cask; `--prefer-mux` works for headless ops | Cleanest CLI surface of any host. JSON exposes per-pane cell + pixel dims directly — no chip-geometry derivation. |
-| Kitty            | host, splits     | ✓ `kitty @ ls` (`foreground_processes`) | **13/13** (with compose-then-move for `split-pane-{left,up}`) | `allow_remote_control yes` in `kitty.conf`; `enabled_layouts` must include `splits` | Full ops via `kitty @` IPC. Chip-geometry has a gap — `ls` JSON does not expose per-pane cell offsets, so topology is BFS'd from `neighbors`. |
-| Ghostty 1.3.0+   | host, splits     | ✓ AppleScript (`focused terminal of selected tab of front window`) | **12/13** (no `move-pane` — same gap as WezTerm) | Ghostty ≥ 1.3.0 (brew's 1.3.1 already qualifies) | AppleScript-driven: `split direction <dir>`, `focus <terminal>`, `perform action "<keybind>" on <terminal>`. The `perform action` boolean return doubles as a free adjacency probe. |
-| Ghostty < 1.3.0  | host             | external (AX walk / process tree) | detection only | — | No AppleScript surface; treat as detection-only. Users add a mux for splits. |
-| tmux             | mux              | ✓ `display-message -p '#{pane_current_command}'` | **13/13** | tmux running in a host terminal's pane | Format-string CLI is the cleanest probe pattern of any backend. `swap-pane -t '{left-of}'` &c gives all four moves. |
-| zellij           | mux              | ✓ `action list-panes -j -a` (filter `is_focused`, `!is_plugin`, `!is_floating`) | **13/13** | zellij running in a host terminal's pane | `zellij action` CLI exposes the full surface. Pane IDs are sparse — treat as opaque. First-run "About Zellij" floating plugin must be filtered. |
-| Alacritty 0.17.0 | host, no splits  | external (process tree; AX for multi-window) | not applicable | brew cask install needs `xattr -d com.apple.quarantine /Applications/Alacritty.app`, or use the direct GitHub-releases DMG | Detection-only by design. `alacritty msg` exists but is window-mgmt only; no AppleScript SDEF. Users add a mux inside for the 13-op surface. |
-
-### Capability spectrum
-
-The 13-op surface is uniformly defined; backends populate what they
-can:
-
-- **Full (13/13):** iTerm2, Kitty, tmux, zellij.
-- **Partial (12/13, missing `move-pane`):** WezTerm, Ghostty 1.3.0+.
-  Workarounds documented per-backend (keystroke-proxy via user
-  config); not enforced by the abstraction.
-- **Detection-only (0/13):** Alacritty (always), Ghostty < 1.3.0
-  (legacy). The detection primitive is always supplied.
+| Backend          | Type             | Detection | 13-op surface (day-one) | configure-entry | One-line summary |
+|------------------|------------------|:---------:|:------------------------|:----------------|------------------|
+| iTerm2           | host, splits     | ✓ AppleScript + `ps` | **13/13** | ✓ existing — provisions split/move keybinds in plist | Baseline. Keystroke-proxy ops + AX-discovered chip geometry. |
+| WezTerm          | host, splits     | ✓ `wezterm cli list --format json` | **13/13** *with configure-entry* (12/13 raw) | ✓ writes move-pane keybinds to `wezterm.lua` (keystroke-proxy invokes them) | Cleanest CLI surface; JSON exposes per-pane cell + pixel dims directly. |
+| Kitty            | host, splits     | ✓ `kitty @ ls` | **13/13** *with configure-entry* (0/13 raw — IPC refused without provisioning) | ✓ writes `allow_remote_control yes` and `enabled_layouts splits,...` to `kitty.conf` | Full ops via `kitty @` IPC. Chip geometry uses BFS over `neighbors`. |
+| Ghostty 1.3.0+   | host, splits     | ✓ AppleScript | **12/13** (no `move-pane`) | — (no provisioning helps; `move_split` doesn't exist in vocabulary) | AppleScript-driven via `split direction <dir>`, `perform action`. `move-pane` blocked upstream. |
+| Ghostty < 1.3.0  | host             | external (AX walk / process tree) | detection only | — | No AppleScript surface; users add a mux for splits. |
+| tmux (local)     | mux              | ✓ `display-message -p '#{pane_current_command}'` | **13/13** | — (works out of the box) | Native format-string CLI; tty-correlated session targeting for multi-session. |
+| tmux (SSH'd)     | mux (remote)     | inferred from `focused-terminal-foreground-command = "ssh"` + user declaration | **12/13** (no `focus-pane-by-digit` — enumeration requires remote query) | — | Directional ops via keystroke-proxy through the SSH stream. |
+| zellij (local)   | mux              | ✓ `action list-panes -j -a` | **13/13** | — (works out of the box) | `zellij action` CLI; tty-correlated session targeting. |
+| zellij (SSH'd)   | mux (remote)     | same as tmux SSH | **12/13** (no digit-jump) | — | Same keystroke-proxy story as SSH'd tmux. |
+| Alacritty 0.17.0 | host, no splits  | external (process tree; AX for multi-window) | not applicable | optional — removes `com.apple.quarantine` if installed via the brew cask | Detection-only by design. Users add a mux inside for the 13-op surface. |
 
 ## Abstraction shape
 
-### Two binding styles, both first-class
+### One public surface
 
-Phase 2 is **purely additive** to the Phase 1 iTerm pattern. Users
-get two valid wiring styles and can mix them in the same config:
-
-**Explicit** (Phase 1 pattern, preferred when different *trees* are
-wanted per context):
+All 13 ops + detection + capability predicates are exported only from
+`(modaliser terminal)`. The per-backend modules (`(modaliser apps
+iterm)`, `(modaliser muxes tmux)`, …) become an **implementation
+layer** — their public exports retain only inherently-backend-specific
+procedures (e.g. `iterm:configure-entry`, `iterm:pane-list-block`,
+`iterm:focus-mode-tree`, `<backend>:register!`). They no longer
+export the 12 splits-tree procedures or `focus-pane-by-digit`.
 
 ```scheme
 (import (prefix (modaliser apps iterm) iterm:)
-        (prefix (modaliser muxes tmux) tmux:))
+        (prefix (modaliser muxes tmux) tmux:)
+        (prefix (modaliser terminal) terminal:))
 
-(set-leader! 'normal "Space")
-(set-local-context-suffix! iterm:context-suffix-handler)
+(iterm:register!)              ; install iTerm dispatch entry
+(iterm:configure-entry)        ; one-shot keybind provisioning (if not yet run)
 
-;; iTerm-context tree
+(tmux:register!)               ; install tmux dispatch entry
+
+;; Generic tree — works whether iTerm only, iTerm+tmux, ssh+tmux, etc.
 (define-tree
-  ("h" "Focus left" (iterm:focus-pane-left))
-  ;; ... etc.
-  )
-
-;; iTerm+tmux context tree (different bindings entirely)
-(define-tree "/tmux"
-  ("h" "Focus left" (tmux:focus-pane-left))
-  ;; ... etc.
-  )
+  ("h" "Focus left" (terminal:focus-pane-left))
+  ("j" "Focus down" (terminal:focus-pane-down))
+  ("k" "Focus up"   (terminal:focus-pane-up))
+  ("l" "Focus right"(terminal:focus-pane-right)))
 ```
 
-**Implicit** (Phase 2 new, preferred when one tree should work
-across all backends):
+### Capability predicates for cross-backend trees
+
+Trees that span backends with different surfaces gate bindings via
+predicates, evaluated when the tree is built:
 
 ```scheme
-(import (prefix (modaliser pane) pane:))
-
 (define-tree
-  ("h" "Focus left" (pane:focus-pane-left))
-  ;; ... etc.
-  )
+  ("h" "Focus left" (terminal:focus-pane-left))
+  ;; ... focus/split bindings always present (every splitting backend has them)
+
+  ;; Move-pane only when supported (WezTerm needs configure-entry first;
+  ;; Ghostty 1.3.1 never; tmux/zellij/iTerm/Kitty always)
+  ,@(if (terminal:supports-move-pane?)
+        '(("M-h" "Move left"  (terminal:move-pane-left))
+          ("M-j" "Move down"  (terminal:move-pane-down))
+          ("M-k" "Move up"    (terminal:move-pane-up))
+          ("M-l" "Move right" (terminal:move-pane-right)))
+        '())
+
+  ;; Digit jump only when supported (false over SSH)
+  ,@(if (terminal:supports-digit-jump?)
+        '(("g" "Goto pane" (terminal:focus-pane-by-digit)))
+        '()))
 ```
 
-`(pane:focus-pane-left)` resolves `(active-backend)` at call time
-(probes frontmost-app + `detect-foreground-command`) and routes to
-the right backend's `focus-pane-left`. One tree, works under
-`iTerm`, `iTerm+tmux`, `Alacritty+zellij`, …
+**Predicates evaluate at tree-build time, not at keystroke time.**
+Trees built via the existing `set-local-context-suffix!` rebuild-per-
+press pattern see the current active backend's capabilities; static
+trees built once at config load see load-time capabilities. Use
+dynamic rebuild for cross-backend portability.
 
 ### Decisions locked
 
 | # | Decision | Where |
 |---|----------|-------|
-| 1 | Mechanism: per-backend named modules **+** additive `(modaliser pane)` façade | [ADR-0001](../adr/0001-terminal-backends-named-modules-with-facade.md) |
-| 2 | Naming: keep direction-words (`focus-pane-left`, not `focus-pane-h`) | [ADR-0002](../adr/0002-terminal-backends-keep-direction-word-procedure-names.md) |
-| 3 | Surface as one `<terminal-backend>` record with **nullable op fields**; `detect-foreground-command` always populated | (see "Backend record" below) |
-| 4 | Mux-inside-host composition: both **explicit** (existing) and **implicit** (façade) supported | (see "Two binding styles" above) |
+| 1 | One public surface in `(modaliser terminal)`; per-backend modules are implementation layer | [ADR-0003](../adr/0003-terminal-backends-facade-only-public-surface.md) (supersedes [ADR-0001](../adr/0001-terminal-backends-named-modules-with-facade.md)) |
+| 2 | Direction-word procedure names (`focus-pane-left`, not `focus-pane-h`) | [ADR-0002](../adr/0002-terminal-backends-keep-direction-word-procedure-names.md) |
+| 3 | Capability predicates: `supports-splits?`, `supports-move-pane?`, `supports-digit-jump?`, `supports?` | [ADR-0004](../adr/0004-terminal-backends-capability-predicates.md) |
+| 4 | configure-entry per backend **from day one** wherever provisioning closes a gap | [ADR-0005](../adr/0005-terminal-backends-configure-entry-day-one.md) |
+| 5 | Multi-session local muxes via tty correlation; SSH'd muxes via keystroke-proxy with user declarations | [ADR-0006](../adr/0006-terminal-backends-multi-session-and-ssh.md) |
 
-### Backend record
+### Backend record (internal)
+
+The `<terminal-backend>` record stays internal to `(modaliser
+terminal)`. Each backend module exports its populated record via its
+`register!`; the façade module aggregates them in a registry and
+dispatches per `(active-backend)`.
 
 ```scheme
+;; In (modaliser terminal) — not exported beyond the façade machinery
 (define-record-type <terminal-backend>
   (make-terminal-backend bundle-id name
                          detect-foreground-command
@@ -145,182 +175,174 @@ the right backend's `focus-pane-left`. One tree, works under
                          split-pane-up split-pane-down
                          move-pane-left  move-pane-right
                          move-pane-up    move-pane-down
-                         focus-pane-by-digit)
-  terminal-backend?
-  ;; accessors elided
-  )
+                         focus-pane-by-digit
+                         configured?)
+  terminal-backend? ...)
 ```
 
-- `detect-foreground-command` is always a procedure (every backend
-  has detection — that's the floor).
-- The 13 op fields are procedures **or `#f`** when unsupported.
-- The façade does `(or (terminal-backend-focus-pane-left b) (error 'unsupported))`.
+- `detect-foreground-command` and `configured?` always populated.
+- 13 op fields may be `#f` when unsupported (capability predicates
+  read these).
+- `configured?` returns `#t` once configure-entry's prerequisites
+  are satisfied; capability predicates AND it with op-presence so
+  bindings appear only after provisioning runs.
+
+### `(active-backend)` resolution
+
+```
+1. frontmost-app bundle-id → host backend (from registry).
+2. host backend's `detect-foreground-command` → focused-pane fg cmd.
+3. Dispatch:
+     "tmux"   → local tmux backend (CLI mode; tty-correlated session).
+     "zellij" → local zellij backend (CLI mode; tty-correlated session).
+     "ssh"    → ssh-proxy backend (keystroke-proxy; user-declared
+                remote context: tmux / zellij / shell).
+     other    → host backend (direct ops if it supports splits;
+                detection-only otherwise).
+```
+
+The detection primitive always returns from the most-specific backend
+that can serve it (the active mux beats the host when one is present).
 
 ### Module layout
 
 ```
-(modaliser pane)                  -- new: façade + active-backend resolver + backend registry
-(modaliser apps iterm)            -- existing
-(modaliser apps wezterm)          -- new
-(modaliser apps kitty)            -- new
-(modaliser apps ghostty)          -- new
-(modaliser apps alacritty)        -- new (detection-only)
-(modaliser muxes tmux)            -- new (subdir keeps mux vs host visible)
-(modaliser muxes zellij)          -- new
+(modaliser terminal)              -- existing module, extended:
+                                     detection + 13 ops + predicates
+                                     + active-backend resolution
+                                     + ssh-proxy + remote declarations
+
+(modaliser apps iterm)            -- existing; loses splits-tree
+                                     exports; keeps configure-entry,
+                                     pane-list-block, focus-mode-tree,
+                                     register!
+(modaliser apps wezterm)          -- new; configure-entry, register!,
+                                     internal backend record
+(modaliser apps kitty)            -- new; configure-entry (kitty.conf
+                                     edit), register!
+(modaliser apps ghostty)          -- new; register! (no configure-entry
+                                     until upstream adds move_split)
+(modaliser apps alacritty)        -- new; optional configure-entry
+                                     (quarantine removal), register!
+(modaliser muxes tmux)            -- new; register!, internal record
+                                     with both local-CLI and
+                                     keystroke-proxy implementations
+(modaliser muxes zellij)          -- new; analogous to tmux
 ```
-
-Each `apps/*` and `muxes/*` module exports:
-
-- The 13 op procedures (direction-words; `#f` if the backend lacks
-  the op).
-- `detect-foreground-command`.
-- `backend` — the populated `<terminal-backend>` record.
-- `register!` — installs the dispatch entry in `(modaliser pane)`'s
-  registry, and (optionally, controlled by an `'install-context-
-  suffix? <bool>` keyword) installs a `set-local-context-suffix!`
-  handler keyed by the backend's bundle-id.
-
-### `(active-backend)` resolution
-
-1. Frontmost-app bundle-id → host backend record from the registry.
-2. Host backend's `detect-foreground-command` returns the focused-
-   pane fg command.
-3. If that command matches a registered mux backend's command-name
-   field (`"tmux"`, `"zellij"`), the mux backend overrides the host
-   for the 13-op surface. The detection primitive always returns
-   from the most-specific backend that can serve it (mux beats host
-   when a mux is present).
-
-Host backends without splits (`Alacritty`; `Ghostty < 1.3.0` if
-treated as detection-only) supply `#f` for the 13 ops — the façade
-only succeeds for the 13 ops when a splitting backend (the inside-
-mux or a splitting host) is in scope.
 
 ### Chip rendering
 
 Chips are **always native macOS overlay windows** drawn by
 `(modaliser hints)` `hints-show` (per glossary "Chip"). Each
-backend's `focus-pane-by-digit` is responsible for producing the
-list of `(label, screen-rect)` pairs that `hints-show` consumes.
-Rendering itself is uniform; geometry derivation differs:
+backend's `focus-pane-by-digit` produces the list of
+`(label, screen-rect)` pairs that `hints-show` consumes.
 
-| Backend | Rect derivation |
-|---------|-----------------|
-| iTerm   | AX subview frames directly (`ax-find-elements-named ... AXScrollArea AXStaticText`) |
-| WezTerm | window AX frame + per-pane `left_col/top_row` + cell-pixel dims from `list --format json` (`pixel_width/cols`, `pixel_height/rows`) |
-| Kitty   | window AX frame + topology BFS from `kitty @ ls neighbors` + derived cell-pixel dims (best-effort; AX-subview discovery is the better path if available) |
-| Ghostty | window AX frame + (AX subviews if available, else `perform action goto_split:<dir>` adjacency probe) + derived cell dims |
-| tmux    | host AX frame + host cell-pixel dims + tmux `pane_left/pane_top/pane_width/pane_height` |
-| zellij  | host AX frame + host cell-pixel dims + zellij `pane_x/pane_y/pane_columns/pane_rows` from `list-panes -j -a` |
-| Alacritty | n/a (no panes; the inside-mux backend's chips are used) |
+| Backend         | Rect derivation |
+|-----------------|-----------------|
+| iTerm           | AX subview frames directly |
+| WezTerm         | window AX frame + per-pane `left_col/top_row` + cell-pixel dims from `list --format json` |
+| Kitty           | window AX frame + topology BFS from `kitty @ ls neighbors` + derived cell dims |
+| Ghostty         | window AX frame + (AX subviews if available, else adjacency-probe BFS) + derived cell dims |
+| tmux (local)    | host AX frame + host cell-pixel dims + tmux `pane_left/pane_top/pane_width/pane_height` |
+| zellij (local)  | host AX frame + host cell-pixel dims + zellij `pane_x/pane_y/pane_columns/pane_rows` |
+| tmux/zellij SSH | n/a — `(supports-digit-jump?)` is `#f` |
+| Alacritty       | n/a — no panes |
 
-The shared concern is **host cell-pixel-dim derivation** when the
-host doesn't expose cell dims directly (iTerm, Kitty, Ghostty). A
-helper `(host-cell-pixel-dims bundle-id window-id)` lands in
-`(modaliser pane)` (exact location TBD at implementation time);
-each backend's `focus-pane-by-digit` calls it as needed.
+Host cell-pixel-dim derivation (for iTerm, Kitty, Ghostty) is the
+cross-cutting concern, factored into a helper in `(modaliser
+terminal)`.
 
 ## Known limitations
 
-### Per-backend gaps the abstraction does not paper over
+### Gaps the abstraction surfaces honestly via predicates
 
-- **WezTerm / Ghostty 1.3.0+ — no `move-pane`.** The CLI / AppleScript
-  surface lacks a swap-with-neighbour-in-direction op. The
-  abstraction's record sets these fields to `#f`. Users wanting move-
-  pane can configure keybinds in `wezterm.lua` / `~/.config/ghostty/
-  config` and bind keystroke-proxy procedures themselves; a backend-
-  level "configure-entry" analogue (parallel to iTerm's) is future work.
-- **Kitty `split-pane-{left,up}`.** Kitty's `launch --location` only
-  supports `vsplit` (right) and `hsplit` (below). Left/up splits are
-  implemented as `launch --location=vsplit/hsplit` followed by
-  `action move_window left/up`. Two CLI calls instead of one; result
-  is identical.
-- **Kitty chip geometry.** `kitty @ ls` does not expose per-pane cell
-  offsets — only the `neighbors` adjacency graph and per-pane
-  `columns/lines`. The abstraction does a BFS over `neighbors` to
-  reconstruct a grid; chip positions are approximate within a
+- **Ghostty 1.3.0+ `move-pane`.** Action doesn't exist in vocabulary;
+  `(supports-move-pane?)` is `#f` until upstream adds `move_split`.
+- **SSH'd mux `focus-pane-by-digit`.** Remote enumeration is not
+  available from local CLI; `(supports-digit-jump?)` is `#f` when
+  the active backend is ssh-proxy.
+- **Alacritty alone (no mux).** All 13 ops are `#f`;
+  `(supports-splits?)` is `#f`. Users add a mux inside for the surface.
+
+### Detection-quality compromises
+
+- **Kitty chip geometry.** `kitty @ ls` exposes `neighbors` topology
+  + per-pane `columns/lines` but not absolute cell offsets. BFS
+  reconstructs a grid; chip positions are approximate within a
   cell-width. AX-subview discovery on `kitty.app` would obviate
   this; not verified yet.
-- **Ghostty chip geometry.** AppleScript does not expose per-terminal
-  position or size. AX-subview discovery on `Ghostty.app` is the
-  cleanest path (untested); the fallback is BFS via `perform action
-  goto_split:<dir>` adjacency probes — many AppleScript calls per
-  render.
-- **Ghostty `working directory` race.** Querying `working directory`
-  immediately after `split` returns `""`; the cwd populates after
-  the underlying shell emits its first prompt. The Ghostty backend
-  must retry-on-empty or wait.
-- **Ghostty `terminal.name` is whatever set the title last.** Default
-  Ghostty shows the cwd; right after `split` it can show `👻` until
-  shell init runs. Detection via `name` is unreliable on its own.
-- **Alacritty multi-window focus disambiguation.** Multiple Alacritty
-  windows in one process (after `alacritty msg create-window`) share
-  a parent pid. Without AX (TCC-required) there is no clean way to
-  identify which window is focused. Single-window is the well-
-  supported case; multi-window detection falls back to AX or an
-  "activity proxy" (most-recently-active pty).
-- **tmux / zellij multi-session.** When more than one tmux or zellij
-  session is running inside different host panes, correlating "which
-  client am I" requires walking `lsof` of the client process to find
-  its controlling tty. Not implemented — single-session-per-host is
-  the documented behaviour.
+- **Ghostty chip geometry.** AppleScript exposes no per-terminal
+  position/size. AX-subview discovery is the cleanest path
+  (untested); the fallback is BFS via `perform action goto_split:
+  <dir>` adjacency probes — many AppleScript calls per render.
+- **Ghostty `working directory` race.** Querying immediately after
+  `split` returns `""` until the shell emits its first prompt. The
+  Ghostty backend retries-on-empty.
+- **Alacritty multi-window focus.** Multiple windows in one process
+  share a parent pid. Without AX (TCC-required) there is no clean
+  way to identify which window is focused. Single-window is the
+  well-supported case.
 
-### Cross-cutting
+### SSH context resolution
 
-- **Host cell-pixel-dim derivation.** Required for muxes (tmux/zellij)
-  hosted in iTerm/Kitty/Ghostty and for the host backends that don't
-  expose cell dims natively. Sub-pixel rounding, font hinting,
-  ligatures, and retina scaling all introduce approximation. Chip
-  positions can be off by a few pixels; the digit always lands
-  inside the right pane, which is the operative requirement.
-- **iTerm window-padding.** The gap between the iTerm window edge
-  and the first cell is not exposed by AX or AppleScript. Treated as
-  a small constant per host terminal; users can override.
+When `focused-terminal-foreground-command` returns `"ssh"`, the
+abstraction needs to know what's on the remote. Day-one resolution:
+
+1. Match the iTerm pane's `ssh` argv against the user's
+   `(terminal:declare-remote! ...)` table.
+2. If no match, default to "assume tmux with `C-b` prefix."
+3. User can override on a per-host basis (see ADR-0006).
+
+Auto-detection of remote mux presence (via terminal title sniffing
+or escape-sequence inspection) is future work.
+
+### Multi-session resolution
+
+Local multi-session (multiple local tmux/zellij clients in different
+host panes) resolves via tty correlation:
+
+1. Focused iTerm pane's controlling tty (existing `focused-iterm-tty`).
+2. `pgrep -f '^tmux '` (or `zellij`) + `lsof -p <pid> -d 0` for each.
+3. Match the mux client whose tty matches the focused pane.
+4. Target CLI commands at that client/session.
+
+This is implementation-tractable from the per-backend notes; the
+"hacky/deferred" classification in those notes is overridden by ADR-
+0006.
 
 ## Migration and compatibility
 
-### What does NOT change
+### Breaking change to existing iTerm callers
 
-- The existing `(modaliser apps iterm)` module keeps all its current
-  exports (`focus-pane-left`, `split-pane-right`, etc.) with the
-  same semantics.
-- The existing `set-local-context-suffix!` flow continues to work.
-- The user's `config.scm:157-176` bindings (12 pane procedures × ~20
-  call sites) keep working untouched.
+The user's `config.scm:157-176` currently calls `(iterm:focus-pane-
+left)`, `(iterm:split-pane-right)`, … (12 procedures × ~20 sites).
+ADR-0003 drops these 12 exports from `(modaliser apps iterm)` in
+favour of the façade. Migration:
 
-### What is new
+```diff
+-(import (prefix (modaliser apps iterm) iterm:))
++(import (prefix (modaliser apps iterm) iterm:)
++        (prefix (modaliser terminal) terminal:))
 
-- New libraries `(modaliser apps {wezterm,kitty,ghostty,alacritty})`
-  and `(modaliser muxes {tmux,zellij})`, each following the
-  iTerm-module conventions.
-- New façade library `(modaliser pane)` exporting the 13 ops + a
-  registry of backends.
-- The `<terminal-backend>` record type and constructor (probably
-  exported from `(modaliser pane)`).
+-(iterm:focus-pane-left)
++(terminal:focus-pane-left)
+```
 
-### Breaking changes
+`iterm:register!`, `iterm:configure-entry`, `iterm:context-suffix-
+handler`, `iterm:focus-mode-tree`, `iterm:focus-mode-register!`,
+`iterm:pane-list-block`, `iterm:select-session-by-id`,
+`iterm:default-pane-labels`, `iterm:rebuild-tree!`,
+`iterm:iterm-configured?` stay exported. Only the 12 splits-tree
+procedures move to the façade.
 
-**None planned.** Phase 2 is additive. ADR-0002 explicitly rejects
-the hjkl rename to preserve the user's existing bindings.
-
-If a future ADR adds hjkl aliases (e.g. `focus-pane-h`), they will
-be exposed by the façade, not by replacing the direction-word names
-on the backends.
-
-### Phase 1 docs
-
-Two phase-1 documents have stale claims that should be updated when
-this PRD is implemented:
+### Phase 1 docs to update
 
 - `docs/reference/terminal-detection.md` — "zellij has no per-pane
   tty or command query" is wrong for zellij 0.44.x; "Alacritty has
-  no IPC" is wrong as of 0.12+ (`alacritty msg` exists, even though
-  it's window-mgmt only).
-- `docs/reference/terminal-detection.md` — Ghostty section is
-  written against pre-1.3.0; AppleScript surface added in 1.3.0
-  should be documented.
-
-These edits land alongside the implementation, not before.
+  no IPC" is wrong as of 0.12+; Ghostty section is pre-1.3.0 and
+  misses AppleScript. Edits land alongside the implementation.
+- `docs/how-to/terminal-pane-aware-tree.md` — examples should migrate
+  to the façade calls.
 
 ## Future work
 
@@ -328,27 +350,27 @@ Out of scope for this PRD, captured for traceability:
 
 - **Pane lifecycle ops:** `close-pane`, `resize-pane`, `zoom-pane`,
   `equalize-panes`, `rotate-panes`.
-- **`configure-entry` parallel for non-iTerm backends.** WezTerm,
-  Kitty, and Ghostty all need user-side config for some operations
-  (move-pane keybinds for WezTerm/Ghostty; `allow_remote_control` +
-  `enabled_layouts=splits` for Kitty). A one-shot overlay action
-  parallel to `(iterm:configure-entry)` would surface this to users.
-- **Cross-host (SSH) pane control.** Requires either a remote
-  Modaliser agent or backend-specific tunnelling (tmux's
-  `-CC` mode, mosh, etc.).
-- **Multi-session tmux/zellij.** Client-to-tty correlation via
-  `lsof` walking. Currently treated as undefined behaviour.
-- **Ghostty `move_split`.** If Ghostty adds a `move_split` keybind
-  action upstream, `(ghostty:move-pane-left)` and friends become
-  one-line additions via `perform action "move_split:<dir>"`.
+- **Ghostty `move_split`.** When upstream lands `move_split` in the
+  keybind action vocabulary, ghostty's `move-pane-*` slots fill in
+  via `perform action "move_split:<dir>"` — and a Ghostty
+  configure-entry becomes warranted.
+- **Cross-host (SSH) pane control via remote CLI.** Would require a
+  remote Modaliser agent or tmux `-CC` mode integration. Day-one SSH
+  is keystroke-proxy.
+- **Auto-detection of remote mux presence.** Title-based sniffing
+  or escape-sequence inspection. Day-one is user declaration via
+  `(terminal:declare-remote! ...)`.
 - **AX-subview discovery for Kitty and Ghostty.** Would obviate the
   topology-BFS chip-geometry paths and bring them up to iTerm parity.
-- **Phase 1 doc updates.** Mentioned in "Migration" above.
 
 ## References
 
-- [ADR-0001 — Per-backend named modules with additive façade](../adr/0001-terminal-backends-named-modules-with-facade.md)
+- [ADR-0001 — Named modules + façade hybrid](../adr/0001-terminal-backends-named-modules-with-facade.md) **(superseded by 0003)**
 - [ADR-0002 — Keep direction-word procedure names](../adr/0002-terminal-backends-keep-direction-word-procedure-names.md)
+- [ADR-0003 — Façade-only public surface](../adr/0003-terminal-backends-facade-only-public-surface.md)
+- [ADR-0004 — Capability predicates](../adr/0004-terminal-backends-capability-predicates.md)
+- [ADR-0005 — configure-entry day-one per backend](../adr/0005-terminal-backends-configure-entry-day-one.md)
+- [ADR-0006 — Multi-session and SSH'd muxes day-one](../adr/0006-terminal-backends-multi-session-and-ssh.md)
 - Phase 1 reference: `docs/reference/terminal-detection.md`
 - Phase 1 how-to: `docs/how-to/terminal-pane-aware-tree.md`
 - Phase 1 spec: `docs/superpowers/specs/2026-05-22-terminal-pane-and-remote-docs-design.md`
@@ -356,5 +378,6 @@ Out of scope for this PRD, captured for traceability:
   - `Sources/Modaliser/Scheme/lib/modaliser/terminal.sld`
   - `Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`
   - `Sources/Modaliser/Scheme/lib/modaliser/blocks/iterm-panes.sld`
-- Glossary: `CONTEXT.md` (terms `Pane`, `Backend`, `Splitting backend`,
-  `Detection-only backend`, `Chip`, `Suffix hook`).
+- Glossary: `CONTEXT.md`
+- Recovery investigation notes (per-backend, retired):
+  `groves/terminal-backends/done/010-recover-design/notes/`

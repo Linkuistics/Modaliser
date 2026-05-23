@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0003
+---
+
 # Terminal-backends: per-backend named modules with an additive façade
 
 The terminal-pane abstraction exposes the same 13-op surface (focus / split
