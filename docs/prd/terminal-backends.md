@@ -187,15 +187,16 @@ terminal)`. Each backend module exports its populated record via its
 dispatches per `(active-backend)`.
 
 ```scheme
-;; In (modaliser terminal) — not exported beyond the façade machinery
+;; In (modaliser terminal) — make-terminal-backend is the only handle
+;; per-backend modules need; the record's accessors are not re-exported.
 (define-record-type <terminal-backend>
-  (make-terminal-backend bundle-id name
+  (make-terminal-backend symbol name kind match-key
                          detect-foreground-command
-                         focused-pane-id      ; for path construction
+                         focused-pane-id
                          focus-pane-left focus-pane-right
-                         focus-pane-up focus-pane-down
+                         focus-pane-up   focus-pane-down
                          split-pane-left split-pane-right
-                         split-pane-up split-pane-down
+                         split-pane-up   split-pane-down
                          move-pane-left  move-pane-right
                          move-pane-up    move-pane-down
                          focus-pane-by-digit
@@ -204,13 +205,29 @@ dispatches per `(active-backend)`.
   terminal-backend? ...)
 ```
 
+- `symbol` — backend identity for the path alist (e.g. `'iterm`,
+  `'tmux`, `'zellij`). Must be unique across registered backends;
+  re-registering replaces.
+- `kind` — `'host` or `'mux`. Hosts are looked up by frontmost
+  bundle-id; muxes are looked up by the host's foreground-command.
+- `match-key` — bundle-id string when `kind` is `'host`; foreground-
+  command name (e.g. `"tmux"`, `"zellij"`) when `kind` is `'mux`.
 - `detect-foreground-command`, `focused-pane-id`, and `configured?`
-  always populated.
-- 14 op fields may be `#f` when unsupported (capability predicates
-  read these).
+  always populated as zero-argument thunks.
+- 14 op fields are zero-argument thunks or `#f` when unsupported
+  (capability predicates read these).
 - `configured?` returns `#t` once configure-entry's prerequisites
   are satisfied; capability predicates AND it with op-presence so
   bindings appear only after provisioning runs.
+
+### Tests stub the frontmost-app source
+
+`(modaliser terminal)` exports `current-frontmost-bundle-id` as an
+R7RS parameter whose default is the native `focused-app-bundle-id`
+procedure. Tests `parameterize` it to a constant thunk so a stub
+backend registered against an arbitrary key (e.g. `"test.bundle"`)
+exercises the registry, path walk, and dispatch without depending
+on whichever app happens to be frontmost in CI.
 
 ### `(active-backend)` resolution
 

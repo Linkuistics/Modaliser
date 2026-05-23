@@ -60,7 +60,19 @@
           (modaliser accessibility)
           (modaliser hints)
           (modaliser ax-hints)
-          (modaliser terminal)
+          ;; The 14 façade ops + capability predicates from (modaliser terminal)
+          ;; collide with this module's own focus/split/move-pane-* definitions
+          ;; until task 020 makes iTerm register a backend and drop its bare
+          ;; exports. Excluding them keeps Phase-1's daily-driver behaviour
+          ;; intact (BRIEF "Daily-driver continuity").
+          (except (modaliser terminal)
+                  focus-pane-left focus-pane-right focus-pane-up focus-pane-down
+                  split-pane-left split-pane-right split-pane-up split-pane-down
+                  move-pane-left  move-pane-right  move-pane-up  move-pane-down
+                  focus-pane-by-digit toggle-pane-zoom
+                  supports-splits? supports-move-pane? supports-digit-jump?
+                  supports-zoom? supports?
+                  active-backend focused-terminal-path in-chain?)
           (modaliser theming)
           (modaliser blocks iterm-panes))
   (begin
