@@ -68,3 +68,33 @@ Only if synthesis converges into a real agreement worth sharing
 externally. If it doesn't (e.g. abstraction reduces to "iTerm +
 tmux only, others stay as recipes"), 090 records the reason and
 this node retires the grove.
+
+## 080 outputs (status after the synthesis task)
+
+Synthesis **converged.** Decisions locked:
+
+- **Mechanism** — per-backend named modules **+** an additive façade
+  `(modaliser pane)` (option D in 080's task file). See
+  `docs/adr/0001-terminal-backends-named-modules-with-facade.md`.
+- **Naming** — keep direction-word procedure names
+  (`focus-pane-left`/`-right`/`-up`/`-down`, ×focus/split/move).
+  Hjkl aliases are a future façade-level concern only. See
+  `docs/adr/0002-terminal-backends-keep-direction-word-procedure-names.md`.
+- **Surface split** — one `<terminal-backend>` record with nullable op
+  fields; detection-only backends have a populated `detect-foreground-
+  command` and `#f` for the 13 ops. Captured in `notes/abstraction.md`
+  rather than its own ADR (no real alternative once nullable-ops is in).
+- **Mux-inside-host composition** — both styles supported. **Explicit**
+  via the existing `set-local-context-suffix!` flow (different *trees*
+  per context, call backends directly); **implicit** via the façade
+  (one tree, `(active-backend)` routes per keystroke). Captured in
+  `notes/abstraction.md` — usage pattern, not a one-way door.
+
+Full sketch lives at `notes/abstraction.md` — the source material 090
+turns into `docs/prd/terminal-backends.md`.
+
+## 090 status
+
+Unblocked. 090 writes the PRD from `notes/abstraction.md` + the two
+ADRs above. Implementation lands in a **separate node grown after 090
+locks**, not in this `010-recover-design/` subtree.
