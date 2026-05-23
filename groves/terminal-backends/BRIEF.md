@@ -84,6 +84,11 @@ artifact with `[ -d /Applications/<App>.app ]` or `mdfind -name <App>`.
 
 ## References
 
+- **Phase-2 PRD:** `docs/prd/terminal-backends.md` — the agreement
+  produced by 010-recover-design/090, what 020-implement (TBD) ships.
+- **ADRs:**
+  - `docs/adr/0001-terminal-backends-named-modules-with-facade.md`
+  - `docs/adr/0002-terminal-backends-keep-direction-word-procedure-names.md`
 - Phase-1 spec: `docs/superpowers/specs/2026-05-22-terminal-pane-and-remote-docs-design.md`
 - Phase-1 reference: `docs/reference/terminal-detection.md`
 - Phase-1 how-to: `docs/how-to/terminal-pane-aware-tree.md`
