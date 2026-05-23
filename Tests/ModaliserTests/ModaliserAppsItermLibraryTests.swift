@@ -13,6 +13,43 @@ struct ModaliserAppsItermLibraryTests {
         // shared (modaliser event-dispatch) state between tests.
         try engine.evaluate("(register! 'install-context-suffix? #f)")
         #expect(try engine.evaluate("(lookup-tree \"com.googlecode.iterm2\")") != .false)
+        // The digit-pick mode is also registered, ready for the façade's
+        // (focus-pane-by-digit) thunk to (enter-mode! 'iterm-pane-digit).
+        #expect(try engine.evaluate("(lookup-tree \"iterm-pane-digit\")") != .false)
+    }
+
+    /// (register!) hands a populated `<terminal-backend>` to the façade
+    /// keyed by 'iterm and the iTerm bundle-id. With a stubbed frontmost
+    /// query pointing at that bundle, the façade walks a single-frame
+    /// path and exposes the iTerm backend as active.
+    @Test func registerInstallsTerminalBackend() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine)
+                  (modaliser apps iterm) (modaliser terminal))
+        """)
+        try engine.evaluate("(register! 'install-context-suffix? #f)")
+        // Force the façade to resolve as if iTerm were frontmost; the
+        // detect-fg / focused-pane-id thunks still shell out, but they
+        // return #f cleanly when iTerm isn't running, so the walk
+        // produces exactly one frame.
+        let pathLen = try engine.evaluate("""
+          (parameterize ((current-frontmost-bundle-id
+                           (lambda () "com.googlecode.iterm2")))
+            (length (focused-terminal-path)))
+        """)
+        #expect(pathLen == .fixnum(1))
+        let entry = try engine.evaluate("""
+          (parameterize ((current-frontmost-bundle-id
+                           (lambda () "com.googlecode.iterm2")))
+            (car (focused-terminal-path)))
+        """)
+        // car of the alist entry is the backend symbol 'iterm.
+        if case .pair(let head, _) = entry {
+            #expect(head == .symbol(engine.context.symbols.intern("iterm")))
+        } else {
+            Issue.record("expected (iterm . frame) pair, got \(entry)")
+        }
     }
 
     @Test func focusModeRegistersUnderDefaultId() throws {

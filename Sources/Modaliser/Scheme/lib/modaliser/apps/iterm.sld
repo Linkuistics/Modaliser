@@ -157,6 +157,35 @@
     (define (move-pane-up)    (send-keystroke '(cmd ctrl shift) "k"))
     (define (move-pane-down)  (send-keystroke '(cmd ctrl shift) "j"))
 
+    ;; The 14th op. iTerm's user-visible zoom toggle is the provisioned
+    ;; Cmd+Shift+Return binding (see iterm-binding-specs: maximize active
+    ;; pane). configure-entry writes it; the user's tree already proxies
+    ;; "z Toggle Zoom" through the same keystroke.
+    (define (toggle-pane-zoom)
+      (send-keystroke '(cmd shift) "return"))
+
+    ;; UUID of the focused iTerm session. AppleScript's `is running`
+    ;; guard prevents probe-time Launch Services auto-launch — see
+    ;; (focused-iterm-tty) for the same pattern.
+    (define (focused-pane-id)
+      (let* ((script
+               (string-append
+                 "if application \"iTerm2\" is running then "
+                 "tell application \"iTerm2\" to "
+                 "id of current session of current tab of current window"))
+             (out (run-shell
+                    (string-append "osascript -e '" script "' 2>/dev/null")))
+             (trimmed (string-trim out)))
+        (if (string=? trimmed "") #f trimmed)))
+
+    ;; Foreground command of the focused iTerm pane. The host-level
+    ;; detect-fg slot the façade reads to descend into a mux (tmux,
+    ;; zellij) running inside iTerm. Composes the legacy primitives
+    ;; rather than introducing new shell.
+    (define (detect-fg-command)
+      (cond ((focused-iterm-tty) => tty-foreground-command)
+            (else #f)))
+
     ;; ─── iTerm key-binding provisioning ──────────────────────────
     ;;
     ;; The pane ops above, plus the overlay's copy-mode and zoom
@@ -546,8 +575,50 @@
              (else #f))))
         (else #f)))
 
+    ;; A standalone "pick a digit to focus a pane" mode. The façade's
+    ;; (terminal:focus-pane-by-digit) thunk enters this tree. on-enter
+    ;; snapshots the pane layout (so iterm-panes-current-targets is
+    ;; populated for focus-by-digit's lookup) and paints chips; on-leave
+    ;; hides them. The single hidden key-range dispatches by digit and
+    ;; exits the mode automatically (non-sticky default).
+    (define (pane-digit-register!)
+      (define-tree 'iterm-pane-digit
+        'on-enter
+        (lambda ()
+          (iterm-panes-refresh!)
+          (let* ((raw-panes (ax-find-elements-named
+                              "com.googlecode.iterm2"
+                              "AXScrollArea" "AXStaticText"))
+                 (panes     (label-pairs default-pane-labels raw-panes)))
+            (hints-show (ax-target-hints panes (current-chip-theme 'normal)))))
+        'on-leave (lambda () (hints-hide))
+        (pane-range)))
+
+    ;; Façade slot. Pushes the digit-pick mode; the user's next digit
+    ;; press focuses the corresponding pane and pops back.
+    (define (focus-pane-by-digit)
+      (enter-mode! 'iterm-pane-digit))
+
+    ;; Build the <terminal-backend> record this module hands to
+    ;; (modaliser terminal). Same procedures the iterm:focus-pane-*
+    ;; etc. exports point at — registering doesn't duplicate
+    ;; implementations, it just lets the façade dispatch to them when
+    ;; iTerm is frontmost.
+    (define (iterm-terminal-backend)
+      (make-terminal-backend
+        'iterm "iTerm2" 'host "com.googlecode.iterm2"
+        detect-fg-command
+        focused-pane-id
+        focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
+        split-pane-left  split-pane-right  split-pane-up    split-pane-down
+        move-pane-left   move-pane-right   move-pane-up     move-pane-down
+        focus-pane-by-digit
+        toggle-pane-zoom
+        iterm-configured?))
+
     ;; One-stop convenience: register the dynamic iTerm tree, the sticky
-    ;; focus mode, and install the context-suffix handler. Pass
+    ;; focus mode, the digit-pick mode, the <terminal-backend> record
+    ;; with the façade, and install the context-suffix handler. Pass
     ;; 'install-context-suffix? #f if you compose your own handler — your
     ;; handler can then call (context-suffix-handler bid …opts) to
     ;; delegate the iTerm branch.
@@ -567,6 +638,8 @@
                           (cons (cadr kvs) (cons (car kvs) acc))))))))
         (apply rebuild-tree! forwarded)
         (apply focus-mode-register! forwarded)
+        (pane-digit-register!)
+        (register-backend! (iterm-terminal-backend))
         (when install?
           (set-local-context-suffix!
             (lambda (bundle-id)
