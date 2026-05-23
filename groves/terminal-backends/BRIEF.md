@@ -30,8 +30,8 @@ expose pane geometry — the user's recall confirms this is acceptable.
 | iTerm2        | host w/ splits   | full (13 + det)   | baseline; implemented in `apps/iterm.sld` |
 | WezTerm       | host w/ splits   | full              | `wezterm cli`; cask installed today |
 | Kitty         | host w/ splits   | full              | `kitty @ ls`; needs `allow_remote_control` |
-| Ghostty ≥ 1.4 | host w/ splits   | full *(verify)*   | recall: 1.4+ gates the workaround |
-| Ghostty < 1.4 | host (no API)    | detection only    | needs mux inside |
+| Ghostty ≥ 1.4 | host w/ splits   | TBD               | recall: 1.4+ gates the workaround; brew cask is still pre-1.4 (1.3.1 as of 2026-05-23), so this row is theoretical |
+| Ghostty 1.3.1 | host (no API)    | detection only    | **brew's current cask**; no CLI/IPC for pane control; users add a mux inside; AX-walk or process-tree for detection |
 | tmux          | mux              | full              | `display-message`; `display-panes` may serve chips |
 | zellij        | mux              | full              | installed today; ops via `zellij action` |
 | Alacritty     | host no splits   | detection only    | no IPC; users add a mux for splits |
@@ -57,7 +57,10 @@ User recall to date:
   `20240203-110809-5046fc22`, uninstalled per task contract),
   kitty (probed in 050 against cask 0.47.0, uninstalled per task
   contract), tmux (probed in 040, uninstalled per task contract),
-  ghostty, alacritty.
+  ghostty (probed in 060 against cask 1.3.1, uninstalled per task
+  contract — but **brew's cask is pre-1.4**, where the user-
+  recalled workarounds reside; treat Ghostty as detection-only
+  until brew passes 1.4), alacritty.
 - User's `~/.config/kitty/kitty.conf` (98 lines, A/B-rendering
   mirror of `wezterm.lua`) was NOT touched during the kitty probe
   — the `--override allow_remote_control=yes` runtime flag was used
