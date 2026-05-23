@@ -52,10 +52,9 @@ User recall to date:
 
 ## Machine state (2026-05-23)
 
-- Installed: iTerm.app, zellij 0.44.3.
-- Brew cask metadata says WezTerm is installed, but `/Applications/
-  WezTerm.app` was manually removed (cask symlink dangles). Effectively
-  not installed. `brew reinstall --cask wezterm` to recover.
+- Installed: iTerm.app, zellij 0.44.3, WezTerm.app (cask reinstalled
+  during 030-investigate-wezterm; CLI at `/opt/homebrew/bin/wezterm`,
+  version `20240203-110809-5046fc22`).
 - Not installed: kitty, tmux, ghostty, alacritty.
 
 Each per-backend task brews/installs, probes, and uninstalls. The
