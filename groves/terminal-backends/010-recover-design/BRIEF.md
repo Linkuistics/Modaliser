@@ -15,8 +15,10 @@ uninstall pattern) survive nowhere. This node decomposes the work.
 | 030   | investigate-wezterm           | full (cask installed today; CLI at app path) |
 | 040   | investigate-tmux              | full (install fresh) |
 | 050   | investigate-kitty             | full (install fresh) |
-| 060   | investigate-ghostty           | verify v ≥ 1.4 gate; full if 1.4+ exposes it, else detection-only |
-| 070   | investigate-alacritty         | detection-only (install fresh) |
+| 060   | investigate-ghostty           | brew cask (1.3.1); concluded detection-only |
+| 065   | investigate-ghostty-current   | proper install from ghostty.org (1.4+); re-probe for splitting-backend status |
+| 070   | investigate-alacritty         | brew cask (manpages-only; binary Gatekeeper-blocked) |
+| 075   | investigate-alacritty-signed  | signed install from GitHub releases; live verification |
 | 080   | design-abstraction            | synthesise: mechanism, names, surface split, mux-inside-host composition |
 | 090   | prd                           | `docs/prd/terminal-backends.md` if convergent |
 
