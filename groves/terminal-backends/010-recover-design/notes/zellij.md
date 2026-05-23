@@ -60,55 +60,44 @@ no swap-after-split dance like iTerm.
 
 ## Chip rendering — the mechanism
 
-zellij has no native chip-overlay equivalent of `tmux display-panes`.
-Two viable paths:
+Chips are **native macOS overlay windows** drawn by Modaliser's
+existing `hints-show` (`(modaliser hints)`), exactly as for iTerm.
+The per-backend job is producing the list of
+`(label, screen-rect)` pairs `hints-show` consumes.
 
-### (A) Write ANSI escapes via `zellij action write --pane-id`
+For zellij-as-mux-inside-a-host-terminal, the screen-rect for each
+zellij pane is computed:
 
-Verified working command shape:
+1. Host terminal window's screen frame — via macOS AX on the host
+   (iTerm gives AX-discoverable per-pane frames; for a mux running
+   inside an iTerm pane, that iTerm-pane's frame is the host frame).
+2. Cell-pixel dimensions of the host terminal — `cell_w`, `cell_h`.
+   Not directly exposed by iTerm; must be derived. Candidate paths:
+   - Window pixel-size ÷ window cell-count (requires both, may
+     have padding to subtract).
+   - Empirical calibration once per session (paint a probe glyph,
+     measure where it lands via AX).
+   - User-supplied in config.
+3. zellij gives `pane_x`, `pane_y`, `pane_columns`, `pane_rows`
+   for each pane (cell coordinates within the host pane), via
+   `list-panes -j -a`.
+4. `screen_rect = (host_x + pane_x*cell_w, host_y + pane_y*cell_h,
+                   pane_columns*cell_w, pane_rows*cell_h)`.
+5. Hand `((label, rect), …)` to `hints-show`.
 
-```scheme
-;; Paint a reverse-video " N " chip at top-left of pane terminal_<id>.
-;; \e[s save-cursor, \e[H home, \e[7m reverse, " N ", \e[m reset, \e[u restore.
-(run-shell
-  (string-append
-    "zellij --session " session
-    " action write --pane-id terminal_" id
-    " -- 27 91 115 27 91 72 27 91 55 109 32 " digit-byte " 32 27 91 109 27 91 117"))
-```
+**Why "indirect and inexact":**
+- Cell-pixel dimensions require derivation, which is approximate
+  (sub-pixel rounding, font hinting, ligatures, retina scaling).
+- iTerm padding (the gap between window edge and the first cell)
+  is not exposed; small constant offset per host terminal.
+- Off-by-a-few-pixels chip positions are acceptable so long as the
+  digit lands clearly inside the right pane.
 
-Pros: works for every visible terminal pane, no host-terminal coupling.
-Cons:
-- **Erasing is dirty.** After chip removal the cell at (1,1) holds
-  the chip text until the pane redraws. No reliable "trigger
-  redraw" action; pragmatic options are `clear` (clears whole pane,
-  too destructive) or write a magic erase escape and accept the
-  one-cell artefact.
-- **Chip position is fixed.** Always at the pane's top-left;
-  no positional choice. The user's "indirect and inexact" likely
-  refers to exactly this.
-
-### (B) Modaliser-side `hints-show` with computed screen coordinates
-
-Replicates the iTerm path conceptually:
-1. Get the *iTerm* split's AX frame (the host containing zellij).
-2. Get iTerm's character cell dimensions (font width × line height).
-3. For each zellij pane, JSON gives `pane_x` / `pane_y` in cells.
-4. Screen position = `host_x + pane_x * cell_w`, `host_y + pane_y * cell_h`.
-5. `hints-show` paints chips at those absolute positions.
-
-Pros: matches iTerm chip UX exactly; no pane-content corruption.
-Cons:
-- iTerm character-cell dimensions aren't exposed in any of:
-  AppleScript pane geometry, AX, environment vars. May have to
-  be configured per-user or derived empirically from terminal-size
-  vs AX-frame ratio.
-- "Inexact" because the cell-size derivation is approximate
-  (sub-pixel rounding, font hinting, ligature widths).
-
-**Recommendation deferred to 080:** if iTerm cell-size can be
-solved cleanly, prefer (B) — uniform chip UX across host backends.
-Otherwise (A) is the safety floor.
+**The text-injection path is NOT the chip-rendering mechanism.**
+`zellij action write --pane-id` does send raw bytes to a pane's
+tty, but that paints text *inside* the terminal stream and is not
+how Modaliser chips work. Mentioning the capability here only
+because it's available for other purposes (probing, debugging).
 
 ## Session disambiguation (multi-session)
 
@@ -155,24 +144,21 @@ the next level of "what's in the focused zellij pane" (e.g. nvim).
    **Wrong for 0.44.x** — `list-panes -j -a` gives command directly.
    The reference doc (`docs/reference/terminal-detection.md:225-232`)
    needs updating once 080/090 lock the design.
-2. Phase-1 implied chip rendering for zellij requires plugins.
-   **Not true** — `write --pane-id` + ANSI escapes is enough.
-3. `--help` understates `new-pane -d` direction support
+2. `--help` understates `new-pane -d` direction support
    (claims `right|down`, accepts all four).
 
 ## Open verification items
 
-- Visual confirmation of chip rendering (the `write --pane-id`
-  command succeeded without error, but I couldn't see the result
-  since the session was detached). Implementation phase will test
-  this attached.
-- Erase strategy for chips — what minimum-corruption sequence
-  works reliably?
-- Cell-size derivation for path (B) — needs an iTerm-side probe
-  in the iTerm baseline notes.
+- Cell-pixel dimensions for the host terminal hosting zellij —
+  derive from pixel-window-size ÷ cell-window-size, calibrate
+  empirically, or take from user config? Not a zellij question
+  per se; lands in the iTerm baseline notes (or 080).
+- iTerm padding offset (window edge to first cell) — small constant
+  to subtract from the host AX frame before adding mux-pane cell
+  offsets. Verify empirically.
 
 ## Capability matrix row
 
 | Backend | Type           | Detection | 13-op surface | Mechanism                              | Chip render |
 |---------|----------------|-----------|---------------|----------------------------------------|-------------|
-| zellij  | mux            | ✓ list-panes -j -a | ✓ all 13 via `action` CLI | CLI (clean, no keystroke-proxy needed) | (A) ANSI escape via `write --pane-id` (dirty erase) — or (B) host-AX + cell-size if solvable |
+| zellij  | mux            | ✓ list-panes -j -a | ✓ all 13 via `action` CLI | CLI (clean, no keystroke-proxy needed) | `hints-show` with screen-rects computed from host-AX frame + cell-pixel dims + zellij's per-pane cell coords |

@@ -52,13 +52,19 @@ User recall to date:
 
 ## Machine state (2026-05-23)
 
-- Installed: iTerm.app, WezTerm.app (cask; CLI at
-  `/Applications/WezTerm.app/Contents/MacOS/wezterm`), zellij 0.44.3.
+- Installed: iTerm.app, zellij 0.44.3.
+- Brew cask metadata says WezTerm is installed, but `/Applications/
+  WezTerm.app` was manually removed (cask symlink dangles). Effectively
+  not installed. `brew reinstall --cask wezterm` to recover.
 - Not installed: kitty, tmux, ghostty, alacritty.
 
 Each per-backend task brews/installs, probes, and uninstalls. The
 "Machine state" section above is updated at the end of each task so
 this brief always reflects on-disk truth.
+
+**Verifier note:** `brew list --cask` reads metadata only — it returns
+success for casks whose .app was manually trashed. Verify the actual
+artifact with `[ -d /Applications/<App>.app ]` or `mdfind -name <App>`.
 
 ## Non-goals
 

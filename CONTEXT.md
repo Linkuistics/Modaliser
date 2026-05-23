@@ -31,8 +31,13 @@ primitive (process running in the focused/only pane) but not the
 add a mux inside for splits.
 
 **Chip** — the digit-label overlay painted on each pane by
-`focus-pane-by-digit`. Position is exact when the backend exposes
-pane geometry, "indirect and inexact" otherwise.
+`focus-pane-by-digit`. **Always a native macOS overlay window**
+drawn by `(modaliser hints)` `hints-show`, never injected text or
+escape sequences into the terminal stream. The per-backend job is
+producing the `(label, screen-rect)` pairs `hints-show` consumes;
+chips themselves are uniform. "Indirect and inexact" refers to
+whether a backend can produce screen-accurate rects (e.g. when
+cell-pixel dimensions must be derived rather than read).
 
 **Suffix hook** — the per-app context handler installed via
 `set-local-context-suffix!`; returns a string like `/nvim` that
