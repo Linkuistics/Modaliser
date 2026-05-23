@@ -52,11 +52,11 @@ User recall to date:
 
 ## Machine state (2026-05-23)
 
-- Installed: iTerm.app, zellij 0.44.3, WezTerm.app (cask reinstalled
-  during 030-investigate-wezterm; CLI at `/opt/homebrew/bin/wezterm`,
-  version `20240203-110809-5046fc22`).
-- Not installed: kitty, tmux (probed in 040, uninstalled per task
-  contract), ghostty, alacritty.
+- Installed: iTerm.app, zellij 0.44.3.
+- Not installed: WezTerm (probed in 030 against cask
+  `20240203-110809-5046fc22`, uninstalled per task contract),
+  kitty, tmux (probed in 040, uninstalled per task contract),
+  ghostty, alacritty.
 
 Each per-backend task brews/installs, probes, and uninstalls. The
 "Machine state" section above is updated at the end of each task so
