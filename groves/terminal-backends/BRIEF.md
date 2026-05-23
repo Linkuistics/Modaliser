@@ -33,7 +33,7 @@ expose pane geometry — the user's recall confirms this is acceptable.
 | Ghostty 1.3.0+ | host w/ splits  | **12/13** (no move-pane — same gap as WezTerm) | **AppleScript API** (added in 1.3.0): `split direction <dir>`, `focus <terminal>`, `perform action "<keybind>" on <terminal>`. Brew's 1.3.1 has it. 060 missed this; 065 corrected. |
 | tmux          | mux              | full              | `display-message`; `display-panes` may serve chips |
 | zellij        | mux              | full              | installed today; ops via `zellij action` |
-| Alacritty     | host no splits   | detection only    | by-design no panes; users add a mux. Has `alacritty msg` IPC for window mgmt (NOT for pane queries — there are no panes). Brew cask is Gatekeeper-deprecated; user's macOS refuses to launch it. |
+| Alacritty 0.17.0 | host no splits | detection only    | by-design no panes; users add a mux. `alacritty msg` IPC for window mgmt only. **No AppleScript SDEF**. Brew cask is Gatekeeper-deprecated AND quarantine-blocked; direct GitHub-releases DMG download bypasses both (075 live-verified). |
 
 ## What's lost
 
