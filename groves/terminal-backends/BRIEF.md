@@ -30,8 +30,7 @@ expose pane geometry — the user's recall confirms this is acceptable.
 | iTerm2        | host w/ splits   | full (13 + det)   | baseline; implemented in `apps/iterm.sld` |
 | WezTerm       | host w/ splits   | full              | `wezterm cli`; cask installed today |
 | Kitty         | host w/ splits   | full              | `kitty @ ls`; needs `allow_remote_control` |
-| Ghostty ≥ 1.4 | host w/ splits   | TBD               | recall: 1.4+ gates the workaround; brew cask is still pre-1.4 (1.3.1 as of 2026-05-23), so this row is theoretical |
-| Ghostty 1.3.1 | host (no API)    | detection only    | **brew's current cask**; no CLI/IPC for pane control; users add a mux inside; AX-walk or process-tree for detection |
+| Ghostty 1.3.0+ | host w/ splits  | **12/13** (no move-pane — same gap as WezTerm) | **AppleScript API** (added in 1.3.0): `split direction <dir>`, `focus <terminal>`, `perform action "<keybind>" on <terminal>`. Brew's 1.3.1 has it. 060 missed this; 065 corrected. |
 | tmux          | mux              | full              | `display-message`; `display-panes` may serve chips |
 | zellij        | mux              | full              | installed today; ops via `zellij action` |
 | Alacritty     | host no splits   | detection only    | by-design no panes; users add a mux. Has `alacritty msg` IPC for window mgmt (NOT for pane queries — there are no panes). Brew cask is Gatekeeper-deprecated; user's macOS refuses to launch it. |
@@ -46,23 +45,23 @@ grove rebuilds those findings via per-backend tasks under
 User recall to date:
 - Solutions for every terminal/mux were found (some hacks).
 - Chip rendering worked for every backend (indirect/inexact in some).
-- Ghostty was gated on v1.4+.
+- Ghostty workarounds existed — *corrected*: AppleScript API
+  added in **1.3.0** (not 1.4 as initially recalled). brew's 1.3.1
+  has it.
 - Software was installed then uninstalled — same pattern repeats here.
 - Non-splitting terminals only need *detection* — users add a mux.
 
 ## Machine state (2026-05-23)
 
-- Installed: iTerm.app, zellij 0.44.3.
+- Installed: iTerm.app, zellij 0.44.3, Ghostty 1.3.1 (reinstalled
+  during 065 for the AppleScript re-probe; pending teardown decision).
 - Not installed: WezTerm (probed in 030 against cask
   `20240203-110809-5046fc22`, uninstalled per task contract),
   kitty (probed in 050 against cask 0.47.0, uninstalled per task
   contract), tmux (probed in 040, uninstalled per task contract),
-  ghostty (probed in 060 against cask 1.3.1, uninstalled per task
-  contract — but **brew's cask is pre-1.4**, where the user-
-  recalled workarounds reside; treat Ghostty as detection-only
-  until brew passes 1.4), alacritty (probed in 070 against cask
-  0.17.0 via manpages only — macOS refuses to launch the cask's
-  adhoc-signed binary; uninstalled per task contract).
+  alacritty (probed in 070 against cask 0.17.0 via manpages only —
+  macOS refuses to launch the cask's adhoc-signed binary; uninstalled
+  per task contract).
 - User's `~/.config/kitty/kitty.conf` (98 lines, A/B-rendering
   mirror of `wezterm.lua`) was NOT touched during the kitty probe
   — the `--override allow_remote_control=yes` runtime flag was used
