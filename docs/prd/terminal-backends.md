@@ -21,12 +21,12 @@ hand from the Phase 1 docs.
 
 ### In
 
-A **single uniform surface** of 13 operations + 1 detection primitive,
-exposed from `(modaliser terminal)` as generic procedures. The same
-procedures work whether the active backend is iTerm, WezTerm, Kitty,
-Ghostty, tmux, or zellij (and in any mux-inside-host composition).
+A **single uniform surface** of 14 operations + 1 structured detection
+primitive, exposed from `(modaliser terminal)` as generic procedures.
+The same procedures work whether the active backend is iTerm, WezTerm,
+Kitty, Ghostty, tmux, or zellij (and in any mux-inside-host composition).
 
-**Operations (13):**
+**Operations (14):**
 
 - `focus-pane-{left,right,up,down}` — move keyboard focus to an
   adjacent pane.
@@ -36,20 +36,42 @@ Ghostty, tmux, or zellij (and in any mux-inside-host composition).
   directional neighbour.
 - `focus-pane-by-digit` — paint a digit chip on each pane via
   `hints-show`; selecting digit *N* focuses pane *N*.
+- `toggle-pane-zoom` — stateless zoom toggle on the focused pane
+  (iTerm/WezTerm/tmux/zellij/Ghostty; not Kitty in v1).
 
-**Detection primitive (1):**
+**Detection primitive (1) — focused-terminal path:**
 
-- `focused-terminal-foreground-command` — the command currently
-  running in the focused pane (typically `bash` / `zsh` / `nvim` /
-  `tmux` / `zellij` / `ssh` / etc.). Drives the existing
-  `set-local-context-suffix!` flow.
+- `(focused-terminal-path)` — alist keyed by backend symbol, value
+  is a 4-element vector `#(pane <pane-id> fg <fg-cmd>)`:
 
-**Capability predicates (4):**
+  ```scheme
+  ;; iTerm with zellij inside, lazygit in the focused zellij pane
+  '((iterm  . #(pane "uuid-A"     fg "zellij"))
+    (zellij . #(pane "terminal_3" fg "lazygit")))
+
+  ;; iTerm alone, nvim in the focused pane
+  '((iterm . #(pane "uuid-B" fg "nvim")))
+  ```
+
+- `(focused-terminal-foreground-command)` — convenience: the leaf
+  frame's `fg`. Backward-compatible alias for the most common use;
+  drives the existing `set-local-context-suffix!` flow.
+- `(in-chain? 'zellij)` — predicate; `#t` if `'zellij` is anywhere
+  in the path. Useful for "if any mux is present" / "if any layer
+  is nvim" handlers.
+
+See [ADR-0008](../adr/0008-terminal-backends-focused-terminal-path.md)
+for the structure rationale and its constraint (each backend
+symbol appears at most once — nested muxes can't be represented
+uniquely; matches typical usage).
+
+**Capability predicates (5):**
 
 - `(supports-splits?)` — `#t` if the active backend implements all 12
   focus/split/move ops.
 - `(supports-move-pane?)` — `#t` if the 4 `move-pane-*` ops work.
 - `(supports-digit-jump?)` — `#t` if `focus-pane-by-digit` works.
+- `(supports-zoom?)` — `#t` if `toggle-pane-zoom` works.
 - `(supports? 'focus-pane-left)` — universal introspection by op
   symbol.
 
@@ -62,10 +84,10 @@ Ghostty, tmux, or zellij (and in any mux-inside-host composition).
 
 ### Deferred (out of scope)
 
-- `close-pane`, `resize-pane`, `zoom-pane`, `rotate-panes` — surface
-  isn't locked yet; users can already invoke these via raw keystrokes.
+- `close-pane`, `resize-pane`, `rotate-panes` — surface isn't locked
+  yet; users can already invoke these via raw keystrokes.
 - **SSH'd remote tmux/zellij.** When ssh is the focused-pane
-  foreground command, the host backend serves the 13 ops (against
+  foreground command, the host backend serves the 14 ops (against
   the host pane); Modaliser does not reach into the remote.
   Cross-host pane control would require a remote agent or
   tmux `-CC` integration — separate design, future phase.
@@ -73,28 +95,28 @@ Ghostty, tmux, or zellij (and in any mux-inside-host composition).
 
 ## Backends
 
-| Backend          | Type             | Detection | 13-op surface (day-one) | configure-entry | One-line summary |
-|------------------|------------------|:---------:|:------------------------|:----------------|------------------|
-| iTerm2           | host, splits     | ✓ AppleScript + `ps` | **13/13** | ✓ existing — provisions split/move keybinds in plist | Baseline. Keystroke-proxy ops + AX-discovered chip geometry. |
-| WezTerm          | host, splits     | ✓ `wezterm cli list --format json` | **13/13** *with configure-entry* (12/13 raw) | ✓ writes move-pane keybinds to `wezterm.lua` (keystroke-proxy invokes them) | Cleanest CLI surface; JSON exposes per-pane cell + pixel dims directly. |
-| Kitty            | host, splits     | ✓ `kitty @ ls` | **13/13** *with configure-entry* (0/13 raw — IPC refused without provisioning) | ✓ writes `allow_remote_control yes` and `enabled_layouts splits,...` to `kitty.conf` | Full ops via `kitty @` IPC. Chip geometry uses BFS over `neighbors`. |
-| Ghostty 1.3.0+   | host, splits     | ✓ AppleScript | **12/13** (no `move-pane`) | — (no provisioning helps; `move_split` doesn't exist in vocabulary) | AppleScript-driven via `split direction <dir>`, `perform action`. `move-pane` blocked upstream. |
-| Ghostty < 1.3.0  | host             | external (AX walk / process tree) | detection only | — | No AppleScript surface; users add a mux for splits. |
-| tmux             | mux (local only) | ✓ `display-message -p '#{pane_current_command}'` | **13/13** | — (works out of the box) | Native format-string CLI; tty-correlated session targeting for multi-session-local. |
-| zellij           | mux (local only) | ✓ `action list-panes -j -a` | **13/13** | — (works out of the box) | `zellij action` CLI; tty-correlated session targeting. |
-| Alacritty 0.17.0 | host, no splits  | external (process tree; AX for multi-window) | not applicable | optional — removes `com.apple.quarantine` if installed via the brew cask | Detection-only by design. Users add a mux inside for the 13-op surface. |
+| Backend          | Type             | Detection | 14-op surface (day-one)              | Zoom | configure-entry | One-line summary |
+|------------------|------------------|:---------:|:-------------------------------------|:----:|:----------------|------------------|
+| iTerm2           | host, splits     | ✓ AppleScript + `ps` | **14/14**                  | ✓    | ✓ existing — provisions split/move keybinds in plist | Baseline. Keystroke-proxy ops + AX-discovered chip geometry. |
+| WezTerm          | host, splits     | ✓ `wezterm cli list --format json` | **14/14** *with configure-entry* (13/14 raw — no move-pane until provisioned) | ✓ via `TogglePaneZoomState` | ✓ writes move-pane keybinds to `wezterm.lua` (keystroke-proxy invokes them) | Cleanest CLI surface; JSON exposes per-pane cell + pixel dims directly. |
+| Kitty            | host, splits     | ✓ `kitty @ ls` | **13/14** *with configure-entry* (0/14 raw — IPC refused without provisioning); no zoom | — | ✓ writes `allow_remote_control yes` and `enabled_layouts splits,...` to `kitty.conf` | Full directional ops via `kitty @` IPC. No native single-pane zoom. |
+| Ghostty 1.3.0+   | host, splits     | ✓ AppleScript | **13/14** (no `move-pane`)             | ✓ via `perform action "toggle_split_zoom"` | — (no provisioning helps; `move_split` doesn't exist in vocabulary) | AppleScript-driven via `split direction <dir>`, `perform action`. `move-pane` blocked upstream. |
+| Ghostty < 1.3.0  | host             | external (AX walk / process tree) | detection only        | —    | — | No AppleScript surface; users add a mux for splits. |
+| tmux             | mux (local only) | ✓ `display-message -p '#{pane_current_command}'` | **14/14** | ✓ via `resize-pane -Z` | — (works out of the box) | Native format-string CLI; tty-correlated session targeting for multi-session-local. |
+| zellij           | mux (local only) | ✓ `action list-panes -j -a` | **14/14**                | ✓ via `action toggle-fullscreen` | — (works out of the box) | `zellij action` CLI; tty-correlated session targeting. |
+| Alacritty 0.17.0 | host, no splits  | external (process tree; AX for multi-window) | not applicable | —    | optional — removes `com.apple.quarantine` if installed via the brew cask | Detection-only by design. Users add a mux inside for the 14-op surface. |
 
 ## Abstraction shape
 
 ### One public surface
 
-All 13 ops + detection + capability predicates are exported only from
+All 14 ops + detection + capability predicates are exported only from
 `(modaliser terminal)`. The per-backend modules (`(modaliser apps
 iterm)`, `(modaliser muxes tmux)`, …) become an **implementation
 layer** — their public exports retain only inherently-backend-specific
 procedures (e.g. `iterm:configure-entry`, `iterm:pane-list-block`,
 `iterm:focus-mode-tree`, `<backend>:register!`). They no longer
-export the 12 splits-tree procedures or `focus-pane-by-digit`.
+export the 12 splits-tree procedures.
 
 ```scheme
 (import (prefix (modaliser apps iterm) iterm:)
@@ -151,9 +173,11 @@ dynamic rebuild for cross-backend portability.
 |---|----------|-------|
 | 1 | One public surface in `(modaliser terminal)`; per-backend modules are implementation layer | [ADR-0003](../adr/0003-terminal-backends-facade-only-public-surface.md) (supersedes [ADR-0001](../adr/0001-terminal-backends-named-modules-with-facade.md)) |
 | 2 | Direction-word procedure names (`focus-pane-left`, not `focus-pane-h`) | [ADR-0002](../adr/0002-terminal-backends-keep-direction-word-procedure-names.md) |
-| 3 | Capability predicates: `supports-splits?`, `supports-move-pane?`, `supports-digit-jump?`, `supports?` | [ADR-0004](../adr/0004-terminal-backends-capability-predicates.md) |
+| 3 | Capability predicates: `supports-splits?`, `supports-move-pane?`, `supports-digit-jump?`, `supports-zoom?`, `supports?` | [ADR-0004](../adr/0004-terminal-backends-capability-predicates.md) |
 | 4 | configure-entry per backend **from day one** wherever provisioning closes a gap | [ADR-0005](../adr/0005-terminal-backends-configure-entry-day-one.md) |
 | 5 | Multi-session local muxes via tty correlation; SSH'd remote muxes explicitly out of scope | [ADR-0006](../adr/0006-terminal-backends-multi-session-and-ssh.md) |
+| 6 | `toggle-pane-zoom` is part of the op surface; capability-gated for backends without zoom (Kitty in v1) | [ADR-0007](../adr/0007-terminal-backends-pane-zoom-in-op-surface.md) |
+| 7 | `(focused-terminal-path)` returns an alist keyed by backend symbol with `#(pane <id> fg <cmd>)` vector values | [ADR-0008](../adr/0008-terminal-backends-focused-terminal-path.md) |
 
 ### Backend record (internal)
 
@@ -167,6 +191,7 @@ dispatches per `(active-backend)`.
 (define-record-type <terminal-backend>
   (make-terminal-backend bundle-id name
                          detect-foreground-command
+                         focused-pane-id      ; for path construction
                          focus-pane-left focus-pane-right
                          focus-pane-up focus-pane-down
                          split-pane-left split-pane-right
@@ -174,12 +199,14 @@ dispatches per `(active-backend)`.
                          move-pane-left  move-pane-right
                          move-pane-up    move-pane-down
                          focus-pane-by-digit
+                         toggle-pane-zoom
                          configured?)
   terminal-backend? ...)
 ```
 
-- `detect-foreground-command` and `configured?` always populated.
-- 13 op fields may be `#f` when unsupported (capability predicates
+- `detect-foreground-command`, `focused-pane-id`, and `configured?`
+  always populated.
+- 14 op fields may be `#f` when unsupported (capability predicates
   read these).
 - `configured?` returns `#t` once configure-entry's prerequisites
   are satisfied; capability predicates AND it with op-presence so
@@ -208,7 +235,8 @@ present).
 
 ```
 (modaliser terminal)              -- existing module, extended:
-                                     detection + 13 ops + predicates
+                                     focused-terminal-path + 14 ops
+                                     + capability predicates
                                      + active-backend resolution
                                      + multi-session-local tty correlation
 
@@ -257,8 +285,10 @@ terminal)`.
 
 - **Ghostty 1.3.0+ `move-pane`.** Action doesn't exist in vocabulary;
   `(supports-move-pane?)` is `#f` until upstream adds `move_split`.
-- **Alacritty alone (no mux).** All 13 ops are `#f`;
+- **Alacritty alone (no mux).** All 14 ops are `#f`;
   `(supports-splits?)` is `#f`. Users add a mux inside for the surface.
+- **Kitty zoom.** No native single-pane zoom; `(supports-zoom?)`
+  returns `#f`. Generic zoom bindings simply omit on Kitty.
 - **SSH'd remote muxes.** When the focused-pane fg cmd is "ssh", the
   abstraction treats it as host-pane context — the host backend
   serves ops against the host pane, not the remote. Users navigate
@@ -335,8 +365,16 @@ procedures move to the façade.
 
 Out of scope for this PRD, captured for traceability:
 
-- **Pane lifecycle ops:** `close-pane`, `resize-pane`, `zoom-pane`,
-  `equalize-panes`, `rotate-panes`.
+- **Pane lifecycle ops:** `close-pane`, `resize-pane`,
+  `equalize-panes`, `rotate-panes`. (`toggle-pane-zoom` is now in
+  scope — see ADR-0007.)
+- **Kitty zoom analogue.** A kitten or layout-swap workflow that
+  approximates zoom for Kitty would let `(supports-zoom?)` return
+  `#t` there too.
+- **Nested-mux representation.** The path's alist representation
+  collapses repeated backend symbols. If nested muxes (tmux inside
+  zellij, or vice versa) become a real use case, the path needs to
+  become an ordered list with repeatable entries.
 - **Ghostty `move_split`.** When upstream lands `move_split` in the
   keybind action vocabulary, ghostty's `move-pane-*` slots fill in
   via `perform action "move_split:<dir>"` — and a Ghostty
@@ -356,6 +394,8 @@ Out of scope for this PRD, captured for traceability:
 - [ADR-0004 — Capability predicates](../adr/0004-terminal-backends-capability-predicates.md)
 - [ADR-0005 — configure-entry day-one per backend](../adr/0005-terminal-backends-configure-entry-day-one.md)
 - [ADR-0006 — Multi-session local muxes via tty correlation](../adr/0006-terminal-backends-multi-session-and-ssh.md)
+- [ADR-0007 — Pane zoom in the op surface](../adr/0007-terminal-backends-pane-zoom-in-op-surface.md)
+- [ADR-0008 — Focused-terminal path as the detection primitive](../adr/0008-terminal-backends-focused-terminal-path.md)
 - Phase 1 reference: `docs/reference/terminal-detection.md`
 - Phase 1 how-to: `docs/how-to/terminal-pane-aware-tree.md`
 - Phase 1 spec: `docs/superpowers/specs/2026-05-22-terminal-pane-and-remote-docs-design.md`

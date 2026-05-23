@@ -14,11 +14,12 @@ Day-one configure-entry coverage:
   `~/Library/Preferences/com.googlecode.iterm2.plist`.
 - **WezTerm.** Appends move-pane keybinds to the user's
   `wezterm.lua` (which Modaliser then invokes via keystroke-proxy).
-  Without this, WezTerm is 12/13; with it, 13/13.
+  Without this, WezTerm is 13/14 (raw); with it, 14/14.
 - **Kitty.** Sets `allow_remote_control yes` and ensures
   `enabled_layouts` includes `splits` in `~/.config/kitty/kitty.conf`.
   Without this, kitty's `@` IPC is refused and `launch
-  --location=vsplit` falls back to the wrong layout — i.e. 0/13.
+  --location=vsplit` falls back to the wrong layout — i.e. 0/14.
+  (Kitty stays 13/14 even with configure-entry — no native zoom.)
 - **Alacritty.** Optional: `xattr -d com.apple.quarantine
   /Applications/Alacritty.app` if installed via the (Gatekeeper-
   deprecated) brew cask. Required only when the brew install path
@@ -32,7 +33,7 @@ Backends with **no** day-one configure-entry:
   Ghostty stays 12/13 until upstream adds the action. A
   `configure-entry` may land at that future point.
 - **tmux, zellij.** Native CLI works out of the box; no provisioning
-  needed for the 13-op surface or detection. (Future tweaks like a
+  needed for the 14-op surface or detection. (Future tweaks like a
   display-panes keybind for the user's own ergonomics are not in
   scope.)
 

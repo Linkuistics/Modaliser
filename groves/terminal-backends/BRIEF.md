@@ -12,12 +12,16 @@ front-most: get the focused pane/split + what's running in it. **Every
 backend implements this.**
 
 **Operations (point 2).** Abstract pane/split operations across all
-*splitting* backends. The locked surface is **13 procedures**:
+*splitting* backends. The locked surface is **14 procedures** (see
+[the PRD](../../docs/prd/terminal-backends.md) for the authoritative
+list):
 
 - `focus-pane-{h,j,k,l}` — directional focus
 - `split-pane-{h,j,k,l}` — directional split
 - `move-pane-{h,j,k,l}` — directional move
 - `focus-pane-by-digit` — paints a chip on each pane, focuses pane N
+- `toggle-pane-zoom` — stateless zoom toggle (added per ADR-0007;
+  capability-gated, Kitty omits in v1)
 
 Chip rendering is internal to `focus-pane-by-digit`, not a separate
 op. Quality may be "indirect and inexact" for backends that don't

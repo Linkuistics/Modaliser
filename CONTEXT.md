@@ -21,14 +21,20 @@ provides its own panes (tmux, zellij).
 **Backend** — an implementation of the terminal-backends abstraction
 for one host terminal or one multiplexer.
 
-**Splitting backend** — a backend that exposes the 13-op surface
-(focus / split / move in hjkl directions + digit-jump). Implies the
-terminal/mux supports native splits.
+**Splitting backend** — a backend that exposes the directional
+focus/split/move ops + digit-jump (and optionally `toggle-pane-zoom`).
+Implies the terminal/mux supports native splits. See the PRD
+`docs/prd/terminal-backends.md` for the authoritative op list.
 
 **Detection-only backend** — a backend that exposes the detection
 primitive (process running in the focused/only pane) but not the
-13-op surface. Used for host terminals without native splits; users
-add a mux inside for splits.
+splitting op surface. Used for host terminals without native splits;
+users add a mux inside for splits.
+
+**Focused-terminal path** — alist keyed by backend symbol with
+`#(pane <id> fg <cmd>)` vector values, representing the chain from
+the host terminal down through any mux to the innermost foreground
+command. Each backend symbol appears at most once. See ADR-0008.
 
 **Chip** — the digit-label overlay painted on each pane by
 `focus-pane-by-digit`. **Always a native macOS overlay window**

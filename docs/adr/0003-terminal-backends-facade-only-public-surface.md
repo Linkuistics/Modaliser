@@ -1,18 +1,22 @@
 # Terminal-backends: façade-only public surface (supersedes ADR-0001)
 
-The 13 pane operations and 1 detection primitive are exported **only**
-from `(modaliser terminal)` as generic procedures (`focus-pane-left`,
-`split-pane-right`, …). At call time the façade resolves
-`(active-backend)` by frontmost-app bundle-id + `focused-terminal-
-foreground-command` and routes to the right per-backend implementation.
+The 14 pane operations and 1 structured detection primitive
+(`focused-terminal-path`) are exported **only** from `(modaliser
+terminal)` as generic procedures (`focus-pane-left`, `split-pane-right`,
+`toggle-pane-zoom`, …). At call time the façade resolves
+`(active-backend)` by frontmost-app bundle-id + the path walk, and
+routes to the right per-backend implementation.
 
 Per-backend modules (`(modaliser apps iterm)`, `(modaliser muxes tmux)`,
-…) become an implementation layer. They no longer export the 13 ops on
+…) become an implementation layer. They no longer export the 14 ops on
 their public surface — the façade is the single user-facing API. Per-
 backend modules still export inherently-backend-specific procedures
 (e.g. `iterm:configure-entry` to provision iTerm keybinds; the
-`pane-list-block` for iTerm's AX-discovered chips); only the 12 splits-
-tree ops + `focus-pane-by-digit` are removed in favour of the façade.
+`pane-list-block` for iTerm's AX-discovered chips). Only the 12 splits-
+tree procedures (the existing `iterm:focus-pane-*`, `iterm:split-pane-*`,
+`iterm:move-pane-*`) are removed from `(modaliser apps iterm)`; the
+new ops (`focus-pane-by-digit`, `toggle-pane-zoom`) live only on the
+façade.
 
 The existing `(iterm:focus-pane-left)` etc. exports are dropped, not
 aliased. Users migrate their configs to call `(focus-pane-left)`. The

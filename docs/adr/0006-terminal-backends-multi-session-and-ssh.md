@@ -32,7 +32,7 @@ across all dispatches in one leader sequence.
 
 When `focused-terminal-foreground-command` returns `"ssh"`, the
 abstraction treats ssh as any other host-pane foreground command:
-the host backend (iTerm, WezTerm, …) serves the 13 ops, applied to
+the host backend (iTerm, WezTerm, …) serves the 14 ops, applied to
 the host pane that ssh is running in. Modaliser does **not** try to
 reach into the remote to drive a remote tmux/zellij.
 
