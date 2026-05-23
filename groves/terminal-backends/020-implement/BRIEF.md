@@ -109,3 +109,20 @@ Throughout 010-080 the user's existing iTerm flow keeps working
 unchanged (the `iterm:focus-pane-*` exports remain). 090's cutover
 is the only step that touches `config.scm`; it should run on a
 day when the user can validate immediately and roll back if needed.
+
+### Hand-verification debt
+
+Each implementation leaf includes an interactive "verify with real
+session" step that the leaf's own commit cannot complete (background
+sessions can't drive iTerm focus). The pattern: leaf code lands +
+`swift test` green + machine state reflects the install; the user
+runs through the hjkl/split/move/zoom/digit-jump matrix at a moment
+of their choosing and confirms or files a follow-up.
+
+Outstanding as of 020-implement/030:
+- **tmux:** chip-rendering for multi-iTerm-split + tmux is a known
+  soft spot (v1 takes the first AXScrollArea). Single-split is the
+  expected daily case; multi-split is a refinement when the
+  cross-cutting host cell-dim helper called out in the PRD lands
+  (likely 020-implement/050-wezterm-backend, which is the first
+  per-host leaf that needs the helper for its own chips).

@@ -55,17 +55,18 @@ User recall to date:
 - Software was installed then uninstalled — same pattern repeats here.
 - Non-splitting terminals only need *detection* — users add a mux.
 
-## Machine state (2026-05-23)
+## Machine state (2026-05-24)
 
-- Installed: iTerm.app, zellij 0.44.3.
+- Installed: iTerm.app, zellij 0.44.3, tmux 3.6b (re-installed for
+  020-implement/030; left in place pending hand-verification of the
+  new `(modaliser muxes tmux)` backend).
 - Not installed: WezTerm (probed in 030 against cask
   `20240203-110809-5046fc22`, uninstalled per task contract),
   kitty (probed in 050 against cask 0.47.0, uninstalled per task
-  contract), tmux (probed in 040, uninstalled per task contract),
-  ghostty (probed in 060 + 065 against cask 1.3.1, uninstalled per
-  task contract), alacritty (probed in 070 against cask 0.17.0 via
-  manpages only — macOS refuses to launch the cask's adhoc-signed
-  binary; uninstalled per task contract).
+  contract), ghostty (probed in 060 + 065 against cask 1.3.1,
+  uninstalled per task contract), alacritty (probed in 070 against
+  cask 0.17.0 via manpages only — macOS refuses to launch the
+  cask's adhoc-signed binary; uninstalled per task contract).
 - User's `~/.config/kitty/kitty.conf` (98 lines, A/B-rendering
   mirror of `wezterm.lua`) was NOT touched during the kitty probe
   — the `--override allow_remote_control=yes` runtime flag was used
