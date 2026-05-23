@@ -64,12 +64,12 @@ Ghostty, tmux, or zellij (and in any mux-inside-host composition).
 
 - `close-pane`, `resize-pane`, `zoom-pane`, `rotate-panes` — surface
   isn't locked yet; users can already invoke these via raw keystrokes.
-- Cross-host pane control from outside the SSH stream (e.g. driving a
-  remote tmux server from local CLI). Day-one SSH support is via
-  keystroke-proxy, not remote CLI.
+- **SSH'd remote tmux/zellij.** When ssh is the focused-pane
+  foreground command, the host backend serves the 13 ops (against
+  the host pane); Modaliser does not reach into the remote.
+  Cross-host pane control would require a remote agent or
+  tmux `-CC` integration — separate design, future phase.
 - Swift-side changes — Phase 2 is Scheme + shell only.
-- Title-based auto-detection of remote mux presence; day-one SSH
-  context is user-declared.
 
 ## Backends
 
@@ -80,10 +80,8 @@ Ghostty, tmux, or zellij (and in any mux-inside-host composition).
 | Kitty            | host, splits     | ✓ `kitty @ ls` | **13/13** *with configure-entry* (0/13 raw — IPC refused without provisioning) | ✓ writes `allow_remote_control yes` and `enabled_layouts splits,...` to `kitty.conf` | Full ops via `kitty @` IPC. Chip geometry uses BFS over `neighbors`. |
 | Ghostty 1.3.0+   | host, splits     | ✓ AppleScript | **12/13** (no `move-pane`) | — (no provisioning helps; `move_split` doesn't exist in vocabulary) | AppleScript-driven via `split direction <dir>`, `perform action`. `move-pane` blocked upstream. |
 | Ghostty < 1.3.0  | host             | external (AX walk / process tree) | detection only | — | No AppleScript surface; users add a mux for splits. |
-| tmux (local)     | mux              | ✓ `display-message -p '#{pane_current_command}'` | **13/13** | — (works out of the box) | Native format-string CLI; tty-correlated session targeting for multi-session. |
-| tmux (SSH'd)     | mux (remote)     | inferred from `focused-terminal-foreground-command = "ssh"` + user declaration | **12/13** (no `focus-pane-by-digit` — enumeration requires remote query) | — | Directional ops via keystroke-proxy through the SSH stream. |
-| zellij (local)   | mux              | ✓ `action list-panes -j -a` | **13/13** | — (works out of the box) | `zellij action` CLI; tty-correlated session targeting. |
-| zellij (SSH'd)   | mux (remote)     | same as tmux SSH | **12/13** (no digit-jump) | — | Same keystroke-proxy story as SSH'd tmux. |
+| tmux             | mux (local only) | ✓ `display-message -p '#{pane_current_command}'` | **13/13** | — (works out of the box) | Native format-string CLI; tty-correlated session targeting for multi-session-local. |
+| zellij           | mux (local only) | ✓ `action list-panes -j -a` | **13/13** | — (works out of the box) | `zellij action` CLI; tty-correlated session targeting. |
 | Alacritty 0.17.0 | host, no splits  | external (process tree; AX for multi-window) | not applicable | optional — removes `com.apple.quarantine` if installed via the brew cask | Detection-only by design. Users add a mux inside for the 13-op surface. |
 
 ## Abstraction shape
@@ -108,7 +106,7 @@ export the 12 splits-tree procedures or `focus-pane-by-digit`.
 
 (tmux:register!)               ; install tmux dispatch entry
 
-;; Generic tree — works whether iTerm only, iTerm+tmux, ssh+tmux, etc.
+;; Generic tree — works whether iTerm only, iTerm+tmux, Alacritty+zellij, etc.
 (define-tree
   ("h" "Focus left" (terminal:focus-pane-left))
   ("j" "Focus down" (terminal:focus-pane-down))
@@ -135,7 +133,7 @@ predicates, evaluated when the tree is built:
           ("M-l" "Move right" (terminal:move-pane-right)))
         '())
 
-  ;; Digit jump only when supported (false over SSH)
+  ;; Digit jump only when supported (false for Alacritty alone with no mux)
   ,@(if (terminal:supports-digit-jump?)
         '(("g" "Goto pane" (terminal:focus-pane-by-digit)))
         '()))
@@ -155,7 +153,7 @@ dynamic rebuild for cross-backend portability.
 | 2 | Direction-word procedure names (`focus-pane-left`, not `focus-pane-h`) | [ADR-0002](../adr/0002-terminal-backends-keep-direction-word-procedure-names.md) |
 | 3 | Capability predicates: `supports-splits?`, `supports-move-pane?`, `supports-digit-jump?`, `supports?` | [ADR-0004](../adr/0004-terminal-backends-capability-predicates.md) |
 | 4 | configure-entry per backend **from day one** wherever provisioning closes a gap | [ADR-0005](../adr/0005-terminal-backends-configure-entry-day-one.md) |
-| 5 | Multi-session local muxes via tty correlation; SSH'd muxes via keystroke-proxy with user declarations | [ADR-0006](../adr/0006-terminal-backends-multi-session-and-ssh.md) |
+| 5 | Multi-session local muxes via tty correlation; SSH'd remote muxes explicitly out of scope | [ADR-0006](../adr/0006-terminal-backends-multi-session-and-ssh.md) |
 
 ### Backend record (internal)
 
@@ -193,16 +191,18 @@ dispatches per `(active-backend)`.
 1. frontmost-app bundle-id → host backend (from registry).
 2. host backend's `detect-foreground-command` → focused-pane fg cmd.
 3. Dispatch:
-     "tmux"   → local tmux backend (CLI mode; tty-correlated session).
-     "zellij" → local zellij backend (CLI mode; tty-correlated session).
-     "ssh"    → ssh-proxy backend (keystroke-proxy; user-declared
-                remote context: tmux / zellij / shell).
+     "tmux"   → tmux backend (CLI mode; tty-correlated session for
+                multi-session-local).
+     "zellij" → zellij backend (CLI mode; tty-correlated session).
      other    → host backend (direct ops if it supports splits;
-                detection-only otherwise).
+                detection-only otherwise). "ssh", "bash", "zsh",
+                "nvim", etc. all land here — Modaliser drives the
+                host pane, not whatever's inside it.
 ```
 
 The detection primitive always returns from the most-specific backend
-that can serve it (the active mux beats the host when one is present).
+that can serve it (the active local mux beats the host when one is
+present).
 
 ### Module layout
 
@@ -210,7 +210,7 @@ that can serve it (the active mux beats the host when one is present).
 (modaliser terminal)              -- existing module, extended:
                                      detection + 13 ops + predicates
                                      + active-backend resolution
-                                     + ssh-proxy + remote declarations
+                                     + multi-session-local tty correlation
 
 (modaliser apps iterm)            -- existing; loses splits-tree
                                      exports; keeps configure-entry,
@@ -224,9 +224,9 @@ that can serve it (the active mux beats the host when one is present).
                                      until upstream adds move_split)
 (modaliser apps alacritty)        -- new; optional configure-entry
                                      (quarantine removal), register!
-(modaliser muxes tmux)            -- new; register!, internal record
-                                     with both local-CLI and
-                                     keystroke-proxy implementations
+(modaliser muxes tmux)            -- new; register!, internal record;
+                                     local-CLI implementation with
+                                     multi-session tty correlation
 (modaliser muxes zellij)          -- new; analogous to tmux
 ```
 
@@ -243,9 +243,8 @@ backend's `focus-pane-by-digit` produces the list of
 | WezTerm         | window AX frame + per-pane `left_col/top_row` + cell-pixel dims from `list --format json` |
 | Kitty           | window AX frame + topology BFS from `kitty @ ls neighbors` + derived cell dims |
 | Ghostty         | window AX frame + (AX subviews if available, else adjacency-probe BFS) + derived cell dims |
-| tmux (local)    | host AX frame + host cell-pixel dims + tmux `pane_left/pane_top/pane_width/pane_height` |
-| zellij (local)  | host AX frame + host cell-pixel dims + zellij `pane_x/pane_y/pane_columns/pane_rows` |
-| tmux/zellij SSH | n/a — `(supports-digit-jump?)` is `#f` |
+| tmux            | host AX frame + host cell-pixel dims + tmux `pane_left/pane_top/pane_width/pane_height` |
+| zellij          | host AX frame + host cell-pixel dims + zellij `pane_x/pane_y/pane_columns/pane_rows` |
 | Alacritty       | n/a — no panes |
 
 Host cell-pixel-dim derivation (for iTerm, Kitty, Ghostty) is the
@@ -258,11 +257,12 @@ terminal)`.
 
 - **Ghostty 1.3.0+ `move-pane`.** Action doesn't exist in vocabulary;
   `(supports-move-pane?)` is `#f` until upstream adds `move_split`.
-- **SSH'd mux `focus-pane-by-digit`.** Remote enumeration is not
-  available from local CLI; `(supports-digit-jump?)` is `#f` when
-  the active backend is ssh-proxy.
 - **Alacritty alone (no mux).** All 13 ops are `#f`;
   `(supports-splits?)` is `#f`. Users add a mux inside for the surface.
+- **SSH'd remote muxes.** When the focused-pane fg cmd is "ssh", the
+  abstraction treats it as host-pane context — the host backend
+  serves ops against the host pane, not the remote. Users navigate
+  remote muxes with the remote's own keybindings.
 
 ### Detection-quality compromises
 
@@ -282,19 +282,6 @@ terminal)`.
   share a parent pid. Without AX (TCC-required) there is no clean
   way to identify which window is focused. Single-window is the
   well-supported case.
-
-### SSH context resolution
-
-When `focused-terminal-foreground-command` returns `"ssh"`, the
-abstraction needs to know what's on the remote. Day-one resolution:
-
-1. Match the iTerm pane's `ssh` argv against the user's
-   `(terminal:declare-remote! ...)` table.
-2. If no match, default to "assume tmux with `C-b` prefix."
-3. User can override on a per-host basis (see ADR-0006).
-
-Auto-detection of remote mux presence (via terminal title sniffing
-or escape-sequence inspection) is future work.
 
 ### Multi-session resolution
 
@@ -354,12 +341,10 @@ Out of scope for this PRD, captured for traceability:
   keybind action vocabulary, ghostty's `move-pane-*` slots fill in
   via `perform action "move_split:<dir>"` — and a Ghostty
   configure-entry becomes warranted.
-- **Cross-host (SSH) pane control via remote CLI.** Would require a
-  remote Modaliser agent or tmux `-CC` mode integration. Day-one SSH
-  is keystroke-proxy.
-- **Auto-detection of remote mux presence.** Title-based sniffing
-  or escape-sequence inspection. Day-one is user declaration via
-  `(terminal:declare-remote! ...)`.
+- **SSH'd remote tmux/zellij — pane control across the SSH stream.**
+  Would require a remote Modaliser agent or tmux `-CC` mode
+  integration. v1 treats ssh as just-a-command in the host pane;
+  users navigate remote muxes with native keybindings.
 - **AX-subview discovery for Kitty and Ghostty.** Would obviate the
   topology-BFS chip-geometry paths and bring them up to iTerm parity.
 
@@ -370,7 +355,7 @@ Out of scope for this PRD, captured for traceability:
 - [ADR-0003 — Façade-only public surface](../adr/0003-terminal-backends-facade-only-public-surface.md)
 - [ADR-0004 — Capability predicates](../adr/0004-terminal-backends-capability-predicates.md)
 - [ADR-0005 — configure-entry day-one per backend](../adr/0005-terminal-backends-configure-entry-day-one.md)
-- [ADR-0006 — Multi-session and SSH'd muxes day-one](../adr/0006-terminal-backends-multi-session-and-ssh.md)
+- [ADR-0006 — Multi-session local muxes via tty correlation](../adr/0006-terminal-backends-multi-session-and-ssh.md)
 - Phase 1 reference: `docs/reference/terminal-detection.md`
 - Phase 1 how-to: `docs/how-to/terminal-pane-aware-tree.md`
 - Phase 1 spec: `docs/superpowers/specs/2026-05-22-terminal-pane-and-remote-docs-design.md`
