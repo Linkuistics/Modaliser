@@ -34,7 +34,7 @@ expose pane geometry — the user's recall confirms this is acceptable.
 | Ghostty 1.3.1 | host (no API)    | detection only    | **brew's current cask**; no CLI/IPC for pane control; users add a mux inside; AX-walk or process-tree for detection |
 | tmux          | mux              | full              | `display-message`; `display-panes` may serve chips |
 | zellij        | mux              | full              | installed today; ops via `zellij action` |
-| Alacritty     | host no splits   | detection only    | no IPC; users add a mux for splits |
+| Alacritty     | host no splits   | detection only    | by-design no panes; users add a mux. Has `alacritty msg` IPC for window mgmt (NOT for pane queries — there are no panes). Brew cask is Gatekeeper-deprecated; user's macOS refuses to launch it. |
 
 ## What's lost
 
@@ -60,7 +60,9 @@ User recall to date:
   ghostty (probed in 060 against cask 1.3.1, uninstalled per task
   contract — but **brew's cask is pre-1.4**, where the user-
   recalled workarounds reside; treat Ghostty as detection-only
-  until brew passes 1.4), alacritty.
+  until brew passes 1.4), alacritty (probed in 070 against cask
+  0.17.0 via manpages only — macOS refuses to launch the cask's
+  adhoc-signed binary; uninstalled per task contract).
 - User's `~/.config/kitty/kitty.conf` (98 lines, A/B-rendering
   mirror of `wezterm.lua`) was NOT touched during the kitty probe
   — the `--override allow_remote_control=yes` runtime flag was used
