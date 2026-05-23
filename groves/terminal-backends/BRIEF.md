@@ -55,8 +55,13 @@ User recall to date:
 - Installed: iTerm.app, zellij 0.44.3.
 - Not installed: WezTerm (probed in 030 against cask
   `20240203-110809-5046fc22`, uninstalled per task contract),
-  kitty, tmux (probed in 040, uninstalled per task contract),
+  kitty (probed in 050 against cask 0.47.0, uninstalled per task
+  contract), tmux (probed in 040, uninstalled per task contract),
   ghostty, alacritty.
+- User's `~/.config/kitty/kitty.conf` (98 lines, A/B-rendering
+  mirror of `wezterm.lua`) was NOT touched during the kitty probe
+  — the `--override allow_remote_control=yes` runtime flag was used
+  instead of a config edit.
 
 Each per-backend task brews/installs, probes, and uninstalls. The
 "Machine state" section above is updated at the end of each task so
