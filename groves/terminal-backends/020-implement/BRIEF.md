@@ -119,7 +119,7 @@ sessions can't drive iTerm focus). The pattern: leaf code lands +
 runs through the hjkl/split/move/zoom/digit-jump matrix at a moment
 of their choosing and confirms or files a follow-up.
 
-Outstanding as of 020-implement/050:
+Outstanding as of 020-implement/070:
 - **tmux:** chip-rendering for multi-iTerm-split + tmux is a known
   soft spot (v1 takes the first AXScrollArea). Single-split is the
   expected daily case; multi-split is a refinement when the
@@ -177,3 +177,45 @@ Outstanding as of 020-implement/050:
     - Visually confirm chips land within ~1 cell-width of correct
       positions (the [[feedback_chips_are_overlays]] bar).
     - Verify `(supports-zoom?)` reports `#f` and zoom binding omits.
+- **ghostty:** module probed live against cask 1.3.1. AppleScript
+  one-liners verified: `id of focused terminal`, `id of every
+  terminal`, `perform action "goto_split:next" on focused terminal`,
+  `focus (first terminal whose id is "...")`, `split (focused
+  terminal) direction down`. Findings rolled into the module:
+  - **Phantom-terminal leak is bigger than recovery saw.** A fresh
+    cask install with two visible splits enumerates **9** terminals
+    (after a third split: 10 — count is monotonic across the
+    AppleScript session lifetime). Even tab-scoped enumeration
+    (`terminals of selected tab of front window`) is affected — the
+    recovery note's "filter to current tab" guidance doesn't help.
+    `perform action "goto_split:next"` cycles through every entry,
+    real or not. Mitigation in module: chip-mode snapshots the
+    AppleScript id list but truncates to the AX-rect count (real
+    visible panes); digits beyond the visible-pane count don't fire.
+    Directional ops are unaffected — `goto_split:<dir>` already
+    routes only between real panes for Ghostty itself.
+  - **AX-subview probe** — unable to verify from this session for
+    the same reason as kitty: sidecar `swift`/`osascript` shells
+    don't have TCC trust. The module's two-layer fallback
+    (AX rects → no-chips key-range) lets the chip-rendering path
+    activate only when Modaliser itself (which has TCC) drives it.
+  - **detect-fg-command falls back to terminal `name`** — Ghostty
+    1.3.1 exposes no shell pid/tty/foreground-cmd via AppleScript,
+    so the iTerm-style tty-foreground chain isn't available.
+    nvim detection still works via the (modaliser terminal)
+    nvim-socket scan (bypasses the terminal). tmux/zellij-inside-
+    Ghostty detection depends on the user's shell setting the OSC
+    title to include the program name. This is honest v1; record
+    upgrade follow-up if upstream lands one of tty/pid/cmd.
+  - Outstanding for the user's live hand-verify session:
+    - Install Ghostty (`brew install --cask ghostty`).
+    - Open 2-3 splits via the overlay, run hjkl focus +
+      split-h/j/k/l + digit-jump (no move-pane; gap is honest).
+    - Verify `(supports-zoom?)` reports `#t` and
+      `(supports-move-pane?)` reports `#f`.
+    - Visually confirm chips land within ~1 cell-width of correct
+      positions (the [[feedback_chips_are_overlays]] bar).
+    - Confirm whether AX returns one rect per pane or one for the
+      whole window — only the former lets chip count match split
+      count cleanly; the latter would need a follow-up to derive
+      per-pane geometry as kitty's BFS does.

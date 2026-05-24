@@ -64,10 +64,10 @@ User recall to date:
   `20240203-110809-5046fc22`, uninstalled per task contract),
   kitty (probed in recovery 050 + implementation 020/060 against
   cask 0.47.0; uninstalled after both), ghostty (probed in 060 + 065
-  against cask 1.3.1, uninstalled per task contract), alacritty
-  (probed in 070 against cask 0.17.0 via manpages only — macOS
-  refuses to launch the cask's adhoc-signed binary; uninstalled per
-  task contract).
+  + implementation 020/070 against cask 1.3.1, uninstalled per task
+  contract after each), alacritty (probed in 070 against cask 0.17.0
+  via manpages only — macOS refuses to launch the cask's adhoc-signed
+  binary; uninstalled per task contract).
 - User's `~/.config/kitty/kitty.conf` (98 lines, A/B-rendering
   mirror of `wezterm.lua`) was NOT touched during the kitty probe
   — the `--override allow_remote_control=yes` runtime flag was used
