@@ -46,9 +46,6 @@
           default-pane-labels
           pane-list-block
           select-session-by-id
-          focus-pane-left focus-pane-right focus-pane-up focus-pane-down
-          split-pane-left split-pane-right split-pane-up split-pane-down
-          move-pane-left  move-pane-right  move-pane-up  move-pane-down
           configure-entry iterm-configured?)
   (import (scheme base)
           (modaliser dsl)
@@ -60,19 +57,17 @@
           (modaliser accessibility)
           (modaliser hints)
           (modaliser ax-hints)
-          ;; The 14 façade ops + capability predicates from (modaliser terminal)
-          ;; collide with this module's own focus/split/move-pane-* definitions
-          ;; until task 020 makes iTerm register a backend and drop its bare
-          ;; exports. Excluding them keeps Phase-1's daily-driver behaviour
-          ;; intact (BRIEF "Daily-driver continuity").
+          ;; The 14 façade ops live on (modaliser terminal); this module's
+          ;; own focus/split/move-pane-* defines are internal implementations
+          ;; the iTerm backend record points at, not public surface. Importing
+          ;; the façade without its op names would silently shadow them here;
+          ;; importing with `except` is fine because the defines below are
+          ;; the only callers.
           (except (modaliser terminal)
                   focus-pane-left focus-pane-right focus-pane-up focus-pane-down
                   split-pane-left split-pane-right split-pane-up split-pane-down
                   move-pane-left  move-pane-right  move-pane-up  move-pane-down
-                  focus-pane-by-digit toggle-pane-zoom
-                  supports-splits? supports-move-pane? supports-digit-jump?
-                  supports-zoom? supports?
-                  active-backend focused-terminal-path in-chain?)
+                  focus-pane-by-digit toggle-pane-zoom)
           (modaliser theming)
           (modaliser blocks iterm-panes))
   (begin

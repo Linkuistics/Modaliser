@@ -1,9 +1,13 @@
 # Terminal backends grove
 
 Phase 2 of the terminal-pane work. Phase 1 (docs only, merged at
-`17c3621`) wrote per-backend recipes. Phase 2 lifts those recipes into
-`(modaliser terminal)` (or sibling modules) as library calls behind a
-uniform abstraction.
+`17c3621`) wrote per-backend recipes. Phase 2 lifted those recipes
+into `(modaliser terminal)` (façade + 7 backend modules) as library
+calls behind a uniform abstraction. The implementation increment
+(`020-implement/`) and the recovery investigations
+(`010-recover-design/`) are both done; the live grove now holds
+`025-hand-verify.md` (the per-backend live-driver checklist) and
+`030-nested-dispatch-policy.md` (a follow-on design pivot).
 
 ## Two surfaces
 
@@ -39,51 +43,54 @@ expose pane geometry — the user's recall confirms this is acceptable.
 | zellij        | mux              | full              | installed today; ops via `zellij action` |
 | Alacritty 0.17.0 | host no splits | detection only    | by-design no panes; users add a mux. `alacritty msg` IPC for window mgmt only. **No AppleScript SDEF**. Brew cask is Gatekeeper-deprecated AND quarantine-blocked; direct GitHub-releases DMG download bypasses both (075 live-verified). |
 
-## What's lost
+## What shipped
 
-A prior conversation produced first-hand investigation results for
-every backend (install → probe → uninstall). Nothing survived. This
-grove rebuilds those findings via per-backend tasks under
-`010-recover-design/`.
+The 020-implement increment landed:
 
-User recall to date:
-- Solutions for every terminal/mux were found (some hacks).
-- Chip rendering worked for every backend (indirect/inexact in some).
-- Ghostty workarounds existed — *corrected*: AppleScript API
-  added in **1.3.0** (not 1.4 as initially recalled). brew's 1.3.1
-  has it.
-- Software was installed then uninstalled — same pattern repeats here.
-- Non-splitting terminals only need *detection* — users add a mux.
+- **`(modaliser terminal)` façade** — the single public surface
+  exporting the 14 ops (`focus/split/move-pane-{left,right,up,down}`,
+  `focus-pane-by-digit`, `toggle-pane-zoom`), the 5 capability
+  predicates (`supports-splits?`, `supports-move-pane?`,
+  `supports-digit-jump?`, `supports-zoom?`, `supports?`), and the
+  structured detection primitive (`focused-terminal-path`, with
+  `focused-terminal-foreground-command` and `in-chain?` convenience
+  accessors). Per ADR-0003, this is the only place to call the ops
+  from `config.scm`.
+- **7 backend modules** registering against the façade:
+  - Hosts: `(modaliser apps iterm)`, `(modaliser apps wezterm)`,
+    `(modaliser apps kitty)`, `(modaliser apps ghostty)`.
+  - Detection-only host: `(modaliser apps alacritty)` (all 14 op
+    slots `#f`; contributes only the host frame of the
+    focused-terminal path so a mux can take over the splitting
+    surface).
+  - Muxes: `(modaliser muxes tmux)`, `(modaliser muxes zellij)`.
+- **configure-entry overlay actions** for iTerm, WezTerm, Kitty,
+  and (optionally) Alacritty's brew-cask quarantine workaround.
+- **User config migrated** — `~/.config/modaliser/config.scm`
+  calls `(terminal:focus-pane-*)` rather than `(iterm:focus-pane-*)`;
+  the 12 splits-tree exports were dropped from `(modaliser apps
+  iterm)`.
+- **Phase-1 docs updated** — `docs/reference/terminal-detection.md`
+  and `docs/how-to/terminal-pane-aware-tree.md` document the façade
+  as the official interface (capability-predicate pattern included).
 
 ## Machine state (2026-05-24)
 
-- Installed: iTerm.app, zellij 0.44.3, tmux 3.6b (re-installed for
-  020-implement/030; left in place pending hand-verification of the
-  new `(modaliser muxes tmux)` backend).
-- Not installed: WezTerm (probed in 030 against cask
-  `20240203-110809-5046fc22`, uninstalled per task contract),
-  kitty (probed in recovery 050 + implementation 020/060 against
-  cask 0.47.0; uninstalled after both), ghostty (probed in 060 + 065
-  + implementation 020/070 against cask 1.3.1, uninstalled per task
-  contract after each), alacritty (probed in recovery 070 against
-  cask 0.17.0 via manpages only — macOS refuses to launch the cask's
-  adhoc-signed binary — and again in recovery 075 against the direct
-  GitHub-releases DMG of 0.17.0 with live verification; uninstalled
-  after each. Not re-probed for implementation 020/080: the module is
-  detection-only, every op slot is #f, and the recovery findings
-  cover both install paths exhaustively. Hand-verify item below).
-- User's `~/.config/kitty/kitty.conf` (98 lines, A/B-rendering
-  mirror of `wezterm.lua`) was NOT touched during the kitty probe
-  — the `--override allow_remote_control=yes` runtime flag was used
-  instead of a config edit.
+- Installed: iTerm.app, zellij 0.44.3, tmux 3.6b, Modaliser.app
+  (rebuilt + reinstalled at 020-implement/090 cutover).
+- Not installed: WezTerm, kitty, ghostty, alacritty — each was
+  brewed/probed/uninstalled per task contract during recovery and
+  implementation. See `done/010-recover-design/notes/<backend>.md`
+  and `done/020-implement/BRIEF.md` for the live-probed findings.
+  Each will be reinstalled-then-uninstalled during the
+  `025-hand-verify.md` pass.
+- User's `~/.config/kitty/kitty.conf` was not touched during probing
+  (the `--override allow_remote_control=yes` runtime flag was used).
 
-Each per-backend task brews/installs, probes, and uninstalls. The
-"Machine state" section above is updated at the end of each task so
-this brief always reflects on-disk truth.
-
-**Verifier note:** `brew list --cask` reads metadata only — it returns
-success for casks whose .app was manually trashed. Verify the actual
-artifact with `[ -d /Applications/<App>.app ]` or `mdfind -name <App>`.
+**Verifier note:** `brew list --cask` reads metadata only — it
+returns success for casks whose .app was manually trashed. Verify
+the actual artifact with `[ -d /Applications/<App>.app ]` or
+`mdfind -name <App>`.
 
 ## Non-goals
 
@@ -95,13 +102,24 @@ artifact with `[ -d /Applications/<App>.app ]` or `mdfind -name <App>`.
 ## References
 
 - **Phase-2 PRD:** `docs/prd/terminal-backends.md` — the agreement
-  produced by 010-recover-design/090, what 020-implement (TBD) ships.
+  produced by `done/010-recover-design/090`, what `done/020-implement`
+  shipped.
 - **ADRs:**
-  - `docs/adr/0001-terminal-backends-named-modules-with-facade.md`
+  - `docs/adr/0001-terminal-backends-named-modules-with-facade.md` (**superseded by 0003**)
   - `docs/adr/0002-terminal-backends-keep-direction-word-procedure-names.md`
+  - `docs/adr/0003-terminal-backends-facade-only-public-surface.md`
+  - `docs/adr/0004-terminal-backends-capability-predicates.md`
+  - `docs/adr/0005-terminal-backends-configure-entry-day-one.md`
+  - `docs/adr/0006-terminal-backends-multi-session-and-ssh.md`
+  - `docs/adr/0007-terminal-backends-pane-zoom-in-op-surface.md`
+  - `docs/adr/0008-terminal-backends-focused-terminal-path.md`
 - Phase-1 spec: `docs/superpowers/specs/2026-05-22-terminal-pane-and-remote-docs-design.md`
-- Phase-1 reference: `docs/reference/terminal-detection.md`
-- Phase-1 how-to: `docs/how-to/terminal-pane-aware-tree.md`
-- Existing library: `Sources/Modaliser/Scheme/lib/modaliser/terminal.sld`
-- iTerm app module: `Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`
+- Phase-1 reference: `docs/reference/terminal-detection.md` (now
+  documents the façade as the official interface)
+- Phase-1 how-to: `docs/how-to/terminal-pane-aware-tree.md` (now
+  shows the capability-predicate pattern)
+- Façade: `Sources/Modaliser/Scheme/lib/modaliser/terminal.sld`
+- Backend modules:
+  `Sources/Modaliser/Scheme/lib/modaliser/apps/{iterm,wezterm,kitty,ghostty,alacritty}.sld`,
+  `Sources/Modaliser/Scheme/lib/modaliser/muxes/{tmux,zellij}.sld`
 - Glossary: `CONTEXT.md`

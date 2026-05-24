@@ -1,10 +1,13 @@
 # How to vary the terminal tree by what's in the focused pane
 
 You want F17 (the local leader) to show different bindings depending
-on what is running in the focused iTerm split — e.g. an nvim-specific
-tree when nvim is focused, a git tree when lazygit is focused. The
-dispatcher already supports this through a *context suffix*; this guide
-wires it up.
+on what is running in the focused terminal pane — e.g. an
+nvim-specific tree when nvim is focused, a git tree when lazygit is
+focused. The dispatcher already supports this through a *context
+suffix*; this guide wires it up. The same pattern works whether the
+focused terminal is iTerm, WezTerm, Kitty, Ghostty, or a multiplexer
+inside one of them, because the detection primitive
+(`focused-terminal-path`) is generic across all registered backends.
 
 ## How it works
 
@@ -22,11 +25,10 @@ support it, and the nvim RPC route — see
 
 ## You'll need
 
-- iTerm2 as your terminal. The suffix hook itself is generic, but
-  the built-in detection primitive (`focused-terminal-foreground-command`)
-  is iTerm2-only today; for other terminals you supply the detection
-  yourself — see the recipes in
-  [terminal-detection.md](../reference/terminal-detection.md).
+- A registered terminal backend — one of iTerm, WezTerm, Kitty,
+  Ghostty, Alacritty, tmux, or zellij. The detection primitives
+  (`focused-terminal-foreground-command`, `focused-terminal-path`,
+  `in-chain?`) work across all of them.
 - For nvim-variant trees: the `FocusGained`/`FocusLost` autocmds in
   your nvim config — see [The nvim side](
   ../reference/terminal-detection.md#the-nvim-side) in the
@@ -118,6 +120,76 @@ For example, branch on its filetype:
 
 This requires the nvim-side `FocusGained`/`FocusLost` autocmds — see
 [The nvim side](../reference/terminal-detection.md#the-nvim-side).
+
+## One tree across every backend: capability predicates
+
+The 14-op surface on `(modaliser terminal)` lets a single tree
+drive any registered terminal — at call time the façade routes to
+whichever backend's `register!` thunk matched the frontmost app.
+But not every backend supports every op (Kitty has no zoom,
+Ghostty has no `move-pane-*`, Alacritty has no splits at all),
+so a static tree that hard-codes every op will surface entries
+that silently no-op on backends that don't support them.
+
+The capability predicates let the tree omit those entries
+on the backends where they wouldn't work. `define-tree` is a
+regular procedure, so the canonical splice idiom is `apply` +
+`append` — the same pattern the bundled `(modaliser apps iterm)`
+module uses for its own conditional children:
+
+```scheme
+(import (modaliser dsl)
+        (prefix (modaliser terminal) terminal:))
+
+(define (rebuild-terminal-tree!)
+  (apply define-tree 'com.googlecode.iterm2
+    (append
+      (list
+        (category "Focus"
+          (key "h" "Left"  terminal:focus-pane-left)
+          (key "j" "Down"  terminal:focus-pane-down)
+          (key "k" "Up"    terminal:focus-pane-up)
+          (key "l" "Right" terminal:focus-pane-right)))
+
+      ;; Move-pane only when the active backend supports it.
+      (if (terminal:supports-move-pane?)
+          (list
+            (group "m" "Move"
+              'sticky #t
+              'exit-on-unknown #t
+              (key "h" "Left"  terminal:move-pane-left)
+              (key "j" "Down"  terminal:move-pane-down)
+              (key "k" "Up"    terminal:move-pane-up)
+              (key "l" "Right" terminal:move-pane-right)))
+          '())
+
+      ;; Digit-jump only on backends that paint chips.
+      (if (terminal:supports-digit-jump?)
+          (list (key "g" "Goto pane" terminal:focus-pane-by-digit))
+          '())
+
+      ;; Zoom only on backends with a native zoom toggle.
+      (if (terminal:supports-zoom?)
+          (list (key "z" "Toggle Zoom" terminal:toggle-pane-zoom))
+          '()))))
+```
+
+Call `rebuild-terminal-tree!` from a suffix hook (the worked
+example above) so the tree shape tracks the active backend on
+every leader press.
+
+The five capability predicates are:
+
+- `(terminal:supports-splits?)` — backend exposes `split-pane-*`
+- `(terminal:supports-move-pane?)` — backend exposes `move-pane-*`
+- `(terminal:supports-digit-jump?)` — backend exposes `focus-pane-by-digit`
+- `(terminal:supports-zoom?)` — backend exposes `toggle-pane-zoom`
+- `(terminal:supports? 'focus-pane-left)` — universal introspection by op name
+
+They're evaluated whenever the tree is built — typically inside a
+suffix hook, so the answer reflects whichever backend is frontmost
+*at that moment* — and so the tree shape stays in sync with the
+active backend.
 
 ## Verify it worked
 

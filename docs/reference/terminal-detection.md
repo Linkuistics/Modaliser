@@ -38,7 +38,27 @@ varies between hosts.
 
 `(focused-terminal-foreground-command)`
 : Returns the focused terminal split's foreground command, or
-  `#f`. Composes the two functions above. **iTerm2-only today.**
+  `#f`. Convenience accessor over `focused-terminal-path` (below)
+  — returns the innermost backend's `fg` slot, so a focused
+  command inside tmux-inside-iTerm reads through cleanly.
+
+`(focused-terminal-path)`
+: Returns the structured detection primitive: an alist keyed by
+  backend symbol with `#(pane <id> fg <cmd>)` vector values,
+  representing the chain from the host terminal down through any
+  multiplexer to the innermost foreground command. Each backend
+  symbol appears at most once. Returns `'()` when no registered
+  backend is frontmost. See
+  [ADR-0008](../adr/0008-terminal-backends-focused-terminal-path.md)
+  for the wire format and the rationale for an alist rather than
+  an ordered list.
+
+`(in-chain? backend-sym)`
+: `#t` when `backend-sym` appears in the current path. The
+  predicate users reach for when writing suffix hooks
+  (`(in-chain? 'tmux)`, `(in-chain? 'iterm)`). Registered
+  backend symbols today: `'iterm`, `'wezterm`, `'kitty`,
+  `'ghostty`, `'alacritty`, `'tmux`, `'zellij`.
 
 `(list-nvim-sockets)`
 : Returns a list of Unix-socket paths bound by all running nvim
@@ -84,8 +104,10 @@ configuration is required.
 
 ### WezTerm
 
-No library support. WezTerm exposes a CLI that lists panes in
-JSON:
+Library-backed via `(modaliser apps wezterm)`. Internally the
+backend drives the `wezterm cli` JSON listing below; hook authors
+who want detection without going through the façade can use the
+same recipe directly:
 
 ```
 wezterm cli list --format json
@@ -102,7 +124,8 @@ focus-detection logic. There is no `get-active-pane-id`
 subcommand; do not rely on one.
 
 ```scheme
-;; DIY recipe — no library support.  Adapt to your WezTerm version.
+;; Backend-bypass recipe — for hook authors who want the JSON
+;; listing directly. Adapt to your WezTerm version.
 ;; wezterm cli list --format json returns: window_id, tab_id,
 ;; pane_id, workspace, size, title, cwd per pane.
 ;; Your version may expose an active-pane flag — check the
@@ -118,12 +141,13 @@ subcommand; do not rely on one.
     out)) ; parse JSON with your preferred approach
 ```
 
-This is a recipe to adapt, not a supported API.
-
 ### Kitty
 
-No library support. Kitty exposes an IPC that lists windows in
-JSON:
+Library-backed via `(modaliser apps kitty)`. The backend drives
+the `kitty @ ls` IPC below; hook authors who want detection
+without going through the façade can use the same recipe
+directly. Note that `(supports-zoom?)` returns `#f` for Kitty in
+v1 — Kitty has no native zoom analogue.
 
 ```
 kitty @ ls
@@ -144,7 +168,8 @@ lists all processes in the window's process group, each with
 DIY recipe sketch:
 
 ```scheme
-;; DIY recipe — no library support.  Adapt to your Kitty config.
+;; Backend-bypass recipe — for hook authors who want the JSON
+;; listing directly. Adapt to your Kitty config.
 ;; Requires: allow_remote_control yes in kitty.conf
 ;; kitty @ ls returns JSON with windows containing:
 ;;   is_focused (bool), foreground_processes [{cmdline, pid}]
@@ -174,24 +199,46 @@ DIY recipe sketch:
       (if (string=? trimmed "") #f trimmed))))
 ```
 
-This is a recipe to adapt, not a supported API.
+### Ghostty
 
-### Ghostty / Alacritty
+Ghostty 1.3.0+ ships an AppleScript SDEF
+(`com.mitchellh.ghostty`). The frontmost terminal and its splits
+are introspectable via `id of focused terminal` / `id of every
+terminal`, and `perform action "<keybind>" on <terminal>` drives
+the documented keybind actions (`new_split:<dir>`,
+`goto_split:<dir>`, …). The library registers a Ghostty backend
+on top of this SDEF — see the `(modaliser apps ghostty)` module.
 
-No native-split introspection in either terminal.
+The SDEF exposes no foreground-command/tty/pid slot today, so the
+generic `tty-foreground-command` chain doesn't apply; the
+backend's `detect-fg-command` falls back to the terminal's
+AppleScript `name`. A focused nvim is still resolvable via the
+RPC route below regardless of host terminal.
 
-**Ghostty** has no control CLI; pane state is not queryable from
-outside the process.
+There is also a known *phantom-terminal leak* — a fresh window
+with two visible splits enumerates more than two terminals in
+AppleScript's tree, and the count grows monotonically with new
+splits. The Ghostty backend snapshots the list and truncates to
+the AX-rect count when painting chips; directional ops
+(`goto_split:<dir>`) are unaffected.
 
-**Alacritty** has no IPC and no splits by design — it is a
-single-pane terminal. There is no focused pane to query;
+### Alacritty
+
+Alacritty 0.12+ ships an IPC CLI (`alacritty msg`) for
+window-management operations (`create-window`, `config`). It has
+no panes by design, so there is no focused-pane query to make —
 Alacritty is always showing exactly one tty. Because there is
 only one tty, you already know which tty to probe: a `ps`-based
 foreground-process query against that tty works directly, with
 no split-disambiguation step needed.
 
-If you need splitting under Ghostty or Alacritty, delegate to a
-multiplexer (see next section).
+The library registers Alacritty as a **detection-only backend**:
+every op slot is `#f`, but its `detect-fg-command` produces the
+host row of `focused-terminal-path`, letting a multiplexer
+running inside Alacritty take over the splitting surface.
+
+If you need splitting under Alacritty, run a multiplexer inside
+it (see next section).
 
 ## Reaching through a multiplexer
 
@@ -224,11 +271,21 @@ Alacritty, or anything else.
 
 ### zellij
 
-zellij exposes no per-pane tty or command query comparable to
-tmux. You can detect "zellij is running" (it will be the host
-tty's foreground command via `tty-foreground-command`), but the
-focused zellij pane's contents are not directly queryable from
-outside the process.
+zellij 0.40+ exposes a `zellij action` CLI for driving panes
+from outside the process (`focus-next-pane`, `new-pane
+--direction`, `move-focus <dir>`, …), and the library uses it to
+implement the splitting ops for the zellij backend. The library
+also resolves the right session in multi-session setups by
+correlating each zellij client's tty with the focused host pane's
+tty — see
+[ADR-0006](../adr/0006-terminal-backends-multi-session-and-ssh.md).
+
+For *detection* — the focused zellij pane's foreground command —
+the CLI has no equivalent to tmux's `pane_current_command`. The
+library's zellij backend reports the host row of
+`focused-terminal-path` plus the `zellij` segment; whether a
+specific command is running *inside* the focused zellij pane is
+not directly queryable from outside the process.
 
 For a focused nvim *inside* a zellij pane, use the nvim RPC route
 below — it bypasses the multiplexer entirely.
@@ -285,27 +342,35 @@ than producing a Vim error.
 
 ## What each terminal supports
 
-| Terminal  | Native-split focused-pane detection               | Notes                                   |
-|-----------|---------------------------------------------------|-----------------------------------------|
-| iTerm2    | Yes — AppleScript (`focused-terminal-foreground-command`) | Only terminal with library support today |
-| WezTerm   | Partial — `wezterm cli list --format json`        | DIY recipe; active-pane field is version-dependent |
-| Kitty     | Yes — `kitty @ ls`; needs `allow_remote_control`  | DIY recipe, opt-in                      |
-| Ghostty   | No external pane API                              | Delegate splitting to a multiplexer     |
-| Alacritty | No IPC; no splits by design                       | Single pane only; probe its one tty directly with `ps` |
+Every terminal/mux in the table has a backend module registered
+with `(modaliser terminal)`; the façade exports the unified op
+surface and the capability predicates that let one tree adapt to
+whichever backend is frontmost
+([how-to/terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md)
+shows the capability-predicate pattern).
 
-| Multiplexer | Focused-pane query                                              | Notes                                              |
-|-------------|-----------------------------------------------------------------|----------------------------------------------------|
-| tmux        | Yes — `tmux display-message -p '#{pane_current_command}'` / `#{pane_tty}` | Finest granularity; host-terminal-independent |
-| zellij      | No per-pane tty/command query comparable to tmux                | Detect "zellij running" + nvim-via-RPC; a non-nvim focused zellij pane is not resolvable |
+| Terminal  | Library backend          | Focused-pane detection                                       | Notes                                            |
+|-----------|--------------------------|--------------------------------------------------------------|--------------------------------------------------|
+| iTerm2    | `apps/iterm`             | Yes — AppleScript + `tty-foreground-command`                 | Reference backend; full 14-op surface            |
+| WezTerm   | `apps/wezterm`           | Yes — `wezterm cli list --format json` (active-pane flag)    | Full splitting surface                           |
+| Kitty     | `apps/kitty`             | Yes — `kitty @ ls`; needs `allow_remote_control` (or `listen_on`) | No zoom op in v1 (`supports-zoom?` → `#f`)  |
+| Ghostty   | `apps/ghostty`           | AppleScript SDEF (1.3.0+); `name`-based fg fallback          | No `move-pane-*` in v1 (`supports-move-pane?` → `#f`) |
+| Alacritty | `apps/alacritty`         | Single tty — `ps` directly                                   | Detection-only; no native splits; run a mux inside |
+
+| Multiplexer | Library backend | Focused-pane query                                                          | Notes                                                     |
+|-------------|-----------------|-----------------------------------------------------------------------------|-----------------------------------------------------------|
+| tmux        | `muxes/tmux`    | Yes — `tmux display-message -p '#{pane_current_command}'` / `#{pane_tty}` | Finest granularity; host-terminal-independent              |
+| zellij      | `muxes/zellij`  | `zellij action` drives ops; no `#{pane_current_command}` equivalent       | Ops work; mid-pane command detection needs the nvim RPC route |
 
 ## Limits
 
-A non-nvim program in a focused **native iTerm2 split** *is*
-resolvable: `focused-terminal-foreground-command` reads it via
-AppleScript plus `tty-foreground-command`. The same program in a
-focused **zellij pane** is *not* resolvable: zellij has no
-per-pane query. Ghostty and Alacritty have no native-split
-introspection at all.
+A non-nvim program in the focused pane is resolvable on iTerm,
+WezTerm, and Kitty (all expose a per-pane tty + foreground
+command). It is **not** resolvable inside a focused zellij pane
+or a focused Ghostty split (neither exposes pane-internal
+foreground commands today). For these cases, use
+`(in-chain? 'zellij)` / `(in-chain? 'ghostty)` to branch on
+*container* and let the nvim RPC route handle the nvim case.
 
 nvim is always resolvable via the RPC route regardless of host
 terminal or multiplexer, as long as the `FocusGained`/`FocusLost`

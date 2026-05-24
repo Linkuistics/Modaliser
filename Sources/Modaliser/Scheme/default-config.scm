@@ -26,7 +26,8 @@
         (modaliser window)                  ; list-windows, focus-window
         (prefix (modaliser web-search)      web-search:)
         (prefix (modaliser apps safari)     safari:)
-        (prefix (modaliser apps iterm)      iterm:))
+        (prefix (modaliser apps iterm)      iterm:)
+        (prefix (modaliser terminal)        terminal:))
 
 ;; ─── Leader keys ─────────────────────────────────────────────────
 ;; F18 global, F17 local. arm-when-frontmost suppresses leader arming
@@ -156,26 +157,26 @@
   ;; swap-keystroke emission all live inside the library.
 
   (category "Focus"
-    (key "h" "Left"  iterm:focus-pane-left)
-    (key "j" "Down"  iterm:focus-pane-down)
-    (key "k" "Up"    iterm:focus-pane-up)
-    (key "l" "Right" iterm:focus-pane-right))
+    (key "h" "Left"  terminal:focus-pane-left)
+    (key "j" "Down"  terminal:focus-pane-down)
+    (key "k" "Up"    terminal:focus-pane-up)
+    (key "l" "Right" terminal:focus-pane-right))
 
   (category "Split"
-    (key "H" "Left"  iterm:split-pane-left)
-    (key "J" "Down"  iterm:split-pane-down)
-    (key "K" "Up"    iterm:split-pane-up)
-    (key "L" "Right" iterm:split-pane-right))
+    (key "H" "Left"  terminal:split-pane-left)
+    (key "J" "Down"  terminal:split-pane-down)
+    (key "K" "Up"    terminal:split-pane-up)
+    (key "L" "Right" terminal:split-pane-right))
 
   ;; Move Pane sticky modal — m enters the group, hjkl swap the focused
   ;; pane in that direction and stay; any other key exits.
   (group "m" "Move"
     'sticky #t
     'exit-on-unknown #t
-    (key "h" "Left"  iterm:move-pane-left)
-    (key "j" "Down"  iterm:move-pane-down)
-    (key "k" "Up"    iterm:move-pane-up)
-    (key "l" "Right" iterm:move-pane-right))
+    (key "h" "Left"  terminal:move-pane-left)
+    (key "j" "Down"  terminal:move-pane-down)
+    (key "k" "Up"    terminal:move-pane-up)
+    (key "l" "Right" terminal:move-pane-right))
 
   ;; Bottom: labelled panes list. 'chips? #t paints the pane chips and
   ;; bundles a hidden digit key-range that focuses panes by UUID.
