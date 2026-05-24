@@ -119,10 +119,18 @@ sessions can't drive iTerm focus). The pattern: leaf code lands +
 runs through the hjkl/split/move/zoom/digit-jump matrix at a moment
 of their choosing and confirms or files a follow-up.
 
-Outstanding as of 020-implement/030:
+Outstanding as of 020-implement/040:
 - **tmux:** chip-rendering for multi-iTerm-split + tmux is a known
   soft spot (v1 takes the first AXScrollArea). Single-split is the
   expected daily case; multi-split is a refinement when the
   cross-cutting host cell-dim helper called out in the PRD lands
   (likely 020-implement/050-wezterm-backend, which is the first
   per-host leaf that needs the helper for its own chips).
+- **zellij:** same multi-iTerm-split chip-rendering soft spot
+  (inherits the iTerm-as-host assumption from tmux). Additionally,
+  multi-zellij-session selection depends on parsing
+  `ps -p PID -o args=` for `--session NAME` / `attach NAME` tokens;
+  unusual launch shapes (wrapper scripts, `zellij --layout …` with
+  no explicit session, attached via socket without --session) will
+  miss the session name and fall back to the default session. Single-
+  session is the expected daily case and works without any of this.
