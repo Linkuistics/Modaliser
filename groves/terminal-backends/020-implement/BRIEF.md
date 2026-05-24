@@ -119,13 +119,13 @@ sessions can't drive iTerm focus). The pattern: leaf code lands +
 runs through the hjkl/split/move/zoom/digit-jump matrix at a moment
 of their choosing and confirms or files a follow-up.
 
-Outstanding as of 020-implement/040:
+Outstanding as of 020-implement/050:
 - **tmux:** chip-rendering for multi-iTerm-split + tmux is a known
   soft spot (v1 takes the first AXScrollArea). Single-split is the
   expected daily case; multi-split is a refinement when the
   cross-cutting host cell-dim helper called out in the PRD lands
-  (likely 020-implement/050-wezterm-backend, which is the first
-  per-host leaf that needs the helper for its own chips).
+  (likely 020-implement/060-kitty-backend, the next per-host leaf
+  that needs the helper for its own chips).
 - **zellij:** same multi-iTerm-split chip-rendering soft spot
   (inherits the iTerm-as-host assumption from tmux). Additionally,
   multi-zellij-session selection depends on parsing
@@ -134,3 +134,15 @@ Outstanding as of 020-implement/040:
   no explicit session, attached via socket without --session) will
   miss the session name and fall back to the default session. Single-
   session is the expected daily case and works without any of this.
+- **wezterm:** chip rendering assumes WezTerm exposes its panes as
+  `AXScrollArea` (parallel to iTerm). Not verified live; if WezTerm
+  uses a different role (likely `AXGroup` or similar in newer
+  versions) chips simply don't render and digits still dispatch via
+  the hidden key-range fallback. Pick this up if/when WezTerm becomes
+  a daily-driver candidate or someone reports the gap. The window-
+  origin derivation (focused pane AX frame minus its cell offset
+  times cell-pixel ratio) is mathematically clean once an AX frame
+  is in hand. Also: `move-pane-{h,j,k,l}` are honestly unsupported
+  in v1 — see [[../done/010-recover-design/notes/wezterm.md]] and
+  ADR-0005 reversal note; no work scheduled until WezTerm grows a
+  directional pane-swap primitive upstream.

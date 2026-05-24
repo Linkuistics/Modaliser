@@ -98,7 +98,7 @@ uniquely; matches typical usage).
 | Backend          | Type             | Detection | 14-op surface (day-one)              | Zoom | configure-entry | One-line summary |
 |------------------|------------------|:---------:|:-------------------------------------|:----:|:----------------|------------------|
 | iTerm2           | host, splits     | ✓ AppleScript + `ps` | **14/14**                  | ✓    | ✓ existing — provisions split/move keybinds in plist | Baseline. Keystroke-proxy ops + AX-discovered chip geometry. |
-| WezTerm          | host, splits     | ✓ `wezterm cli list --format json` | **14/14** *with configure-entry* (13/14 raw — no move-pane until provisioned) | ✓ via `TogglePaneZoomState` | ✓ writes move-pane keybinds to `wezterm.lua` (keystroke-proxy invokes them) | Cleanest CLI surface; JSON exposes per-pane cell + pixel dims directly. |
+| WezTerm          | host, splits     | ✓ `wezterm cli list --format json` | **13/14** (no `move-pane`)             | ✓ via `wezterm cli zoom-pane --toggle` | — (no provisioning helps; WezTerm has no directional pane-swap primitive in CLI, default keybinds, or Lua pane API) | Cleanest CLI surface; JSON exposes per-pane cell + pixel dims directly. `move-pane` blocked upstream like Ghostty. |
 | Kitty            | host, splits     | ✓ `kitty @ ls` | **13/14** *with configure-entry* (0/14 raw — IPC refused without provisioning); no zoom | — | ✓ writes `allow_remote_control yes` and `enabled_layouts splits,...` to `kitty.conf` | Full directional ops via `kitty @` IPC. No native single-pane zoom. |
 | Ghostty 1.3.0+   | host, splits     | ✓ AppleScript | **13/14** (no `move-pane`)             | ✓ via `perform action "toggle_split_zoom"` | — (no provisioning helps; `move_split` doesn't exist in vocabulary) | AppleScript-driven via `split direction <dir>`, `perform action`. `move-pane` blocked upstream. |
 | Ghostty < 1.3.0  | host             | external (AX walk / process tree) | detection only        | —    | — | No AppleScript surface; users add a mux for splits. |
@@ -146,8 +146,8 @@ predicates, evaluated when the tree is built:
   ("h" "Focus left" (terminal:focus-pane-left))
   ;; ... focus/split bindings always present (every splitting backend has them)
 
-  ;; Move-pane only when supported (WezTerm needs configure-entry first;
-  ;; Ghostty 1.3.1 never; tmux/zellij/iTerm/Kitty always)
+  ;; Move-pane only when supported (WezTerm and Ghostty 1.3.1 never;
+  ;; tmux/zellij/iTerm/Kitty always)
   ,@(if (terminal:supports-move-pane?)
         '(("M-h" "Move left"  (terminal:move-pane-left))
           ("M-j" "Move down"  (terminal:move-pane-down))
@@ -261,7 +261,9 @@ present).
                                      exports; keeps configure-entry,
                                      pane-list-block, focus-mode-tree,
                                      register!
-(modaliser apps wezterm)          -- new; configure-entry, register!,
+(modaliser apps wezterm)          -- new; register! (no configure-entry —
+                                     WezTerm has no directional pane-swap
+                                     primitive, so move-pane stays #f);
                                      internal backend record
 (modaliser apps kitty)            -- new; configure-entry (kitty.conf
                                      edit), register!

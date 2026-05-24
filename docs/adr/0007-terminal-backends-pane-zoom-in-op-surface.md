@@ -11,7 +11,11 @@ At v1, support is uneven by design:
 
 - **iTerm.** Supported via existing keystroke proxy (the user's tree
   already has "z Toggle Zoom" wired up).
-- **WezTerm.** Supported (`wezterm.lua` action `TogglePaneZoomState`).
+- **WezTerm.** Supported via `wezterm cli zoom-pane --toggle` — a
+  CLI subcommand added some time after the ADR's recovery-phase
+  notes. The original "via `TogglePaneZoomState` Lua action" plan
+  (which would have needed a configure-entry to bind it to a keybind)
+  is unnecessary now that the CLI exposes it natively.
 - **tmux.** Supported (`resize-pane -Z`).
 - **zellij.** Supported (`action toggle-fullscreen` or equivalent).
 - **Ghostty.** Supported (`perform action "toggle_split_zoom"`).

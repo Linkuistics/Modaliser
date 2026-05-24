@@ -12,9 +12,18 @@ Day-one configure-entry coverage:
 
 - **iTerm2 (existing).** Writes split / move keybinds into
   `~/Library/Preferences/com.googlecode.iterm2.plist`.
-- **WezTerm.** Appends move-pane keybinds to the user's
+- **WezTerm.** ~~Appends move-pane keybinds to the user's
   `wezterm.lua` (which Modaliser then invokes via keystroke-proxy).
-  Without this, WezTerm is 13/14 (raw); with it, 14/14.
+  Without this, WezTerm is 13/14 (raw); with it, 14/14.~~
+  **Reversed at implementation time** (020-implement/050): re-probe
+  found WezTerm has no directional pane-swap primitive — not in CLI
+  (`activate-pane-direction` is focus, `adjust-pane-size` is resize,
+  `split-pane --move-pane-id` moves into a new split), not in default
+  keybinds (`RotatePanes` is global Clockwise/CCW), not in the Lua
+  pane API. A keybind would have nothing to call. WezTerm ships at
+  13/14 with no configure-entry; move-pane is honestly absent like
+  Ghostty. Re-add a configure-entry if a future WezTerm release adds
+  the primitive.
 - **Kitty.** Sets `allow_remote_control yes` and ensures
   `enabled_layouts` includes `splits` in `~/.config/kitty/kitty.conf`.
   Without this, kitty's `@` IPC is refused and `launch
