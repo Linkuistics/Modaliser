@@ -146,3 +146,34 @@ Outstanding as of 020-implement/050:
   in v1 — see [[../done/010-recover-design/notes/wezterm.md]] and
   ADR-0005 reversal note; no work scheduled until WezTerm grows a
   directional pane-swap primitive upstream.
+- **kitty:** module live-probed against cask 0.47.0 (the same
+  version recovery investigated in 050). Findings rolled back into
+  the module + docs as the leaf landed:
+  - **`listen_on` directive** added to configure-entry — Modaliser
+    running outside kitty.app needs a known socket path, which the
+    leaf spec didn't capture; recorded in ADR-0005.
+  - **JSON parser** filters to the active OS-window's active tab —
+    `kitty @ ls` returns the full UI tree including background tabs;
+    flattening across tabs collides panes when laying out the grid.
+  - **Position derivation** rewritten from a tree BFS into constraint
+    propagation: a pane sits at `(max-over-L of L.col + L.cols,
+    max-over-T of T.row + T.lines)`. The probe's nested layout (one
+    vsplit with an hsplit inside) revealed that kitty's `neighbors`
+    is a relation, not a tree — pane 1 with R=[2,3] (both panes
+    touching its right edge) can't be queue-walked without checking
+    top-neighbor constraints simultaneously.
+  - **AX-subview probe** — unable to verify from this session: AX
+    queries require process accessibility-trust, which a sidecar
+    `swift` CLI doesn't have. The module's runtime three-layer
+    fallback (AX-per-pane → AX-host-frame + position-prop → no-chips
+    key-range) lets *both* paths ship; the intended path becomes
+    clear only when Modaliser itself (which has TCC trust) runs the
+    code against a live kitty window. Hand-verify item: confirm
+    which path activates.
+  - Outstanding for the user's live hand-verify session:
+    - Run `(kitty:configure-entry)` + relaunch kitty.
+    - Open 2-3 panes, run through hjkl focus + split-h/j/k/l +
+      move-pane-h/j/k/l + digit-jump.
+    - Visually confirm chips land within ~1 cell-width of correct
+      positions (the [[feedback_chips_are_overlays]] bar).
+    - Verify `(supports-zoom?)` reports `#f` and zoom binding omits.

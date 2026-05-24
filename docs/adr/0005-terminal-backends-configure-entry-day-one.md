@@ -24,11 +24,22 @@ Day-one configure-entry coverage:
   13/14 with no configure-entry; move-pane is honestly absent like
   Ghostty. Re-add a configure-entry if a future WezTerm release adds
   the primitive.
-- **Kitty.** Sets `allow_remote_control yes` and ensures
-  `enabled_layouts` includes `splits` in `~/.config/kitty/kitty.conf`.
-  Without this, kitty's `@` IPC is refused and `launch
-  --location=vsplit` falls back to the wrong layout — i.e. 0/14.
-  (Kitty stays 13/14 even with configure-entry — no native zoom.)
+- **Kitty.** Sets `allow_remote_control yes`, `listen_on
+  unix:/tmp/kitty-modaliser`, and ensures `enabled_layouts` includes
+  `splits` in `~/.config/kitty/kitty.conf`. The `listen_on` directive
+  was added at implementation time (020-implement/060) after the
+  recovery notes' live-probe pattern (`kitty @ --to=unix:…` with
+  `--listen-on=` at launch) made it clear Kitty's per-instance
+  abstract socket isn't reachable from outside its own terminal —
+  Modaliser, running as a separate process, needs a known socket
+  path to call `kitty @` against. Without `listen_on`, the IPC is
+  refused even with `allow_remote_control yes`. Without `splits` in
+  `enabled_layouts`, `launch --location=vsplit` falls back to the
+  wrong layout — i.e. 0/14. The user's existing kitty.conf (a 98-line
+  A/B-rendering mirror of `wezterm.lua`) is backed up to
+  `kitty.conf.modaliser-backup` once on first run; the backup is kept
+  forever so the pre-Modaliser file remains restorable. (Kitty stays
+  13/14 even with configure-entry — no native zoom.)
 - **Alacritty.** Optional: `xattr -d com.apple.quarantine
   /Applications/Alacritty.app` if installed via the (Gatekeeper-
   deprecated) brew cask. Required only when the brew install path
