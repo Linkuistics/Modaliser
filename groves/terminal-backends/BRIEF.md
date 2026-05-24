@@ -65,9 +65,13 @@ User recall to date:
   kitty (probed in recovery 050 + implementation 020/060 against
   cask 0.47.0; uninstalled after both), ghostty (probed in 060 + 065
   + implementation 020/070 against cask 1.3.1, uninstalled per task
-  contract after each), alacritty (probed in 070 against cask 0.17.0
-  via manpages only — macOS refuses to launch the cask's adhoc-signed
-  binary; uninstalled per task contract).
+  contract after each), alacritty (probed in recovery 070 against
+  cask 0.17.0 via manpages only — macOS refuses to launch the cask's
+  adhoc-signed binary — and again in recovery 075 against the direct
+  GitHub-releases DMG of 0.17.0 with live verification; uninstalled
+  after each. Not re-probed for implementation 020/080: the module is
+  detection-only, every op slot is #f, and the recovery findings
+  cover both install paths exhaustively. Hand-verify item below).
 - User's `~/.config/kitty/kitty.conf` (98 lines, A/B-rendering
   mirror of `wezterm.lua`) was NOT touched during the kitty probe
   — the `--override allow_remote_control=yes` runtime flag was used

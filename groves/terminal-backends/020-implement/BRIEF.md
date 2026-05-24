@@ -219,3 +219,42 @@ Outstanding as of 020-implement/070:
       whole window — only the former lets chip count match split
       count cleanly; the latter would need a follow-up to derive
       per-pane geometry as kitty's BFS does.
+- **alacritty:** module is detection-only by design (every op slot
+  `#f`); not re-probed at implementation time. Recovery 070 + 075
+  cover both install paths (brew cask with the quarantine workaround;
+  direct GitHub-releases DMG without it) and the live-verified
+  detection chain. Findings rolled into the module:
+  - **Bundle-id `org.alacritty`** assumed — the canonical upstream
+    Info.plist value. Not verified against an actual on-disk install
+    in this session; the hand-verify step confirms via `mdls -name
+    kMDItemCFBundleIdentifier /Applications/Alacritty.app`. If it's
+    different, edit the `make-terminal-backend` literal.
+  - **Detection picks the first child shell** when alacritty hosts
+    more than one window. Honest v1: without an AX walk from the
+    focused NSWindow back to its child pid (TCC-required), we can't
+    disambiguate. Single-window-single-instance — the daily case —
+    is fully supported. Follow-up only if multi-window becomes a
+    real ask.
+  - **configure-entry** is `xattr -d com.apple.quarantine` — useful
+    only when the user installed via the (Gatekeeper-deprecated)
+    brew cask. The entry is hidden when `/Applications/Alacritty.app`
+    doesn't exist OR exists without the quarantine xattr, so it
+    nags only when there is something to do.
+  - Outstanding for the user's live hand-verify session:
+    - Install Alacritty via the recommended path (direct GitHub-
+      releases DMG); confirm `org.alacritty` is the bundle-id via
+      `mdls -name kMDItemCFBundleIdentifier /Applications/Alacritty.app`.
+    - Confirm the configure-entry stays hidden after the direct-DMG
+      install (no quarantine attr).
+    - Optionally: re-install via `brew install --cask alacritty`,
+      confirm the entry appears, run it, confirm the entry vanishes
+      and Alacritty launches.
+    - Run tmux (or zellij) inside Alacritty as `shell.program`;
+      press leader → focus-pane-left; verify the mux backend takes
+      over (the Alacritty backend supplies only the host frame of
+      `(focused-terminal-path)`).
+    - Verify `(focused-terminal-path)` looks like
+      `'((alacritty . #(pane #f fg "tmux")) (tmux . #(pane "%0" fg
+      "nvim")))` when nvim is running inside tmux inside Alacritty.
+    - Uninstall Alacritty after probing (`rm -rf
+      /Applications/Alacritty.app`) unless the user wants to keep it.
