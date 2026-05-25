@@ -19,6 +19,15 @@ enum KeystrokeEmitter {
         keyDown.flags = flags
         keyUp.flags = flags
 
+        // Tag so KeyboardCapture's tap recognises these as our own re-injection
+        // and passes them through, instead of letting the modal catch-all
+        // suppress them on the way back through (e.g. Ctrl+1 for space switch
+        // posted from inside the modal action that's still tearing down).
+        keyDown.setIntegerValueField(.eventSourceUserData,
+                                     value: KeyboardCapture.reInjectionMagic)
+        keyUp.setIntegerValueField(.eventSourceUserData,
+                                   value: KeyboardCapture.reInjectionMagic)
+
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
     }
