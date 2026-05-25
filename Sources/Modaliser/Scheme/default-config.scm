@@ -128,6 +128,15 @@
 
 (safari:register!)
 
+;; Register the iTerm backend with (modaliser terminal) so the façade's
+;; (terminal:focus-pane-*) / (terminal:split-pane-*) / (terminal:move-
+;; pane-*) calls below route to iTerm. 'install-tree? #f skips the
+;; library's own rebuild-tree! — the inline (define-tree
+;; 'com.googlecode.iterm2 …) below is the tree we want, not the
+;; library's stock one. The backend record + sticky focus mode + digit-
+;; pick mode + context-suffix handler still install.
+(iterm:register! 'install-tree? #f)
+
 ;; iTerm tree inlined here (formerly (iterm:register!)) so it's easy
 ;; to tweak. The pane-selection mechanism is the (iterm:pane-list-block)
 ;; block: it paints pane chips, renders a row list at the bottom of the

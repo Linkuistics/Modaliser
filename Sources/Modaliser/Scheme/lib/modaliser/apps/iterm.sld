@@ -613,29 +613,40 @@
 
     ;; One-stop convenience: register the dynamic iTerm tree, the sticky
     ;; focus mode, the digit-pick mode, the <terminal-backend> record
-    ;; with the façade, and install the context-suffix handler. Pass
-    ;; 'install-context-suffix? #f if you compose your own handler — your
-    ;; handler can then call (context-suffix-handler bid …opts) to
-    ;; delegate the iTerm branch.
+    ;; with the façade, and install the context-suffix handler.
+    ;;
+    ;; Options:
+    ;;   'install-tree? BOOL (default #t)
+    ;;     #f to skip the (rebuild-tree! …) call. Use when you've
+    ;;     written your own (define-tree 'com.googlecode.iterm2 …) by
+    ;;     hand and don't want this thunk to clobber it — the backend
+    ;;     record is still registered with the façade so
+    ;;     (terminal:focus-pane-*) / (terminal:split-pane-*) etc. work.
+    ;;   'install-context-suffix? BOOL (default #t)
+    ;;     #f if you compose your own context-suffix handler — yours
+    ;;     can then call (context-suffix-handler bid …opts) to delegate
+    ;;     the iTerm branch.
     (define (register! . opts)
       (let* ((alist (apply props->alist opts))
-             (install? (alist-ref alist 'install-context-suffix? #t))
+             (install-tree?    (alist-ref alist 'install-tree? #t))
+             (install-suffix?  (alist-ref alist 'install-context-suffix? #t))
              (forwarded
                (let loop ((kvs opts) (acc '()))
                  (cond
                    ((null? kvs) (reverse acc))
                    ((null? (cdr kvs))
                     (error "register!: odd keyword/value list"))
-                   ((eq? (car kvs) 'install-context-suffix?)
+                   ((memq (car kvs) '(install-tree? install-context-suffix?))
                     (loop (cddr kvs) acc))
                    (else
                     (loop (cddr kvs)
                           (cons (cadr kvs) (cons (car kvs) acc))))))))
-        (apply rebuild-tree! forwarded)
+        (when install-tree?
+          (apply rebuild-tree! forwarded))
         (apply focus-mode-register! forwarded)
         (pane-digit-register!)
         (register-backend! (iterm-terminal-backend))
-        (when install?
+        (when install-suffix?
           (set-local-context-suffix!
             (lambda (bundle-id)
               (apply context-suffix-handler bundle-id forwarded))))))

@@ -62,21 +62,45 @@ tree appears instead.
 
 Inlining the iTerm tree by hand — writing a
 `(define-tree 'com.googlecode.iterm2 …)` instead of calling
-`(iterm:register!)` — keeps your bindings but **drops the suffix-hook
-install**. Pane detection silently does nothing; you always get the
-plain tree.
+`(iterm:register!)` — keeps your bindings but **drops two
+behaviours the library would otherwise install**:
 
-Two ways back:
+1. The **iTerm backend record** registers with `(modaliser
+   terminal)`. Without this, `(terminal:focus-pane-left)` and the
+   other 13 façade ops have no backend to dispatch to and raise an
+   error at call time. (Pre-cutover the bare `(iterm:focus-pane-*)`
+   procedures didn't need this — they were direct calls.)
+2. The **context-suffix handler** lets `/nvim`-style variant trees
+   activate. Pane detection silently does nothing without it; you
+   always get the plain tree.
 
-**(a) Install your own hook** with `set-local-context-suffix!` (the
-next section). Best if you want to keep managing the tree by hand — you
-have already chosen to own it.
+The fix for #1 is `(iterm:register! 'install-tree? #f)` — this calls
+everything `register!` normally does **except** the
+`rebuild-tree!` step that would clobber your inline tree:
 
-**(b) Revert to `(iterm:register!)`** and add your customisations
-through its `'extra-bindings` option instead of inlining.
+```scheme
+(import (modaliser dsl)
+        (prefix (modaliser apps iterm) iterm:)
+        (prefix (modaliser terminal)   terminal:))
 
-Recommendation: choose (a). The inlined tree reflects a deliberate
-choice to own the bindings; the next section shows exactly what to add.
+;; Register the iTerm backend record + sticky focus mode + digit-pick
+;; mode + suffix handler with the façade, but leave the tree to us.
+(iterm:register! 'install-tree? #f)
+
+(define-tree 'com.googlecode.iterm2
+  (category "Focus"
+    (key "h" "Left"  terminal:focus-pane-left)
+    (key "j" "Down"  terminal:focus-pane-down)
+    (key "k" "Up"    terminal:focus-pane-up)
+    (key "l" "Right" terminal:focus-pane-right))
+  …)
+```
+
+That single call covers #1 *and* #2 — the default suffix handler
+(detecting nvim, zellij, tmux inside iTerm) installs automatically.
+If you want a custom suffix handler instead, also pass
+`'install-context-suffix? #f` and write your own per the next
+section.
 
 ## Worked example: a custom context suffix
 
