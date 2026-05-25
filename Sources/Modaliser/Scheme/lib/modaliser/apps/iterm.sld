@@ -547,8 +547,16 @@
     ;; Variant string for the focused iTerm pane, used by the
     ;; (modaliser event-dispatch) dispatcher to select sub-tree variants
     ;; like 'com.googlecode.iterm2/nvim. Returns #f if no variant applies.
-    ;; Side-effect: rebuilds the iTerm tree so subsequent lookups see the
-    ;; current pane layout.
+    ;;
+    ;; Side-effect: refreshes the iTerm pane snapshot so chip rendering
+    ;; and digit dispatch see the current pane layout. When 'rebuild? is
+    ;; #t (default), also rebuilds the library's stock iTerm tree —
+    ;; necessary if the library owns the tree (its key-range bakes UUIDs
+    ;; at tree-build time). Pass 'rebuild? #f if your config inlines its
+    ;; own (define-tree 'com.googlecode.iterm2 …) — the rebuild would
+    ;; clobber the inline tree, and inline trees typically use
+    ;; (iterm:pane-list-block …) which reads the snapshot directly at
+    ;; render time.
     ;;
     ;; Accepts the same trailing opts as rebuild-tree! ('pane-labels,
     ;; 'pane-range-label, 'sticky-mode-id). They are forwarded to the
@@ -559,15 +567,30 @@
     (define (context-suffix-handler bundle-id . opts)
       (cond
         ((equal? bundle-id "com.googlecode.iterm2")
-         (apply rebuild-tree! opts)
-         (let ((cmd (focused-terminal-foreground-command)))
-           (cond
-             ((not cmd) #f)
-             ((string-contains? cmd "nvim") "/nvim")
-             ((or (string-contains? cmd "zellij")
-                  (string-contains? cmd "zj"))
-              (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
-             (else #f))))
+         (let* ((alist     (apply props->alist opts))
+                (rebuild?  (alist-ref alist 'rebuild? #t))
+                (forwarded
+                  (let loop ((kvs opts) (acc '()))
+                    (cond
+                      ((null? kvs) (reverse acc))
+                      ((null? (cdr kvs))
+                       (error "context-suffix-handler: odd keyword/value list"))
+                      ((eq? (car kvs) 'rebuild?)
+                       (loop (cddr kvs) acc))
+                      (else
+                       (loop (cddr kvs)
+                             (cons (cadr kvs) (cons (car kvs) acc))))))))
+           (if rebuild?
+               (apply rebuild-tree! forwarded)
+               (iterm-panes-refresh!))
+           (let ((cmd (focused-terminal-foreground-command)))
+             (cond
+               ((not cmd) #f)
+               ((string-contains? cmd "nvim") "/nvim")
+               ((or (string-contains? cmd "zellij")
+                    (string-contains? cmd "zj"))
+                (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
+               (else #f)))))
         (else #f)))
 
     ;; A standalone "pick a digit to focus a pane" mode. The façade's
@@ -649,7 +672,8 @@
         (when install-suffix?
           (set-local-context-suffix!
             (lambda (bundle-id)
-              (apply context-suffix-handler bundle-id forwarded))))))
+              (apply context-suffix-handler
+                     bundle-id 'rebuild? install-tree? forwarded))))))
 
     ;; ─── Block-based pane selection ────────────────────────────────
     ;;
