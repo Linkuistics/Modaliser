@@ -137,6 +137,24 @@
 ;; pick mode + context-suffix handler still install.
 (iterm:register! 'install-tree? #f)
 
+;; Tab rename — clicks iTerm's Window > Tab > Edit Tab Title menu via
+;; System Events. iTerm opens its inline tab-bar editor; the user types
+;; the new title and presses Enter inside iTerm.
+;;
+;; iTerm's `tab` class advertises a writable `title` property but
+;; rejects writes at runtime (AppleEvent -10000). `name of session`
+;; *is* writable and surfaces in the tab bar, but shell title escapes
+;; (\e]0;…\a from precmd hooks) clobber it on the next prompt — and
+;; it's not the per-tab override the menu sets. The menu click is the
+;; only path to the real override.
+(define (rename-iterm-tab!)
+  (run-shell
+   (string-append
+    "osascript -e 'tell application \"System Events\" to tell process \"iTerm2\" "
+    "to click menu item \"Edit Tab Title\" of menu \"Tab\" "
+    "of menu item \"Tab\" of menu \"Window\" of menu bar 1' "
+    "2>/dev/null")))
+
 ;; iTerm tree inlined here (formerly (iterm:register!)) so it's easy
 ;; to tweak. The pane-selection mechanism is the (iterm:pane-list-block)
 ;; block: it paints pane chips, renders a row list at the bottom of the
@@ -186,6 +204,9 @@
     (key "j" "Down"  terminal:move-pane-down)
     (key "k" "Up"    terminal:move-pane-up)
     (key "l" "Right" terminal:move-pane-right))
+
+  (group "t" "Tab"
+    (key "r" "Rename" rename-iterm-tab!))
 
   ;; Bottom: labelled panes list. 'chips? #t paints the pane chips and
   ;; bundles a hidden digit key-range that focuses panes by UUID.
