@@ -1,0 +1,1 @@
+Start a new grove called {{NAME}} in this worktree. Use grove's start-a-new-grove flow: grill me on the goal first (use the bundled grilling procedure), sharpening new terminology into CONTEXT.md inline. Then propose the root .grove/BRIEF.md (per BRIEF-FORMAT.md) and a small initial decomposition — first one or two leaves only. Don't over-plan.
