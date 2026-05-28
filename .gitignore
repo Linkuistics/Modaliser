@@ -2,5 +2,3 @@
 .swiftpm/
 *.iconset/
 dist/
-.claude/
-.superpowers/
