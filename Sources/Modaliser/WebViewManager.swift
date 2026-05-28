@@ -218,4 +218,34 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
 private class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    // Modaliser is LSUIElement and never installs an NSApp.mainMenu, so
+    // AppKit's standard key-equivalent path can't translate Cmd-V/C/X/A/Z
+    // into action selectors and dispatch them to the focused responder.
+    // WKWebView's own performKeyEquivalent returns true via its async-claim
+    // protocol but the resulting action never fires — the user hears the
+    // "no responder" beep. We bridge the gap by mapping the standard
+    // text-editing shortcut class here and routing through NSApp.sendAction,
+    // which walks the responder chain the same way a menu item would.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown,
+           event.modifierFlags.contains(.command),
+           let chars = event.charactersIgnoringModifiers?.lowercased() {
+            let shift = event.modifierFlags.contains(.shift)
+            let selector: Selector?
+            switch chars {
+            case "v": selector = Selector(("paste:"))
+            case "c": selector = Selector(("copy:"))
+            case "x": selector = Selector(("cut:"))
+            case "a": selector = Selector(("selectAll:"))
+            case "z": selector = shift ? Selector(("redo:")) : Selector(("undo:"))
+            default:  selector = nil
+            }
+            if let selector,
+               NSApp.sendAction(selector, to: nil, from: self) {
+                return true
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
