@@ -48,3 +48,23 @@ cell-pixel dimensions must be derived rather than read).
 **Suffix hook** — the per-app context handler installed via
 `set-local-context-suffix!`; returns a string like `/nvim` that
 selects a variant tree. See `docs/how-to/terminal-pane-aware-tree.md`.
+
+## Chooser domain
+
+**Chooser** — an activating modal panel built on a `WKWebView`, containing
+a single text input above a filtered result list. The user types to filter,
+selects with arrows/hjkl, activates with Enter. Sources: `chooser.scm`,
+`chooser.js`, `ChooserSearchEngine.swift`. The only Modaliser surface that
+hosts a focused text input.
+
+**Chooser input** — the single `<input id="chooser-input">` element
+each chooser hosts. The lone keyboard-text-entry site in Modaliser; if
+clipboard paste fails anywhere in Modaliser, it fails here.
+_Avoid_: "search box", "filter field" — use "chooser input."
+
+**Standard text-editing shortcuts** — the full Cocoa class of keyboard
+behaviours a focused `NSTextField` / `<input>` gives a macOS user without
+opt-in: Cmd-V/C/X/A, option-arrows for word movement, Cmd-arrows for
+line/document jumps, Cmd-Z/Shift-Cmd-Z undo, etc. Treated as one class
+because they share an event path; failing one usually means failing all.
+A chooser input should support the whole class.
