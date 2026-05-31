@@ -1,0 +1,35 @@
+/* iterm-tabs.css — labelled iTerm tabs-list block. Mirrors
+   window-list.css; the .current row marks the focused tab. */
+
+.block-iterm-tabs {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-separator);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.block-iterm-tabs .it-row {
+  display: grid;
+  grid-template-columns: 3ch auto 1fr;
+  column-gap: 4px;
+  align-items: baseline;
+}
+
+.block-iterm-tabs .it-row .entry-key { color: var(--color-key); font-weight: 600; }
+.block-iterm-tabs .it-row .entry-arrow { color: var(--color-arrow); }
+.block-iterm-tabs .it-row .entry-label {
+  color: var(--color-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The currently-focused tab: bolder label and a leading marker. */
+.block-iterm-tabs .it-row.current .entry-label { font-weight: 700; }
+.block-iterm-tabs .it-row.current .entry-arrow { content: none; }
+.block-iterm-tabs .it-row.current .entry-key::after {
+  content: " ●";
+  color: var(--color-key);
+}

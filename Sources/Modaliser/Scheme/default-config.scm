@@ -41,9 +41,9 @@
 (set-overlay-delay! 0.3)
 
 ;; Theme colours and any other styling live in
-;; ~/.config/modaliser/theme.css (auto-loaded at boot). The bundled
-;; defaults — including the chip colours — pick up --color-host-bg /
-;; --color-host-fg from there. See docs/reference/theming.md.
+;; ~/.config/modaliser/overlay.css (auto-loaded at boot). The bundled
+;; chip default reads --color-host-bg from there. See
+;; docs/reference/theming.md.
 
 ;; ─── Global command tree (F18) ───────────────────────────────────
 
@@ -64,9 +64,9 @@
 
   ;; Window manager overlay ("w"). Each block is declared explicitly so
   ;; the structure of the overlay is visible at the config level. Swap
-  ;; in different (window:divisions …) matrices to change the layout;
+  ;; in different (window:divisions …) matrices to change the layout,
   ;; chip styling lives in the .chip CSS rule (base.css +
-  ;; ~/.config/modaliser/theme.css — see docs/reference/theming.md).
+  ;; ~/.config/modaliser/overlay.css — see docs/reference/theming.md).
   (key "w" "Windows"
        (overlay
         ;; Top: panel grid + matching move-window key bindings. Each form
@@ -102,26 +102,24 @@
   ;; renderer flows categories and loose-key runs as columns, left to
   ;; right, wrapping onto a new row when the overlay runs out of width.
 
-  (category "Instant Apps"
+  (category "Applications"
+    (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
     (key "b" "Browser"          (λ () (launch-app "Dia")))
     (key "e" "Editor"           (λ () (launch-app "Zed")))
-    (key "t" "Terminal"         (λ () (launch-app "iTerm"))))
+    (key "t" "Terminal"         (λ () (launch-app "iTerm")))
+    (key "m" "Mail"             (λ () (launch-app "Mail")))
+    (key "n" "Notes"            (λ () (launch-app "Notes")))
+    (key "o" "Obsidian"         (λ () (launch-app "Obsidian")))
+    (key "z" "Zotero"           (λ () (launch-app "Zotero"))))
 
   (category "AI"
     (key "c" "ChatGPT"          (λ () (launch-app "ChatGPT")))
     (key "C" "Claude Desktop"   (λ () (launch-app "Claude"))))
 
   (category "Search"
-    (key "g" "Google"           (web-search:google))
-    (key "a" "Find Application" (launcher:find-application))
-    (key "f" "Find File"        (launcher:find-file)))
-
-  (category "Apps"
-    (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
-    (key "m" "Mail"             (λ () (launch-app "Mail")))
-    (key "n" "Notes"            (λ () (launch-app "Notes")))
-    (key "o" "Obsidian"         (λ () (launch-app "Obsidian")))
-    (key "z" "Zotero"           (λ () (launch-app "Zotero"))))
+    (key "g" "Google"       (web-search:google))
+    (key "a" "Applications" (launcher:find-application))
+    (key "f" "Files"        (launcher:find-file)))
 )
 
 ;; ─── Per-app trees (F17 when that app is focused) ────────────────
@@ -153,6 +151,28 @@
     "osascript -e 'tell application \"System Events\" to tell process \"iTerm2\" "
     "to click menu item \"Edit Tab Title\" of menu \"Tab\" "
     "of menu item \"Tab\" of menu \"Window\" of menu bar 1' "
+    "2>/dev/null")))
+
+;; New tab inheriting the current session's profile, so it matches
+;; whatever you're in now rather than the default profile. The profile is
+;; read and used entirely inside AppleScript — nothing crosses into the
+;; shell, so there is nothing to escape. (Inside `tell current window`,
+;; `current session` already resolves to that window; adding `of current
+;; window` there would double-resolve and error.)
+(define (new-iterm-tab!)
+  (run-shell
+   (string-append
+    "osascript -e 'tell application \"iTerm\" to tell current window "
+    "to create tab with profile (profile name of current session)' "
+    "2>/dev/null")))
+
+;; Close the focused tab. iTerm raises its own \"a job is running\"
+;; confirmation when the tab has a live process, so no extra guard here.
+(define (close-iterm-tab!)
+  (run-shell
+   (string-append
+    "osascript -e 'tell application \"iTerm\" to "
+    "close (current tab of current window)' "
     "2>/dev/null")))
 
 ;; iTerm tree inlined here (formerly (iterm:register!)) so it's easy
@@ -189,11 +209,11 @@
     (key "k" "Up"    terminal:focus-pane-up)
     (key "l" "Right" terminal:focus-pane-right))
 
-  (category "Split"
-    (key "H" "Left"  terminal:split-pane-left)
-    (key "J" "Down"  terminal:split-pane-down)
-    (key "K" "Up"    terminal:split-pane-up)
-    (key "L" "Right" terminal:split-pane-right))
+  (group "s" "Split"
+    (key "h" "Left"  terminal:split-pane-left)
+    (key "j" "Down"  terminal:split-pane-down)
+    (key "k" "Up"    terminal:split-pane-up)
+    (key "l" "Right" terminal:split-pane-right))
 
   ;; Move Pane sticky modal — m enters the group, hjkl swap the focused
   ;; pane in that direction and stay; any other key exits.
@@ -205,8 +225,15 @@
     (key "k" "Up"    terminal:move-pane-up)
     (key "l" "Right" terminal:move-pane-right))
 
-  (group "t" "Tab"
-    (key "r" "Rename" rename-iterm-tab!))
+  ;; Tab sub-overlay. (overlay …) renders its children as a block list
+  ;; and lifts the tab-list block's hidden 1.. range onto this group, so
+  ;; pressing t shows every tab (title + number, the focused one marked)
+  ;; and a digit switches to that tab. r/n/d act on tabs.
+  (overlay 'key "t" 'label "Tab"
+    (key "r" "Rename" rename-iterm-tab!)
+    (key "n" "New"    new-iterm-tab!)
+    (key "d" "Delete" close-iterm-tab!)
+    (iterm:tab-list-block))
 
   ;; Bottom: labelled panes list. 'chips? #t paints the pane chips and
   ;; bundles a hidden digit key-range that focuses panes by UUID.

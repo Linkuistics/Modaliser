@@ -46,6 +46,8 @@
           default-pane-labels
           pane-list-block
           select-session-by-id
+          tab-list-block
+          select-tab-by-index
           configure-entry iterm-configured?)
   (import (scheme base)
           (modaliser dsl)
@@ -69,7 +71,8 @@
                   move-pane-left  move-pane-right  move-pane-up  move-pane-down
                   focus-pane-by-digit toggle-pane-zoom)
           (modaliser theming)
-          (modaliser blocks iterm-panes))
+          (modaliser blocks iterm-panes)
+          (modaliser blocks iterm-tabs))
   (begin
 
     (define default-pane-labels
@@ -720,5 +723,60 @@
     (define (pane-list-block . opts)
       (let ((base (apply make-iterm-panes-block opts)))
         (append base (list (cons 'block-children
-                                 (list (pane-range)))))))))
+                                 (list (pane-range)))))))
+
+    ;; ─── Block-based tab selection ─────────────────────────────────
+    ;;
+    ;; Companion to (modaliser blocks iterm-tabs), shaped exactly like
+    ;; the pane block above: wrap the block constructor and bundle a
+    ;; hidden 1.. key-range so digits switch to the freshly-snapshotted
+    ;; tab by position every time the overlay renders. Unlike panes there
+    ;; are no chips — iTerm tabs live in the tab bar, so the block only
+    ;; contributes a row list.
+    ;;
+    ;; Usage from config.scm — a keyed sub-overlay under the iTerm tree:
+    ;;
+    ;;   (overlay 'key "t" 'label "Tab"
+    ;;     (key "r" "Rename" rename-iterm-tab!)
+    ;;     (key "n" "New"    new-iterm-tab!)
+    ;;     (key "d" "Delete" close-iterm-tab!)
+    ;;     (iterm:tab-list-block))
+
+    ;; Index is the tab's 1-based position rendered as a string by the
+    ;; tab snapshot — numeric only, so inlining into AppleScript is safe.
+    (define (iterm-select-tab-by-index index-str)
+      (run-shell
+        (string-append
+          "osascript -e 'tell application \"iTerm\" to "
+          "tell tab " index-str " of current window to select' "
+          "2>/dev/null")))
+
+    ;; Public passthrough — mirrors select-session-by-id.
+    (define (select-tab-by-index index-str)
+      (iterm-select-tab-by-index index-str))
+
+    ;; Same on-demand refresh fallback as focus-by-digit: a tab digit can
+    ;; be pressed before the overlay's on-render snapshot has run (a
+    ;; leader-then-digit press faster than the overlay delay).
+    (define (tab-select-by-digit d)
+      (let ((entry (or (assoc d (iterm-tabs-current-targets))
+                       (begin
+                         (iterm-tabs-refresh!)
+                         (assoc d (iterm-tabs-current-targets))))))
+        (when entry
+          (iterm-select-tab-by-index (cdr entry)))))
+
+    ;; Hidden 1.. range: digits switch to the tab at that position. The
+    ;; tab list block already shows the label→title mapping, so the
+    ;; which-key strip suppresses this row ('hidden #t), as pane-range does.
+    (define (tab-range)
+      (cons (cons 'hidden #t)
+            (key-range "1.." "Tab <n>"
+              default-pane-labels
+              (lambda (k) (tab-select-by-digit k)))))
+
+    (define (tab-list-block . opts)
+      (let ((base (apply make-iterm-tabs-block opts)))
+        (append base (list (cons 'block-children
+                                 (list (tab-range)))))))))
 
