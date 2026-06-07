@@ -49,6 +49,28 @@ cell-pixel dimensions must be derived rather than read).
 `set-local-context-suffix!`; returns a string like `/nvim` that
 selects a variant tree. See `docs/how-to/terminal-pane-aware-tree.md`.
 
+## Window-switching domain
+
+**Window chip** — the digit-label overlay painted over an on-screen
+*window* (not a terminal pane) so the user can focus that window by
+typing its digit. Same overlay machinery as the pane **Chip** above
+(`hints-show` native windows); the distinction is the labelled target:
+a top-level OS window vs. a pane inside a terminal. Triggered by
+`(window:list-block 'chips? #t)`. Source: `window-list.sld`.
+_Avoid_ bare "chip" when the window-vs-pane distinction matters.
+
+**Same-app overlap** — the failure this grove addresses: two or more
+windows of the *same* application whose on-screen frames overlap, so
+their window chips land on top of each other and become unreadable /
+un-aimable. Observed with iTerm and Dia; treated as generic, not
+app-specific.
+
+**Chip placement** — the two-stage pipeline that turns a window into a
+`(label, screen-rect)` pair for `hints-show`: (1) a Swift geometric
+stage that subtracts occluder rects from the window to find a clear
+fragment (`ChipPlacement.swift`), then (2) a Scheme reactive stage that
+"dodges" chips which still collide (`window-list.sld`).
+
 ## Chooser domain
 
 **Chooser** — an activating modal panel built on a `WKWebView`, containing
