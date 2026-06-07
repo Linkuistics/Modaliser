@@ -54,12 +54,13 @@
     ;;     (window-chip-for, ax-target-hints).
     ;;   • The clearance `find-chip-position` requires between a chip
     ;;     and any occluding window edge.
-    ;;   • The gap `resolve-occluded-against-visible` leaves when
-    ;;     dodging a chip around another chip.
+    ;;   • The inter-cell gap of the Stage-B slot lattice
+    ;;     (`assign-chips`, step = chip side + this), so cascaded chips
+    ;;     stay separated from each other and from on-window chips.
     ;;
     ;; A single value keeps all three concepts in lockstep — chips
     ;; that fit at the natural inset, that fit on an unoccluded patch,
-    ;; and that dodge each other all share the same visual rhythm.
+    ;; and that fall back to the lattice all share the same visual rhythm.
     (define (chip-host-padding) 12)
 
     ;; CSS-stack producer. Root.scm injects a thunk returning the live

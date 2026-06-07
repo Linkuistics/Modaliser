@@ -23,7 +23,11 @@
 (define-library (modaliser blocks window-list)
   (export make-window-list-block
           window-list-current-labels
-          window-list-current-targets)
+          window-list-current-targets
+          ;; Exported for unit testing the Stage-B placement invariant
+          ;; (see SameAppChipCollisionTests / window-list tests).
+          assign-chips
+          chips-overlap?)
   (import (scheme base)
           (modaliser util)
           (modaliser window)
@@ -52,8 +56,6 @@
     ;; chip and any occluding window edge, and between two chips that
     ;; dodge each other are all the same value: `(chip-host-padding)`
     ;; from (modaliser theming). See its docstring for the rationale.
-
-    (define chip-resolve-max-attempts 64)
 
     (define (chips-overlap? a b)
       (let ((ax (cdr (assoc 'x a))) (ay (cdr (assoc 'y a)))
@@ -112,73 +114,134 @@
               (cons 'border-width (cdr (assoc 'border-width opts)))
               (cons 'border-color (cdr (assoc 'border-color opts))))))
 
-    (define (resolve-occluded-against-visible chips initial-placed sw sh)
-      (let outer ((rest chips)
-                  (placed (let r ((xs initial-placed) (a '()))
-                            (if (null? xs) a (r (cdr xs) (cons (car xs) a)))))
-                  (new-count 0))
-        (cond
-          ((null? rest)
-            (let collect ((p placed) (remaining new-count) (acc '()))
-              (cond
-                ((zero? remaining) acc)
-                (else (collect (cdr p) (- remaining 1) (cons (car p) acc))))))
-          (else
-            (let* ((c0 (clamp-chip-to-screen (car rest) sw sh))
-                   (natural-y (cdr (assoc 'y c0))))
-              (let inner ((c c0) (attempts 0))
-                (cond
-                  ((>= attempts chip-resolve-max-attempts)
-                   (outer (cdr rest) (cons c placed) (+ new-count 1)))
-                  (else
-                    (let ((conflict (find-overlapping placed c)))
-                      (cond
-                        ((not conflict)
-                         (outer (cdr rest) (cons c placed) (+ new-count 1)))
-                        (else
-                          (let* ((cw (cdr (assoc 'w c))) (ch (cdr (assoc 'h c)))
-                                 (cx (cdr (assoc 'x c)))
-                                 (cf-x (cdr (assoc 'x conflict)))
-                                 (cf-y (cdr (assoc 'y conflict)))
-                                 (cf-w (cdr (assoc 'w conflict)))
-                                 (cf-h (cdr (assoc 'h conflict)))
-                                 (try-y (+ cf-y cf-h (chip-host-padding)))
-                                 (try-x-right (+ cf-x cf-w (chip-host-padding)))
-                                 (new-c
-                                   (cond
-                                     ((<= (+ try-y ch) sh)
-                                      (chip-with-position c cx try-y))
-                                     ((<= (+ try-x-right cw) sw)
-                                      (chip-with-position c try-x-right natural-y))
-                                     (else c))))
-                            (inner new-c (+ attempts 1))))))))))))))
+    ;; ─── Stage B — cross-chip invariant + slot-lattice cascade ──────
+    ;; A single assignment pass over ALL chips that guarantees the
+    ;; strong invariant (no two chips overlap; every window keeps one
+    ;; chip). Replaces the old visible/occluded split and the
+    ;; attempt-bounded dodge — the guarantee is now structural, leaning
+    ;; on the ≤10-chip cap (default-window-labels). See
+    ;; docs/specs/window-chip-placement-design.md §"Stage B".
 
-    (define (resolve-chips-with-visibility annotated sw sh)
-      (let split ((rest annotated) (visible-rev '()) (occluded-rev '()))
+    (define (floor-div a b)
+      (exact (floor (/ a b))))
+
+    ;; The slot lattice — a screen-covering tiling of chip-sized cells.
+    ;; step = chip side + inter-chip padding, so adjacent cells' chips
+    ;; stay disjoint (gap = padding). Degenerate guard: if a pathological
+    ;; tiny screen yields fewer than `min-cells` cells, drop the padding
+    ;; (step → chip side) so more cells exist — chips may then touch
+    ;; edges but never overlap (chips-overlap? is strict). This cannot
+    ;; arise on any supported display; it only keeps the proof total.
+    (define (build-lattice sw sh chip-w chip-h min-cells)
+      (let* ((pad (chip-host-padding))
+             (step-full (+ chip-w pad))
+             (cells-full (* (max 1 (floor-div sw step-full))
+                            (max 1 (floor-div sh step-full))))
+             (step (if (>= cells-full min-cells) step-full chip-w)))
+        (let loop-j ((j 0) (acc '()))
+          (let ((y (* j step)))
+            (if (> (+ y chip-h) sh)
+              (if (null? acc)
+                ;; Screen smaller than one chip — a single clamped cell.
+                (list (cons (max 0 (- sw chip-w)) (max 0 (- sh chip-h))))
+                (reverse acc))
+              (let loop-i ((i 0) (acc acc))
+                (let ((x (* i step)))
+                  (if (> (+ x chip-w) sw)
+                    (loop-j (+ j 1) acc)
+                    (loop-i (+ i 1) (cons (cons x y) acc))))))))))
+
+    ;; Nearest free lattice cell (by cell-centre distance) to `anchor`
+    ;; — the chip's own window natural corner — skipping cells whose
+    ;; chip rect overlaps any already-committed chip. Returns a (x . y)
+    ;; cell origin, or #f if every cell is blocked (cannot happen with
+    ;; ≤10 chips on a real lattice — see the spec's counting proof).
+    (define (nearest-free-cell lattice committed chip
+                               anchor-x anchor-y chip-w chip-h)
+      (let loop ((cells lattice) (best #f) (best-d #f))
         (cond
-          ((null? rest)
-            (let* ((visible-chips (reverse visible-rev))
-                   (occluded-chips (reverse occluded-rev))
-                   (occluded-resolved (resolve-occluded-against-visible
-                                        occluded-chips visible-chips sw sh)))
-              (let reassemble ((src annotated)
-                               (vp visible-chips)
-                               (op occluded-resolved)
-                               (acc '()))
-                (cond
-                  ((null? src) (reverse acc))
-                  ((car (car src))
-                   (reassemble (cdr src) (cdr vp) op (cons (car vp) acc)))
-                  (else
-                   (reassemble (cdr src) vp (cdr op) (cons (car op) acc)))))))
-          ((car (car rest))
-            (split (cdr rest)
-                   (cons (clamp-chip-to-screen (cdr (car rest)) sw sh) visible-rev)
-                   occluded-rev))
+          ((null? cells) best)
           (else
-            (split (cdr rest)
-                   visible-rev
-                   (cons (cdr (car rest)) occluded-rev))))))
+            (let* ((cell (car cells))
+                   (cand (chip-with-position chip (car cell) (cdr cell))))
+              (if (find-overlapping committed cand)
+                (loop (cdr cells) best best-d)
+                (let* ((ccx (+ (car cell) (/ chip-w 2)))
+                       (ccy (+ (cdr cell) (/ chip-h 2)))
+                       (dx (- ccx anchor-x)) (dy (- ccy anchor-y))
+                       (d (+ (* dx dx) (* dy dy))))
+                  (if (or (not best-d) (< d best-d))
+                    (loop (cdr cells) cell d)
+                    (loop (cdr cells) best best-d)))))))))
+
+    ;; assign-chips: the Stage-B pass. `annotated` is a list, in label
+    ;; order, of entries (list visible? chip nat-x nat-y) where:
+    ;;   visible? — #t if Stage A gave the chip an on-window position,
+    ;;              #f if the window has no usable area (cascade);
+    ;;   chip     — the chip alist at its Stage-A position (visible) or
+    ;;              its faded natural position (occluded);
+    ;;   nat-x,
+    ;;   nat-y    — the chip's own window natural corner (lattice anchor).
+    ;; Returns the placed chips in label order, pairwise non-overlapping.
+    (define (assign-chips annotated sw sh)
+      (if (null? annotated)
+        '()
+        (let* ((n (length annotated))
+               (chip0 (cadr (car annotated)))
+               (chip-w (cdr (assoc 'w chip0)))
+               (chip-h (cdr (assoc 'h chip0)))
+               (lattice (build-lattice sw sh chip-w chip-h n))
+               (indexed
+                 (let loop ((es annotated) (i 0) (acc '()))
+                   (if (null? es) (reverse acc)
+                     (loop (cdr es) (+ i 1) (cons (cons i (car es)) acc))))))
+          ;; Pass 1 — on-window chips: commit at the Stage-A position iff
+          ;; clear of all prior commits; otherwise demote to the cascade
+          ;; pool. Occluded chips (Stage-A #f) go straight to the pool.
+          (let pass1 ((items indexed) (committed '()) (results '()) (deferred '()))
+            (cond
+              ((null? items)
+               ;; Pass 2 — cascade + demoted chips: each takes the nearest
+               ;; free lattice slot to its own window natural corner.
+               (let pass2 ((ds (reverse deferred)) (committed committed) (results results))
+                 (cond
+                   ((null? ds)
+                    (let reasm ((i 0) (acc '()))
+                      (if (>= i n) (reverse acc)
+                        (reasm (+ i 1) (cons (cdr (assoc i results)) acc)))))
+                   (else
+                     (let* ((d (car ds))
+                            (idx (car d))
+                            (entry (cdr d))
+                            (chip (car (cdr entry)))
+                            (nat-x (car (cdr (cdr entry))))
+                            (nat-y (car (cdr (cdr (cdr entry)))))
+                            (anchor-x (+ nat-x (/ chip-w 2)))
+                            (anchor-y (+ nat-y (/ chip-h 2)))
+                            (cell (nearest-free-cell lattice committed chip
+                                                     anchor-x anchor-y chip-w chip-h))
+                            (placed (clamp-chip-to-screen
+                                      (if cell
+                                        (chip-with-position chip (car cell) (cdr cell))
+                                        chip)
+                                      sw sh)))
+                       (pass2 (cdr ds)
+                              (cons placed committed)
+                              (cons (cons idx placed) results)))))))
+              (else
+                (let* ((item (car items))
+                       (idx (car item))
+                       (entry (cdr item))
+                       (visible? (car entry))
+                       (chip (cadr entry))
+                       (clamped (clamp-chip-to-screen chip sw sh)))
+                  (if (and visible? (not (find-overlapping committed clamped)))
+                    (pass1 (cdr items)
+                           (cons clamped committed)
+                           (cons (cons idx clamped) results)
+                           deferred)
+                    (pass1 (cdr items) committed results
+                           (cons item deferred))))))))))
 
     ;; ─── on-render side-effect ─────────────────────────────────────
     ;; Reads chip styling from (current-chip-theme) at paint time so
@@ -203,9 +266,14 @@
              ;; padded chip rect fits cleanly in some fragment) or
              ;; relocates the chip to the top-left of the next clear
              ;; fragment. #f means no fragment can host the chip — the
-             ;; chip keeps its natural position, gets faded styling,
-             ;; and is re-resolved against other chips by
-             ;; `resolve-occluded-against-visible` downstream.
+             ;; chip keeps its natural position, gets faded styling, and
+             ;; is routed to the slot-lattice cascade by `assign-chips`
+             ;; (Stage B) downstream.
+             ;;
+             ;; Each annotated entry is (list visible? chip nat-x nat-y):
+             ;; nat-x/nat-y are the chip's natural corner (captured before
+             ;; relocation) — Stage B uses them as the lattice anchor so a
+             ;; cascaded chip lands near its own window.
              (annotated
                (map (lambda (lw chip)
                       (let* ((win (cdr lw))
@@ -213,7 +281,9 @@
                              (pid (cdr (assoc 'ownerPid win)))
                              (wx (cdr (assoc 'x win))) (wy (cdr (assoc 'y win)))
                              (ww (cdr (assoc 'w win))) (wh (cdr (assoc 'h win)))
-                             (cx (cdr (assoc 'x chip))) (cy (cdr (assoc 'y chip)))
+                             (nat-x (cdr (assoc 'x chip)))
+                             (nat-y (cdr (assoc 'y chip)))
+                             (cx nat-x) (cy nat-y)
                              (cw (cdr (assoc 'w chip))) (ch (cdr (assoc 'h chip)))
                              (placement
                                (find-chip-position wid pid wx wy ww wh
@@ -222,9 +292,9 @@
                           (placement
                             (let ((nx (cdr (assoc 'x placement)))
                                   (ny (cdr (assoc 'y placement))))
-                              (cons #t (chip-with-position chip nx ny))))
+                              (list #t (chip-with-position chip nx ny) nat-x nat-y)))
                           (else
-                            (cons #f (chip-with-background chip faded-bg))))))
+                            (list #f (chip-with-background chip faded-bg) nat-x nat-y)))))
                     labelled raw-chips))
              (windows-data
                (map (lambda (lw vc)
@@ -237,7 +307,7 @@
                               (cons 'visible visible?))))
                     labelled annotated))
              (screen (primary-screen-size))
-             (chips (resolve-chips-with-visibility
+             (chips (assign-chips
                       annotated
                       (cdr (assoc 'w screen))
                       (cdr (assoc 'h screen)))))
