@@ -71,6 +71,25 @@ stage that subtracts occluder rects from the window to find a clear
 fragment (`ChipPlacement.swift`), then (2) a Scheme reactive stage that
 "dodges" chips which still collide (`window-list.sld`).
 
+**Chip cascade** — the fallback tier of chip placement: when a window
+has no usable visible area for an on-window chip, its chip is placed
+into a **slot lattice** anchored near the occluded window's natural
+corner, filling the nearest free lattice slot. Co-located same-app
+windows therefore produce a local stack of chips by their cluster. The
+cascade is what keeps a fully-occluded window selectable.
+_Avoid_: "cascade" for the on-window dodge — that is the first tier.
+
+**Slot lattice** — a screen-covering tiling of chip-sized cells
+(step = chip side + padding) used to assign non-overlapping fallback
+positions. Finite cells + the ≤10-chip cap (`default-window-labels`)
+make the no-overlap invariant a counting argument, not a fixpoint.
+
+**Strong invariant** — the correctness contract this grove enforces:
+(1) no two window chips ever overlap, and (2) every listed window keeps
+exactly one chip (a fully-occluded window is relocated, never dropped).
+Label readability and selectability win over keeping a chip at its
+window's natural corner.
+
 ## Chooser domain
 
 **Chooser** — an activating modal panel built on a `WKWebView`, containing
