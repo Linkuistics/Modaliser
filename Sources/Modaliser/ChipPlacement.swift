@@ -16,6 +16,99 @@ import CoreGraphics
 /// coordinate space.
 enum ChipPlacement {
 
+    /// One on-screen window as occluder collection sees it: its
+    /// CoreGraphics window number (`wid`), owner pid, alpha, and AX-origin
+    /// bounds. `rect` is nil when `CGWindowListCopyWindowInfo` omitted
+    /// usable bounds. A plain value type so `occluderRects` can be unit
+    /// tested with a synthetic z-ordered list, no live window server.
+    struct WindowEntry {
+        let wid: Int64
+        let pid: Int64
+        let alpha: Double
+        let rect: CGRect?
+    }
+
+    /// Rect-match tolerance (points) for disambiguating the target among
+    /// same-app windows when `wid` is unreliable. CGWindowList bounds are
+    /// doubles; the target rect arrives as integers, so a couple of points
+    /// of slop absorbs rounding without admitting a genuinely different
+    /// window.
+    static let occluderRectTolerance: CGFloat = 2
+
+    /// Collect the rects of windows in front of the target, given the
+    /// on-screen window list in `CGWindowListCopyWindowInfo` front-to-back
+    /// z-order. Pure — no system calls — so it is unit-testable.
+    ///
+    /// The walk stops at the *actual target*, located in two phases:
+    ///   • by `wid` — when `targetWid > 0` and some entry carries that
+    ///     CoreGraphics window number; else
+    ///   • by rect — the first same-pid entry whose bounds match
+    ///     `targetRect` within `occluderRectTolerance`. This fallback
+    ///     exists because `_AXUIElementGetWindow` (which fills the target's
+    ///     `wid`) and `kCGWindowNumber` disagree for some apps, making
+    ///     `wid` an unreliable key (see `windowVisibleAtFunction`).
+    /// If neither resolves the target, returns `[]` — bias to visible,
+    /// rather than over-collecting and relocating a chip that need not move.
+    ///
+    /// Every window in front of the target — *including same-app windows*
+    /// (ADR-0009) — counts as an occluder, except Modaliser's own panels
+    /// (`selfPid`) and translucent overlays (alpha < 1.0, e.g. HazeOver).
+    ///
+    /// Locating the target index *before* collecting (rather than a
+    /// per-entry stop test) is what lets the rect fallback coexist safely
+    /// with reliable `wid`: a same-app occluder that happens to share the
+    /// target's frame cannot end the walk early when `wid` already found
+    /// the target.
+    ///
+    /// Limitation: when `wid` is unreliable *and* several same-app windows
+    /// share an identical frame (the fully-stacked worst case), rect-match
+    /// cannot tell them apart and stops at the frontmost — under-counting a
+    /// rear target's occluders. Stage B's lattice cascade keeps such a
+    /// window selectable regardless; on real displays `wid` is reliable
+    /// enough that distinct windows are matched exactly.
+    static func occluderRects(
+        in windows: [WindowEntry],
+        targetWid: Int64,
+        targetPid: Int64,
+        targetRect: CGRect,
+        selfPid: Int64
+    ) -> [CGRect] {
+        // Phase 1 — locate the target's index in z-order.
+        var targetIndex: Int?
+        if targetWid > 0 {
+            targetIndex = windows.firstIndex {
+                $0.pid != selfPid && $0.wid == targetWid
+            }
+        }
+        if targetIndex == nil && targetPid > 0 {
+            targetIndex = windows.firstIndex { entry in
+                entry.pid == targetPid
+                    && entry.pid != selfPid
+                    && (entry.rect.map { rectsMatch($0, targetRect) } ?? false)
+            }
+        }
+        guard let stop = targetIndex else { return [] }
+
+        // Phase 2 — every opaque, non-self window in front of the target.
+        var occluders: [CGRect] = []
+        for entry in windows[..<stop] {
+            if entry.pid == selfPid { continue }
+            if entry.alpha < 1.0 { continue }
+            guard let rect = entry.rect else { continue }
+            occluders.append(rect)
+        }
+        return occluders
+    }
+
+    /// Whether two rects coincide within `occluderRectTolerance` on every
+    /// edge — used to recognise the target among same-app windows.
+    private static func rectsMatch(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= occluderRectTolerance
+            && abs(a.minY - b.minY) <= occluderRectTolerance
+            && abs(a.width - b.width) <= occluderRectTolerance
+            && abs(a.height - b.height) <= occluderRectTolerance
+    }
+
     /// Returns the disjoint axis-aligned rectangles covering
     /// `minuend \ subtrahend`. Yields 0–4 rectangles:
     ///   • 0 when `subtrahend` fully contains `minuend`,

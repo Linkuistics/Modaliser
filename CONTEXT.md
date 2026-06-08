@@ -49,6 +49,47 @@ cell-pixel dimensions must be derived rather than read).
 `set-local-context-suffix!`; returns a string like `/nvim` that
 selects a variant tree. See `docs/how-to/terminal-pane-aware-tree.md`.
 
+## Window-switching domain
+
+**Window chip** — the digit-label overlay painted over an on-screen
+*window* (not a terminal pane) so the user can focus that window by
+typing its digit. Same overlay machinery as the pane **Chip** above
+(`hints-show` native windows); the distinction is the labelled target:
+a top-level OS window vs. a pane inside a terminal. Triggered by
+`(window:list-block 'chips? #t)`. Source: `window-list.sld`.
+_Avoid_ bare "chip" when the window-vs-pane distinction matters.
+
+**Same-app overlap** — the failure this grove addresses: two or more
+windows of the *same* application whose on-screen frames overlap, so
+their window chips land on top of each other and become unreadable /
+un-aimable. Observed with iTerm and Dia; treated as generic, not
+app-specific.
+
+**Chip placement** — the two-stage pipeline that turns a window into a
+`(label, screen-rect)` pair for `hints-show`: (1) a Swift geometric
+stage that subtracts occluder rects from the window to find a clear
+fragment (`ChipPlacement.swift`), then (2) a Scheme reactive stage that
+"dodges" chips which still collide (`window-list.sld`).
+
+**Chip cascade** — the fallback tier of chip placement: when a window
+has no usable visible area for an on-window chip, its chip is placed
+into a **slot lattice** anchored near the occluded window's natural
+corner, filling the nearest free lattice slot. Co-located same-app
+windows therefore produce a local stack of chips by their cluster. The
+cascade is what keeps a fully-occluded window selectable.
+_Avoid_: "cascade" for the on-window dodge — that is the first tier.
+
+**Slot lattice** — a screen-covering tiling of chip-sized cells
+(step = chip side + padding) used to assign non-overlapping fallback
+positions. Finite cells + the ≤10-chip cap (`default-window-labels`)
+make the no-overlap invariant a counting argument, not a fixpoint.
+
+**Strong invariant** — the correctness contract this grove enforces:
+(1) no two window chips ever overlap, and (2) every listed window keeps
+exactly one chip (a fully-occluded window is relocated, never dropped).
+Label readability and selectability win over keeping a chip at its
+window's natural corner.
+
 ## Chooser domain
 
 **Chooser** — an activating modal panel built on a `WKWebView`, containing
