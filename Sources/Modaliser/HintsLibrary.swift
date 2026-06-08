@@ -1,5 +1,6 @@
 import AppKit
 import LispKit
+import os
 
 /// Native LispKit library providing a generic on-screen hint overlay system.
 /// Scheme name: (modaliser hints)
@@ -13,6 +14,13 @@ final class HintsLibrary: NativeLibrary {
 
     /// Live hint panels, kept alive until hints-hide is called.
     private var panels: [NSPanel] = []
+
+    /// Diagnostic channel for the final painted chip rects. NSLog never
+    /// reaches `log show` from the .app bundle, so use os.Logger with a
+    /// dedicated subsystem/category instead (readable via
+    /// `log show --debug --predicate 'subsystem == "dev.antony.Modaliser"'`).
+    private static let chipLog = Logger(subsystem: "dev.antony.Modaliser",
+                                        category: "chip-placement")
 
     public required init(in context: Context) throws {
         try super.init(in: context)
@@ -50,14 +58,54 @@ final class HintsLibrary: NativeLibrary {
         runOnMain {
             self.closeAllPanels()
             var current = hintsExpr
+            var dumped: [(label: String, x: Int, y: Int, w: Int, h: Int)] = []
             while case .pair(let entry, let tail) = current {
                 if let panel = self.makeHintPanel(from: entry) {
                     self.panels.append(panel)
                 }
+                // Capture the final painted rect (AX coords) for the chip
+                // dump — the leaf-030 live-verification evidence channel.
+                if let label = SchemeAlistLookup.lookupString(entry, key: "label"),
+                   let x = SchemeAlistLookup.lookupFixnum(entry, key: "x"),
+                   let y = SchemeAlistLookup.lookupFixnum(entry, key: "y"),
+                   let w = SchemeAlistLookup.lookupFixnum(entry, key: "w"),
+                   let h = SchemeAlistLookup.lookupFixnum(entry, key: "h") {
+                    dumped.append((label, Int(x), Int(y), Int(w), Int(h)))
+                }
                 current = tail
             }
+            Self.logChipRects(dumped)
         }
         return .void
+    }
+
+    /// Dump the final painted chip rects and self-check the strong
+    /// invariant (no two chips overlap). Clean runs log at `.notice`, any
+    /// overlap at `.error` — both levels persist to the unified-log store
+    /// so `log show` retrieves them after the fact (`.debug`/`.info` are
+    /// memory-only and would not survive). Pairwise overlap uses the same
+    /// strict-inequality test as the Scheme `chips-overlap?` (edge-touching
+    /// chips do not overlap).
+    private static func logChipRects(_ chips: [(label: String, x: Int, y: Int, w: Int, h: Int)]) {
+        guard !chips.isEmpty else { return }
+        var overlaps: [String] = []
+        for i in 0..<chips.count {
+            for j in (i + 1)..<chips.count {
+                let a = chips[i], b = chips[j]
+                if a.x < b.x + b.w && b.x < a.x + a.w &&
+                   a.y < b.y + b.h && b.y < a.y + a.h {
+                    overlaps.append("\(a.label)×\(b.label)")
+                }
+            }
+        }
+        let rects = chips
+            .map { "\($0.label)@(\($0.x),\($0.y),\($0.w),\($0.h))" }
+            .joined(separator: " ")
+        if overlaps.isEmpty {
+            chipLog.notice("hints-show: \(chips.count, privacy: .public) chips, NO overlaps — \(rects, privacy: .public)")
+        } else {
+            chipLog.error("hints-show: \(chips.count, privacy: .public) chips, OVERLAPS [\(overlaps.joined(separator: ","), privacy: .public)] — \(rects, privacy: .public)")
+        }
     }
 
     /// (hints-hide) → void

@@ -25,6 +25,11 @@ all-chips *guarantee* that consumes it (Stage B), then verify live.
 - `020` — Stage B: cross-chip invariant + lattice cascade (Cause 2 +
   termination), replacing the bail-prone dodge.
 - `030` — live reproduction + verification of the strong invariant.
+  **Outcome: invariant CONFIRMED fixed live** (user-observed + tests).
+  Surfaced a placement-quality follow-up → `040`.
+- `040` — in-bounds cascade: a fully-occluded window's cascade chip stays
+  within its own bounds (over the occluder, faded) rather than off-window,
+  with screen-lattice spill on overflow. Strong invariant preserved.
 
 ## Pointers
 - ADRs: `docs/adr/0009-same-app-windows-count-as-occluders.md`.
