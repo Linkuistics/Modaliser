@@ -61,3 +61,33 @@ preserved; in-bounds placement is best-effort with off-window spill.
 - Honour LispKit constraints (no `set-cdr!`/`set-car!`; return-and-merge).
 - Clamp in-bounds cells to on-screen so a window straddling the screen
   edge can't produce an off-screen chip (intersect with screen rect).
+
+## Verification outcome (2026-06-08 — CONFIRMED, "works perfectly")
+
+In-bounds cascade placement verified live post-`install.sh`; user
+confirmed occluded-window chips sit over their own windows and no two
+chips touch ("That works perfectly").
+
+A first live pass surfaced a **touching-chips** defect: the in-bounds
+lattice was anchored at the window's raw origin (a half-cell off the
+natural-corner grid the chips use), and the free-cell test only checked
+overlap, so a cascade cell could sit flush against the front chip.
+Fixed by (1) anchoring the in-bounds lattice at the natural chip corner
+and (2) a clearance free-cell test (chip inflated by `chipHostPadding`)
+so chips keep a full padding gap, not merely avoid overlap.
+
+**Hard evidence** — `os.Logger` chip-rect dump (subsystem
+`dev.antony.Modaliser`, category `chip-placement`), real overlay runs:
+- `4 chips, NO overlaps — 1@(112,43) 2@(12,43) 3@(1718,43) 4@(1818,43)`
+  → within each cluster the gap is exactly one padding (112−(12+88)=12;
+  1818−(1718+88)=12).
+- `3 chips, NO overlaps — 1@(12,43) 2@(1719,43) 3@(1718,143)`
+  → 143−(43+88)=12.
+- Every dump line reads "NO overlaps" (the `.error` self-check for an
+  overlap never fired). Pre-fix runs flung a cascade chip to `(3424,43)`
+  off across the second monitor — the off-window behaviour this leaf
+  removed.
+
+Unit tests (real Scheme `assign-chips` via `SchemeEngine`): the in-bounds,
+padding, and overflow-spill guards plus the unchanged invariant — full
+suite green (564 tests).
