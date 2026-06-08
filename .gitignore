@@ -2,3 +2,4 @@
 .swiftpm/
 *.iconset/
 dist/
+.grove-worktrees/
