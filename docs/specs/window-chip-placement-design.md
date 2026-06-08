@@ -1,7 +1,12 @@
 # Window-chip placement — hybrid design
 
-Status: design (grove `window-chips-overlap-same-app-windows`, leaf 020).
-Implemented by the leaves under `.grove/020-design-hybrid-placement/`.
+Status: implemented & verified (2026-06-08). Delivered by the
+`window-chips-overlap-same-app-windows` workstream — Stage A occluder
+collection per ADR-0009, Stage B slot-lattice cascade with in-bounds
+placement and inter-chip padding. Live-verified against the original
+iTerm/Dia same-app symptom; unit-tested in
+`Tests/ModaliserTests/SameAppChipCollisionTests.swift` and the Stage-B
+suite in `Tests/ModaliserTests/BlocksWindowListLibraryTests.swift`.
 
 ## Problem
 
