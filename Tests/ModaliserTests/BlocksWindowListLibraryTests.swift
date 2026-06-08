@@ -89,10 +89,20 @@ struct BlocksWindowListLibraryTests {
 struct WindowListStageBPlacementTests {
 
     /// Boots an engine with the library imported and Scheme test helpers:
-    ///   (mk-chip x y)      — an 88×88 chip alist at (x,y)
-    ///   (entry vis x y)    — an annotated entry whose natural corner is (x,y)
-    ///   (any-overlap? cs)  — #t iff some pair of chips in `cs` overlaps
-    ///                        (using the library's own exported `chips-overlap?`)
+    ///   (mk-chip x y)        — an 88×88 chip alist at (x,y)
+    ///   (entry* vis x y wx wy ww wh)
+    ///                        — an annotated entry: chip natural corner (x,y),
+    ///                          owning-window rect (wx,wy,ww,wh).
+    ///   (entry vis x y)      — convenience: a generous 600×400 window whose
+    ///                          top-left sits a host-pad (12) above/left of the
+    ///                          chip's natural corner (matches paint-and-snapshot:
+    ///                          nat = win-origin + host-pad). Big enough that the
+    ///                          in-bounds lattice always has room.
+    ///   (any-overlap? cs)    — #t iff some pair of chips in `cs` overlaps
+    ///                          (using the library's own exported `chips-overlap?`)
+    ///   (within? c wx wy ww wh)        — chip c fully inside the window rect
+    ///   (all-within? cs wx wy ww wh)   — every chip in cs inside the rect
+    ///   (count-outside cs wx wy ww wh) — how many chips fall outside the rect
     private func bootedEngine() throws -> SchemeEngine {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser blocks window-list))")
@@ -100,7 +110,10 @@ struct WindowListStageBPlacementTests {
           (define (mk-chip x y)
             (list (cons 'label "x") (cons 'x x) (cons 'y y)
                   (cons 'w 88) (cons 'h 88) (cons 'background "n")))
-          (define (entry vis x y) (list vis (mk-chip x y) x y))
+          (define (entry* vis x y wx wy ww wh)
+            (list vis (mk-chip x y) x y wx wy ww wh))
+          (define (entry vis x y)
+            (entry* vis x y (- x 12) (- y 12) 600 400))
           (define (any-overlap? cs)
             (let outer ((cs cs))
               (cond
@@ -111,6 +124,21 @@ struct WindowListStageBPlacementTests {
                       ((null? rest) (outer (cdr cs)))
                       ((chips-overlap? (car cs) (car rest)) #t)
                       (else (inner (cdr rest)))))))))
+          (define (within? c wx wy ww wh)
+            (and (>= (cdr (assoc 'x c)) wx)
+                 (>= (cdr (assoc 'y c)) wy)
+                 (<= (+ (cdr (assoc 'x c)) (cdr (assoc 'w c))) (+ wx ww))
+                 (<= (+ (cdr (assoc 'y c)) (cdr (assoc 'h c))) (+ wy wh))))
+          (define (all-within? cs wx wy ww wh)
+            (cond ((null? cs) #t)
+                  ((within? (car cs) wx wy ww wh)
+                   (all-within? (cdr cs) wx wy ww wh))
+                  (else #f)))
+          (define (count-outside cs wx wy ww wh)
+            (let loop ((cs cs) (n 0))
+              (cond ((null? cs) n)
+                    ((within? (car cs) wx wy ww wh) (loop (cdr cs) n))
+                    (else (loop (cdr cs) (+ n 1))))))
         """)
         return engine
     }
@@ -189,5 +217,71 @@ struct WindowListStageBPlacementTests {
         """)
         #expect(try engine.evaluate("(= (length placed) 8)") == .true)
         #expect(try engine.evaluate("(any-overlap? placed)") == .false)
+    }
+
+    /// IN-BOUNDS CASCADE (grove 040). A fully-occluded window's cascade chip
+    /// must land *inside its own window rect*, not flung to free screen space.
+    /// The window's origin (130,130) is OFF the screen lattice's 100-grid, so
+    /// the screen lattice's nearest free cell to the corner straddles/sits
+    /// above the window (outside it) — only an in-bounds lattice anchored at
+    /// the window origin keeps the chip within bounds. This test fails on the
+    /// pre-040 screen-only cascade and passes after.
+    @Test func occludedChipStaysWithinWindowBounds() throws {
+        let engine = try bootedEngine()
+        try engine.evaluate("""
+          ;; window (130,130,260,260); front visible at its natural corner,
+          ;; one occluded back sharing the same rect.
+          (define annotated
+            (list (entry* #t 142 142 130 130 260 260)
+                  (entry* #f 142 142 130 130 260 260)))
+          (define placed (assign-chips annotated 1280 800))
+        """)
+        #expect(try engine.evaluate("(= (length placed) 2)") == .true)
+        #expect(try engine.evaluate("(any-overlap? placed)") == .false)
+        // The occluded back chip (second) sits inside the window rect.
+        #expect(try engine.evaluate("(within? (cadr placed) 130 130 260 260)") == .true)
+    }
+
+    /// IN-BOUNDS CLUSTER PACKING (grove 040). A visible front plus four
+    /// occluded backs all sharing one comfortably-large window: every chip —
+    /// including all cascaded ones — packs inside that window's bounds, none
+    /// spilling to screen space. Window origin is again off the 100-grid to
+    /// defeat the screen lattice.
+    @Test func occludedClusterPacksWithinLargeWindow() throws {
+        let engine = try bootedEngine()
+        try engine.evaluate("""
+          ;; window (130,130,600,500); 1 visible + 4 occluded, all same rect.
+          (define annotated
+            (list (entry* #t 142 142 130 130 600 500)
+                  (entry* #f 142 142 130 130 600 500)
+                  (entry* #f 142 142 130 130 600 500)
+                  (entry* #f 142 142 130 130 600 500)
+                  (entry* #f 142 142 130 130 600 500)))
+          (define placed (assign-chips annotated 1280 800))
+        """)
+        #expect(try engine.evaluate("(= (length placed) 5)") == .true)
+        #expect(try engine.evaluate("(any-overlap? placed)") == .false)
+        #expect(try engine.evaluate("(all-within? placed 130 130 600 500)") == .true)
+    }
+
+    /// OVERFLOW SPILL (grove 040). When more windows are fully stacked than a
+    /// small shared window can host non-overlapping chips, the surplus spills
+    /// to the screen lattice — placement stays total (all present) and the
+    /// invariant holds (no overlap). The small window (0,0,200,200) holds at
+    /// most ~4 chip cells, so eight stacked windows force a spill.
+    @Test func smallStackedOverflowSpillsOffWindow() throws {
+        let engine = try bootedEngine()
+        try engine.evaluate("""
+          (define annotated
+            (cons (entry* #t 12 12 0 0 200 200)        ; frontmost on-window
+                  (let loop ((k 7) (acc '()))          ; seven occluded behind
+                    (if (zero? k) acc
+                      (loop (- k 1) (cons (entry* #f 12 12 0 0 200 200) acc))))))
+          (define placed (assign-chips annotated 1280 800))
+        """)
+        #expect(try engine.evaluate("(= (length placed) 8)") == .true)
+        #expect(try engine.evaluate("(any-overlap? placed)") == .false)
+        // The small window cannot host all eight, so at least one spilled.
+        #expect(try engine.evaluate("(> (count-outside placed 0 0 200 200) 0)") == .true)
     }
 }

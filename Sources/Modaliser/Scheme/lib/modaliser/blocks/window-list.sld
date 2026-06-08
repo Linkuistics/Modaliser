@@ -151,6 +151,32 @@
                     (loop-j (+ j 1) acc)
                     (loop-i (+ i 1) (cons (cons x y) acc))))))))))
 
+    ;; Tile the on-screen part of a window's rect into chip-sized cells,
+    ;; anchored at the window's own origin (so cells align to the window,
+    ;; not to the screen grid). step = chip side + inter-chip padding —
+    ;; the same as the screen lattice, so a cascade chip that must spill
+    ;; from here to the screen lattice still respects the no-overlap check
+    ;; against committed chips. Unlike `build-lattice` there is no
+    ;; degenerate min-cells guard: this lattice is allowed to be small or
+    ;; empty — a window too small to host a free cell simply falls through
+    ;; to the screen lattice (the overflow spill). The window rect is
+    ;; clipped to the screen so a window straddling an edge cannot yield an
+    ;; off-screen cell.
+    (define (window-cells wx wy ww wh sw sh chip-w chip-h)
+      (let* ((pad (chip-host-padding))
+             (step (+ chip-w pad))
+             (x0 (max 0 wx)) (y0 (max 0 wy))
+             (x1 (min sw (+ wx ww))) (y1 (min sh (+ wy wh))))
+        (let loop-j ((j 0) (acc '()))
+          (let ((y (+ y0 (* j step))))
+            (if (> (+ y chip-h) y1)
+              (reverse acc)
+              (let loop-i ((i 0) (acc acc))
+                (let ((x (+ x0 (* i step))))
+                  (if (> (+ x chip-w) x1)
+                    (loop-j (+ j 1) acc)
+                    (loop-i (+ i 1) (cons (cons x y) acc))))))))))
+
     ;; Nearest free lattice cell (by cell-centre distance) to `anchor`
     ;; — the chip's own window natural corner — skipping cells whose
     ;; chip rect overlaps any already-committed chip. Returns a (x . y)
@@ -175,13 +201,16 @@
                     (loop (cdr cells) best best-d)))))))))
 
     ;; assign-chips: the Stage-B pass. `annotated` is a list, in label
-    ;; order, of entries (list visible? chip nat-x nat-y) where:
+    ;; order, of entries (list visible? chip nat-x nat-y wx wy ww wh) where:
     ;;   visible? — #t if Stage A gave the chip an on-window position,
     ;;              #f if the window has no usable area (cascade);
     ;;   chip     — the chip alist at its Stage-A position (visible) or
     ;;              its faded natural position (occluded);
     ;;   nat-x,
-    ;;   nat-y    — the chip's own window natural corner (lattice anchor).
+    ;;   nat-y    — the chip's own window natural corner (lattice anchor);
+    ;;   wx,wy,
+    ;;   ww,wh    — the owning window's rect, used to build an in-bounds
+    ;;              lattice so a cascaded chip stays over its own window.
     ;; Returns the placed chips in label order, pairwise non-overlapping.
     (define (assign-chips annotated sw sh)
       (if (null? annotated)
@@ -202,7 +231,10 @@
             (cond
               ((null? items)
                ;; Pass 2 — cascade + demoted chips: each takes the nearest
-               ;; free lattice slot to its own window natural corner.
+               ;; free slot to its own window natural corner, preferring a
+               ;; cell inside its own window's bounds (window-cells) so the
+               ;; chip stays over its window; only when no in-bounds cell is
+               ;; free does it spill to the screen-covering lattice.
                (let pass2 ((ds (reverse deferred)) (committed committed) (results results))
                  (cond
                    ((null? ds)
@@ -214,12 +246,20 @@
                             (idx (car d))
                             (entry (cdr d))
                             (chip (car (cdr entry)))
-                            (nat-x (car (cdr (cdr entry))))
-                            (nat-y (car (cdr (cdr (cdr entry)))))
+                            (nat-x (list-ref entry 2))
+                            (nat-y (list-ref entry 3))
+                            (win-x (list-ref entry 4))
+                            (win-y (list-ref entry 5))
+                            (win-w (list-ref entry 6))
+                            (win-h (list-ref entry 7))
                             (anchor-x (+ nat-x (/ chip-w 2)))
                             (anchor-y (+ nat-y (/ chip-h 2)))
-                            (cell (nearest-free-cell lattice committed chip
-                                                     anchor-x anchor-y chip-w chip-h))
+                            (in-cells (window-cells win-x win-y win-w win-h
+                                                    sw sh chip-w chip-h))
+                            (cell (or (nearest-free-cell in-cells committed chip
+                                                         anchor-x anchor-y chip-w chip-h)
+                                      (nearest-free-cell lattice committed chip
+                                                         anchor-x anchor-y chip-w chip-h)))
                             (placed (clamp-chip-to-screen
                                       (if cell
                                         (chip-with-position chip (car cell) (cdr cell))
@@ -270,10 +310,12 @@
              ;; is routed to the slot-lattice cascade by `assign-chips`
              ;; (Stage B) downstream.
              ;;
-             ;; Each annotated entry is (list visible? chip nat-x nat-y):
+             ;; Each annotated entry is
+             ;; (list visible? chip nat-x nat-y wx wy ww wh):
              ;; nat-x/nat-y are the chip's natural corner (captured before
-             ;; relocation) — Stage B uses them as the lattice anchor so a
-             ;; cascaded chip lands near its own window.
+             ;; relocation) — Stage B uses them as the lattice anchor; the
+             ;; window rect wx/wy/ww/wh lets Stage B build an in-bounds
+             ;; lattice so a cascaded chip stays over its own window.
              (annotated
                (map (lambda (lw chip)
                       (let* ((win (cdr lw))
@@ -292,9 +334,11 @@
                           (placement
                             (let ((nx (cdr (assoc 'x placement)))
                                   (ny (cdr (assoc 'y placement))))
-                              (list #t (chip-with-position chip nx ny) nat-x nat-y)))
+                              (list #t (chip-with-position chip nx ny)
+                                    nat-x nat-y wx wy ww wh)))
                           (else
-                            (list #f (chip-with-background chip faded-bg) nat-x nat-y)))))
+                            (list #f (chip-with-background chip faded-bg)
+                                  nat-x nat-y wx wy ww wh)))))
                     labelled raw-chips))
              (windows-data
                (map (lambda (lw vc)

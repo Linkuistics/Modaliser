@@ -100,15 +100,26 @@ user-meaningful):
    **iff** it does not overlap any already-committed chip. If it
    collides, demote it to the cascade pool (it will get a lattice slot).
 2. **Cascade chips** (Stage-A nil) **and demoted chips**: assign each
-   the **nearest free lattice slot to its own window's natural corner**,
+   the **nearest free slot to its own window's natural corner**,
    measured by cell-centre distance, skipping cells that overlap any
-   committed chip. Commit it there.
+   committed chip. The slot is sought **in two tiers**:
+   1. an **in-bounds lattice** — chip-sized cells tiling the window's
+      own rect (∩ screen), anchored at the *window's* origin so cells
+      align to the window. Preferring these keeps a cascaded chip
+      **over its own window** (drawn on the occluder, still faded),
+      instead of flung to empty screen space.
+   2. only if no in-bounds cell is free, the **screen-covering lattice**
+      of §"The slot lattice" — the overflow spill.
+   Commit it at the chosen cell.
 
-"Nearest free slot to the window's own corner" is what realises the
-approved **lattice-at-the-cluster** anchor: several same-app windows
-share ~one corner, so their cascade chips fill adjacent cells around it,
-reading as a local stack by the cluster — with no explicit cluster
-detection.
+Searching the window's own rect first realises the approved
+**lattice-at-the-cluster** anchor directly: several same-app windows
+share ~one rect, so their in-bounds lattices coincide and their cascade
+chips fill adjacent cells *inside the cluster*, reading as a local stack
+over the occluding window — with no explicit cluster detection. The
+screen lattice remains as the spill tier for the rare case where a small
+window is more deeply stacked than its own bounds can host
+non-overlapping chips.
 
 Occluded chips still receive the *faded* background (as today) so a
 relocated/cascaded chip is visually distinct from an on-window one.
@@ -117,15 +128,19 @@ relocated/cascaded chip is visually distinct from an on-window one.
 
 - *No overlap.* Every committed chip is either an on-window chip checked
   clear of all prior commits, or a lattice slot checked clear of all
-  prior commits. Lattice cells are pairwise disjoint by construction.
+  prior commits — whether that slot came from the in-bounds tier or the
+  screen tier, it is rejected unless disjoint from every committed chip.
   Inductively, the committed set is pairwise non-overlapping. ∎
-- *A slot always exists.* At most 10 chips commit. An on-window chip
+- *A slot always exists.* The in-bounds tier may legitimately be empty;
+  that is why it falls through to the screen tier, which is the tier the
+  existence argument rests on. At most 10 chips commit. An on-window chip
   (size ≈ one cell) overlaps at most a 2×2 block = 4 cells. So ≤10
   commits block ≤40 cells; with ~96 cells, ≥56 remain free — strictly
-  more than the ≤10 chips needing slots. So step 2 never runs out. ∎
+  more than the ≤10 chips needing slots. So the screen tier never runs
+  out, and step 2 always places. ∎
 - *Termination.* Both steps are a single bounded loop over ≤10 chips;
-  step 2's "nearest free slot" scans a finite lattice. No retry loop,
-  no bail. ∎
+  step 2's "nearest free slot" scans two finite lattices (in-bounds then
+  screen). No retry loop, no bail. ∎
 
 This removes the old `chip-resolve-max-attempts` bail entirely: the
 guarantee is structural, not iteration-bounded.
