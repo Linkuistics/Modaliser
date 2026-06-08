@@ -104,13 +104,23 @@ user-meaningful):
    measured by cell-centre distance, skipping cells that overlap any
    committed chip. The slot is sought **in two tiers**:
    1. an **in-bounds lattice** — chip-sized cells tiling the window's
-      own rect (∩ screen), anchored at the *window's* origin so cells
-      align to the window. Preferring these keeps a cascaded chip
-      **over its own window** (drawn on the occluder, still faded),
+      own rect (∩ screen), anchored at the window's **natural chip
+      corner** (origin + padding), not its raw origin. On-window chips
+      sit at that natural corner, so anchoring the lattice there aligns
+      cascade cells with the front chip's grid; anchoring at the raw
+      origin offsets the grid by a pad and leaves the nearest cell
+      *touching* the front chip. Preferring these cells keeps a cascaded
+      chip **over its own window** (drawn on the occluder, still faded),
       instead of flung to empty screen space.
    2. only if no in-bounds cell is free, the **screen-covering lattice**
       of §"The slot lattice" — the overflow spill.
-   Commit it at the chosen cell.
+   A cell is **free** only if its chip clears every committed chip by at
+   least one padding (the clearance test is the chip rect inflated by
+   `chipHostPadding`), so cascaded chips never merely avoid overlap —
+   they keep the same inter-chip gap as on-window chips and never touch.
+   Same-lattice neighbours sit exactly one padding apart (step = chip +
+   padding) and still pass; the gap only bites against off-grid committed
+   chips. Commit the chip at the chosen cell.
 
 Searching the window's own rect first realises the approved
 **lattice-at-the-cluster** anchor directly: several same-app windows
@@ -126,18 +136,19 @@ relocated/cascaded chip is visually distinct from an on-window one.
 
 ### Why the invariant holds (proof sketch)
 
-- *No overlap.* Every committed chip is either an on-window chip checked
-  clear of all prior commits, or a lattice slot checked clear of all
-  prior commits — whether that slot came from the in-bounds tier or the
-  screen tier, it is rejected unless disjoint from every committed chip.
-  Inductively, the committed set is pairwise non-overlapping. ∎
+- *No overlap (and never touching).* Every committed chip is either an
+  on-window chip checked clear of all prior commits, or a lattice slot
+  whose chip — inflated by one padding — is disjoint from every committed
+  chip. So adjacent chips keep ≥ one padding between them. Inductively,
+  the committed set is pairwise non-overlapping with a padding gap. ∎
 - *A slot always exists.* The in-bounds tier may legitimately be empty;
   that is why it falls through to the screen tier, which is the tier the
-  existence argument rests on. At most 10 chips commit. An on-window chip
-  (size ≈ one cell) overlaps at most a 2×2 block = 4 cells. So ≤10
-  commits block ≤40 cells; with ~96 cells, ≥56 remain free — strictly
-  more than the ≤10 chips needing slots. So the screen tier never runs
-  out, and step 2 always places. ∎
+  existence argument rests on. When a cascade chip is placed, at most 9
+  chips are already committed. With the padding clearance each committed
+  chip blocks the cells within one padding of it — at most a 3×3 block =
+  9 cells. So ≤9 commits block ≤81 cells; even on the smallest supported
+  display (~96 cells) ≥15 remain free, and on any real display far more.
+  So the screen tier never runs out, and step 2 always places. ∎
 - *Termination.* Both steps are a single bounded loop over ≤10 chips;
   step 2's "nearest free slot" scans two finite lattices (in-bounds then
   screen). No retry loop, no bail. ∎

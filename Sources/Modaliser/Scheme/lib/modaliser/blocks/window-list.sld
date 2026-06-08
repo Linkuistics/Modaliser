@@ -88,6 +88,31 @@
         ((chips-overlap? c (car placed)) (car placed))
         (else (find-overlapping (cdr placed) c))))
 
+    ;; Like find-overlapping, but treats `c` as inflated by `gap` on every
+    ;; side, so a cell is rejected unless its chip clears every committed
+    ;; chip by at least `gap`. This is what keeps the inter-chip padding
+    ;; around cascaded chips — not merely non-overlap — so two chips on
+    ;; misaligned grids (e.g. an on-window chip and a lattice slot) never
+    ;; touch. Because adjacent same-lattice cells sit exactly `gap` apart
+    ;; (step = chip + gap) and the test is strict, same-lattice neighbours
+    ;; still pass: the gap only bites against off-grid committed chips.
+    (define (find-too-close placed c gap)
+      (let ((cx (- (cdr (assoc 'x c)) gap))
+            (cy (- (cdr (assoc 'y c)) gap))
+            (cw (+ (cdr (assoc 'w c)) (* 2 gap)))
+            (ch (+ (cdr (assoc 'h c)) (* 2 gap))))
+        (let loop ((placed placed))
+          (cond
+            ((null? placed) #f)
+            (else
+              (let* ((p (car placed))
+                     (px (cdr (assoc 'x p))) (py (cdr (assoc 'y p)))
+                     (pw (cdr (assoc 'w p))) (ph (cdr (assoc 'h p))))
+                (if (and (< cx (+ px pw)) (< px (+ cx cw))
+                         (< cy (+ py ph)) (< py (+ cy ch)))
+                  p
+                  (loop (cdr placed)))))))))
+
     (define (chip-with-background chip new-bg)
       (map (lambda (entry)
              (if (eq? (car entry) 'background)
@@ -152,20 +177,23 @@
                     (loop-i (+ i 1) (cons (cons x y) acc))))))))))
 
     ;; Tile the on-screen part of a window's rect into chip-sized cells,
-    ;; anchored at the window's own origin (so cells align to the window,
-    ;; not to the screen grid). step = chip side + inter-chip padding —
-    ;; the same as the screen lattice, so a cascade chip that must spill
-    ;; from here to the screen lattice still respects the no-overlap check
-    ;; against committed chips. Unlike `build-lattice` there is no
-    ;; degenerate min-cells guard: this lattice is allowed to be small or
-    ;; empty — a window too small to host a free cell simply falls through
-    ;; to the screen lattice (the overflow spill). The window rect is
-    ;; clipped to the screen so a window straddling an edge cannot yield an
-    ;; off-screen cell.
+    ;; anchored at the window's *natural chip corner* (origin + padding),
+    ;; not its raw origin. On-window chips sit at that natural corner, so
+    ;; aligning the lattice there lets cascade chips pack flush against the
+    ;; same grid and keep a full padding gap from the front chip (anchoring
+    ;; at the raw origin offsets the grid by a pad, leaving the nearest
+    ;; cells touching the front chip). step = chip side + inter-chip
+    ;; padding — the same as the screen lattice, so a cascade chip that
+    ;; must spill from here still respects the clearance check against
+    ;; committed chips. Unlike `build-lattice` there is no degenerate
+    ;; min-cells guard: this lattice is allowed to be small or empty — a
+    ;; window too small to host a free cell simply falls through to the
+    ;; screen lattice (the overflow spill). The region is clipped to the
+    ;; screen so a window straddling an edge cannot yield an off-screen cell.
     (define (window-cells wx wy ww wh sw sh chip-w chip-h)
       (let* ((pad (chip-host-padding))
              (step (+ chip-w pad))
-             (x0 (max 0 wx)) (y0 (max 0 wy))
+             (x0 (max 0 (+ wx pad))) (y0 (max 0 (+ wy pad)))
              (x1 (min sw (+ wx ww))) (y1 (min sh (+ wy wh))))
         (let loop-j ((j 0) (acc '()))
           (let ((y (+ y0 (* j step))))
@@ -178,10 +206,11 @@
                     (loop-i (+ i 1) (cons (cons x y) acc))))))))))
 
     ;; Nearest free lattice cell (by cell-centre distance) to `anchor`
-    ;; — the chip's own window natural corner — skipping cells whose
-    ;; chip rect overlaps any already-committed chip. Returns a (x . y)
-    ;; cell origin, or #f if every cell is blocked (cannot happen with
-    ;; ≤10 chips on a real lattice — see the spec's counting proof).
+    ;; — the chip's own window natural corner — skipping cells whose chip
+    ;; comes within a padding gap of any already-committed chip (so chips
+    ;; never touch, not merely never overlap). Returns a (x . y) cell
+    ;; origin, or #f if every cell is blocked (cannot happen with ≤10 chips
+    ;; on a real screen lattice — see the spec's counting proof).
     (define (nearest-free-cell lattice committed chip
                                anchor-x anchor-y chip-w chip-h)
       (let loop ((cells lattice) (best #f) (best-d #f))
@@ -190,7 +219,7 @@
           (else
             (let* ((cell (car cells))
                    (cand (chip-with-position chip (car cell) (cdr cell))))
-              (if (find-overlapping committed cand)
+              (if (find-too-close committed cand (chip-host-padding))
                 (loop (cdr cells) best best-d)
                 (let* ((ccx (+ (car cell) (/ chip-w 2)))
                        (ccy (+ (cdr cell) (/ chip-h 2)))

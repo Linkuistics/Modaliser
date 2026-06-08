@@ -139,6 +139,25 @@ struct WindowListStageBPlacementTests {
               (cond ((null? cs) n)
                     ((within? (car cs) wx wy ww wh) (loop (cdr cs) n))
                     (else (loop (cdr cs) (+ n 1))))))
+          ;; #t iff some pair of chips sits closer than `gap` apart (i.e.
+          ;; the gap between their edges is < gap). Inflating one chip by
+          ;; `gap` and testing overlap with the other detects exactly that;
+          ;; chips exactly `gap` apart pass (strict inequality).
+          (define (inflate c g)
+            (list (cons 'x (- (cdr (assoc 'x c)) g))
+                  (cons 'y (- (cdr (assoc 'y c)) g))
+                  (cons 'w (+ (cdr (assoc 'w c)) (* 2 g)))
+                  (cons 'h (+ (cdr (assoc 'h c)) (* 2 g)))))
+          (define (any-too-close? cs gap)
+            (let outer ((cs cs))
+              (cond
+                ((null? cs) #f)
+                (else
+                  (let inner ((rest (cdr cs)))
+                    (cond
+                      ((null? rest) (outer (cdr cs)))
+                      ((chips-overlap? (inflate (car cs) gap) (car rest)) #t)
+                      (else (inner (cdr rest)))))))))
         """)
         return engine
     }
@@ -240,6 +259,8 @@ struct WindowListStageBPlacementTests {
         #expect(try engine.evaluate("(any-overlap? placed)") == .false)
         // The occluded back chip (second) sits inside the window rect.
         #expect(try engine.evaluate("(within? (cadr placed) 130 130 260 260)") == .true)
+        // …and keeps a full padding gap from the front chip — never touching.
+        #expect(try engine.evaluate("(any-too-close? placed 12)") == .false)
     }
 
     /// IN-BOUNDS CLUSTER PACKING (grove 040). A visible front plus four
@@ -283,5 +304,27 @@ struct WindowListStageBPlacementTests {
         #expect(try engine.evaluate("(any-overlap? placed)") == .false)
         // The small window cannot host all eight, so at least one spilled.
         #expect(try engine.evaluate("(> (count-outside placed 0 0 200 200) 0)") == .true)
+    }
+
+    /// PADDING MAINTAINED (grove 040). Cascade chips must keep the inter-chip
+    /// padding gap from every committed chip — never merely "not overlapping".
+    /// Ten same-app windows fully stacked: the frontmost is on-window at its
+    /// natural corner, the nine occluded cascade around it. Before the
+    /// natural-corner anchoring + clearance check, the first cascade cell sat
+    /// flush against the front chip (zero gap — touching); now every pair is
+    /// at least a padding (12) apart.
+    @Test func stackedCascadeChipsMaintainPadding() throws {
+        let engine = try bootedEngine()
+        try engine.evaluate("""
+          (define annotated
+            (cons (entry #t 312 262)
+                  (let loop ((k 9) (acc '()))
+                    (if (zero? k) acc
+                      (loop (- k 1) (cons (entry #f 312 262) acc))))))
+          (define placed (assign-chips annotated 1280 800))
+        """)
+        #expect(try engine.evaluate("(= (length placed) 10)") == .true)
+        #expect(try engine.evaluate("(any-overlap? placed)") == .false)
+        #expect(try engine.evaluate("(any-too-close? placed 12)") == .false)
     }
 }
