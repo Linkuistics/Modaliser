@@ -109,3 +109,27 @@ opt-in: Cmd-V/C/X/A, option-arrows for word movement, Cmd-arrows for
 line/document jumps, Cmd-Z/Shift-Cmd-Z undo, etc. Treated as one class
 because they share an event path; failing one usually means failing all.
 A chooser input should support the whole class.
+
+## Window-layout domain
+
+**Window-layout op** — a `w`-menu action that repositions or resizes the
+*focused* OS window (thirds, halves, two-thirds, maximise, center,
+fullscreen, restore) via the Accessibility API. Changes geometry, not
+focus — distinct from the window-switching chips, which only change which
+window is focused. Sources: `WindowManipulator.swift`, `window-actions.sld`.
+_Avoid_: bare "window movement" when precision matters — it is the colloquial
+name (and this grove's name) but conflates geometry with focus-switching.
+
+**EUI flip** (AXEnhancedUserInterface flip) — the disable→write→restore dance
+Modaliser performs around AX position/size writes for apps that set
+`AXEnhancedUserInterface` (Electron and some others). While that flag is on,
+AX geometry writes silently no-op; Modaliser flips it off, issues the writes,
+then restores it. Source: `withResizableApp`.
+
+**EUI-settle race** — the failure this grove addresses: on some machines the
+Electron app has not finished applying the EUI-off transition (or processing
+the geometry writes) before Modaliser issues or restores them, so the writes
+are dropped and the window never moves. Timing-sensitive across CPU
+generations — hence it works on one machine and silently fails on another.
+The fixed `usleep(50_000)` settle delay in the EUI flip is the fragile
+assumption at its core.
