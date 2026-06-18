@@ -130,14 +130,24 @@ enum WindowManipulator {
     }
 
     private static func focusedWindowAndFrame() -> (AXUIElement, CGRect)? {
-        let systemWide = AXUIElementCreateSystemWide()
-        guard let focusedApp = axAttribute(systemWide, kAXFocusedApplicationAttribute) else {
+        // Resolve the target app via NSWorkspace.frontmostApplication — a
+        // window-server API independent of the target app's accessibility
+        // state — rather than AXUIElementCreateSystemWide() +
+        // kAXFocusedApplicationAttribute. Chromium/Electron apps keep their
+        // accessibility engine dormant until an assistive client warms it, and
+        // while it is dormant the system-wide focused-application attribute
+        // returns kAXErrorNoValue, so the old path resolved to nil and the
+        // layout op silently no-op'd (the "Cold-AX resolution gap"). Building
+        // the app element directly from the frontmost PID works cold.
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else {
             return nil
         }
-        // AXUIElement is a CFTypeRef — force cast is safe because AXUIElementCopyAttributeValue
-        // guarantees the kAXFocusedApplicationAttribute returns an AXUIElement.
-        let appElement = focusedApp as! AXUIElement
-        guard let windowObj = axAttribute(appElement, kAXFocusedWindowAttribute) else {
+        let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+        // kAXFocusedWindow, falling back to kAXMainWindow — both resolve while
+        // a Chromium app is cold (010 evidence); the system-wide attribute is
+        // the only one that does not.
+        guard let windowObj = axAttribute(appElement, kAXFocusedWindowAttribute)
+                ?? axAttribute(appElement, kAXMainWindowAttribute) else {
             return nil
         }
         let window = windowObj as! AXUIElement
@@ -154,13 +164,19 @@ enum WindowManipulator {
     }
 
     /// Run AX position/size mutations with the owning app's
-    /// AXEnhancedUserInterface flag temporarily disabled. Electron apps and
-    /// some others set this flag — when it's on, AX position/size writes
-    /// silently no-op. After flipping EUI off, briefly wait for the target
-    /// app to process the change before doing the writes; without that
-    /// delay, Electron can drop the writes because internally it's still
-    /// in EUI mode when they arrive. Restore the flag afterward so the
-    /// app's accessibility behavior is unchanged.
+    /// AXEnhancedUserInterface flag temporarily disabled. Apps that honor this
+    /// flag (Slack and some other Electron apps) silently no-op AX
+    /// position/size writes while it is on, so we flip it off, issue the
+    /// writes, then restore it to leave the app's accessibility behavior
+    /// unchanged.
+    ///
+    /// No settle delay between the flip and the writes: diagnosis 010 varied a
+    /// settle delay across 0 / 50 / 500 ms and the writes always landed
+    /// (returned .success and read back at target) regardless. The previous
+    /// `usleep(50_000)` was tuned to one machine's speed for a write-drop that
+    /// does not actually occur, so it is gone — the flip is timing-robust by
+    /// construction. See docs/adr/0010 and CONTEXT.md ("Cold-AX resolution
+    /// gap", "EUI-settle race [refuted]").
     private static func withResizableApp(_ window: AXUIElement, _ body: () -> Void) {
         var pid: pid_t = 0
         guard AXUIElementGetPid(window, &pid) == .success, pid > 0 else {
@@ -172,7 +188,6 @@ enum WindowManipulator {
         if wasEnhanced {
             AXUIElementSetAttributeValue(
                 app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
-            usleep(50_000)
         }
         body()
         if wasEnhanced {
