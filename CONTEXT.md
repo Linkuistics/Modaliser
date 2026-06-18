@@ -109,3 +109,43 @@ opt-in: Cmd-V/C/X/A, option-arrows for word movement, Cmd-arrows for
 line/document jumps, Cmd-Z/Shift-Cmd-Z undo, etc. Treated as one class
 because they share an event path; failing one usually means failing all.
 A chooser input should support the whole class.
+
+## Window-layout domain
+
+**Window-layout op** — a `w`-menu action that repositions or resizes the
+*focused* OS window (thirds, halves, two-thirds, maximise, center,
+fullscreen, restore) via the Accessibility API. Changes geometry, not
+focus — distinct from the window-switching chips, which only change which
+window is focused. Sources: `WindowManipulator.swift`, `window-actions.sld`.
+_Avoid_: bare "window movement" when precision matters — it is the colloquial
+name (and this grove's name) but conflates geometry with focus-switching.
+
+**EUI flip** (AXEnhancedUserInterface flip) — the disable→write→restore dance
+Modaliser performs around AX position/size writes for apps that set
+`AXEnhancedUserInterface` (Electron and some others). While that flag is on,
+AX geometry writes silently no-op; Modaliser flips it off, issues the writes,
+then restores it. Source: `withResizableApp`.
+
+**EUI-settle race** — _[REFUTED as this grove's failure cause — see 010
+diagnosis and **Cold-AX resolution gap**.]_ The original hypothesis: on some
+machines the Electron app has not finished applying the EUI-off transition
+before Modaliser issues/restores the geometry writes, so they are dropped.
+Investigation showed the layout-op failure occurs **upstream of any geometry
+write** (resolution returns nil), is independent of the settle delay, and
+afflicts apps (Dia) that never enter the EUI flip. The EUI flip itself remains
+real — Chromium apps that honor `AXEnhancedUserInterface=true` do ignore
+setFrame while it is on — but it is orthogonal to the window-not-moving bug.
+_Avoid_: blaming the `usleep(50_000)` settle delay for layout ops not working.
+
+**Cold-AX resolution gap** — the confirmed root cause of this grove's failure.
+Chromium/Electron apps keep their accessibility engine **dormant** until an
+assistive client activates it (via `AXEnhancedUserInterface`/
+`AXManualAccessibility` = true, or sustained AX tree queries), and let it lapse
+when idle. While dormant, `AXUIElementCreateSystemWide()` +
+`kAXFocusedApplicationAttribute` returns `kAXErrorNoValue (-25212)`, so
+`focusedWindowAndFrame()` resolves to `nil` and the layout op silently no-ops.
+Native apps always expose an AX interface, so they never hit this — explaining
+the Electron-only, intermittent, per-app symptom. Resolving the frontmost app
+via `NSWorkspace.frontmostApplication` (a window-server API, a11y-independent)
++ the app element's `kAXFocusedWindow` works regardless of a11y state.
+Source: `WindowManipulator.focusedWindowAndFrame`.
