@@ -126,10 +126,26 @@ Modaliser performs around AX position/size writes for apps that set
 AX geometry writes silently no-op; Modaliser flips it off, issues the writes,
 then restores it. Source: `withResizableApp`.
 
-**EUI-settle race** — the failure this grove addresses: on some machines the
-Electron app has not finished applying the EUI-off transition (or processing
-the geometry writes) before Modaliser issues or restores them, so the writes
-are dropped and the window never moves. Timing-sensitive across CPU
-generations — hence it works on one machine and silently fails on another.
-The fixed `usleep(50_000)` settle delay in the EUI flip is the fragile
-assumption at its core.
+**EUI-settle race** — _[REFUTED as this grove's failure cause — see 010
+diagnosis and **Cold-AX resolution gap**.]_ The original hypothesis: on some
+machines the Electron app has not finished applying the EUI-off transition
+before Modaliser issues/restores the geometry writes, so they are dropped.
+Investigation showed the layout-op failure occurs **upstream of any geometry
+write** (resolution returns nil), is independent of the settle delay, and
+afflicts apps (Dia) that never enter the EUI flip. The EUI flip itself remains
+real — Chromium apps that honor `AXEnhancedUserInterface=true` do ignore
+setFrame while it is on — but it is orthogonal to the window-not-moving bug.
+_Avoid_: blaming the `usleep(50_000)` settle delay for layout ops not working.
+
+**Cold-AX resolution gap** — the confirmed root cause of this grove's failure.
+Chromium/Electron apps keep their accessibility engine **dormant** until an
+assistive client activates it (via `AXEnhancedUserInterface`/
+`AXManualAccessibility` = true, or sustained AX tree queries), and let it lapse
+when idle. While dormant, `AXUIElementCreateSystemWide()` +
+`kAXFocusedApplicationAttribute` returns `kAXErrorNoValue (-25212)`, so
+`focusedWindowAndFrame()` resolves to `nil` and the layout op silently no-ops.
+Native apps always expose an AX interface, so they never hit this — explaining
+the Electron-only, intermittent, per-app symptom. Resolving the frontmost app
+via `NSWorkspace.frontmostApplication` (a window-server API, a11y-independent)
++ the app element's `kAXFocusedWindow` works regardless of a11y state.
+Source: `WindowManipulator.focusedWindowAndFrame`.

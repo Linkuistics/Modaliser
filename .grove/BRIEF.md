@@ -2,11 +2,19 @@
 
 ## Goal
 Make **window-layout ops** work for **Electron apps on every machine**, not
-just patch the box where they currently fail. The defect is the **EUI-settle
-race** (`CONTEXT.md`): the fixed `usleep(50_000)` delay in the `EUI flip`
-(`withResizableApp`) is a timing assumption that holds on one CPU generation
-and fails on another. Native apps (iTerm) are unaffected; the fix must not
-regress them.
+just patch the box where they currently fail. Native apps (iTerm) are
+unaffected; the fix must not regress them.
+
+> **010 diagnosis (confirmed):** the defect is the **Cold-AX resolution gap**
+> (`CONTEXT.md`), **not** the EUI-settle race originally hypothesised below.
+> `focusedWindowAndFrame()` resolves the focused app via
+> `AXUIElementCreateSystemWide()` + `kAXFocusedApplicationAttribute`, which
+> returns `kAXErrorNoValue` for a Chromium app whose accessibility engine is
+> dormant → resolution returns nil → the op silently no-ops. The failure is
+> upstream of any geometry write; the `usleep(50_000)` settle delay is
+> irrelevant. Fix: resolve via `NSWorkspace.frontmostApplication` → app element
+> → `kAXFocusedWindow` (proven to work cold). See `010-…` FINDINGS for the
+> evidence trail and the fix leaf for implementation.
 
 ## Done when
 - Window-layout ops (thirds / halves / two-thirds / maximise / center /
@@ -41,8 +49,7 @@ so we decompose it lazily after 010.
   not a logic/coordinate bug.
 - We are running on the *broken* machine, so live reproduction is available —
   the first leaf should exploit that rather than reason in the abstract.
-- `withResizableApp` restores `AXEnhancedUserInterface` to `true`
-  synchronously, immediately after issuing the (async-applied) geometry
-  writes. A leading hypothesis is that on this machine the restore re-arms EUI
-  before Electron has applied the writes, dropping them. To be confirmed, not
-  assumed.
+- ~~`withResizableApp` restores `AXEnhancedUserInterface` to `true`
+  synchronously… the restore re-arms EUI before Electron has applied the
+  writes.~~ **Refuted by 010:** the writes always land once a window is
+  resolved; the failure is that resolution returns nil for cold Chromium apps.
