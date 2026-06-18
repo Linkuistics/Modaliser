@@ -42,3 +42,30 @@ regressing native apps and without depending on any hard-coded settle delay.
   (cold-app layout op), then the minimal fix, then verify.
 - `focusWindow(ownerPID:title:)` already uses the per-app element path and is
   unaffected; only the *focused*-window resolution needs changing.
+
+## VERIFIED (live, on the broken machine)
+
+Fix shipped in `WindowManipulator.focusedWindowAndFrame()` (resolve via
+`NSWorkspace.frontmostApplication` → `AXUIElementCreateApplication(pid)` →
+`kAXFocusedWindow` ?? `kAXMainWindow`) and `withResizableApp` (EUI flip kept,
+`usleep(50_000)` removed). Decision recorded in `docs/adr/0010`.
+
+End-to-end harness `/tmp/resolvecheck.swift` mirrors the OLD vs NEW resolution
+exactly and moves the window via the new element:
+- **Cold Electron, frontmost (Dia, freshly relaunched, first AX interaction):**
+  OLD `systemWide.kAXFocusedApplication` → `axErr=-25204`, resolved=false →
+  **nil (the production bug)**. NEW → frontmost=Dia, `kAXFocusedWindow` axErr=0,
+  window resolves, MOVE `applied=YES`. `EUI=false` (flip not even entered).
+- **Warm Electron (Dia):** NEW resolves + moves (`applied=YES`).
+- **Native (iTerm2, frontmost):** NEW resolves + moves (`applied=YES`).
+
+All window-layout ops route through the single `focusedWindowAndFrame()`
+chokepoint, so the resolution fix covers thirds/halves/two-thirds/maximise/
+center/fullscreen/restore alike. EUI-honoring app (Slack) not running this
+session; flip structure unchanged save the delay, and 010 evidence #1 already
+covered delay-irrelevance for EUI apps.
+
+Caveat: `swift test` does not compile in this toolchain (pre-existing
+`no such module 'Testing'` in unrelated test files, commit 138230b); the
+product target (`swift build`) builds clean. Focused-window resolution is
+live-AX behaviour with no unit coverage.
