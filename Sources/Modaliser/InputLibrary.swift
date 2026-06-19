@@ -4,7 +4,7 @@ import LispKit
 /// Native LispKit library providing keyboard input emulation.
 /// Scheme name: (modaliser input)
 ///
-/// Provides: send-keystroke
+/// Provides: send-keystroke, send-key-down, send-key-up
 final class InputLibrary: NativeLibrary {
 
     public required init(in context: Context) throws {
@@ -21,6 +21,8 @@ final class InputLibrary: NativeLibrary {
 
     public override func declarations() {
         self.define(Procedure("send-keystroke", sendKeystrokeFunction))
+        self.define(Procedure("send-key-down", sendKeyDownFunction))
+        self.define(Procedure("send-key-up", sendKeyUpFunction))
     }
 
     // MARK: - Functions
@@ -35,23 +37,34 @@ final class InputLibrary: NativeLibrary {
     ///   (send-keystroke '(cmd alt) "left")      ; Cmd+Alt+Left
     ///   (send-keystroke '() "space")            ; Space
     private func sendKeystrokeFunction(_ modsExpr: Expr, _ keyExpr: Expr) throws -> Expr {
-        let keyString = try keyExpr.asString()
-        let flags = parseModifiers(modsExpr)
-
-        guard let keyCode = KeystrokeEmitter.keyCode(for: keyString)
-                ?? KeystrokeEmitter.keyCode(forNamedKey: keyString) else {
-            throw RuntimeError.custom(
-                "eval",
-                "unknown key '\(keyString)' in send-keystroke",
-                [keyExpr]
-            )
-        }
-
+        let (keyCode, flags) = try resolveKey(modsExpr, keyExpr)
         KeystrokeEmitter.sendKeystroke(keyCode: keyCode, flags: flags)
         return .void
     }
 
+    private func sendKeyDownFunction(_ modsExpr: Expr, _ keyExpr: Expr) throws -> Expr {
+        let (keyCode, flags) = try resolveKey(modsExpr, keyExpr)
+        KeystrokeEmitter.sendKeyDown(keyCode: keyCode, flags: flags)
+        return .void
+    }
+
+    private func sendKeyUpFunction(_ modsExpr: Expr, _ keyExpr: Expr) throws -> Expr {
+        let (keyCode, flags) = try resolveKey(modsExpr, keyExpr)
+        KeystrokeEmitter.sendKeyUp(keyCode: keyCode, flags: flags)
+        return .void
+    }
+
     // MARK: - Helpers
+
+    private func resolveKey(_ modsExpr: Expr, _ keyExpr: Expr) throws -> (CGKeyCode, CGEventFlags) {
+        let keyString = try keyExpr.asString()
+        let flags = parseModifiers(modsExpr)
+        guard let keyCode = KeystrokeEmitter.keyCode(for: keyString)
+                ?? KeystrokeEmitter.keyCode(forNamedKey: keyString) else {
+            throw RuntimeError.custom("eval", "unknown key '\(keyString)'", [keyExpr])
+        }
+        return (keyCode, flags)
+    }
 
     private func parseModifiers(_ expr: Expr) -> CGEventFlags {
         var flags: CGEventFlags = []

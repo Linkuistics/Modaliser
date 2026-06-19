@@ -35,6 +35,17 @@ enum KeystrokeEmitter {
         }
     }
 
+    /// Post a lone keyDown for `keyCode` with `flags` held. Pairs with
+    /// `sendKeyUp` to hold a modifier across multiple taps.
+    static func sendKeyDown(keyCode: CGKeyCode, flags: CGEventFlags = []) {
+        post(keyCode, keyDown: true, flags: flags)
+    }
+
+    /// Post a lone keyUp for `keyCode`, releasing a hold started by `sendKeyDown`.
+    static func sendKeyUp(keyCode: CGKeyCode, flags: CGEventFlags = []) {
+        post(keyCode, keyDown: false, flags: flags)
+    }
+
     /// Look up the CGKeyCode for a character string (US ANSI layout).
     /// Returns nil for characters without a known key code.
     static func keyCode(for character: String) -> CGKeyCode? {
