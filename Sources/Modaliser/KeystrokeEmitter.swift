@@ -19,34 +19,67 @@ enum KeystrokeEmitter {
         event.post(tap: .cghidEventTap)
     }
 
+    /// Modifiers currently held via `sendKeyDown` of a modifier key, mirroring
+    /// the real OS-level hold those posts create. Every subsequent event ORs
+    /// these in, so a tap posted while control is held is seen as control+key
+    /// without the caller restating the modifier. Cleared by the matching
+    /// `sendKeyUp`. (A leaked hold corrupts later shortcuts — but the leak is
+    /// the OS-level control-down, not this mirror; `sendKeyUp '() "ctrl"`
+    /// clears both.)
+    private static var heldModifiers: CGEventFlags = []
+
+    /// The modifier flag a virtual keycode represents, or [] if it is not a
+    /// modifier key. Lets `sendKeyDown "ctrl"` assert and track control with
+    /// no separate `'(ctrl)` argument.
+    static func modifierFlag(forKeyCode keyCode: CGKeyCode) -> CGEventFlags {
+        switch keyCode {
+        case 59: return .maskControl
+        case 56: return .maskShift
+        case 55: return .maskCommand
+        case 58: return .maskAlternate
+        default: return []
+        }
+    }
+
     /// Send a keystroke with optional modifier flags. Modifiers are posted as
     /// real keyDown events (accumulating flags) before the key and released as
     /// keyUp events after it, so the chord ends fully released — a down->up
     /// transition release-driven UIs (e.g. Dia's recent-tab switcher) require.
+    /// Any modifiers currently held via `sendKeyDown` are ORed onto every event
+    /// but left held (not bracketed), so taps during a hold need not restate
+    /// the held modifier.
     static func sendKeystroke(keyCode: CGKeyCode, flags: CGEventFlags = []) {
-        let mods = modifierKeyCodes(in: flags)
-        var acc: CGEventFlags = []
+        let base = heldModifiers
+        // Bracket only the explicit modifiers that aren't already held — a held
+        // modifier must not be released by this chord's closing up-pass.
+        let mods = modifierKeyCodes(in: flags.subtracting(base))
+        var acc = base
         for (code, bit) in mods {
             acc.insert(bit)
             post(code, keyDown: true, flags: acc)
         }
-        post(keyCode, keyDown: true, flags: flags)
-        post(keyCode, keyDown: false, flags: flags)
+        post(keyCode, keyDown: true, flags: flags.union(base))
+        post(keyCode, keyDown: false, flags: flags.union(base))
         for (code, bit) in mods.reversed() {
             acc.remove(bit)
             post(code, keyDown: false, flags: acc)
         }
     }
 
-    /// Post a lone keyDown for `keyCode` with `flags` held. Pairs with
-    /// `sendKeyUp` to hold a modifier across multiple taps.
+    /// Post a lone keyDown for `keyCode`. If `keyCode` is a modifier, its flag
+    /// is asserted and recorded as held (so `(send-key-down '() "ctrl")` holds
+    /// control); otherwise the event carries any currently-held modifiers.
     static func sendKeyDown(keyCode: CGKeyCode, flags: CGEventFlags = []) {
-        post(keyCode, keyDown: true, flags: flags)
+        heldModifiers.formUnion(modifierFlag(forKeyCode: keyCode))
+        post(keyCode, keyDown: true, flags: flags.union(heldModifiers))
     }
 
     /// Post a lone keyUp for `keyCode`, releasing a hold started by `sendKeyDown`.
+    /// If `keyCode` is a modifier, its flag is dropped from the held set and the
+    /// event reflects the post-release state.
     static func sendKeyUp(keyCode: CGKeyCode, flags: CGEventFlags = []) {
-        post(keyCode, keyDown: false, flags: flags)
+        heldModifiers.subtract(modifierFlag(forKeyCode: keyCode))
+        post(keyCode, keyDown: false, flags: flags.union(heldModifiers))
     }
 
     /// Look up the CGKeyCode for a character string (US ANSI layout).
