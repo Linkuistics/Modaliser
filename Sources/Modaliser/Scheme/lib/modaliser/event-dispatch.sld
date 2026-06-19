@@ -28,13 +28,18 @@
 ;; Receives (keycode modifiers). Returns #t to suppress, #f to pass through.
 (define (modal-key-handler keycode modifiers)
   (cond
-    ;; Leader key toggle — exit modal
+    ;; Leader key toggle — exit modal (treated as a cancel)
     ((and modal-leader-keycode (= keycode modal-leader-keycode))
-     (modal-exit)
+     (modal-exit 'cancel)
      #t)
-    ;; Escape — exit modal
+    ;; Return — confirm-and-exit. Distinct from Escape so a leave hook can
+    ;; commit an app-side interaction on Return and cancel it otherwise.
+    ((= keycode RETURN)
+     (modal-exit 'confirm)
+     #t)
+    ;; Escape — cancel-and-exit
     ((= keycode ESCAPE)
-     (modal-exit)
+     (modal-exit 'cancel)
      #t)
     ;; Delete — step back
     ((= keycode DELETE)
@@ -67,7 +72,7 @@
                 (effective (if (has-ctrl? modifiers)
                              (string-append "C-" with-alt) with-alt)))
            (modal-handle-key effective) #t)
-         (begin (modal-exit) #t))))))
+         (begin (modal-exit 'cancel) #t))))))
 
 ;; Hook: given the focused app's bundle ID, return a suffix string like
 ;; "/zellij" to try a more specific tree first, or #f to use the plain

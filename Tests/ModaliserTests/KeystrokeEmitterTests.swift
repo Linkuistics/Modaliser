@@ -92,6 +92,20 @@ struct KeystrokeEmitterTests {
         #expect(KeystrokeEmitter.modifierKeyCodes(in: []).isEmpty)
     }
 
+    // MARK: - Modifier flag for a keycode (held-modifier tracking)
+
+    @Test func modifierFlagForModifierKeycodes() {
+        #expect(KeystrokeEmitter.modifierFlag(forKeyCode: 59) == .maskControl)
+        #expect(KeystrokeEmitter.modifierFlag(forKeyCode: 56) == .maskShift)
+        #expect(KeystrokeEmitter.modifierFlag(forKeyCode: 55) == .maskCommand)
+        #expect(KeystrokeEmitter.modifierFlag(forKeyCode: 58) == .maskAlternate)
+    }
+
+    @Test func modifierFlagForNonModifierIsEmpty() {
+        #expect(KeystrokeEmitter.modifierFlag(forKeyCode: 48) == [])  // tab
+        #expect(KeystrokeEmitter.modifierFlag(forKeyCode: 0) == [])   // a
+    }
+
     // MARK: - Consistency with KeyCodeMapping
 
     @Test func characterLookupMatchesKeyCodeMapping() throws {

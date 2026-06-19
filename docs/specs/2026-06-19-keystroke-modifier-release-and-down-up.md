@@ -194,6 +194,58 @@ holding a modifier needs its flag asserted on the down event, and walk taps
 must carry the flag themselves (a separately-held synthetic modifier does not
 attach to later independent CGEvents).
 
+## Follow-up refinements (2026-06-20)
+
+Three ergonomic/correctness refinements landed after the recipe corrections
+above made the verbose form ugly:
+
+1. **Held-modifier tracking** (`KeystrokeEmitter`). `sendKeyDown` of a modifier
+   key now asserts and records its flag in a static `heldModifiers`; every
+   later `sendKeystroke`/key event ORs the held set in (but does NOT
+   bracket/release it) until `sendKeyUp` clears it. A modifier held across a
+   modal no longer needs restating on each tap — `(send-keystroke "tab")` while
+   control is held is seen as ctrl+tab. The earlier "walk taps must carry the
+   flag" correction is thus obsolete: it's automatic. Leak note: a never-
+   released hold corrupts later keystrokes, but the real leak is the OS-level
+   key-down the mirror reflects; `send-key-up` clears both.
+
+2. **Optional modifier list** (`InputLibrary`). `send-keystroke` /
+   `send-key-down` / `send-key-up` accept 1 arg (key only, no modifiers) or 2
+   (mods, key). So `(send-key-down "ctrl")`, `(send-keystroke "tab")`.
+
+3. **Exit reason to leave hooks** (`state-machine.sld`, `event-dispatch.sld`).
+   `modal-exit` takes an optional reason; dispatch tags **Return → `'confirm`**,
+   Escape/leader/unknown-key → `'cancel`, navigation → `'navigate`.
+   `run-on-leave` forwards it to a leave hook whose arity includes 1 (via
+   `procedure-arity-includes?`), leaving 0-arg hooks untouched. This reaches
+   *raw* on-leave thunks — `(group …)` and register-tree!/define-tree roots;
+   hooks composed through `(modaliser dsl)` `compose-hooks` (used by
+   `(overlay …)` and the block path) stay nullary, because dsl.sld is
+   host-portable and can't do arity introspection. Reason-aware leave hooks
+   therefore belong on a `(group …)`.
+
+### Final Part 3 recipe (clean form, live-verified 2026-06-20)
+
+```scheme
+(define (dia-tab-step)      (send-keystroke "tab"))          ; held ctrl ⇒ ctrl+tab
+(define (dia-tab-step-back) (send-keystroke '(shift) "tab")) ; held ctrl + shift
+
+(group "r" "Recent Tabs" 'sticky #t 'exit-on-unknown #t
+  'on-enter (λ () (send-key-up "ctrl")        ; self-heal stale hold
+                  (send-key-down "ctrl")      ; hold control
+                  (dia-tab-step))             ; open HUD on the most-recent tab
+  'on-leave (λ (reason)
+              (unless (eq? reason 'confirm) (send-keystroke "escape")) ; cancel HUD
+              (send-key-up "ctrl"))                                    ; release
+  (key "j" "Next" (λ () (dia-tab-step)))
+  (key "k" "Prev" (λ () (dia-tab-step-back))))
+```
+
+Verified live: **Return commits** (tab changes), **Escape cancels** (sends Esc
+to Dia, no change — confirmed Esc-while-ctrl-held dismisses Dia's HUD without
+switching), and **bare open + Esc is a no-op**. The HUD opens on the most-
+recent ("next") tab — no go-back-one.
+
 ## Risks
 
 | Risk | Mitigation |
