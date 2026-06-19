@@ -4,8 +4,11 @@ import CoreGraphics
 /// Used by the `(modaliser input)` library to send keystrokes to the focused application.
 enum KeystrokeEmitter {
 
-    /// Post a single keyboard event, tagged so Modaliser's own capture tap
-    /// passes it through instead of the modal catch-all suppressing it.
+    /// Post a single keyboard event, tagged with `reInjectionMagic` so
+    /// KeyboardCapture's tap recognises it as our own re-injection and passes
+    /// it through, instead of letting the modal catch-all suppress it on the
+    /// way back (e.g. Ctrl+1 for space switch posted from inside the modal
+    /// action that's still tearing down).
     private static func post(_ keyCode: CGKeyCode, keyDown: Bool, flags: CGEventFlags) {
         let source = CGEventSource(stateID: .combinedSessionState)
         guard let event = CGEvent(keyboardEventSource: source,
