@@ -4,32 +4,35 @@ import CoreGraphics
 /// Used by the `(modaliser input)` library to send keystrokes to the focused application.
 enum KeystrokeEmitter {
 
-    /// Send a keystroke with optional modifier flags to the system.
-    /// - Parameters:
-    ///   - keyCode: The HID key code to press
-    ///   - flags: Modifier flags (cmd, alt, shift, ctrl)
-    static func sendKeystroke(keyCode: CGKeyCode, flags: CGEventFlags = []) {
+    /// Post a single keyboard event, tagged so Modaliser's own capture tap
+    /// passes it through instead of the modal catch-all suppressing it.
+    private static func post(_ keyCode: CGKeyCode, keyDown: Bool, flags: CGEventFlags) {
         let source = CGEventSource(stateID: .combinedSessionState)
-
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
-            return
-        }
-
-        keyDown.flags = flags
-        keyUp.flags = flags
-
-        // Tag so KeyboardCapture's tap recognises these as our own re-injection
-        // and passes them through, instead of letting the modal catch-all
-        // suppress them on the way back through (e.g. Ctrl+1 for space switch
-        // posted from inside the modal action that's still tearing down).
-        keyDown.setIntegerValueField(.eventSourceUserData,
-                                     value: KeyboardCapture.reInjectionMagic)
-        keyUp.setIntegerValueField(.eventSourceUserData,
+        guard let event = CGEvent(keyboardEventSource: source,
+                                  virtualKey: keyCode, keyDown: keyDown) else { return }
+        event.flags = flags
+        event.setIntegerValueField(.eventSourceUserData,
                                    value: KeyboardCapture.reInjectionMagic)
+        event.post(tap: .cghidEventTap)
+    }
 
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+    /// Send a keystroke with optional modifier flags. Modifiers are posted as
+    /// real keyDown events (accumulating flags) before the key and released as
+    /// keyUp events after it, so the chord ends fully released — a down->up
+    /// transition release-driven UIs (e.g. Dia's recent-tab switcher) require.
+    static func sendKeystroke(keyCode: CGKeyCode, flags: CGEventFlags = []) {
+        let mods = modifierKeyCodes(in: flags)
+        var acc: CGEventFlags = []
+        for (code, bit) in mods {
+            acc.insert(bit)
+            post(code, keyDown: true, flags: acc)
+        }
+        post(keyCode, keyDown: true, flags: flags)
+        post(keyCode, keyDown: false, flags: flags)
+        for (code, bit) in mods.reversed() {
+            acc.remove(bit)
+            post(code, keyDown: false, flags: acc)
+        }
     }
 
     /// Look up the CGKeyCode for a character string (US ANSI layout).
