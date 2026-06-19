@@ -67,6 +67,16 @@ struct KeystrokeEmitterTests {
         #expect(KeystrokeEmitter.keyCode(forNamedKey: "nonexistent") == nil)
     }
 
+    @Test func namedKeyModifiers() {
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "ctrl") == 59)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "control") == 59)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "shift") == 56)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "cmd") == 55)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "command") == 55)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "alt") == 58)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "option") == 58)
+    }
+
     // MARK: - Consistency with KeyCodeMapping
 
     @Test func characterLookupMatchesKeyCodeMapping() throws {
