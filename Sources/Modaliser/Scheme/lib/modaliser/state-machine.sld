@@ -41,6 +41,7 @@
     ;; Breadcrumb
     resolve-app-segments compute-root-segments compute-tree-root-segments)
   (import (scheme base)
+          (only (lispkit core) procedure-arity-includes?)
           (modaliser util)
           (modaliser app)
           (modaliser keyboard)
@@ -230,9 +231,24 @@
   (let ((thunk (node-on-enter node)))
     (when thunk (thunk))))
 
-(define (run-on-leave node)
-  (let ((thunk (node-on-leave node)))
-    (when thunk (thunk))))
+;; Run a node's on-leave hook. The optional REASON (default 'navigate;
+;; 'confirm / 'cancel / 'exit when leaving via modal-exit) is passed to hooks
+;; that declare an argument — a hook may ask *why* the modal left it (e.g. to
+;; commit vs. cancel an app-side interaction). Zero-arg hooks are unaffected.
+;;
+;; Note: this reaches a *raw* on-leave thunk — one set directly on a (group …)
+;; or a register-tree!/define-tree root. Hooks on (overlay …) and the
+;; block-composed path go through (modaliser dsl) `compose-hooks`, which wraps
+;; them in a nullary thunk (dsl.sld stays host-portable, so it can't do arity
+;; introspection); those receive no reason. Reason-aware leave hooks therefore
+;; belong on a (group …) — which is the natural home for an app-side sub-mode.
+(define (run-on-leave node . opt)
+  (let ((thunk (node-on-leave node))
+        (reason (if (pair? opt) (car opt) 'navigate)))
+    (when thunk
+      (if (procedure-arity-includes? thunk 1)
+          (thunk reason)
+          (thunk)))))
 
 ;; Is this group node sticky? (Either set via 'sticky #t on a tree root
 ;; or on a (group ...) child.)
@@ -522,10 +538,14 @@
 ;; on-leave only fires if the overlay was actually visible — paired with
 ;; on-enter, which only fires when the overlay shows. A modal that exits
 ;; before the overlay's display delay elapses produces zero hook fires.
-(define (modal-exit)
+;;
+;; Optional REASON ('confirm / 'cancel / 'exit) is forwarded to the current
+;; node's on-leave hook, so a hook can distinguish a confirming exit (Return)
+;; from a cancelling one (Escape). Defaults to 'exit.
+(define (modal-exit . opt)
   (when modal-active?
     (when (and modal-current-node (overlay-open?))
-      (run-on-leave modal-current-node))
+      (run-on-leave modal-current-node (if (pair? opt) (car opt) 'exit)))
     (set! modal-overlay-generation (+ modal-overlay-generation 1))
     (unregister-all-keys!)
     (hide-overlay)
@@ -652,7 +672,7 @@
     (cond
       ((not child)
        (if (exit-on-unknown-context?)
-         (modal-exit)
+         (modal-exit 'cancel)
          (if #f #f)))
       ((command? child)
        (let ((action        (node-action child))
