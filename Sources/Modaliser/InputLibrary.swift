@@ -27,36 +27,50 @@ final class InputLibrary: NativeLibrary {
 
     // MARK: - Functions
 
-    /// (send-keystroke mods key) → void
-    /// mods: list of modifier symbols ('cmd 'alt 'shift 'ctrl)
+    /// (send-keystroke [mods] key) → void
+    /// mods: optional list of modifier symbols ('cmd 'alt 'shift 'ctrl).
+    ///       Omit it entirely for no modifiers.
     /// key: string character ("t", "p", "left", "space", etc.)
     ///
     /// Examples:
+    ///   (send-keystroke "tab")                  ; Tab (plus any held modifiers)
     ///   (send-keystroke '(cmd) "t")            ; Cmd+T
     ///   (send-keystroke '(cmd shift) "p")       ; Cmd+Shift+P
-    ///   (send-keystroke '(cmd alt) "left")      ; Cmd+Alt+Left
-    ///   (send-keystroke '() "space")            ; Space
-    private func sendKeystrokeFunction(_ modsExpr: Expr, _ keyExpr: Expr) throws -> Expr {
-        let (keyCode, flags) = try resolveKey(modsExpr, keyExpr)
+    private func sendKeystrokeFunction(_ args: Arguments) throws -> Expr {
+        let (keyCode, flags) = try resolveArgs(args)
         KeystrokeEmitter.sendKeystroke(keyCode: keyCode, flags: flags)
         return .void
     }
 
-    private func sendKeyDownFunction(_ modsExpr: Expr, _ keyExpr: Expr) throws -> Expr {
-        let (keyCode, flags) = try resolveKey(modsExpr, keyExpr)
+    /// (send-key-down [mods] key) → void — see resolveArgs for the arity rule.
+    private func sendKeyDownFunction(_ args: Arguments) throws -> Expr {
+        let (keyCode, flags) = try resolveArgs(args)
         KeystrokeEmitter.sendKeyDown(keyCode: keyCode, flags: flags)
         return .void
     }
 
-    private func sendKeyUpFunction(_ modsExpr: Expr, _ keyExpr: Expr) throws -> Expr {
-        let (keyCode, flags) = try resolveKey(modsExpr, keyExpr)
+    /// (send-key-up [mods] key) → void — see resolveArgs for the arity rule.
+    private func sendKeyUpFunction(_ args: Arguments) throws -> Expr {
+        let (keyCode, flags) = try resolveArgs(args)
         KeystrokeEmitter.sendKeyUp(keyCode: keyCode, flags: flags)
         return .void
     }
 
     // MARK: - Helpers
 
-    private func resolveKey(_ modsExpr: Expr, _ keyExpr: Expr) throws -> (CGKeyCode, CGEventFlags) {
+    /// Resolve the (keyCode, flags) for the input procedures. Accepts either
+    /// one argument (the key string, no modifiers) or two (modifier-symbol
+    /// list, then key string).
+    private func resolveArgs(_ args: Arguments) throws -> (CGKeyCode, CGEventFlags) {
+        let argList = Array(args)
+        let modsExpr: Expr
+        let keyExpr: Expr
+        switch argList.count {
+        case 1: modsExpr = .null;        keyExpr = argList[0]
+        case 2: modsExpr = argList[0];   keyExpr = argList[1]
+        default:
+            throw RuntimeError.argumentCount(min: 1, max: 2, args: .makeList(args))
+        }
         let keyString = try keyExpr.asString()
         let flags = parseModifiers(modsExpr)
         guard let keyCode = KeystrokeEmitter.keyCode(for: keyString)
