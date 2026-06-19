@@ -106,20 +106,45 @@ Add two procedures to `(modaliser input)`:
 - Generic (any key), not modifier-only — chosen for reusability; matches the
   "key down/up mechanism" framing.
 
-These are the held-walk primitives. The *taps* between hold and release go
-through plain `send-keystroke` (e.g. `(send-keystroke '() "tab")`), which —
-because control is genuinely held by `send-key-down` — Dia sees as
-`ctrl+tab` and advances. The hold is released with `send-key-up`, committing.
+These are the held-walk primitives.
+
+> **CORRECTED BY VERIFICATION (see Verification Results below).** The original
+> design assumed two things that live testing disproved:
+> 1. A modifier is held with `(send-key-down '() "ctrl")`. **Wrong** — that
+>    posts the control *keycode* with empty flags, which the system does not
+>    register as control *held*. The down event must assert its own flag:
+>    `(send-key-down '(ctrl) "ctrl")`.
+> 2. Taps go through plain `(send-keystroke '() "tab")`, "because control is
+>    genuinely held." **Wrong** — raw CGEvent posting does not propagate a
+>    separately-held synthetic modifier onto later independent events, so a
+>    plain tab is just a tab and Dia never sees `ctrl+tab`. Each tap must
+>    carry the flag itself, via `(send-key-down '(ctrl) "tab")` +
+>    `(send-key-up '(ctrl) "tab")` — *not* `send-keystroke '(ctrl) …`, which
+>    now brackets and would release the held control.
 
 ### Part 3 — Sticky "Recent Tabs" modal (config follow-up, not this repo)
 
+Verified recipe (each tap carries the ctrl flag; control is held across the
+whole modal and released only on exit):
+
 ```scheme
+(define (dia-tab-tap)            ; one ctrl+tab without releasing control
+  (send-key-down '(ctrl) "tab")
+  (send-key-up   '(ctrl) "tab"))
+
 (group "r" "Recent Tabs" 'sticky #t 'exit-on-unknown #t
-  'on-enter (λ () (send-key-down '() "ctrl") (send-keystroke '() "tab"))
-  'on-leave (λ () (send-key-up   '() "ctrl"))
-  (key "j" "Next" (λ () (send-keystroke '() "tab")))
-  (key "k" "Prev" (λ () (send-keystroke '(shift) "tab"))))
+  'on-enter (λ () (send-key-down '(ctrl) "ctrl") (dia-tab-tap))
+  'on-leave (λ () (send-key-up   '() "ctrl"))      ; flags empty = control released
+  (key "j" "Next" (λ () (dia-tab-tap)))
+  (key "k" "Prev" (λ () (send-key-down '(ctrl shift) "tab")
+                        (send-key-up   '(ctrl shift) "tab"))))
 ```
+
+**Ergonomics note / optional Part 2 refinement:** the redundant
+`(send-key-down '(ctrl) "ctrl")` is a wart — `send-key-down`/`send-key-up`
+could auto-assert a modifier's own flag when the key *name* is a modifier, so
+callers write `(send-key-down '() "ctrl")` and it works. Deferred; the
+explicit-flag recipe above is proven and sufficient.
 
 **Safety-critical invariant:** `on-leave` must release the held modifier on
 *every* exit path — commit, Escape, unknown-key exit, and handler error. A
@@ -141,6 +166,33 @@ error-recovery path that deregisters the catch-all also runs `on-leave`.
      `Cmd+Shift+Return` still behave.
   3. Held walk (once Part 2 lands): down ctrl → repeated `tab` walks the
      HUD → up ctrl commits; HUD never sticks.
+
+## Verification Results (2026-06-19, live against Dia, ad-hoc-signed build)
+
+Driven via temporary scratch bindings in the global tree, triggered by
+synthesising the F18 leader + the binding key, observed via Dia AppleScript
+(`isFocused of every tab`) and `screencapture`.
+
+- ✅ **One-shot fix.** `(send-keystroke '(ctrl) "tab")` flipped focus to the
+  most-recent tab AND the switcher HUD closed (screenshot confirmed no HUD).
+  This is the original bug fixed — the old flag-only chord left the HUD open.
+- ✅ **Held walk.** With the corrected recipe (control held via
+  `send-key-down '(ctrl) "ctrl"`; two `send-key-down/up '(ctrl) "tab"` taps
+  spaced by `after-delay`; released via `send-key-up '() "ctrl"`), the HUD
+  opened, stepped through tabs (screenshot caught the grid mid-walk), and
+  committed on release. No stuck modifier afterward.
+- ✅ **Regression.** `(send-keystroke '(cmd) "t")` opened exactly one new Dia
+  tab (17 → 18) — the bracketed chord works for `cmd` shortcuts; no extra tabs
+  (no stuck cmd).
+- ✅ **Capture path.** All of the above were dispatched through Modaliser's own
+  leader + modal, confirming the new modifier events pass the capture tap
+  (tagging works) even though the ad-hoc rebuild required no permission issues
+  in practice.
+
+Two recipe corrections fell out of this (folded into Part 2/Part 3 above):
+holding a modifier needs its flag asserted on the down event, and walk taps
+must carry the flag themselves (a separately-held synthetic modifier does not
+attach to later independent CGEvents).
 
 ## Risks
 
