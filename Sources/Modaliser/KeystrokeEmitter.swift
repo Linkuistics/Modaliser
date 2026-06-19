@@ -43,6 +43,20 @@ enum KeystrokeEmitter {
         namedKeyToKeyCode[name.lowercased()]
     }
 
+    /// Modifier (virtual keycode, flag) pairs present in `flags`, in a stable
+    /// order (control, shift, option, command). A chord brackets the target key
+    /// with these as real keyDown/keyUp events so release-driven consumers see a
+    /// down->up modifier transition.
+    static func modifierKeyCodes(in flags: CGEventFlags) -> [(CGKeyCode, CGEventFlags)] {
+        let ordered: [(CGEventFlags, CGKeyCode)] = [
+            (.maskControl, 59),
+            (.maskShift, 56),
+            (.maskAlternate, 58),
+            (.maskCommand, 55),
+        ]
+        return ordered.compactMap { flag, code in flags.contains(flag) ? (code, flag) : nil }
+    }
+
     // MARK: - Key code tables
 
     private static let characterToKeyCode: [String: CGKeyCode] = [
