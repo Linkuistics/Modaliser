@@ -67,6 +67,31 @@ struct KeystrokeEmitterTests {
         #expect(KeystrokeEmitter.keyCode(forNamedKey: "nonexistent") == nil)
     }
 
+    @Test func namedKeyModifiers() {
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "ctrl") == 59)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "control") == 59)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "shift") == 56)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "cmd") == 55)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "command") == 55)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "alt") == 58)
+        #expect(KeystrokeEmitter.keyCode(forNamedKey: "option") == 58)
+    }
+
+    // MARK: - Modifier key codes (bracket-order helper)
+
+    @Test func modifierKeyCodesSingleFlag() {
+        #expect(KeystrokeEmitter.modifierKeyCodes(in: .maskControl).map(\.0) == [59])
+    }
+
+    @Test func modifierKeyCodesMultipleFlagsAreOrdered() {
+        let codes = KeystrokeEmitter.modifierKeyCodes(in: [.maskCommand, .maskControl, .maskShift]).map(\.0)
+        #expect(codes == [59, 56, 55])  // control, shift, command — stable order, not insertion order
+    }
+
+    @Test func modifierKeyCodesEmpty() {
+        #expect(KeystrokeEmitter.modifierKeyCodes(in: []).isEmpty)
+    }
+
     // MARK: - Consistency with KeyCodeMapping
 
     @Test func characterLookupMatchesKeyCodeMapping() throws {

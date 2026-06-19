@@ -29,4 +29,26 @@ struct InputLibraryTests {
             #expect(message.contains("unknown key"))
         }
     }
+
+    // MARK: - send-key-down / send-key-up registration
+
+    @Test func sendKeyDownIsProcedure() throws {
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? send-key-down)") == .true)
+    }
+
+    @Test func sendKeyUpIsProcedure() throws {
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? send-key-up)") == .true)
+    }
+
+    @Test func sendKeyDownThrowsForUnknownKey() throws {
+        let engine = try SchemeEngine()
+        do {
+            try engine.evaluate(#"(send-key-down '() "nonexistent_key")"#)
+            Issue.record("Expected error for unknown key")
+        } catch {
+            #expect("\(error)".contains("unknown key"))
+        }
+    }
 }

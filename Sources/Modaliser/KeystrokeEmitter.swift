@@ -4,32 +4,49 @@ import CoreGraphics
 /// Used by the `(modaliser input)` library to send keystrokes to the focused application.
 enum KeystrokeEmitter {
 
-    /// Send a keystroke with optional modifier flags to the system.
-    /// - Parameters:
-    ///   - keyCode: The HID key code to press
-    ///   - flags: Modifier flags (cmd, alt, shift, ctrl)
-    static func sendKeystroke(keyCode: CGKeyCode, flags: CGEventFlags = []) {
+    /// Post a single keyboard event, tagged with `reInjectionMagic` so
+    /// KeyboardCapture's tap recognises it as our own re-injection and passes
+    /// it through, instead of letting the modal catch-all suppress it on the
+    /// way back (e.g. Ctrl+1 for space switch posted from inside the modal
+    /// action that's still tearing down).
+    private static func post(_ keyCode: CGKeyCode, keyDown: Bool, flags: CGEventFlags) {
         let source = CGEventSource(stateID: .combinedSessionState)
-
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
-            return
-        }
-
-        keyDown.flags = flags
-        keyUp.flags = flags
-
-        // Tag so KeyboardCapture's tap recognises these as our own re-injection
-        // and passes them through, instead of letting the modal catch-all
-        // suppress them on the way back through (e.g. Ctrl+1 for space switch
-        // posted from inside the modal action that's still tearing down).
-        keyDown.setIntegerValueField(.eventSourceUserData,
-                                     value: KeyboardCapture.reInjectionMagic)
-        keyUp.setIntegerValueField(.eventSourceUserData,
+        guard let event = CGEvent(keyboardEventSource: source,
+                                  virtualKey: keyCode, keyDown: keyDown) else { return }
+        event.flags = flags
+        event.setIntegerValueField(.eventSourceUserData,
                                    value: KeyboardCapture.reInjectionMagic)
+        event.post(tap: .cghidEventTap)
+    }
 
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+    /// Send a keystroke with optional modifier flags. Modifiers are posted as
+    /// real keyDown events (accumulating flags) before the key and released as
+    /// keyUp events after it, so the chord ends fully released — a down->up
+    /// transition release-driven UIs (e.g. Dia's recent-tab switcher) require.
+    static func sendKeystroke(keyCode: CGKeyCode, flags: CGEventFlags = []) {
+        let mods = modifierKeyCodes(in: flags)
+        var acc: CGEventFlags = []
+        for (code, bit) in mods {
+            acc.insert(bit)
+            post(code, keyDown: true, flags: acc)
+        }
+        post(keyCode, keyDown: true, flags: flags)
+        post(keyCode, keyDown: false, flags: flags)
+        for (code, bit) in mods.reversed() {
+            acc.remove(bit)
+            post(code, keyDown: false, flags: acc)
+        }
+    }
+
+    /// Post a lone keyDown for `keyCode` with `flags` held. Pairs with
+    /// `sendKeyUp` to hold a modifier across multiple taps.
+    static func sendKeyDown(keyCode: CGKeyCode, flags: CGEventFlags = []) {
+        post(keyCode, keyDown: true, flags: flags)
+    }
+
+    /// Post a lone keyUp for `keyCode`, releasing a hold started by `sendKeyDown`.
+    static func sendKeyUp(keyCode: CGKeyCode, flags: CGEventFlags = []) {
+        post(keyCode, keyDown: false, flags: flags)
     }
 
     /// Look up the CGKeyCode for a character string (US ANSI layout).
@@ -41,6 +58,20 @@ enum KeystrokeEmitter {
     /// Map of named keys to key codes for the DSL.
     static func keyCode(forNamedKey name: String) -> CGKeyCode? {
         namedKeyToKeyCode[name.lowercased()]
+    }
+
+    /// Modifier (virtual keycode, flag) pairs present in `flags`, in a stable
+    /// order (control, shift, option, command). A chord brackets the target key
+    /// with these as real keyDown/keyUp events so release-driven consumers see a
+    /// down->up modifier transition.
+    static func modifierKeyCodes(in flags: CGEventFlags) -> [(CGKeyCode, CGEventFlags)] {
+        let ordered: [(CGEventFlags, CGKeyCode)] = [
+            (.maskControl, 59),
+            (.maskShift, 56),
+            (.maskAlternate, 58),
+            (.maskCommand, 55),
+        ]
+        return ordered.compactMap { flag, code in flags.contains(flag) ? (code, flag) : nil }
     }
 
     // MARK: - Key code tables
@@ -70,5 +101,9 @@ enum KeystrokeEmitter {
         "f1": 122, "f2": 120, "f3": 99, "f4": 118,
         "f5": 96, "f6": 97, "f7": 98, "f8": 100,
         "f9": 101, "f10": 109, "f11": 103, "f12": 111,
+        "control": 59, "ctrl": 59,
+        "shift": 56,
+        "command": 55, "cmd": 55,
+        "option": 58, "alt": 58,
     ]
 }
