@@ -1,6 +1,7 @@
 import AppKit
 import LispKit
 import CoreGraphics
+import QuartzCore
 
 /// Parses hex colour strings for the cursor highlight ring.
 enum CursorColor {
@@ -74,5 +75,105 @@ struct CursorHighlightOptions {
             }
         }
         return o
+    }
+}
+
+/// Owns the reusable overlay panel and runs the highlight animation.
+/// All methods must be called on the main thread.
+final class CursorHighlightController {
+    private var panel: NSPanel?
+    private var generation = 0
+
+    func flash(_ options: CursorHighlightOptions) {
+        // Capture cursor position BEFORE nudging (nudge nets zero displacement).
+        let center = NSEvent.mouseLocation  // global cocoa coords, bottom-left origin
+
+        if options.nudge { Self.nudgeMouse() }
+
+        // Panel sized so the glow blur + stroke are never clipped.
+        let pad = options.glow + options.thickness
+        let side = options.size + 2 * pad
+        let frame = NSRect(x: center.x - side / 2, y: center.y - side / 2,
+                           width: side, height: side)
+
+        let panel = self.panel ?? Self.makePanel()
+        self.panel = panel
+        panel.setFrame(frame, display: false)
+
+        guard let host = panel.contentView, let hostLayer = host.layer else { return }
+        host.frame = NSRect(origin: .zero, size: frame.size)
+        hostLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
+
+        // Ring layer fills the host; the circular path is inset by `pad`.
+        let ring = CAShapeLayer()
+        ring.frame = hostLayer.bounds
+        let ringRect = CGRect(x: pad, y: pad, width: options.size, height: options.size)
+        ring.path = CGPath(ellipseIn: ringRect, transform: nil)
+        ring.fillColor = NSColor.clear.cgColor
+        ring.strokeColor = options.color.cgColor
+        ring.lineWidth = options.thickness
+        ring.shadowColor = options.color.cgColor   // colour-matched "neon" glow
+        ring.shadowRadius = options.glow
+        ring.shadowOpacity = 1.0
+        ring.shadowOffset = .zero
+        ring.masksToBounds = false
+        hostLayer.addSublayer(ring)
+
+        panel.orderFrontRegardless()
+
+        // Converge (scale large -> small about the centre) + fade near the end.
+        let scale = CABasicAnimation(keyPath: "transform.scale")
+        scale.fromValue = 1.0
+        scale.toValue = 0.15
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [1.0, 1.0, 0.0]
+        fade.keyTimes = [0.0, 0.6, 1.0]
+        let group = CAAnimationGroup()
+        group.animations = [scale, fade]
+        group.duration = options.duration
+        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        group.isRemovedOnCompletion = false
+        group.fillMode = .forwards
+
+        generation += 1
+        let myGen = generation
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self, weak panel] in
+            // Only hide if no newer flash has started.
+            if self?.generation == myGen { panel?.orderOut(nil) }
+        }
+        ring.add(group, forKey: "converge")
+        CATransaction.commit()
+    }
+
+    private static func makePanel() -> NSPanel {
+        let p = NSPanel(contentRect: .zero,
+                        styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        p.level = .screenSaver
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = false
+        p.ignoresMouseEvents = true
+        p.hidesOnDeactivate = false
+        let host = NSView()
+        host.wantsLayer = true
+        host.layer?.masksToBounds = false
+        p.contentView = host
+        return p
+    }
+
+    /// Move the cursor +1px then back, posting real mouseMoved events so a
+    /// cursor hidden by idle timeout reappears. Net displacement is zero.
+    private static func nudgeMouse() {
+        let cocoa = NSEvent.mouseLocation
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let ax = CGPoint(x: cocoa.x, y: primaryHeight - cocoa.y)  // CGEvent uses top-left origin
+        let moved = CGPoint(x: ax.x + 1, y: ax.y)
+        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                mouseCursorPosition: moved, mouseButton: .left)?.post(tap: .cghidEventTap)
+        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                mouseCursorPosition: ax, mouseButton: .left)?.post(tap: .cghidEventTap)
     }
 }
