@@ -133,8 +133,9 @@ The bare call works; all keywords are optional and fall back to defaults.
 
 - Returns `void`.
 - Invalid `color` (unparseable hex) → fall back to the default colour and emit
-  a `(log …)` warning; never throw.
-- Unknown keywords are ignored.
+  an `NSLog` warning; never throw.
+- Unknown keywords (and non-numeric numeric args) are ignored, each with an
+  `NSLog` warning so typos are visible.
 - All AppKit work is marshalled onto the main thread (AppKit requirement);
   `highlight-cursor` is safe to call from any thread / a key handler.
 
@@ -171,7 +172,7 @@ Modaliser Relaunch.)
 The design deliberately extracts the *pure* logic into free functions so it is
 unit-testable, leaving only the un-assertable AppKit shell.
 
-- **Unit tests** (XCTest, following `Tests/ModaliserTests/`):
+- **Unit tests** (swift-testing, following `Tests/ModaliserTests/`):
   - `parseHexColor(_:)` — valid `#RGB`/`#RRGGBB`, invalid input → nil/default.
   - keyword-argument parsing — defaults applied, overrides honoured, unknown
     keywords ignored, wrong types rejected gracefully.

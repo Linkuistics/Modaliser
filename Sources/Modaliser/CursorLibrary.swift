@@ -58,23 +58,33 @@ struct CursorHighlightOptions {
         }
     }
 
-    /// Interpret keyword pairs into options. Unknown keys ignored; invalid
-    /// values leave the corresponding default in place.
-    static func from(_ pairs: [(String, Expr)]) -> CursorHighlightOptions {
+    /// Interpret keyword pairs into options, parsing each value exactly once.
+    /// Any ignored input — an unparseable colour, a non-numeric numeric arg, or
+    /// an unknown keyword — leaves the corresponding default in place and adds
+    /// one warning, so the caller can surface typos. `nudge` accepts any value
+    /// (Scheme truthiness: only `#f` is false), so it never warns.
+    static func parse(_ pairs: [(String, Expr)])
+        -> (options: CursorHighlightOptions, warnings: [String]) {
         var o = CursorHighlightOptions.defaults
+        var warnings: [String] = []
         for (key, value) in pairs {
             switch key {
             case "color":
-                if let s = try? value.asString(), let c = CursorColor.parse(s) { o.color = c }
-            case "size":      if let n = number(value) { o.size = CGFloat(n) }
-            case "thickness": if let n = number(value) { o.thickness = CGFloat(n) }
-            case "glow":      if let n = number(value) { o.glow = CGFloat(n) }
-            case "duration":  if let n = number(value) { o.duration = n }
+                if let s = try? value.asString() {
+                    if let c = CursorColor.parse(s) { o.color = c }
+                    else { warnings.append("ignoring invalid 'color' \"\(s)\"") }
+                } else {
+                    warnings.append("ignoring non-string 'color' value")
+                }
+            case "size":      if let n = number(value) { o.size = CGFloat(n) } else { warnings.append("ignoring non-numeric 'size' value") }
+            case "thickness": if let n = number(value) { o.thickness = CGFloat(n) } else { warnings.append("ignoring non-numeric 'thickness' value") }
+            case "glow":      if let n = number(value) { o.glow = CGFloat(n) } else { warnings.append("ignoring non-numeric 'glow' value") }
+            case "duration":  if let n = number(value) { o.duration = n } else { warnings.append("ignoring non-numeric 'duration' value") }
             case "nudge":     if case .false = value { o.nudge = false } else { o.nudge = true }
-            default: break
+            default:          warnings.append("ignoring unknown option '\(key)'")
             }
         }
-        return o
+        return (o, warnings)
     }
 }
 
@@ -215,13 +225,12 @@ final class CursorLibrary: NativeLibrary {
                 i += 1
             }
         }
-        // Warn (don't throw) on an unparseable colour so a typo is visible.
-        for (k, v) in pairs where k == "color" {
-            if let s = try? v.asString(), CursorColor.parse(s) == nil {
-                NSLog("CursorLibrary: ignoring invalid colour '%@'", s)
-            }
+        // Parse once; surface every ignored option (typo'd colour, non-numeric
+        // arg, unknown keyword) as a warning. Never throws.
+        let (options, warnings) = CursorHighlightOptions.parse(pairs)
+        for w in warnings {
+            NSLog("highlight-cursor: %@", w)
         }
-        let options = CursorHighlightOptions.from(pairs)
         DispatchQueue.main.async { [controller] in
             controller.flash(options)
         }
