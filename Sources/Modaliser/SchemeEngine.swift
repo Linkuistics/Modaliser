@@ -164,6 +164,8 @@ final class SchemeEngine {
         try context.environment.import(HintsLibrary.name)
         try context.libraries.register(libraryType: AccessibilityLibrary.self)
         try context.environment.import(AccessibilityLibrary.name)
+        try context.libraries.register(libraryType: CursorLibrary.self)
+        try context.environment.import(CursorLibrary.name)
     }
 
     /// Evaluate a string of Scheme code and return the result.

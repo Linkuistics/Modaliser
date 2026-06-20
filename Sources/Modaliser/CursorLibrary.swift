@@ -177,3 +177,54 @@ final class CursorHighlightController {
                 mouseCursorPosition: ax, mouseButton: .left)?.post(tap: .cghidEventTap)
     }
 }
+
+/// Native LispKit library providing the cursor highlight.
+/// Scheme name: (modaliser cursor)
+///
+/// Provides: highlight-cursor
+final class CursorLibrary: NativeLibrary {
+    private let controller = CursorHighlightController()
+
+    public required init(in context: Context) throws {
+        try super.init(in: context)
+    }
+
+    public override class var name: [String] {
+        ["modaliser", "cursor"]
+    }
+
+    public override func dependencies() {
+        self.`import`(from: ["lispkit", "base"], "define")
+    }
+
+    public override func declarations() {
+        self.define(Procedure("highlight-cursor", highlightCursorFunction))
+    }
+
+    /// (highlight-cursor ['color hex] ['size px] ['thickness px]
+    ///                   ['glow px] ['duration secs] ['nudge bool]) -> void
+    private func highlightCursorFunction(_ args: Arguments) throws -> Expr {
+        let exprs = Array(args)
+        var pairs: [(String, Expr)] = []
+        var i = 0
+        while i < exprs.count {
+            if case .symbol(let sym) = exprs[i], i + 1 < exprs.count {
+                pairs.append((sym.identifier, exprs[i + 1]))
+                i += 2
+            } else {
+                i += 1
+            }
+        }
+        // Warn (don't throw) on an unparseable colour so a typo is visible.
+        for (k, v) in pairs where k == "color" {
+            if let s = try? v.asString(), CursorColor.parse(s) == nil {
+                NSLog("CursorLibrary: ignoring invalid colour '%@'", s)
+            }
+        }
+        let options = CursorHighlightOptions.from(pairs)
+        DispatchQueue.main.async { [controller] in
+            controller.flash(options)
+        }
+        return .void
+    }
+}
