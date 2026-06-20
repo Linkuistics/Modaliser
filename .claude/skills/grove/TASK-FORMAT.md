@@ -11,6 +11,8 @@ session). The file is freeform markdown — a guide follows, not a schema.
 Every task file states its **kind**. There are two:
 
 - **work** — produces code, docs, or tests. The deliverable is an artifact.
+  (`driving.md` carries the work-session habits: cite framework decisions to the
+  source, and doubt a hard-to-reverse decision before it stands.)
 - **planning** — grills, sharpens the glossary, may raise an ADR or a PRD, and
   **grows the tree**: replaces an oversized leaf with a node directory of child
   briefs and ordered leaves. The deliverable is *more tree*.

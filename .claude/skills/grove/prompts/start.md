@@ -1,1 +1,1 @@
-Start a new grove called {{NAME}} in this worktree. Use grove's start-a-new-grove flow: grill me on the goal first (use the bundled grilling procedure), sharpening new terminology into CONTEXT.md inline. Then propose the root .grove/BRIEF.md (per BRIEF-FORMAT.md) and a small initial decomposition — first one or two leaves only. Don't over-plan.
+Start a new grove — use the grove skill. First run `grove-llm root-init` to scaffold the root brief and first planning leaf, then enter the loop (`grove-llm pick` → grill the planning leaf → grow the tree).

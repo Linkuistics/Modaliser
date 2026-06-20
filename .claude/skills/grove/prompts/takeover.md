@@ -1,1 +1,1 @@
-Take over the {{NAME}} grove. Don't pick a task yet — first orient: read CONTEXT.md, .grove/BRIEF.md, and skim the most-recently-touched files (git log --since='1 week ago' -- .grove/). Tell me where the grove stands: what's done, what's open, what the next task would be, and any open questions in the briefs.
+Take over this grove — use the grove skill's takeover flow (orient first, don't pick a task yet).

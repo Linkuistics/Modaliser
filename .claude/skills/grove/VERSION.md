@@ -4,12 +4,12 @@ A materialised copy of the grove skill for the `claude` harness.
 
 | | |
 |---|---|
-| version | `v2.2.0` |
-| materialised on | 2026-05-27 |
+| version | `6.3.0` |
+| materialised on | 2026-06-20 |
 | materialised into | `.claude/skills/grove/` |
 
 ## Updating
 
 ```
-grove update --version <tag>
+grove install --version <tag>
 ```
