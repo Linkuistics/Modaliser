@@ -3,3 +3,6 @@
 *.iconset/
 dist/
 .grove-worktrees/
+
+# Brainstorming visual companion scratch
+.superpowers/
