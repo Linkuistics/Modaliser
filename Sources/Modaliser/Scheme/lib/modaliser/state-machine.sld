@@ -9,6 +9,7 @@
     register-tree! lookup-tree
     ;; Node predicates
     command? group? selector? range-command? category? flatten-categories
+    splice? expand-splices
     ;; Node accessors
     node-key node-label node-action node-children node-range-keys
     node-on-enter node-on-leave node-sticky? node-exit-on-unknown?
@@ -122,7 +123,7 @@
           (let* ((acc (list (cons 'kind 'group)
                             (cons 'key "")
                             (cons 'scope scope-str)
-                            (cons 'children args)))
+                            (cons 'children (expand-splices args))))
                  (acc (if on-leave     (cons (cons 'on-leave on-leave)         acc) acc))
                  (acc (if on-enter     (cons (cons 'on-enter on-enter)         acc) acc))
                  (acc (if sticky       (cons (cons 'sticky #t)                 acc) acc))
@@ -185,6 +186,30 @@
                (append (reverse inner) acc))))
       (else
        (loop (cdr rest) (cons (car rest) acc))))))
+
+;; Splice nodes ('kind 'splice) are FULLY transparent. Unlike categories
+;; (which survive into the tree and group children under a label for the
+;; renderer), a splice's children are hoisted into the parent's child list
+;; at construction time — so nothing downstream ever sees the splice; the
+;; result is identical to writing those children inline. Produced by
+;; (sticky-set …) (dsl.sld) and expanded by the container constructors
+;; (register-tree! / group / overlay / category).
+(define (splice? node)
+  (and (pair? node)
+       (let ((kind (assoc 'kind node)))
+         (and kind (eq? (cdr kind) 'splice)))))
+
+;; (expand-splices children) → children with every splice node replaced
+;; in place by its (recursively expanded) children. Non-splice nodes —
+;; including categories — pass through untouched.
+(define (expand-splices children)
+  (let loop ((rest children) (acc '()))
+    (cond
+      ((null? rest) (reverse acc))
+      ((splice? (car rest))
+       (loop (cdr rest)
+             (append (reverse (expand-splices (node-children (car rest)))) acc)))
+      (else (loop (cdr rest) (cons (car rest) acc))))))
 
 ;; List of keys a range-command binds. Empty for non-range nodes.
 (define (node-range-keys node)
@@ -527,7 +552,14 @@
        (set! modal-current-node tree)
        (set! modal-current-path '())
        (set! modal-leader-keycode #f)
-       (set-modal-root-segments! (compute-tree-root-segments tree))
+       ;; Preserve the caller's breadcrumb root (e.g. the app segment) and
+       ;; append this mode's segment, so a latched sticky walk keeps the
+       ;; unified context in its title ("iTerm > Splits") instead of
+       ;; collapsing to the bare mode name. modal-root-segments still holds
+       ;; the caller's segments here — the context was pushed onto
+       ;; modal-stack above, not yet overwritten.
+       (set-modal-root-segments! (append (modal-root-segments)
+                                         (compute-tree-root-segments tree)))
        ;; Always show immediately on mode switch — the caller's overlay
        ;; was up, so no flash of "nothing" between the two modes.
        (modal-show-overlay-now)))))

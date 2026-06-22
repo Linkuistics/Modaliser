@@ -27,7 +27,7 @@ The common case is one import:
 ```
 
 That surfaces `key`, `keys`, `key-range`, `group`, `category`,
-`selector`, `action`, `overlay`, `λ`, `define-tree`,
+`selector`, `action`, `overlay`, `sticky-set`, `λ`, `define-tree`,
 `modifier-symbols->mask`, `set-leader!`, `set-theme!`,
 `set-overlay-delay!`, and `set-overlay-aspect-ratio!`. The bundled
 seed config also pulls in `(modaliser leader)` (for `set-leaders!`)
@@ -380,6 +380,48 @@ unchanged.
 or use `(overlay 'key K 'label L …)` directly. Both styles work because
 the wrapping `key` macro decorates the group via `decorate-node`, which
 respects existing `'key`/`'label` entries when present.
+
+### `(sticky-set MODE-ID DISPLAY-NAME key…)`
+
+Define a reusable **"act + latch"** navigation set once and splice it into
+many parents (DRY). It does two things at evaluation time:
+
+1. **Registers a sticky mode tree** under `MODE-ID` (with `'sticky #t`,
+   `'exit-on-unknown #t`, and `'display-name DISPLAY-NAME`) holding the
+   bare keys — this is the latch target the walk repeats in.
+2. **Returns a splice node** carrying the same keys, each decorated with
+   `'sticky-target MODE-ID`.
+
+A splice node is **fully transparent**: the container constructors
+(`define-tree`, `group`, `overlay`, `category`) hoist its children into
+their own child list at construction time, so the result is identical to
+writing those entry keys inline — and nothing downstream ever sees the
+splice. So one key list supplies both the registered mode *and* every
+entry point, with no duplication.
+
+Use individual `(key …)` forms — not `(keys …)` / `(key-range …)` —
+because `'sticky-target` is a `(key …)`-only keyword.
+
+```scheme
+(define split-nav
+  (sticky-set 'iterm-split-walk "Splits"
+    (key "h" "Focus Left"  terminal:focus-pane-left)
+    (key "H" "Move Left"   terminal:move-pane-left)
+    …))
+
+;; Pressing s then h focuses-left AND latches into 'iterm-split-walk,
+;; where hjkl/HJKL keep working. The same split-nav can be spliced into
+;; several parents (e.g. a top-level cluster and the s overlay).
+(define-tree 'com.googlecode.iterm2
+  (overlay 'key "s" 'label "Splits"
+    split-nav
+    (group "n" "New Split" …)
+    (iterm:pane-list-block 'chips? #t)))
+```
+
+Latched walks keep the caller's breadcrumb context: entering a mode from
+an active modal appends `DISPLAY-NAME` to the caller's root segments, so
+the title reads e.g. `iTerm ▸ Splits` rather than collapsing to `Splits`.
 
 ---
 

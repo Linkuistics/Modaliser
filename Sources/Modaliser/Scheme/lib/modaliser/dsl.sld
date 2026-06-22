@@ -11,7 +11,7 @@
 
 (define-library (modaliser dsl)
   (export key key-range keys group selector action
-          category overlay
+          category overlay sticky-set
           λ
           define-tree set-theme!
           modifier-symbols->mask set-leader!
@@ -307,7 +307,7 @@
         (let* ((acc (list (cons 'kind 'group)
                           (cons 'key k)
                           (cons 'label label)
-                          (cons 'children (reverse children))))
+                          (cons 'children (expand-splices (reverse children)))))
                (acc (if exit-unk    (cons (cons 'exit-on-unknown exit-unk) acc) acc))
                (acc (if sticky      (cons (cons 'sticky sticky)            acc) acc))
                (acc (if on-leave    (cons (cons 'on-leave on-leave)        acc) acc))
@@ -341,7 +341,40 @@
 (define (category label . children)
   (list (cons 'kind 'category)
         (cons 'label label)
-        (cons 'children children)))
+        (cons 'children (expand-splices children))))
+
+;; (sticky-set MODE-ID DISPLAY-NAME key …) → splice node
+;;
+;; Define a reusable "act + latch" navigation set ONCE, then splice it
+;; into any number of parents (DRY). It does two things:
+;;
+;;   1. Registers a sticky mode tree under MODE-ID (sticky + exit-on-
+;;      unknown + DISPLAY-NAME breadcrumb) holding the bare keys — this is
+;;      the latch target the walk repeats in.
+;;   2. Returns a SPLICE node carrying the SAME keys, each decorated with
+;;      'sticky-target MODE-ID. Placing it in a parent (define-tree /
+;;      overlay / group / category) hoists those entry keys in place, so
+;;      pressing one fires its action AND latches into the mode.
+;;
+;; The key list is thus written once and supplies both the mode and every
+;; entry point. Use individual (key …) forms — not (keys …)/(key-range …)
+;; — since 'sticky-target is a (key …)-only keyword.
+;;
+;;   (define split-nav
+;;     (sticky-set 'iterm-split-walk "Splits"
+;;       (key "h" "Focus Left" focus-left)
+;;       (key "H" "Move Left"  move-left) …))
+;;   (overlay 'key "s" 'label "Splits" split-nav (group "n" "New Split" …))
+(define (sticky-set mode-id display-name . keys)
+  (apply register-tree! mode-id
+         'sticky #t
+         'exit-on-unknown #t
+         'display-name display-name
+         keys)
+  (list (cons 'kind 'splice)
+        (cons 'children
+              (map (lambda (k) (cons (cons 'sticky-target mode-id) k))
+                   keys))))
 
 ;; (overlay [keyword value]... block...) → group alist with 'renderer 'blocks
 ;;
@@ -381,7 +414,7 @@
         ;; which-key-block; block forms pass through. This mirrors
         ;; define-tree, so the same structural shorthand works inside
         ;; nested overlays without explicit (which-key-block …).
-        (let* ((blocks (pack-node-runs rest))
+        (let* ((blocks (pack-node-runs (expand-splices rest)))
                (block-children
                  (apply append
                    (map (lambda (b)
@@ -484,7 +517,7 @@
          ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky display-name (cadr rest)))))
       (else
         ;; rest is the positional content. Pack node-runs into which-key-blocks.
-        (let* ((blocks (pack-node-runs rest))
+        (let* ((blocks (pack-node-runs (expand-splices rest)))
                (block-children
                  (apply append
                    (map (lambda (b)

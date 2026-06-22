@@ -505,6 +505,75 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-exit)")
     }
 
+    @Test func enterModePreservesCallerContextInBreadcrumb() throws {
+        // Latching into a sticky mode from an active modal must keep the
+        // caller's breadcrumb root (e.g. the app/global segment) and append
+        // the mode's segment — so the title reads "Global > Splits" rather
+        // than collapsing to the bare mode name "Splits".
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define-tree 'walk
+              'sticky #t
+              'display-name "Splits"
+              (key "h" "Left" (lambda () 'ok)))
+            (define-tree 'global
+              (key "s" "Splits" (lambda () 'ok)))
+            """)
+
+        // Enter the parent (global → root segment "Global"), then latch in.
+        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(enter-mode! 'walk)")
+
+        // Both the caller's segment and the mode's segment are present.
+        #expect(try engine.evaluate(
+            "(member \"Global\" (modal-root-segments))") != .false)
+        #expect(try engine.evaluate(
+            "(member \"Splits\" (modal-root-segments))") != .false)
+
+        try engine.evaluate("(modal-exit)")
+    }
+
+    @Test func stickySetRegistersModeAndSplicesEntries() throws {
+        // (sticky-set …) defines an "act + latch" set once: it registers a
+        // sticky mode tree AND returns a splice node whose keys carry
+        // 'sticky-target back to that mode. Splicing it into a parent must
+        // hoist those entry keys in place (DRY — one definition, two uses).
+        let engine = try SchemeEngine()
+        guard let schemePath = engine.schemeDirectoryPath else { return }
+        try loadCore(engine, schemePath)
+
+        try engine.evaluate("""
+            (define nav
+              (sticky-set 'walk "Walk"
+                (key "h" "Left"  (lambda () 'l))
+                (key "l" "Right" (lambda () 'r))))
+            (define-tree 'global
+              (key "x" "X" (lambda () 'x))
+              nav)
+            """)
+
+        // The mode tree is registered and sticky.
+        #expect(try engine.evaluate("(node-sticky? (lookup-tree \"walk\"))") == .true)
+
+        // The splice expanded into the parent: the spliced key dispatches
+        // and carries 'sticky-target back to the mode.
+        #expect(try engine.evaluate(
+            "(find-child (lookup-tree \"global\") \"h\")") != .false)
+        #expect(try engine.evaluate(
+            "(eq? (node-sticky-target (find-child (lookup-tree \"global\") \"h\")) 'walk)")
+            == .true)
+        // The non-spliced sibling is untouched.
+        #expect(try engine.evaluate(
+            "(find-child (lookup-tree \"global\") \"x\")") != .false)
+        // The mode's own copy of the key is NOT sticky-target-decorated
+        // (it latches via the tree's own stickiness, not 'sticky-target).
+        #expect(try engine.evaluate(
+            "(node-sticky-target (find-child (lookup-tree \"walk\") \"h\"))") == .false)
+    }
+
     @Test func exitOnUnknownDismissesAtRoot() throws {
         // 'exit-on-unknown #t on the tree root means typing a non-binding
         // key dismisses the modal — the opposite of the default forgiving
