@@ -39,6 +39,43 @@ the final sweep before the grove finishes.
 
 ## Notes
 
+- **Legacy auto-layout deletion — deferred from [[config-migration-k8]] to here.**
+  k8's brief folded in deleting the which-key whole-overlay column packing
+  (`which-key-payload-json`, `partition-which-key-segments`,
+  `distribute-which-key-columns`, `segment-row-count`, `segments-row-count`,
+  `render-segment`), `overlay-column-count` (+ its `overlay-col-width-px` /
+  `overlay-row-height-px` seeds), the `'which-key` branch of `block-json`, and the
+  `(modaliser blocks which-key)` library + `.js`/`.css`. **k8 verified its
+  preconditions are NOT met by the config migration alone**, so it migrated only
+  (user-approved) and left the deletion here:
+    - `overlay-column-count` still backs `render-overlay-default` /
+      `push-overlay-update-default` (`ui/overlay.scm`) — the **default list
+      renderer**, which still serves every plain nested `(group …)` in the
+      migrated configs (Finder View/Go, iTerm Split/Move, the sticky walks).
+      Delete it only after migrating those callers or swapping in a CSS-intrinsic
+      column count.
+    - `which-key-block` is still called by `pack-node-runs` / `flush-node-run`
+      (`dsl.sld:604,606`), which back the **old `define-tree` / `category` /
+      `overlay` forms** ADR-0012 keeps working "until docs-tests-k9". Deleting the
+      library breaks them — so retiring/neutralising those old forms (and the
+      ~10 test suites + `BlocksWhichKeyLibraryTests` / the `OverlayRenderTests`
+      cases that pin the targets) is the gate. `overlay.js`'s `renderPanelRow`
+      already carries the fallback for `which-key.js`'s `window.overlayRenderRow`,
+      so the JS side is ready.
+  k8 *did* land the one genuinely-unblocked piece: dropped the dead
+  `(modaliser blocks which-key)` import from the bundled default (it imported but
+  never constructed a which-key block).
+- k8 already added the EndToEnd **panel** snapshot/dispatch coverage this leaf's
+  Done-when calls for (global + iTerm render as panel-grid, dispatch unchanged):
+  `ConfigDslTests.defaultGlobalTreeRendersAsPanelGrid` /
+  `defaultWindowsScreenEmbedsDiagramAndHidesItsKeys` /
+  `defaultItermTreeRendersAsPanelGrid`. Extend rather than duplicate.
+- **Pre-existing flaky crash (not visual-refresh):** running
+  `ModaliserAppsItermLibraryTests` (with its native AX/iTerm/hints calls) crashes
+  the test process with signal 10 on this machine, reproducibly on the pre-k8
+  baseline too. Unrelated to the layout DSL; flagged so a future green-suite check
+  knows to `--skip ModaliserAppsItermLibraryTests` (and the `HttpLibraryTests`
+  network test) in headless runs.
 - After this leaf retires, the grove root has **no live leaf** → trigger the
   **Finish** cycle (promote ADR-0011 / docs / glossary already live; delete
   `.grove/`; merge `visual-refresh` → `main`).
