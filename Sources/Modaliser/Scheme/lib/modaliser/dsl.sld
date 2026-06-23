@@ -12,6 +12,7 @@
 (define-library (modaliser dsl)
   (export key key-range keys group selector action
           category overlay sticky-set
+          screen panel open
           λ
           define-tree set-theme!
           modifier-symbols->mask set-leader!
@@ -594,6 +595,199 @@
 
 (define (node-form? x)
   (and (pair? x) (pair? (car x)) (assoc 'kind x) #t))
+
+;; ─── Layout DSL (presentation-first; ADR-0011 / ADR-0012) ────────
+;;
+;; Three container forms that LOWER — at construction time, like
+;; category/group — to the operational alist nodes the state machine
+;; already dispatches, with presentation metadata riding as opaque alist
+;; entries the panel-grid renderer reads back via node-renderer-payload:
+;;
+;;   (panel  "label" ['span S] child…)    → 'kind 'category + 'span (+ 'list)
+;;   (screen 'scope  [keywords…] panel…)  → register-tree! 'renderer 'panel-grid
+;;   (open   KEY LABEL [keywords…] panel…)→ navigable 'group  'renderer 'panel-grid
+;;
+;; The dispatch atoms (key / keys / key-range / selector / group /
+;; sticky-set) are kept verbatim — they ARE the operational IR. Panels are
+;; categories, which stay transparent for dispatch, so flatten-categories /
+;; find-child descend through them untouched. The old forms (define-tree /
+;; category / overlay) keep working — this is purely additive. See ADR-0012.
+;;
+;; Co-designed contract with panel-grid-renderer-k4 — the metadata a screen
+;; group / its panels carry, which the renderer reads (no JSON owned here):
+;;   • screen / open group: 'renderer 'panel-grid, optional 'cols N.
+;;   • each panel (category): 'span ('narrow|'wide|'full), 'label, 'children
+;;     (the dispatch atoms), and — when it embeds a live list — 'list holding
+;;     the single block-spec (ready for the renderer's block-json path).
+
+;; A live-list block-spec (window:list-block / iterm:pane-list-block /
+;; iterm:tab-list-block) is an alist carrying a 'type entry — distinct from a
+;; node-form, which carries 'kind. A panel may embed one as a child.
+(define (block-spec? x)
+  (and (pair? x) (pair? (car x)) (assoc 'type x) #t))
+
+(define (valid-span? s)
+  (and (memq s '(narrow wide full)) #t))
+
+;; Build a panel (a 'kind 'category node) from an ALREADY splice-expanded
+;; child list. Children partition into dispatch atoms (node-forms) and at
+;; most one embedded live-list block. The block's own 'block-children (its
+;; hidden digit key-range — e.g. the "1.." pane/window focus range) are
+;; lifted into the panel's dispatch children so find-child resolves the
+;; digits transparently; the block-spec itself rides under 'list for the
+;; renderer. SPAN is the explicit 'span value, or #f to default — 'narrow,
+;; auto-'wide when a list block is present.
+(define (make-panel-node label span children)
+  (let loop ((rest children) (atoms '()) (block #f))
+    (cond
+      ((null? rest)
+       (let* ((atoms (reverse atoms))
+              (lifted (if block
+                        (let ((e (assoc 'block-children block)))
+                          (if e (cdr e) '()))
+                        '()))
+              (dispatch-children (append atoms lifted))
+              (span* (or span (if block 'wide 'narrow)))
+              (base (list (cons 'kind 'category)
+                          (cons 'label label)
+                          (cons 'span span*)
+                          (cons 'children dispatch-children))))
+         (if block
+           (append base (list (cons 'list block)))
+           base)))
+      ((block-spec? (car rest))
+       (if block
+         (error "panel: at most one embedded live-list block per panel" label)
+         (loop (cdr rest) atoms (car rest))))
+      (else
+       (loop (cdr rest) (cons (car rest) atoms) block)))))
+
+;; (panel "label" ['span 'narrow|'wide|'full] child…) → category node.
+;; Default span 'narrow; auto-'wide when a live-list block is embedded and no
+;; explicit 'span is given. Children are dispatch atoms plus at most one
+;; live-list block; splices (sticky-set / fragment) hoist via expand-splices.
+;; A leading bare symbol is a keyword ('span only); the first non-symbol
+;; begins the children.
+(define (panel label . rest)
+  (let loop ((args rest) (span #f))
+    (cond
+      ((and (pair? args) (eq? (car args) 'span) (pair? (cdr args)))
+       (let ((v (cadr args)))
+         (unless (valid-span? v)
+           (error "panel: 'span must be 'narrow, 'wide or 'full" v))
+         (loop (cddr args) v)))
+      ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
+       (error "panel: unknown keyword" (car args)))
+      (else
+       (make-panel-node label span (expand-splices args))))))
+
+;; Lower a panel-grid body — the shared core of screen / open. Returns
+;; (grid-children . list-blocks): explicit panels (categories) and nested
+;; `open`s (panel-grid groups) pass through in declaration order, loose
+;; top-level atoms collect into one leading "General" panel — the
+;; presentation-first analogue of pack-node-runs' misc bucket. The returned
+;; list-blocks are the live-list blocks embedded in this level's DIRECT
+;; panels (used to compose on-enter/on-leave hooks, like define-tree); blocks
+;; under a nested `open` are excluded — they compose onto that open's group.
+(define (lower-panel-grid-body body)
+  (let loop ((rest (expand-splices body)) (panels '()) (loose '()))
+    (cond
+      ((null? rest)
+       (let* ((general (if (null? loose)
+                         '()
+                         (list (make-panel-node "General" #f (reverse loose)))))
+              (grid (append general (reverse panels)))
+              (blocks (collect-panel-list-blocks grid)))
+         (cons grid blocks)))
+      ((or (category? (car rest))
+           (and (group? (car rest))
+                (eq? (node-renderer (car rest)) 'panel-grid)))
+       (loop (cdr rest) (cons (car rest) panels) loose))
+      (else
+       (loop (cdr rest) panels (cons (car rest) loose))))))
+
+;; The live-list blocks across a grid's direct panels (categories), read back
+;; from each panel's 'list entry. Opens are skipped — their lists live a level
+;; deeper and compose onto the open group, not this one.
+(define (collect-panel-list-blocks grid)
+  (let loop ((rest grid) (acc '()))
+    (cond
+      ((null? rest) (reverse acc))
+      ((category? (car rest))
+       (let ((e (assoc 'list (car rest))))
+         (loop (cdr rest) (if e (cons (cdr e) acc) acc))))
+      (else (loop (cdr rest) acc)))))
+
+;; Assemble the leading keyword/value head (composed lifecycle hooks +
+;; renderer marker + optional cols) shared by screen and open. BLOCKS are the
+;; embedded list blocks whose on-enter-fn/on-leave-fn compose with the user
+;; thunks — exactly as define-tree composes block hooks.
+(define (panel-grid-head blocks on-enter on-leave sticky display-name exit-unk cols)
+  (let* ((composed-on-enter (compose-hooks on-enter (filter-fns blocks 'on-enter-fn)))
+         (composed-on-leave (compose-hooks on-leave (filter-fns blocks 'on-leave-fn))))
+    (append
+      (if composed-on-enter (list 'on-enter composed-on-enter) '())
+      (if composed-on-leave (list 'on-leave composed-on-leave) '())
+      (if sticky            (list 'sticky sticky)              '())
+      (if display-name      (list 'display-name display-name)  '())
+      (if exit-unk          (list 'exit-on-unknown exit-unk)   '())
+      (if cols              (list 'cols cols)                  '())
+      (list 'renderer 'panel-grid))))
+
+;; (screen 'scope [keywords…] panel…) → registers a panel-grid tree under
+;; 'scope (the define-tree analogue). Body is an implicit grid of panels;
+;; loose top-level atoms pack into a leading "General" panel. Keywords mirror
+;; define-tree (on-enter / on-leave / sticky / display-name / exit-on-unknown)
+;; plus 'cols N — the authored column count (default CSS-intrinsic auto-fit,
+;; resolved in the renderer leaf). The registered root carries
+;; 'renderer 'panel-grid (+ 'cols) for the panel-grid renderer.
+(define (screen scope . args)
+  (let loop ((rest args)
+             (on-enter #f) (on-leave #f) (sticky #f)
+             (display-name #f) (exit-unk #f) (cols #f))
+    (cond
+      ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
+            (memq (car rest) '(on-enter on-leave sticky display-name exit-on-unknown cols)))
+       (case (car rest)
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky display-name exit-unk cols))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky display-name exit-unk cols))
+         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) display-name exit-unk cols))
+         ((display-name)    (loop (cddr rest) on-enter on-leave sticky (cadr rest) exit-unk cols))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky display-name (cadr rest) cols))
+         ((cols)            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk (cadr rest)))))
+      (else
+       (let* ((lowered (lower-panel-grid-body rest))
+              (grid    (car lowered))
+              (blocks  (cdr lowered))
+              (head    (panel-grid-head blocks on-enter on-leave sticky
+                                        display-name exit-unk cols)))
+         (apply register-tree! scope (append head grid)))))))
+
+;; (open KEY LABEL [keywords…] panel…) → a navigable group drilling into a
+;; sub-screen — the panel-native replacement for (key K L (overlay …)). Its
+;; children are the lowered sub-grid; it carries 'renderer 'panel-grid (+
+;; 'cols). Keywords: on-enter / on-leave / sticky / exit-on-unknown / cols —
+;; not 'display-name, which is a breadcrumb-root override that a child group
+;; (vs. a registered tree root) has no use for.
+(define (open key label . args)
+  (let loop ((rest args)
+             (on-enter #f) (on-leave #f) (sticky #f) (exit-unk #f) (cols #f))
+    (cond
+      ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
+            (memq (car rest) '(on-enter on-leave sticky exit-on-unknown cols)))
+       (case (car rest)
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky exit-unk cols))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky exit-unk cols))
+         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) exit-unk cols))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky (cadr rest) cols))
+         ((cols)            (loop (cddr rest) on-enter on-leave sticky exit-unk (cadr rest)))))
+      (else
+       (let* ((lowered (lower-panel-grid-body rest))
+              (grid    (car lowered))
+              (blocks  (cdr lowered))
+              (head    (panel-grid-head blocks on-enter on-leave sticky
+                                        #f exit-unk cols)))
+         (apply group key label (append head grid)))))))
 
 ;; (set-theme! . args) → no-op stub for backward compatibility
 ;; Theming moves to CSS in Phase 3.
