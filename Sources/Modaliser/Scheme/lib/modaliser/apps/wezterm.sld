@@ -339,7 +339,7 @@
               (lambda (k) (focus-by-digit k)))))
 
     (define (pane-digit-register!)
-      (define-tree 'wezterm-pane-digit
+      (register-tree! 'wezterm-pane-digit
         'on-enter
         (lambda ()
           (let* ((panes (list-panes-raw))

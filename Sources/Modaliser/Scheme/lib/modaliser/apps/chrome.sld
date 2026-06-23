@@ -34,4 +34,4 @@
           extra)))
 
     (define (register! . opts)
-      (apply define-tree 'com.google.Chrome (apply tree opts)))))
+      (apply screen 'com.google.Chrome (apply tree opts)))))

@@ -482,7 +482,7 @@
                                "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
                (panes        (label-pairs labels raw-panes))
                (session-ids  (iterm-list-session-ids)))
-        (apply define-tree 'com.googlecode.iterm2
+        (apply screen 'com.googlecode.iterm2
           'on-enter (lambda ()
                       (hints-show
                         (ax-target-hints panes (current-chip-theme 'normal))))
@@ -497,9 +497,9 @@
               ;; lands the user in 'iterm-panes-focus, so subsequent hjkl
               ;; keys keep moving without another leader. The overlay
               ;; paints a ↻ marker on each (via 'sticky-target). Grouped
-              ;; into a "Focus" category so the cluster reads as one
+              ;; into a "Focus" panel so the cluster reads as one
               ;; semantic unit at the top of the overlay.
-              (category "Focus"
+              (panel "Focus"
                 (key "h" "Left"  focus-pane-left  'sticky-target sticky-id)
                 (key "j" "Down"  focus-pane-down  'sticky-target sticky-id)
                 (key "k" "Up"    focus-pane-up    'sticky-target sticky-id)
@@ -541,7 +541,7 @@
       (let* ((alist     (apply props->alist opts))
              (id        (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
              (disp-name (alist-ref alist 'display-name "Focus")))
-        (apply define-tree id
+        (apply register-tree! id
           'sticky #t
           'exit-on-unknown #t
           'display-name disp-name
@@ -603,7 +603,7 @@
     ;; hides them. The single hidden key-range dispatches by digit and
     ;; exits the mode automatically (non-sticky default).
     (define (pane-digit-register!)
-      (define-tree 'iterm-pane-digit
+      (register-tree! 'iterm-pane-digit
         'on-enter
         (lambda ()
           (iterm-panes-refresh!)

@@ -34,4 +34,4 @@
           extra)))
 
     (define (register! . opts)
-      (apply define-tree 'com.apple.Safari (apply tree opts)))))
+      (apply screen 'com.apple.Safari (apply tree opts)))))

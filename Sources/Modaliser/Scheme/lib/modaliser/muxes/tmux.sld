@@ -350,7 +350,7 @@
     ;; Side-effect: rebuilds *current-panes*, computes chip entries,
     ;; and surfaces them via hints-show. on-leave hides them.
     (define (pane-digit-register!)
-      (define-tree 'tmux-pane-digit
+      (register-tree! 'tmux-pane-digit
         'on-enter
         (lambda ()
           (let* ((panes (list-panes))

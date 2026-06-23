@@ -403,7 +403,7 @@
               (lambda (k) (focus-by-digit k)))))
 
     (define (pane-digit-register!)
-      (define-tree 'zellij-pane-digit
+      (register-tree! 'zellij-pane-digit
         'on-enter
         (lambda ()
           (let* ((all-panes (list-panes-raw))

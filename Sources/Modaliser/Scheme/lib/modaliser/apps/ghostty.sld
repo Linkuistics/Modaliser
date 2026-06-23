@@ -286,7 +286,7 @@
               (lambda (k) (focus-by-digit k)))))
 
     (define (pane-digit-register!)
-      (define-tree 'ghostty-pane-digit
+      (register-tree! 'ghostty-pane-digit
         'on-enter
         (lambda ()
           (let* ((rects (host-rects))

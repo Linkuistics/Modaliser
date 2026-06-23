@@ -669,7 +669,7 @@
               (lambda (k) (focus-by-digit k)))))
 
     (define (pane-digit-register!)
-      (define-tree 'kitty-pane-digit
+      (register-tree! 'kitty-pane-digit
         'on-enter
         (lambda ()
           (let ((panes (list-panes-raw)))
