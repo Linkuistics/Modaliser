@@ -2,7 +2,7 @@
 
 - **Date:** 2026-06-23
 - **Status:** Approved (design); ready for implementation planning
-- **Amended by [ADR-0011](../../adr/0011-presentation-first-layout-spec-lowers-to-operational-node-tree.md):** the config↔presentation primacy is **inverted**. §4–§5 below describe an operational-first authoring surface with auto-layout (`category` evolves into the panel; the renderer infers grouping). The implementation instead authors a **presentation-first layout spec** (a tree of screens, each a grid of panels) that **lowers to** the operational node-tree IR; the panel-grid renderer reads explicit presentation metadata rather than auto-laying-out. The *look*, the visual-token table (§7), the cursor/list behaviour (§6), font bundling (§7), and chooser scope (§8) are unchanged. The docs leaf reconciles §4–§5 in full.
+- **Amended by [ADR-0011](../../adr/0011-presentation-first-layout-spec-lowers-to-operational-node-tree.md) / [ADR-0012](../../adr/0012-layout-dsl-surface-screen-panel-open-over-unchanged-atoms.md):** the config↔presentation primacy is **inverted**. The design was originally drafted operational-first — `category` evolving into the panel, the renderer inferring grouping and auto-laying-out. The shipped implementation instead authors a **presentation-first layout spec** (a tree of screens, each a grid of panels) that **lowers to** the operational node-tree IR; a dedicated `panel-grid` renderer reads explicit presentation metadata rather than auto-laying-out. **§4–§5 below have been rewritten to the shipped design** (the original operational-first text survives in git history). The *look*, the visual-token table (§7), the cursor/list behaviour (§6), font bundling (§7), and chooser scope (§8) were unaffected by the inversion.
 - **Scope:** One cohesive project — visual restyle + renderer/DSL change + config migration
 - **Brainstorm artifacts:** `.superpowers/brainstorm/90558-1782166819/content/*.html` (mockups, git-ignored). The visual language below is captured textually so this spec stands alone.
 
@@ -28,37 +28,40 @@ This is a **visual restyle** in intent, but achieving the look correctly require
 
 ## 4. The panel model
 
-**Evolve `category` into the panel** (decision §11). A `category`:
+A config is a **layout spec** — a tree of **screens**, each an implicit **grid of panels** — authored directly and **lowered to** the operational node-tree IR at config-load (ADR-0011/0012). A **panel** is the cheat-sheet's grouping unit. It:
 
-- Remains **transparent for dispatch** — keys keep their paths. (Unchanged semantics; this is why `category` is the right primitive.)
-- Renders as a **strongly-separated, banded card** (a "panel").
-- Gains an optional **width hint**: `'span 'narrow` (default) | `'wide` | `'full`.
-- May **contain a dynamic-list block** (`window-list`, `pane-list`/iTerm panes) among its children, in addition to key rows. A category that contains a list block **auto-promotes** its span to `'wide` unless an explicit `'span` is given.
-- May render a **header affordance** for a navigable `group` child surfaced in the panel header (e.g. `s full toolkit ›` on the Splits panel). This is optional polish; a `group` child otherwise renders as an accent `›` row.
+- Is **transparent for dispatch** — keys keep their paths. (A panel lowers to a `category` node, which the state machine descends through as if its children were hoisted into the parent.) This is *why* the panel is the right primitive: a grouping that must not change the keys beneath it.
+- Renders as a **strongly-separated, banded card**.
+- Carries an optional **width hint**: `'span 'narrow` (default) | `'wide` | `'full`.
+- May **contain a dynamic-list block** (`window-list`, iTerm panes/tabs) among its children, in addition to key rows. A panel that contains a list block **auto-promotes** its span to `'wide` unless an explicit `'span` is given.
+- Renders a nested drill-down (`open`) child as an accent `›` row.
 
-**Loose top-level keys** (no enclosing `category`) collapse into one implicit **"General"** panel. Migrated configs name these explicitly.
+**Loose top-level keys** (a `key` not wrapped in a panel) collapse into one implicit **"General"** panel — the presentation-first analogue of the old misc bucket. Migrated configs usually name these explicitly.
+
+A **screen** is one navigable level; an **`open`** drills into a fresh screen (its own grid of panels) — the presentation-first replacement for the `(key K L (overlay …))` idiom. Reusable layout chunks splice in via **`fragment`**.
 
 ### Layout: a grid of panels
 
-The overlay body becomes a **CSS-Grid of panels**:
+The overlay body is a **CSS-Grid of panels** drawn by a dedicated **`panel-grid` renderer** that reads the presentation metadata (`'span`, `'cols`) the lowering annotates onto the screen group — it does *not* infer grouping or auto-lay-out:
 
-- Each panel maps its width hint to a column span: `narrow` = 1, `wide` = 2 (where the grid is ≥3 wide; falls back to `full` in a 2-col grid), `full` = all columns (decision §11).
-- `grid-auto-flow: dense` backfills narrow tiles around wide panels.
-- Column count derives from total panel content and the target aspect ratio, reusing the existing `set-overlay-aspect-ratio!` / `overlay-column-count` machinery.
-- Panels never split across columns (`break-inside: avoid` equivalent; grid items don't split anyway).
+- Each panel maps its width hint to a column span: `narrow` = 1, `wide` = 2, `full` = all columns (decision §11).
+- `grid-auto-flow: dense` backfills narrow tiles around wide/full panels.
+- Column count is **CSS-intrinsic auto-fit** by default (panels flow into as many `--panel-min-width` tracks as fit, capped by `--panel-grid-max-width`), or an **authored `'cols N`** pins an explicit track count. The legacy aspect-ratio search (`set-overlay-aspect-ratio!` / `overlay-column-count`) governs only the default list renderer that plain `(group …)` drill-downs still use.
+- Panels never split across columns (grid items don't split).
 
-This replaces the current CSS multi-column row flow. CSS Grid (not multicol) is required because multicol cannot span "2 of 3" columns, and the wide-list requirement needs partial spans.
+CSS Grid (not multicol) is required because multicol cannot span "2 of 3" columns, and the wide-list requirement needs partial spans.
 
 ## 5. DSL surface changes
 
-In `(modaliser dsl)`:
+In `(modaliser dsl)` — three new **layout container forms** plus a reuse form, over the **unchanged dispatch atoms** (ADR-0012):
 
-- **`category`** gains:
-  - `'span 'narrow|'wide|'full` keyword (optional; default `narrow`, auto-`wide` when it holds a list block).
-  - Acceptance of a dynamic-list block as a child (today it accepts only key/group nodes).
-- **`pack-node-runs` / `flush-node-run`** change from inferring misc/category blocks to a direct **one `category` → one panel** mapping, with loose keys forming the "General" panel. The `which-key` block becomes the per-panel *key-row* renderer rather than the whole-overlay renderer.
-- **Dynamic-list blocks** (`make-window-list-block`, `make-iterm-panes-block`) gain a section-embeddable form so they can be a `category` child, not only a top-level overlay block. Their `on-render-fn` return-and-merge protocol (live data injection) is unchanged.
-- No change to `key`, `keys`, `group`, `overlay`, `sticky-set`, `selector`, `define-tree` *surface* — though `overlay`/`define-tree` packing now emits panels.
+- **`screen scope … panel…`** — registers a tree as a grid of panels (the `define-tree` analogue). Body is the implicit grid; loose atoms pack into a leading "General" panel. Lowers to a tree-root group carrying `'renderer 'panel-grid` (+ optional `'cols`).
+- **`panel "label" ['span S] child…`** — a transparent banded card. Lowers to a `'kind 'category` node carrying `'span` (+ `'list` when it embeds a live list). Children are dispatch atoms plus at most one dynamic-list block; the block's hidden digit range lifts into the panel's dispatch children, the block rides under `'list` for the renderer.
+- **`open KEY LABEL … panel…`** — a navigable drill-down into a sub-screen. Lowers to a navigable `'group` carrying `'renderer 'panel-grid`.
+- **`fragment child…`** — a transparent named splice (panels or rows) for DRY, built on the same `expand-splices` `sticky-set` uses.
+- **No change to the dispatch atoms** `key`, `keys`, `key-range`, `group`, `selector`, `sticky-set`, `action` — they *are* the IR, so `flatten-categories` / `find-child` / the state machine read the lowered tree untouched.
+- **Dynamic-list blocks** (`window-list`, iTerm panes/tabs) gain the section-embeddable form so they sit inside a panel, not only at overlay top level. Their `on-render-fn` return-and-merge protocol (live data injection) is unchanged; the `panel-grid` renderer serializes an embedded list through the **same `block-json` path** the legacy block-list renderer uses.
+- **Legacy forms kept, deprecated.** `define-tree` / `category` / `overlay` / `which-key-block` keep working unchanged (some bundled terminal/app libraries still use them) but are deprecated in favour of the layout forms; the docs reconcile this (ADR-0012, no flag-day).
 
 Portability is preserved: all changes stay within `(scheme …)` / `(srfi …)` / `(modaliser …)` (`check-portable-surface.sh` stays green).
 
@@ -144,15 +147,15 @@ Scheme behaviour is exercised through a real LispKit context (repo convention), 
 
 **Non-goals:** in-place hot-reload (still relaunch); state-machine dispatch changes beyond the list cursor; native chip-painter redesign (chips inherit the new palette via `--color-host-*`); new block types beyond panel/list needs.
 
-**Open details for the implementation plan:**
-- Exact block-vs-renderer refactor: whether to introduce a dedicated `panel-grid` renderer or evolve the `which-key` block into a per-panel renderer (the payload/behaviour is fixed above; the code shape is the planner's call).
-- Multi-list overlays: which list owns the cursor / whether `Tab` cycles.
-- Accent default (indigo) — tunable; confirm against the chip/host-theme palette.
+**Open details for the implementation plan (now resolved):**
+- ~~Block-vs-renderer refactor.~~ **Resolved (ADR-0011):** a dedicated `panel-grid` renderer reading presentation metadata, not an evolved `which-key` block. See [renderer-protocol.md](../../reference/renderer-protocol.md).
+- ~~Multi-list overlays.~~ **Resolved:** the first live list a screen renders owns the cursor; `Tab`-cycling is a non-goal.
+- Accent default (indigo) — tunable; shipped as `--accent: #4f46e5`, overridable in `theme.css`.
 
-## 13. Files in play
+## 13. Files in play (as shipped)
 
-- DSL: `lib/modaliser/dsl.sld` (`category`, `pack-node-runs`/`flush-node-run`).
-- Renderer: `ui/overlay.scm` (`block-list-payload-json`, `block-json`, `render-overlay-body`, `push-overlay-update`), `ui/overlay.js`.
+- DSL: `lib/modaliser/dsl.sld` — the `screen` / `panel` / `open` / `fragment` layout forms lowering to the IR (the legacy `category` / `pack-node-runs` / `flush-node-run` retained, deprecated).
+- Renderer: `ui/overlay.scm` (`panel-grid-payload-json`, `renderer-body-json`, `block-list-payload-json`, `block-json`, `render-overlay-body`, `push-overlay-update`), `ui/overlay.js` (the `overlayRenderers['panel-grid']` body renderer).
 - Blocks: `blocks/which-key.{sld,js,css}`, `blocks/window-list.{sld,js,css}`, `blocks/iterm-panes.{sld,js,css}`, `blocks/iterm-tabs.*`.
 - Chooser: `ui/chooser.scm`, `ui/chooser.js`, chooser CSS in `base.css`.
 - Styling: `base.css` (new default tokens + panel/grid/list/footer rules).

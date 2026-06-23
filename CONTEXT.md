@@ -124,10 +124,14 @@ layout spec *lowers* to it, annotating nodes with presentation metadata
 (`panel`, `span`, `screen`). The dispatch engine (`state-machine.sld`) consumes
 it unchanged.
 
-**Screen** — one navigable level of the overlay: a **grid of panels**, named and
-referenced by symbol. A drill-down affordance (`open`) targets a screen by name;
-on lowering a screen becomes a navigable `group` in the operational IR. The
-overlay is a tree/graph of screens, one shown at a time.
+**Screen** — one navigable level of the overlay: a **grid of panels**. A
+top-level screen is *registered* under a scope **symbol** (the tree-root name a
+leader or `enter-mode!` targets); a deeper level is declared **inline** by an
+`open`, which carries its own grid of panels rather than referencing a registered
+screen by name. On lowering, a screen's root becomes a tree-root group and an
+`open` becomes a navigable `group`, both carrying `'renderer 'panel-grid`. The
+overlay is a tree of screens, one shown at a time. _Avoid_: implying `open`
+resolves a named screen — drill-down sub-screens are anonymous and inline.
 
 **Panel** — a strongly-separated, banded card in a screen's grid; one declared
 visual grouping. Holds command rows and/or an embedded **live list**. Remains

@@ -137,7 +137,7 @@ Settings group: edit `config.scm`, relaunch.
 
 | Export | Signature | Returns |
 |---|---|---|
-| `actions` | `(actions [keyword value]...)` | Group node — already decorated with `'key` and `'label`. Splice directly into a `define-tree`. |
+| `actions` | `(actions [keyword value]...)` | Group node — already decorated with `'key` and `'label`. Splice into a `(panel …)` of a `screen` (or, legacy, a `define-tree`). |
 
 **Options:**
 
@@ -150,8 +150,8 @@ Settings group: edit `config.scm`, relaunch.
 | `'extra-bindings` | `'()` | Additional DSL nodes appended after Reload. |
 
 ```scheme
-(define-tree 'global
-  (settings:actions)
+(screen 'global
+  (panel "General" (settings:actions))
   …)
 ```
 
@@ -162,8 +162,9 @@ Settings group: edit `config.scm`, relaunch.
 ### `(modaliser window-actions)`
 
 High-level block constructors for the windows overlay. The bundled seed
-uses `layout-block` + `list-block` together inside a single `(overlay
-…)` to produce the canonical Windows view.
+places `layout-block` and `list-block` in panels of an `(open "w"
+"Windows" …)` drill-down to produce the canonical Windows view — each
+block embedded in its own `(panel …)`.
 
 **Imports:**
 
@@ -200,20 +201,22 @@ Override `.chip` / `.chip.faded` in `~/.config/modaliser/theme.css` to
 customise; relaunch picks up the changes.
 
 ```scheme
-(key "w" "Windows"
-  (overlay
+(open "w" "Windows"
+  (panel "Layout"
     (window:layout-block
       (("d" "f" "g"))
       (("D" "F" "G") ("C" "V" "B"))
       (("e" "e" #f))
       ((#f "t" "t"))
       (("m"))
-      (center "c"))
+      (center "c")))
+  (panel "Select"
     (key "s" "Select Window"
          (selector 'prompt "Select window by name…"
                    'source list-windows
                    'on-select focus-window))
-    (key "r" "Restore" (λ () (restore-window)))
+    (key "r" "Restore" (λ () (restore-window))))
+  (panel "Windows"
     (window:list-block 'chips? #t)))
 ```
 
@@ -252,7 +255,7 @@ Minimal Safari tree (Tabs, Browser).
 
 | Export | Signature | Description |
 |---|---|---|
-| `tree` | `(tree [keyword value]...)` | List of nodes — splice into your own `(define-tree 'com.apple.Safari …)`. |
+| `tree` | `(tree [keyword value]...)` | List of nodes — splice into a `(panel …)` of your own `(screen 'com.apple.Safari …)`. |
 | `register!` | `(register! [keyword value]...)` | Calls `(define-tree 'com.apple.Safari (tree opts…))`. |
 
 **Options:**
@@ -358,11 +361,13 @@ Block constructors return alist specs (`'type SYM 'block-children (…)
 …`) consumed by the block-list renderer. The full protocol is
 documented in [renderer-protocol.md](renderer-protocol.md).
 
-### `(modaliser blocks which-key)`
+### `(modaliser blocks which-key)` *(legacy)*
 
-Already covered in [dsl.md](dsl.md#which-key-block-children) —
-`which-key-block` is exposed there because it's the most common block
-form. The library is auto-loaded transitively via `(modaliser dsl)`.
+The block behind the deprecated `define-tree` / `category` / `overlay`
+auto-packing — see [dsl.md](dsl.md#legacy-forms-deprecated). New configs
+declare a `(panel …)`, whose rows *are* the which-key block, so this
+form is rarely written by hand. The library is auto-loaded transitively
+via `(modaliser dsl)`.
 
 | Export | Signature |
 |---|---|

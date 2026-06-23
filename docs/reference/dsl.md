@@ -7,16 +7,35 @@ ground-truthed against
 [`state-machine.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/state-machine.sld),
 and [`leader.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/leader.sld).
 
-The DSL splits into three groups:
+## You author a layout, not a command tree
 
-1. **Configuration setters** — global state (`set-leaders!`,
-   `set-overlay-delay!`, `set-overlay-aspect-ratio!`) called once near
-   the top of `config.scm`.
-2. **Tree definition** — `define-tree` registers a command tree under
-   a scope.
-3. **Node and block constructors** — `key`, `keys`, `group`, `category`,
-   `selector`, `action`, `overlay`, `which-key-block`. The body of every
-   tree.
+Modaliser's overlay is a **dynamic cheat-sheet document** — a grid of
+panels you read like a reference card. You author it directly: a config
+is a **layout spec**, a tree of **screens**, each an implicit grid of
+**panels** ([ADR-0011](../adr/0011-presentation-first-layout-spec-lowers-to-operational-node-tree.md),
+[ADR-0012](../adr/0012-layout-dsl-surface-screen-panel-open-over-unchanged-atoms.md)).
+
+That layout **lowers** — at config-load, the moment each form is
+evaluated — to the **operational node-tree**, the `(kind . group)` /
+`(kind . command)` alist the modal state machine dispatches. The
+operational tree is now an **intermediate representation (IR)**, a
+compile target, not a thing you write by hand. The dispatch engine
+(sticky modes, transparent grouping, digit-jump, selectors) reads that
+IR exactly as before; the **panel-grid renderer** reads the presentation
+metadata (`panel`, `span`, `screen`) the lowering annotates onto it.
+
+The practical consequence: the four **layout forms** (`screen`, `panel`,
+`open`, `fragment`) shape *presentation*, and the **dispatch atoms**
+(`key`, `keys`, `key-range`, `group`, `selector`, `sticky-set`) shape
+*behaviour* — and because the atoms *are* the IR, they are unchanged. A
+panel is a transparent visual card: it groups rows without changing the
+keys beneath it.
+
+> **Legacy forms.** The pre-inversion authoring surface — `define-tree`,
+> `category`, `overlay`, `which-key-block` — still works unchanged, but
+> is **deprecated**. New configs should use the layout DSL. The mapping
+> is one-to-one (`define-tree`→`screen`, `category`→`panel`,
+> `(key K L (overlay …))`→`open`); see [Legacy forms](#legacy-forms-deprecated).
 
 ## Imports
 
@@ -26,13 +45,15 @@ The common case is one import:
 (import (modaliser dsl))
 ```
 
-That surfaces `key`, `keys`, `key-range`, `group`, `category`,
-`selector`, `action`, `overlay`, `sticky-set`, `λ`, `define-tree`,
-`modifier-symbols->mask`, `set-leader!`, `set-theme!`,
-`set-overlay-delay!`, and `set-overlay-aspect-ratio!`. The bundled
-seed config also pulls in `(modaliser leader)` (for `set-leaders!`)
-and a handful of native libraries (`(modaliser app)`,
-`(modaliser keyboard)`, etc.).
+That surfaces the layout forms `screen`, `panel`, `open`, `fragment`;
+the dispatch atoms `key`, `keys`, `key-range`, `group`, `selector`,
+`action`, `sticky-set`; the helper `λ`; the configuration setters
+`set-leader!`, `set-overlay-delay!`, `set-overlay-aspect-ratio!`,
+`set-theme!`, `modifier-symbols->mask`; and the deprecated legacy forms
+`define-tree`, `category`, `overlay` (and `which-key-block`, re-exported
+from `(modaliser blocks which-key)`). The bundled seed config also pulls
+in `(modaliser leader)` (for `set-leaders!`) and a handful of native
+libraries (`(modaliser app)`, `(modaliser keyboard)`, etc.).
 
 ---
 
@@ -81,10 +102,10 @@ tree — it does *not* fall back to the global tree. Keywords:
 
 ### `(set-overlay-delay! seconds)`
 
-How long after leader arm before the which-key overlay appears. Zero
-shows immediately. Typical values 0.3–1.0. Quick muscle-memory
-keypresses produce no UI when the delay is non-zero — the modal still
-dispatches the key.
+How long after leader arm before the overlay appears. Zero shows
+immediately. Typical values 0.3–1.0. Quick muscle-memory keypresses
+produce no UI when the delay is non-zero — the modal still dispatches
+the key.
 
 ```scheme
 (set-overlay-delay! 0.3)
@@ -92,10 +113,16 @@ dispatches the key.
 
 ### `(set-overlay-aspect-ratio! ratio)`
 
-Target width-to-height ratio for the overlay's multi-column layout.
-The renderer picks the column count that gets closest to this ratio
-for the current entry count. `1.0` is square; `1.6` (default) prefers
-wider, shorter overlays.
+Target width-to-height ratio for the **default list renderer's**
+multi-column layout — the renderer that draws a plain `(group …)`
+drill-down (and the deprecated which-key block). It picks the column
+count that gets closest to this ratio for the current entry count. `1.0`
+is square; `1.6` (default) prefers wider, shorter layouts.
+
+This setting does **not** affect the panel grid: a `screen`/`open`
+flows panels by CSS-intrinsic auto-fit, or by an authored `'cols N`
+(see [`screen`](#layout-forms)). It governs only the
+list-renderer fallback that plain groups still use.
 
 ```scheme
 (set-overlay-aspect-ratio! 1.6)
@@ -118,53 +145,188 @@ Deprecated no-op stub. Theming moved to CSS — edit
 
 ---
 
-## Tree definition
+## Layout forms
 
-### `(define-tree scope [keyword value]... . content)`
+The presentation-first surface. Four forms — `screen`, `panel`, `open`,
+`fragment` — that **lower to the operational IR** at config-load. They
+own *layout*; the dispatch atoms they contain own *behaviour*.
 
-Registers a command tree under `scope` — a symbol (or string) like
-`'global`, `'com.apple.Safari`, or `'iterm-panes-focus`. Symbols and
-strings are equivalent; `register-tree!` normalises both. The `content` is a list of
-node-forms (`(key …)`, `(category …)`, …) and block specs
-(`(which-key-block …)`, `(window:list-block …)`, …).
+### `(screen scope [keyword value]... . panels)`
 
-**Auto-pack.** A top-level `define-tree` always renders as a
-block-list (`'renderer 'blocks`). Consecutive runs of node-forms in
-`content` are collapsed into a single `(which-key-block …)`. Mixed
-runs split into TWO blocks — uncategorised entries first, then
-categories — so the overlay renders loose bindings as one section,
-category columns underneath. Explicit `(which-key-block …)` forms
-authored by the user are preserved as-is and never re-shuffled.
+Registers a command tree under `scope` and renders it as a **grid of
+panels** — the presentation-first replacement for `define-tree`. `scope`
+is a symbol (or string) like `'global`, `'com.apple.Safari`, or
+`'iterm-panes-focus`; symbols and strings are equivalent.
 
-Optional leading keywords (same set as `register-tree!`):
-
-| Keyword | Type | Description |
-|---|---|---|
-| `'on-enter` | thunk | Runs when the modal navigates into this tree. Composed with any block hooks. |
-| `'on-leave` | thunk | Runs when the modal navigates out. |
-| `'sticky` | boolean | If `#t`, firing a command leaf resets to this tree's root instead of exiting. |
-| `'exit-on-unknown` | boolean | If `#t`, unrecognised keys exit the modal instead of being swallowed. Inherited by descendants. |
-| `'display-name` | string | Overrides the breadcrumb scope segment. Useful for mode-id scopes (e.g. `'iterm-panes`) where the auto-resolved app name doesn't make sense. |
+The body is an **implicit grid**: each `(panel …)` is a grid cell, each
+`(open …)` a drill-in cell. **Loose top-level atoms** (a `(key …)` not
+wrapped in a panel) collect into one leading **"General"** panel — so a
+flat config still renders as a single tidy card.
 
 ```scheme
-(define-tree 'global
-  (keys '("1" ..) "Switch Space"
-        (λ (k i ks) (send-keystroke '(ctrl) k)))
-  (key "," "Settings" (settings:actions))
-  (key "w" "Windows"  (overlay (window:layout-block …)))
+(screen 'global
+  (panel "General"
+    (key "," "Settings" (settings:actions))
+    (key "/" "Help"     (λ () (open-help))))
 
-  (category "Apps"
+  (open "w" "Windows"           ; drill-down → its own grid of panels
+    (panel "Layout" (window:layout-block …))
+    (panel "Select" (window:list-block 'chips? #t)))
+
+  (panel "Applications"
     (key "b" "Browser"  (λ () (launch-app "Safari")))
     (key "t" "Terminal" (λ () (launch-app "iTerm")))))
 ```
 
-Per-app trees use a bundle-id scope. `(safari:register!)` and friends
-call `define-tree` (or `register-tree!`) internally with the right
-scope.
+Optional leading keywords (the `define-tree` set, plus `'cols`):
+
+| Keyword | Type | Description |
+|---|---|---|
+| `'cols` | integer | Authored column count. Default is CSS-intrinsic auto-fit (panels flow into as many tracks as fit the width). Pins an explicit track count instead. |
+| `'on-enter` | thunk | Runs when the modal navigates into this screen. Composed with any embedded live-list hooks. |
+| `'on-leave` | thunk | Runs when the modal navigates out. |
+| `'sticky` | boolean | If `#t`, firing a command leaf resets to this screen's root instead of exiting. |
+| `'exit-on-unknown` | boolean | If `#t`, unrecognised keys exit the modal instead of being swallowed. Inherited by descendants. |
+| `'display-name` | string | Overrides the breadcrumb scope segment. Useful for mode-id scopes (e.g. `'iterm-panes`) where the auto-resolved app name doesn't make sense. |
+
+A `screen` lowers to a tree-root group carrying `'renderer 'panel-grid`
+(plus `'cols` when authored), so the panel-grid renderer draws it. The
+live-list `'on-enter-fn` / `'on-leave-fn` of any panel-embedded block
+compose with the user hooks, exactly as `define-tree` composes block
+hooks.
+
+### `(panel label [span value] . children)`
+
+A **transparent visual card** in a screen's grid — one declared
+grouping of rows, with a banded header carrying `label`. Transparent
+means it **never changes the keys beneath it**: a child `(key "b" …)`
+dispatches at `b` whether or not a panel encloses it. (A panel lowers to
+a `category` node, which the state machine descends through as if its
+children were hoisted into the parent.)
+
+`children` are dispatch atoms (`key`/`keys`/`group`/`selector`/…) plus
+**at most one** embedded live-list block. Splices (`fragment` /
+`sticky-set`) hoist in place.
+
+```scheme
+(panel "Search"
+  (key "g" "Google"           (web-search:google))
+  (key "a" "Find Application" (launcher:find-application))
+  (key "f" "Find File"        (launcher:find-file)))
+```
+
+Optional leading `'span` keyword:
+
+| Span | Width | Notes |
+|---|---|---|
+| `'narrow` | 1 column | Default. |
+| `'wide` | 2 columns | In a 1-track grid it still occupies the one track. |
+| `'full` | all columns | Spans the whole row regardless of track count. |
+
+```scheme
+(panel "Panes" 'span 'wide
+  (key "z" "Zoom" (λ () (toggle-zoom)))
+  (iterm:pane-list-block 'chips? #t))   ; embedded live list
+```
+
+**Embedding a live list.** A panel may hold one dynamic-list block
+(`window:list-block`, `iterm:pane-list-block`, `iterm:tab-list-block`)
+among its children. The panel **auto-promotes to `'wide`** when it holds
+a list (unless you give an explicit `'span`), since lists want
+horizontal room. The block's hidden digit key-range (the `1..` direct-
+jump selectors) is lifted into the panel's dispatch children so the
+digits resolve transparently; the block itself rides under the panel's
+`'list` metadata for the renderer. The embedded list also gains a
+**selection cursor** (`↑↓` / `k j` to move, `⏎` to activate) — see
+[Live lists & the selection cursor](#live-lists--the-selection-cursor).
+
+It is an error to embed two list blocks in one panel.
+
+### `(open KEY LABEL [keyword value]... . panels)`
+
+A **navigable drill-down** into a sub-screen — the panel-native
+replacement for the old `(key K L (overlay …))` idiom. Pressing `KEY`
+descends into a fresh grid of `panels` (its own screen). `open` is the
+*only* navigable layout form; a `panel`, by contrast, is transparent and
+never changes key paths.
+
+```scheme
+(open "w" "Windows"
+  (panel "Layout" (window:layout-block …))
+  (panel "Move"
+    (key "h" "Left"  (λ () (move-window 'left)))
+    (key "l" "Right" (λ () (move-window 'right)))))
+```
+
+Its body lowers the same way a `screen` body does (loose atoms → a
+"General" panel; nested `open`s drill further). Keywords: `'on-enter`,
+`'on-leave`, `'sticky`, `'exit-on-unknown`, `'cols` — **not**
+`'display-name` (a breadcrumb-root override a child group has no use
+for). An `open` lowers to a navigable `group` carrying
+`'renderer 'panel-grid`.
+
+A nested `(open …)` declared *inside* a `(panel …)` renders as an accent
+drill-in `›` row in that panel; a top-level `(open …)` directly under a
+`screen` renders as its own single-row cell.
+
+### `(fragment child…)`
+
+A reusable, **named chunk of layout** — bind it once to a Scheme
+variable and splice it into any number of screens or panels for DRY.
+`child`s are panels (for screen-level reuse) or command rows (for
+panel-level reuse).
+
+```scheme
+(define window-ops
+  (fragment
+    (key "c" "Center"   center-window)
+    (key "m" "Maximise" maximise-window)))
+
+(screen 'global (panel "Windows" window-ops (key "r" "Restore" …)))
+(screen 'finder (panel "Layout"  window-ops))
+```
+
+A `fragment` is **fully transparent**: the container forms (`screen` /
+`panel` / `open`, and the legacy `define-tree` / `group` / `category`)
+hoist its children in place at construction time via `expand-splices`,
+so the lowered tree is identical to writing the children inline —
+nothing downstream ever sees the fragment. Nested fragments and
+`sticky-set`s compose for free, since `expand-splices` recurses through
+splice children.
+
+`fragment` is `sticky-set`'s second half on its own: a transparent
+splice node with **no** mode registration and **no** `'sticky-target`
+decoration — pure structural reuse. Reach for `sticky-set` when you want
+the act-and-latch behaviour, `fragment` when you only want to share
+layout.
+
+### Live lists & the selection cursor
+
+Every dynamic list — a panel-embedded pane/window list **and** the
+standalone [chooser](../how-to/fuzzy-finder.md) — supports a **selection
+cursor** alongside its immediate digit selectors:
+
+- `↑`/`↓` (and `k`/`j`) move the cursor; `⏎` activates the highlighted
+  row. Movement is clamped (no wrap).
+- The numeric selectors `1`–`9`/`0` stay **immediate** — a direct jump
+  by the row's digit, race-free (it dispatches by the live target's
+  identity, no event injection). `⏎` activates *through the same digit
+  path*: the cursor adds a pointer, not a separate action.
+- The footer advertises the keys (`↑↓ move · ⏎ select · 1–9 jump`) while
+  a cursor is active.
+
+When a screen renders more than one live list, the **first** one it
+draws owns the cursor (multi-list `Tab`-cycling is a non-goal). Cursor
+state lives in `(modaliser list-cursor)`; the focused row is marked
+`.is-focused` (accent bar + tint) — see [theming.md](theming.md).
 
 ---
 
-## Node constructors
+## Dispatch atoms
+
+The behavioural surface — unchanged by the layout inversion, because
+these forms *are* the operational IR. A `panel`/`screen` is built
+*around* them; they decide what a key does.
 
 ### `(key K L body [keyword value]...)`
 
@@ -259,8 +421,11 @@ need the index argument. Otherwise prefer `keys`.
 
 ### `(group K L [keyword value]... . children)`
 
-Nested submenu — typing `K` from the parent descends into a tree of
-`children`. Keywords:
+A plain nested submenu — typing `K` from the parent descends into a tree
+of `children`. Unlike `open`, a `group` renders through the **default
+list renderer** (a single multi-column list, not a grid of panels), so
+reach for it for a quick flat drill-down where a full sub-screen would be
+overkill — directional split/move clusters, sticky walks. Keywords:
 
 | Keyword | Type | Description |
 |---|---|---|
@@ -270,7 +435,8 @@ Nested submenu — typing `K` from the parent descends into a tree of
 | `'exit-on-unknown` | boolean | Unknown keys exit the modal. Inherited by descendants. |
 
 Unknown keyword/value pairs pass through as opaque alist entries on the
-group — used by renderer extensions like `'renderer 'blocks 'blocks (…)`.
+group — this is the pass-through that the layout DSL rides
+(`'renderer 'panel-grid`, `'span`, `'cols`).
 
 ```scheme
 (group "f" "Files"
@@ -279,30 +445,9 @@ group — used by renderer extensions like `'renderer 'blocks 'blocks (…)`.
   (key "h" "Home"   (λ () (reveal-in-finder "~"))))
 ```
 
-`(group …)` returns a node alist; in a `define-tree` body wrap it with
-`(key K L (group …))` if you want the wrapping `key` macro to flow
-through `K`/`L`. Inline `(group K L …)` works equivalently because
-`group` already takes `K`/`L` positionally.
-
-### `(category LABEL . children)`
-
-Visual grouping for the which-key overlay — `children` are rendered as
-a labelled column. Categories are **transparent** to the state machine:
-typing a child key dispatches as if the children were direct group
-siblings. This lets configs add visual grouping without changing key
-paths.
-
-```scheme
-(category "Search"
-  (key "g" "Google"           (web-search:google))
-  (key "a" "Find Application" (launcher:find-application))
-  (key "f" "Find File"        (launcher:find-file)))
-```
-
-Categories may appear anywhere a `(key …)` can. Inside a `define-tree`
-or `overlay`, auto-pack splits mixed runs of categorised and
-uncategorised entries into two blocks — uncategorised first, then
-categories — so the overlay layout is predictable.
+`(group …)` returns a node alist; in a `screen` body it renders as a
+drill-in row. Use `open` instead when you want the destination to be its
+own grid of panels.
 
 ### `(selector [keyword value]...)`
 
@@ -348,43 +493,10 @@ Extra action for a selector's Tab panel. Used in a selector's
               'run (lambda (path) (reveal-in-finder path)))))
 ```
 
-### `(overlay [keyword value]... . blocks)`
-
-Generic block-list group — renders as a block-list overlay rather than
-the default which-key flow. Keywords:
-
-| Keyword | Type | Description |
-|---|---|---|
-| `'key` | string | Leader key in the parent tree (default `"?"`). |
-| `'label` | string | Group label (default `"Overlay"`). |
-| `'on-enter` | thunk | User-supplied enter hook. Composed with block-supplied hooks: user hook runs first, then each block's hook in declaration order. |
-| `'on-leave` | thunk | User-supplied leave hook. Same composition order. |
-
-After the keywords, every positional argument is content. Mixed
-node-forms and block specs are allowed: consecutive node-form runs
-auto-pack into a `which-key-block`, while block specs pass through
-unchanged.
-
-```scheme
-(key "w" "Windows"
-  (overlay
-    (window:layout-block (("d" "f" "g")) (center "c"))   ; block
-
-    (key "s" "Select Window" (selector …))               ; node — packed
-    (key "r" "Restore"       (λ () (restore-window)))    ; node — packed
-
-    (window:list-block 'chips? #t)))                     ; block
-```
-
-`(overlay …)` returns a group node; bind it with `(key K L (overlay …))`
-or use `(overlay 'key K 'label L …)` directly. Both styles work because
-the wrapping `key` macro decorates the group via `decorate-node`, which
-respects existing `'key`/`'label` entries when present.
-
 ### `(sticky-set MODE-ID DISPLAY-NAME key…)`
 
-Define a reusable **"act + latch"** navigation set once and splice it into
-many parents (DRY). It does two things at evaluation time:
+Define a reusable **"act + latch"** navigation set once and splice it
+into many parents (DRY). It does two things at evaluation time:
 
 1. **Registers a sticky mode tree** under `MODE-ID` (with `'sticky #t`,
    `'exit-on-unknown #t`, and `'display-name DISPLAY-NAME`) holding the
@@ -392,12 +504,12 @@ many parents (DRY). It does two things at evaluation time:
 2. **Returns a splice node** carrying the same keys, each decorated with
    `'sticky-target MODE-ID`.
 
-A splice node is **fully transparent**: the container constructors
-(`define-tree`, `group`, `overlay`, `category`) hoist its children into
-their own child list at construction time, so the result is identical to
-writing those entry keys inline — and nothing downstream ever sees the
-splice. So one key list supplies both the registered mode *and* every
-entry point, with no duplication.
+A splice node is **fully transparent**: the container forms (`screen`,
+`panel`, `open`, and the legacy `define-tree`, `group`, `overlay`,
+`category`) hoist its children into their own child list at construction
+time, so the result is identical to writing those entry keys inline —
+and nothing downstream ever sees the splice. So one key list supplies
+both the registered mode *and* every entry point, with no duplication.
 
 Use individual `(key …)` forms — not `(keys …)` / `(key-range …)` —
 because `'sticky-target` is a `(key …)`-only keyword.
@@ -411,45 +523,16 @@ because `'sticky-target` is a `(key …)`-only keyword.
 
 ;; Pressing s then h focuses-left AND latches into 'iterm-split-walk,
 ;; where hjkl/HJKL keep working. The same split-nav can be spliced into
-;; several parents (e.g. a top-level cluster and the s overlay).
-(define-tree 'com.googlecode.iterm2
-  (overlay 'key "s" 'label "Splits"
-    split-nav
-    (group "n" "New Split" …)
-    (iterm:pane-list-block 'chips? #t)))
+;; several parents (e.g. a top-level panel and an open sub-screen).
+(screen 'com.googlecode.iterm2
+  (open "s" "Splits"
+    (panel "Walk" split-nav)
+    (panel "New"  (group "n" "New Split" …))))
 ```
 
 Latched walks keep the caller's breadcrumb context: entering a mode from
 an active modal appends `DISPLAY-NAME` to the caller's root segments, so
 the title reads e.g. `iTerm ▸ Splits` rather than collapsing to `Splits`.
-
----
-
-## Block constructors
-
-### `(which-key-block . children)`
-
-Explicit which-key block. Returns a block spec with `'type 'which-key`
-and `'block-children` holding the dispatch entries. `define-tree` and
-`overlay` auto-pack consecutive node runs into one of these
-automatically; reach for the explicit form when you want fine-grained
-control over which entries land in which visual block. Authored blocks
-are preserved as-is by the auto-packer.
-
-```scheme
-(define-tree 'global
-  (which-key-block
-    (key "a" "First"   (λ () …))
-    (key "b" "Second"  (λ () …)))
-  (window:list-block …))
-```
-
-Imported from `(modaliser blocks which-key)`.
-
-Other block constructors live in their respective libraries:
-`window:layout-block` and `window:list-block` from `(modaliser blocks
-window-list)` / `(modaliser blocks window-diagram)`. See
-[libraries.md](libraries.md) for the bundled block set.
 
 ---
 
@@ -472,14 +555,75 @@ lists via their `'modifiers` keyword.
 
 ---
 
+## Legacy forms (deprecated)
+
+These are the pre-inversion authoring surface. They still work
+unchanged — the bundled terminal/app libraries still use some of them
+internally — but new configs should prefer the layout forms above. The
+mapping is direct:
+
+| Legacy form | Layout replacement |
+|---|---|
+| `(define-tree 'scope …)` | `(screen 'scope …)` |
+| `(category "L" …)` | `(panel "L" …)` (+ optional `'span`) |
+| `(key K L (overlay …))` | `(open K L …)` |
+| `(which-key-block …)` | implicit — a `panel`'s rows |
+
+### `(define-tree scope [keyword value]... . content)`
+
+Registers a command tree under `scope`. `content` is node-forms
+(`(key …)`, `(category …)`, …) and block specs (`(which-key-block …)`,
+`(window:list-block …)`, …). A `define-tree` renders through the
+**block-list** renderer: consecutive runs of node-forms auto-pack into a
+single `(which-key-block …)`; mixed runs split into two blocks
+(uncategorised first, then categories). Accepts the same leading
+keywords as `screen` minus `'cols` (`'on-enter`, `'on-leave`, `'sticky`,
+`'exit-on-unknown`, `'display-name`).
+
+Prefer `screen`: it renders as a panel grid (the default look), with the
+loose-keys "General" panel replacing the misc-bucket auto-split.
+
+### `(category LABEL . children)`
+
+Visual grouping for the block-list / which-key renderer — `children`
+render as a labelled column. Categories are **transparent** to the state
+machine (typing a child key dispatches as if the children were direct
+siblings), which is exactly the property `panel` inherits. Prefer
+`panel`: it is a `category` plus a `'span` and the ability to embed a
+live list, drawn as a banded card.
+
+### `(overlay [keyword value]... . blocks)`
+
+Generic block-list group — renders as a block-list overlay. Keywords
+`'key` (default `"?"`), `'label` (default `"Overlay"`), `'on-enter`,
+`'on-leave`. Positional args are content: node-form runs auto-pack into a
+`which-key-block`, block specs pass through. Prefer `open`: it is the
+panel-grid drill-down that replaces the `(key K L (overlay …))` idiom.
+
+### `(which-key-block . children)`
+
+Explicit which-key block, imported from `(modaliser blocks which-key)`.
+Returns a block spec with `'type 'which-key` and `'block-children`
+holding the dispatch entries. `define-tree` and `overlay` auto-pack node
+runs into these; the explicit form gives fine-grained control over which
+entries land in which visual block. There is no panel-grid analogue
+because a `panel` *is* the grouping — its rows are the which-key block.
+
+Other block constructors live in their own libraries: `window:layout-block`
+and `window:list-block` from `(modaliser blocks window-list)` /
+`(modaliser blocks window-diagram)`. See [libraries.md](libraries.md) for
+the bundled block set.
+
+---
+
 ## See also
 
 - [libraries.md](libraries.md) — bundled `(modaliser …)` libraries and
   their exports.
 - [state-machine.md](state-machine.md) — modal lifecycle, sticky
   semantics, navigation hooks.
-- [renderer-protocol.md](renderer-protocol.md) — how to write custom
-  blocks.
+- [renderer-protocol.md](renderer-protocol.md) — the panel-grid payload,
+  the two-tier renderer registry, and how to write custom blocks.
 - [theming.md](theming.md) — CSS variables and class names consumed by
   the overlay.
 - How-to guides — task-oriented recipes:

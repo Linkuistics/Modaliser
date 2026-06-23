@@ -4,6 +4,12 @@ The overlay and chooser are HTML rendered into WKWebView panels. All
 visuals come from CSS — there's no native styling layer. Theming
 ranges from a one-line variable override to wholesale custom CSS.
 
+The default look is the **cheat-sheet** style: white panel cards on a
+tinted body, banded panel headers, soft mono keycaps, an indigo accent
+with amber group-opens, a separated footer strip, and inset live lists.
+Type is **IBM Plex Sans** (labels) + **IBM Plex Mono** (keys/paths/
+footer), bundled locally — the WebView needs no network.
+
 User CSS lives in `~/.config/modaliser/theme.css`. The file is
 auto-loaded at startup and concatenated into the cascade *after*
 `base.css` and all block-supplied stylesheets, so user declarations win
@@ -12,10 +18,12 @@ on equal specificity. Edit the file, relaunch Modaliser, done.
 Source files:
 
 - [`base.css`](../../Sources/Modaliser/Scheme/base.css) — root
-  variables, overlay container, chip, chooser, footer sigils.
-- [`blocks/which-key.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/which-key.css)
+  variables, overlay container, panel grid, embedded live list, keycaps,
+  chooser, footer sigils, chip.
 - [`blocks/window-list.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/window-list.css)
+- [`blocks/iterm-panes.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/iterm-panes.css)
 - [`blocks/window-diagram.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/window-diagram.css)
+- [`blocks/which-key.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/which-key.css) — legacy block renderer.
 
 CSS load order (last wins on equal specificity):
 
@@ -26,43 +34,128 @@ CSS load order (last wins on equal specificity):
 
 ## CSS variables
 
-### Overlay container (`:root` in `base.css`)
+### Surfaces (`:root` in `base.css`)
 
 | Variable | Default | Description |
 |---|---|---|
-| `--overlay-bg` | `rgba(253, 247, 237, 1)` | Panel background. |
-| `--overlay-border` | `rgba(153, 153, 153, 1)` | Panel border. |
-| `--overlay-radius` | `8px` | Border-radius. |
-| `--overlay-padding` | `12px` | Inner padding. |
-| `--overlay-width` | `320px` | Minimum panel width (panel auto-grows to fit). |
-| `--overlay-shadow` | `0 4px 20px rgba(0,0,0,0.15)` | Drop shadow. |
-| `--overlay-cols` | computed | CSS multi-column count picked by `overlay-column-count` to hit `set-overlay-aspect-ratio!`. |
+| `--overlay-bg` | `#ffffff` | Outer card background. |
+| `--overlay-body-bg` | `#f6f7fa` | Tinted grid behind the panels (makes white panels pop). |
+| `--overlay-border` | `#e2e4ea` | Card border. |
+| `--overlay-radius` | `10px` | Card border-radius. |
+| `--overlay-padding` | `0` | The card is edge-to-edge; the band, body, and footer strips own their own padding. Kept as a token for configs that still reference it. |
+| `--overlay-width` | `320px` | Minimum card width (the card auto-grows to fit its content). |
+| `--overlay-shadow` | layered | Drop shadow. |
 
 ### Typography
 
-| Variable | Default |
-|---|---|
-| `--font-family` | `"Menlo", "SF Mono", monospace` |
-| `--font-size` | `14px` |
-| `--line-height` | `1.6` |
+| Variable | Default | Role |
+|---|---|---|
+| `--font-family` | `"IBM Plex Sans", system-ui, sans-serif` | Labels / body. |
+| `--font-mono` | `"IBM Plex Mono", "SF Mono", monospace` | Keys / paths / footer. Symbol glyphs absent from IBM Plex (escape/backspace/return/arrow/modifier sigils) fall through to SF Mono. |
+| `--font-size` | `14px` | Base size; most secondary text is `calc(var(--font-size) - Npx)`. |
+| `--line-height` | `1.55` | |
 
-### Colour vocabulary
+### Accents
 
 | Variable | Default | Used for |
 |---|---|---|
-| `--color-key` | `rgba(33, 97, 186, 1)` | Key glyphs in entries and chooser actions. |
-| `--color-label` | `rgba(56, 56, 56, 1)` | Entry labels, body text. |
-| `--color-group` | `rgba(204, 115, 25, 1)` | Group labels (commands that *open* a sub-overlay or chooser). |
-| `--color-category` | `rgba(70, 105, 130, 1)` | Category labels and their underline. |
-| `--color-arrow` | `rgba(128, 128, 128, 1)` | Key → label arrow glyph. |
-| `--color-header` | `rgba(128, 128, 128, 1)` | Breadcrumb default colour, footer text. |
-| `--color-separator` | `rgba(204, 204, 204, 1)` | Header / footer rules. |
+| `--accent` | `#4f46e5` (indigo) | Keys in lists, focus, selection, panel-header text, list-row focus bar. |
+| `--color-group` | `#c2700f` (amber) | Group-opens (`›` drill-in rows), sticky-target markers (fallback). |
+| `--live` | `#23c161` (green) | The live-list "live" dot. |
+
+### Panels
+
+| Variable | Default | Role |
+|---|---|---|
+| `--panel-bg` | `#ffffff` | Panel card background. |
+| `--panel-border` | `#e7e9ee` | Panel border (also `--color-separator`). |
+| `--panel-radius` | `8px` | Panel + inset border-radius. |
+| `--panel-head-bg` | `#eef0fb` | Banded panel-header background. |
+| `--panel-head-fg` | `#3b3fb6` | Banded panel-header text (eyebrow-cased label). |
+| `--panel-shadow` | `0 1px 2px rgba(17,20,36,0.05)` | Panel lift. |
+
+Panel-grid layout knobs (set on `.panel-grid`; the renderer pins
+`--panel-grid-cols` inline when a `screen`/`open` authors `'cols N`):
+
+| Variable | Default | Role |
+|---|---|---|
+| `--panel-grid-cols` | `auto-fit` | Track count. Default flows panels into as many tracks as fit; an authored `'cols` pins an explicit count. |
+| `--panel-min-width` | `184px` | Minimum panel track width (the auto-fit `minmax`). |
+| `--panel-grid-max-width` | `760px` | Caps the grid width so it wraps rather than stretching to one row. |
+| `--panel-gap` | `10px` | Gap between panels. |
+
+### Keycaps
+
+The keycap is the shared key vocabulary across panels, embedded lists,
+the chooser, and the legacy renderers. A soft mono pill; the **accent
+variant** (numeric keys inside live lists and the chooser) re-maps the
+three keycap vars on a scoped selector, so one `.entry-key` box rule
+paints both.
+
+| Variable | Default | Role |
+|---|---|---|
+| `--keycap-bg` | `#f4f5f7` | Soft keycap fill (static command keys). |
+| `--keycap-border` | `#e3e5ea` | Soft keycap border. |
+| `--keycap-fg` | `#4b5563` | Soft keycap glyph colour. |
+| `--keycap-accent-bg` | `rgba(79,70,229,0.09)` | Accent keycap fill (live-list / chooser digits). |
+| `--keycap-accent-border` | `rgba(79,70,229,0.22)` | Accent keycap border. |
+
+### Embedded live list
+
+| Variable | Default | Role |
+|---|---|---|
+| `--list-bg` | `#f7f8fb` | Inset list background. |
+| `--list-border` | `#ebedf2` | Inset list border. |
+| `--list-focus-bg` | `rgba(79,70,229,0.07)` | Selection-cursor row tint. |
+| `--list-focus-bar` | `var(--accent)` | Selection-cursor row left bar. |
+
+`--list-focus-bg` / `--list-focus-bar` are the **single selection knob**
+shared by the embedded lists *and* the chooser's selected result — one
+variable pair recolours the cursor everywhere. (There are no longer
+chooser-specific `--chooser-selected-*` tokens; the chooser's selected
+row is a `.list-row.is-focused`.)
+
+### Footer strip
+
+| Variable | Default | Role |
+|---|---|---|
+| `--footer-bg` | `#f5f6f8` | Footer (and chooser action panel) background. |
+| `--footer-border` | `#e3e5ea` | Footer top rule. |
+
+### Text
+
+| Variable | Default | Role |
+|---|---|---|
+| `--color-label` | `#374151` | Entry labels, body text, list titles. |
+| `--color-arrow` | `#b6bcc7` | Key → label connector glyph (muted). |
+| `--color-header` | `#6b7280` | Breadcrumb / footer / caption / subtext (muted). |
+| `--color-separator` | `var(--panel-border)` | Header / footer / chooser rules. |
+
+### Legacy aliases
+
+Kept so the auto-layout block renderers (the deprecated `which-key`
+path) reskin to the new palette. `--color-key` now means a list/accent
+key; `--color-category` follows the panel-header colour.
+
+| Variable | Default | Role |
+|---|---|---|
+| `--color-key` | `var(--accent)` | Legacy which-key / chooser-action keys. |
+| `--color-category` | `var(--panel-head-fg)` | Legacy which-key category labels. |
+
+### Default list renderer
+
+The plain-`(group …)` fallback list uses a CSS multi-column flow whose
+column count is computed in Scheme:
+
+| Variable | Default | Role |
+|---|---|---|
+| `--overlay-cols` | computed | Column count picked by `overlay-column-count` to hit `set-overlay-aspect-ratio!`. Promoted onto `.overlay-entries` per render. (Not used by the panel grid.) |
 
 ### Host theme
 
 | Variable | Default | Used for |
 |---|---|---|
-| `--color-host-bg` | unset | Overlay/chooser header strip background, sticky-mode border, sticky-target cell marker, **chip background**. |
+| `--color-host-bg` | unset | Overlay/chooser header band background, sticky-mode border, sticky-target marker, **chip background**. |
 | `--color-host-fg` | unset | Overlay/chooser header text, chip foreground. |
 | `--color-host-sep` | unset | Breadcrumb separator colour. Falls back to `--color-host-fg` then `--color-arrow`. |
 
@@ -76,9 +169,9 @@ adopt a host theme:
 }
 ```
 
-A single colour pair recolours the overlay header, the chooser header,
-the sticky-mode border accent, sticky-target markers, and every chip on
-screen — every visual that consumes `var(--color-host-*)`.
+A single colour pair recolours the overlay header band, the chooser
+header, the sticky-mode border accent, sticky-target markers, and every
+chip on screen — every visual that consumes `var(--color-host-*)`.
 
 ### Chooser (also in `base.css`)
 
@@ -86,14 +179,16 @@ screen — every visual that consumes `var(--color-host-*)`.
 |---|---|---|
 | `--chooser-width` | `500px` | Fixed chooser width. |
 | `--chooser-max-height` | `400px` | Vertical cap. |
-| `--chooser-input-bg` | `rgba(255, 255, 255, 1)` | Search input background. |
-| `--chooser-input-border` | `rgba(180, 180, 180, 1)` | Input border. |
-| `--chooser-input-focus-border` | `rgba(33, 97, 186, 1)` | Input border on focus. |
-| `--chooser-selected-bg` | `rgba(33, 97, 186, 0.1)` | Highlighted result background. |
-| `--chooser-selected-border` | `rgba(33, 97, 186, 0.4)` | Highlighted result left bar. |
-| `--chooser-match-color` | `rgba(33, 97, 186, 1)` | Fuzzy-match highlight colour. |
+| `--chooser-input-bg` | `#ffffff` | Input background. |
+| `--chooser-input-border` | `#d8dbe2` | Input border. |
+| `--chooser-input-focus-border` | `var(--accent)` | Input border on focus. |
+| `--chooser-match-color` | `var(--accent)` | Fuzzy-match highlight colour. |
 | `--chooser-match-weight` | `700` | Fuzzy-match font weight. |
-| `--chooser-action-bg` | `rgba(245, 242, 235, 1)` | Tab-panel background. |
+| `--chooser-action-bg` | `var(--footer-bg)` | Tab-panel background. |
+
+The chooser's selected result row is themed by the shared
+`--list-focus-bg` / `--list-focus-bar` (see *Embedded live list*) — there
+are no `--chooser-selected-*` tokens.
 
 ### Window-diagram (per-block)
 
@@ -108,7 +203,7 @@ From `blocks/window-diagram.css`:
 
 ### Chip (window-list + iTerm hint chips)
 
-`base.css` declares the `.chip` rule + `:root` positioning vars:
+`base.css` declares the `.chip` rule + positioning vars:
 
 | Property / variable | Default | Notes |
 |---|---|---|
@@ -124,7 +219,7 @@ From `blocks/window-diagram.css`:
 
 Chips inherit the host theme automatically when `--color-host-bg` is
 declared in your `theme.css` — setting that one variable recolours
-the header strip *and* every chip on screen. Override the `.chip` rule
+the header band *and* every chip on screen. Override the `.chip` rule
 directly (see "Customising chips" below) when you want chips to look
 unlike the host header.
 
@@ -134,70 +229,96 @@ unlike the host header.
 
 | Class | Where |
 |---|---|
-| `.overlay` | Outer panel. |
+| `.overlay` | Outer card. |
 | `.overlay.sticky` | Modifier on `.overlay` when navigation is inside a sticky tree/subgroup. |
-| `.overlay-header` | Breadcrumb container. |
+| `.overlay-header` | Breadcrumb / app-context band at the card top. |
 | `.overlay-header .breadcrumb-sep` | `›` separator between breadcrumb segments. |
-| `.overlay-entries` | Default list renderer's `<ul>`. CSS multi-column flow. |
-| `.overlay-entry` | Default list `<li>`. 3-col mini-grid (key / arrow / label). |
-| `.entry-key` | Key column. |
-| `.entry-arrow` | Arrow glyph between key and label. |
-| `.entry-label` | Label column. |
-| `.entry-label.group-label` | Modifier on `.entry-label` for entries that *open* a panel (sub-overlay or chooser). |
+| `.overlay-custom-body` | Container for a custom-renderer body. `data-renderer` attribute = `"panel-grid"` or `"blocks"`. The `panel-grid` variant carries the tinted `--overlay-body-bg`. |
+| `.overlay-footer` | Separated footer strip (tinted background + top rule). |
+| `.overlay-footer-root` | Modifier at the root of a tree (no back-hint shown). |
+| `.sigil`, `.sigil-back`, `.sigil-return`, `.sigil-escape`, `.sigil-arrows`, `.sigil-mod` | Footer keyboard glyphs + in-key modifier sigils. |
+
+### Panel grid (layout DSL renderer)
+
+| Class | Where |
+|---|---|
+| `.panel-grid` | The grid container (`screen` / `open` body). |
+| `.panel` | A single panel card. |
+| `.panel-span-narrow`, `.panel-span-wide`, `.panel-span-full` | Span modifiers (1 / 2 / all columns). |
+| `.panel-head` | Banded, eyebrow-cased panel header. |
+| `.panel-rows` | The panel's key-row column. |
+| `.panel-rows .wk-row` | A single key-row mini-grid (key / arrow / label). |
+
+### Keycap and key-row cells
+
+| Class | Where |
+|---|---|
+| `.entry-key` | The keycap — shared across panels, lists, chooser, legacy renderers. Soft by default; the accent variant is scoped under `.panel-list`, `.list-row`, and the block-list rows. |
+| `.entry-arrow` | Key → label arrow glyph. |
+| `.entry-label` | Label cell (never wraps; truncates with ellipsis). |
+| `.entry-label.group-label` | Modifier for rows that *open* a sub-screen / chooser (amber). |
 | `.entry-sticky-marker` | `↻` marker on `'sticky-target` cells. |
-| `.overlay-footer` | Footer band with back-hint / cancel-hint sigils. |
-| `.overlay-footer-root` | Modifier on `.overlay-footer` at the root of a tree (no back-hint shown). |
-| `.overlay-custom-body` | Container for the block-list renderer's output. `data-renderer="blocks"` attribute. |
-| `.block` | Generic block wrapper (used as a `:first-child` selector). |
-| `.sigil`, `.sigil-back`, `.sigil-return`, `.sigil-escape`, `.sigil-arrows` | Footer keyboard glyphs (back/return/escape/arrows). |
 
-### Which-key block
+### Embedded live list — shared list-row vocabulary
+
+The canonical row vocabulary, shared by the embedded pane/window lists
+*and* the chooser so they read as one family.
 
 | Class | Where |
 |---|---|
-| `.block-which-key` | Block container. |
-| `.block-which-key .wk-columns` | CSS-grid column flow. |
-| `.block-which-key .wk-misc` | Misc-segment column. |
-| `.block-which-key .wk-category` | Category-segment column. |
-| `.block-which-key .wk-category-label` | Category label (small-caps, separator underline). |
-| `.block-which-key .wk-row` | Single binding row. |
+| `.panel-list` | The inset that hosts a panel's live list. |
+| `.list-caption` | "Panes" / "Windows" eyebrow caption. |
+| `.list-live-dot` | The green "live" dot. |
+| `.list-row` | One list row (flex: keycap + main + detail). |
+| `.list-row.is-focused` | Selection-cursor (highlighted) row — accent inset bar + `--list-focus-bg` tint. |
+| `.list-main` | Flexible middle column (stacks title + subtext). |
+| `.list-title` | Row title line (never wraps). |
+| `.list-subtext` | Second line (path / match text), muted + smaller. |
+| `.list-detail` | Right-aligned mono detail tag (e.g. `focused ⌥2`). |
 
-### Window-list block
-
-| Class | Where |
-|---|---|
-| `.block-window-list` | Block container. |
-| `.block-window-list .wl-row` | Row per window. |
-| `.block-window-list .wl-row.dulled` | Modifier for occluded windows (rendered faded). |
-
-### Window-diagram block
-
-| Class | Where |
-|---|---|
-| `.block-window-diagram` | Block container. |
-| `.block-window-diagram .diagram-panel-grid` | The matrix container. |
-| `.block-window-diagram .diagram-panel` | A single panel cell. |
-| `.block-window-diagram .diagram-panel.center` | Centre-panel modifier (inward-arrows SVG). |
-| `.block-window-diagram .diagram-panel.fill` | Maximise-panel modifier. |
-| `.block-window-diagram .diagram-cell` | Grid sub-cell inside a panel. |
-| `.block-window-diagram .diagram-cell.has-key`, `.left-line`, `.top-line` | Cell modifiers (key-occupied, borders). |
+The block renderers currently emit `.wl-row` (window-list) / `.ip-row`
+(iterm-panes) / `.it-row` (iterm-tabs) with `.entry-key` / `.entry-label`
+inside the inset; those are skinned alongside the `.list-*` names, and
+`.is-focused` covers all of them.
 
 ### Chooser
 
 | Class | Where |
 |---|---|
 | `.chooser` | Outer panel. |
+| `.chooser-header` | Header band (shares the overlay-header rules). |
 | `.chooser-search` | Search-input container. |
 | `.chooser-input` | The `<input>`. |
 | `.chooser-results` | Result `<ul>`. |
-| `.list-row` | Result `<li>` — the shared list-row vocabulary (one family with the embedded pane/window lists). |
-| `.list-row.is-focused` | Selection-cursor (highlighted) result. |
-| `.list-main`, `.list-title`, `.list-subtext` | Row main column / title line / path-detail line. |
+| `.list-row`, `.list-main`, `.list-title`, `.list-subtext` | Result rows — the shared list-row vocabulary. |
 | `.list-title .match`, `.list-subtext .match` | Fuzzy-match highlight. |
 | `.list-title.chooser-dir` | Directory name in file results (semibold). |
-| `.chooser-footer` | Footer (result count + nav hints). |
+| `.chooser-footer` | Separated footer (match count + nav hints). |
 | `.chooser-actions` | Tab-panel action list container. |
-| `.chooser-action-item`, `.chooser-action-key`, `.chooser-action-label`, `.chooser-action-desc` | Action panel rows. |
+| `.chooser-action-item` (`.selected`), `.chooser-action-key`, `.chooser-action-label`, `.chooser-action-desc` | Action panel rows. |
+
+### Legacy: which-key block
+
+Emitted by the deprecated `define-tree` / `category` / `overlay`
+auto-packing. Still skinned, but new configs render panels instead.
+
+| Class | Where |
+|---|---|
+| `.block-which-key` | Block container. |
+| `.block-which-key .wk-columns` | Column flow. |
+| `.block-which-key .wk-misc` / `.wk-category` | Misc / category segment columns. |
+| `.block-which-key .wk-category-label` | Category label. |
+| `.block-which-key .wk-row` | Single binding row. |
+
+### Window-list / window-diagram blocks
+
+| Class | Where |
+|---|---|
+| `.block-window-list .wl-row` (`.dulled`) | Window row (faded modifier for occluded windows). |
+| `.block-iterm-panes .ip-row` | iTerm pane row. |
+| `.block-window-diagram .diagram-panel-grid` | The matrix container. |
+| `.block-window-diagram .diagram-panel` (`.center`, `.fill`) | A panel cell + centre / maximise modifiers. |
+| `.block-window-diagram .diagram-cell` (`.has-key`, `.left-line`, `.top-line`) | Grid sub-cell + modifiers. |
 
 ## Customisation paths
 
@@ -211,26 +332,38 @@ unlike the host header.
 }
 ```
 
-The overlay header strip, the chooser header, the sticky-mode border,
+The overlay header band, the chooser header, the sticky-mode border,
 `'sticky-target` cell markers, **and the chips on every window-list /
 iTerm hint overlay** all inherit the colour through
 `var(--color-host-*)` references in `base.css`. One declaration,
 overlay-wide effect.
 
-### Override variables only
+### Re-accent the whole surface
 
-User CSS in `~/.config/modaliser/theme.css` sits *after* `base.css`
-in the cascade, so a `:root { … }` override block applies cleanly:
+The indigo `--accent` drives keys-in-lists, focus, selection, and panel
+headers. One override re-accents the cheat sheet:
 
 ```css
 /* ~/.config/modaliser/theme.css */
 :root {
-  --color-key: #5b9bd5;
-  --color-group: #d68a2d;
-  --color-category: #2f6b80;
-  --color-label: #232323;
-  --overlay-bg: rgba(255, 255, 255, 1);
-  --overlay-border: rgba(60, 60, 60, 1);
+  --accent: #0ea5e9;          /* sky blue */
+  --color-group: #b45309;     /* group-opens */
+}
+```
+
+### Override variables only
+
+User CSS sits *after* `base.css` in the cascade, so a `:root { … }`
+override block applies cleanly:
+
+```css
+/* ~/.config/modaliser/theme.css */
+:root {
+  --overlay-body-bg: #eef1f6;
+  --panel-head-bg:   #e7eafc;
+  --panel-head-fg:   #2f339c;
+  --keycap-bg:       #eef0f3;
+  --color-label:     #232323;
 }
 ```
 
@@ -240,19 +373,17 @@ For shape changes (typography, spacing, custom widgets), declare them
 in the same file:
 
 ```css
-.overlay {
-  backdrop-filter: blur(20px);
-  background: rgba(40, 40, 40, 0.85);
-}
+.overlay { backdrop-filter: blur(20px); }
+.panel { border-radius: 12px; }
+.panel-head { letter-spacing: 0.12em; }
 .entry-key { font-weight: 700; }
-.entry-label { font-style: italic; }
 .overlay-footer { display: none; }
 ```
 
 ### Customising chips
 
-The `.chip` rule is the chip styling surface. Override it the same way
-as any other class:
+The `.chip` rule is the chip styling surface. Override it like any other
+class:
 
 ```css
 /* ~/.config/modaliser/theme.css */
@@ -261,11 +392,7 @@ as any other class:
   border-radius: 12px;
   font-size: 48px;
 }
-
-.chip.faded {
-  background: #555;
-}
-
+.chip.faded { background: #555; }
 :root {
   --chip-offset-x-frac: 0.04;
   --chip-offset-y-frac: 0.04;
@@ -277,31 +404,45 @@ WebView (see "How chip values are resolved" below), so edits to
 `theme.css` take effect on the next relaunch — same reload story as
 every other Modaliser config change.
 
-### A worked dark-mode override
+### A worked dark theme
 
 ```css
 /* ~/.config/modaliser/theme.css */
 :root {
-  --overlay-bg: rgba(28, 28, 30, 0.96);
-  --overlay-border: rgba(255, 255, 255, 0.18);
-  --color-key:      rgba(120, 170, 240, 1);
-  --color-label:    rgba(230, 230, 230, 1);
-  --color-group:    rgba(240, 175, 80, 1);
-  --color-category: rgba(130, 180, 210, 1);
-  --color-arrow:    rgba(140, 140, 140, 1);
-  --color-header:   rgba(170, 170, 170, 1);
-  --color-separator:rgba(255, 255, 255, 0.10);
-  --diagram-line:   rgba(255, 255, 255, 0.55);
-  --diagram-cell-bg: #2a2a2c;
-  --chooser-input-bg: rgba(40, 40, 40, 1);
+  --overlay-bg:       #1c1c1e;
+  --overlay-body-bg:  #232327;
+  --overlay-border:   rgba(255, 255, 255, 0.12);
+  --accent:           #818cf8;
+  --color-group:      #f0af50;
+  --color-label:      #e6e6e6;
+  --color-arrow:      rgba(255, 255, 255, 0.30);
+  --color-header:     #9aa0ac;
+
+  --panel-bg:         #2a2a2e;
+  --panel-border:     rgba(255, 255, 255, 0.10);
+  --panel-head-bg:    #2f3060;
+  --panel-head-fg:    #c7caff;
+
+  --keycap-bg:        #34343a;
+  --keycap-border:    rgba(255, 255, 255, 0.12);
+  --keycap-fg:        #d4d4d8;
+
+  --list-bg:          #26262b;
+  --list-border:      rgba(255, 255, 255, 0.08);
+
+  --footer-bg:        #242428;
+  --footer-border:    rgba(255, 255, 255, 0.10);
+
+  --diagram-line:     rgba(255, 255, 255, 0.55);
+  --diagram-cell-bg:  #2a2a2c;
+
+  --chooser-input-bg: #2a2a2e;
   --chooser-input-border: rgba(255, 255, 255, 0.15);
-  --chooser-selected-bg: rgba(120, 170, 240, 0.18);
-  --chooser-action-bg: rgba(36, 36, 38, 1);
 }
 ```
 
-The same CSS applies to overlay, chooser, and all three bundled
-blocks because every visual class consumes the `--color-*` vocabulary.
+The same CSS applies to overlay, chooser, panels, and every bundled
+block — they all consume the same token vocabulary.
 
 ## How chip values are resolved
 
@@ -322,8 +463,8 @@ Scheme accessor is `(current-chip-theme)` / `(current-chip-theme
 
 ## See also
 
-- [renderer-protocol.md](renderer-protocol.md) — how blocks emit HTML
-  the CSS targets.
+- [renderer-protocol.md](renderer-protocol.md) — the panel-grid payload
+  and how blocks emit HTML the CSS targets.
 - [libraries.md](libraries.md#modaliser-theming) — `(modaliser theming)`,
   `current-chip-theme`.
 - [how-to/customise-theme.md](../how-to/customise-theme.md) — minimal

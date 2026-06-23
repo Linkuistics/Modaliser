@@ -1,7 +1,8 @@
 /* base.css — Default Modaliser stylesheet
  *
- * Provides styling for the which-key overlay and (future) chooser.
- * Users can override any variable or rule in their config.
+ * Provides styling for the cheat-sheet overlay (panel grid + embedded
+ * live lists), the chooser, and the on-screen chips. Users can override
+ * any variable or rule in ~/.config/modaliser/theme.css.
  */
 
 /* ─── Bundled Web Fonts ────────────────────────────────────── */
@@ -128,9 +129,11 @@
   --color-header: #6b7280;          /* breadcrumb / footer / caption, muted */
   --color-separator: var(--panel-border);
 
-  /* ─ Legacy aliases ─ used by the auto-layout block renderers
-   * (which-key / window-list / iterm-panes) that config-migration-k8
-   * retires. Kept so those renderers reskin to the new palette until then.
+  /* ─ Legacy aliases ─ used by the deprecated which-key block renderer and
+   * by the live-list blocks (window-list / iterm-panes) until they converge
+   * on the .list-* vocabulary. Kept so those renderers reskin to the new
+   * palette; physically retiring the which-key path is a deferred follow-up
+   * (it is still reachable from the bundled *-pane-digit / focus-mode trees).
    * `key` now means a list/accent key (window-list digits); static command
    * keys take --keycap-fg. `category` follows the panel-header colour. */
   --color-key: var(--accent);
