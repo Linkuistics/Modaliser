@@ -23,7 +23,8 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
         activating: Bool = false,
         floating: Bool = true,
         transparent: Bool = false,
-        shadow: Bool = true
+        shadow: Bool = true,
+        assetRoot: String? = nil
     ) {
         // Close existing panel with same id
         closePanel(id: id)
@@ -52,6 +53,20 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
 
         let config = WKWebViewConfiguration()
         config.userContentController.add(self, name: "modaliser")
+
+        // When an asset root is given, serve bundle-relative resources in
+        // the inlined CSS (e.g. @font-face url("modaliser-asset:///fonts/…"))
+        // through a custom URL-scheme handler. This is the reliable way to
+        // load local files into a WKWebView — loadHTMLString(_:baseURL:)
+        // with a file:// base URL does NOT grant the content process read
+        // access to file subresources (it fails with a network error), so
+        // the handler bypasses the file-origin sandbox entirely. Registered
+        // per-config (fresh each createPanel), so no double-registration.
+        if let assetRoot {
+            config.setURLSchemeHandler(
+                AssetSchemeHandler(root: URL(fileURLWithPath: assetRoot, isDirectory: true)),
+                forURLScheme: AssetSchemeHandler.scheme)
+        }
 
         let webView = WKWebView(frame: panel.contentView!.bounds, configuration: config)
         webView.autoresizingMask = [.width, .height]
@@ -132,7 +147,10 @@ final class WebViewManager: NSObject, WKScriptMessageHandler {
         messageHandlers.removeValue(forKey: id)
     }
 
-    /// Set the full HTML content of a panel's WebView.
+    /// Set the full HTML content of a panel's WebView. Bundle-relative
+    /// resources in the inlined CSS load via the modaliser-asset scheme
+    /// handler (registered in createPanel when an 'asset-root was given),
+    /// so the base URL is nil.
     func setHTML(id: String, html: String) {
         webViews[id]?.loadHTMLString(html, baseURL: nil)
     }

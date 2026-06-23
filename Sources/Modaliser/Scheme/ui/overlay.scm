@@ -858,7 +858,13 @@
             (cons 'activating #f)
             (cons 'floating #t)
             (cons 'transparent #t)
-            (cons 'shadow #t)))
+            (cons 'shadow #t)
+            ;; Root for bundle-relative assets served via the modaliser-asset
+            ;; scheme handler — lets @font-face load the bundled IBM Plex
+            ;; woff2 with no network. Resolves under both dev and the
+            ;; installed .app (it is *scheme-directory*, the dir holding
+            ;; base.css and fonts/).
+            (cons 'asset-root *scheme-directory*)))
     (webview-on-message overlay-webview-id overlay-message-handler)
     (set-overlay-open! #t))
   (set! overlay-current-renderer (current-node-renderer node path))

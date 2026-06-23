@@ -4,6 +4,62 @@
  * Users can override any variable or rule in their config.
  */
 
+/* ─── Bundled Web Fonts ────────────────────────────────────── */
+
+/* IBM Plex Sans (labels/body) + IBM Plex Mono (keys/paths/footer) are
+ * bundled locally under fonts/ — the WebView needs NO network. They load
+ * through the modaliser-asset URL-scheme handler (AssetSchemeHandler.swift),
+ * which serves files from *scheme-directory* — passed as the webview-create
+ * 'asset-root option (see overlay.scm / chooser.scm). A file:// base URL
+ * can't be used: WKWebView denies the content process read access to file
+ * subresources. Only the latin subset is vendored — symbol glyphs (escape,
+ * backspace, return, arrow and modifier-key sigils) aren't in IBM Plex, so
+ * they fall through to the next family in the --font-mono stack (SF Mono),
+ * exactly as before. Weights 400/600/700 match every weight base.css
+ * requests today. */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("modaliser-asset:///fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("modaliser-asset:///fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("modaliser-asset:///fonts/ibm-plex-sans-latin-700-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("modaliser-asset:///fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("modaliser-asset:///fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("modaliser-asset:///fonts/ibm-plex-mono-latin-700-normal.woff2") format("woff2");
+}
+
 /* ─── Theme Variables ──────────────────────────────────────── */
 
 :root {
@@ -14,7 +70,11 @@
   --overlay-width: 320px;
   --overlay-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 
-  --font-family: "Menlo", "SF Mono", monospace;
+  /* Sans for labels/body, mono for keys/paths/footer (spec §7). The mono
+   * stack keeps "SF Mono", monospace fallbacks so symbol glyphs absent
+   * from IBM Plex Mono still render. */
+  --font-family: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", monospace;
   --font-size: 14px;
   --line-height: 1.6;
 
@@ -148,6 +208,11 @@ body {
 
 .entry-key {
   color: var(--color-key);
+  /* Mono so the key column aligns by ch units (--entry-key-ch) and reads
+   * as keycaps against the sans labels. Modifier sigils (control/option/
+   * shift) nested in the cell inherit it; glyphs absent from IBM Plex Mono
+   * fall back to SF Mono via the --font-mono stack. */
+  font-family: var(--font-mono);
   font-weight: 600;
   text-align: left;
   padding: 1px 0;
@@ -198,6 +263,9 @@ body {
 
 .overlay-footer {
   color: var(--color-header);
+  /* Footer hints are mono (spec §7: keys/paths/footer). Sigil glyphs
+   * inside fall back through --font-mono to SF Mono, as before. */
+  font-family: var(--font-mono);
   font-size: calc(var(--font-size) - 2px);
   /* Explicit line-height so the larger sigil glyphs sit inside it
    * rather than stretching the row. 1.5 × 12px = 18px line box,
@@ -388,6 +456,7 @@ body {
 
 .chooser-footer {
   color: var(--color-header);
+  font-family: var(--font-mono);
   font-size: calc(var(--font-size) - 2px);
   /* Match the overlay footer's explicit line-height so the 16px sigil
    * inline-blocks don't stretch the row. */
@@ -434,6 +503,7 @@ body {
 
 .chooser-action-key {
   color: var(--color-key);
+  font-family: var(--font-mono);
   font-weight: 600;
   min-width: 4em;
   flex-shrink: 0;

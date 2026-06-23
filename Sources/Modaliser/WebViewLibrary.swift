@@ -49,6 +49,11 @@ final class WebViewLibrary: NativeLibrary {
         let floating = lookupBool(options, key: "floating") ?? true
         let transparent = lookupBool(options, key: "transparent") ?? false
         let shadow = lookupBool(options, key: "shadow") ?? true
+        // Optional directory from which bundle-relative resources in the
+        // inlined CSS are served (via the modaliser-asset scheme handler) —
+        // used by the overlay/chooser to load the bundled IBM Plex fonts;
+        // passed as *scheme-directory* from Scheme.
+        let assetRoot = SchemeAlistLookup.lookupString(options, key: "asset-root")
 
         webViewManager.createPanel(
             id: id,
@@ -59,7 +64,8 @@ final class WebViewLibrary: NativeLibrary {
             activating: activating,
             floating: floating,
             transparent: transparent,
-            shadow: shadow
+            shadow: shadow,
+            assetRoot: assetRoot
         )
 
         return .makeString(id)

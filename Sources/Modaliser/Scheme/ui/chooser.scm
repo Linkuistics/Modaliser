@@ -307,7 +307,11 @@
             (cons 'activating #t)
             (cons 'floating #t)
             (cons 'transparent #t)
-            (cons 'shadow #t)))
+            (cons 'shadow #t)
+            ;; Root for bundle-relative @font-face assets served via the
+            ;; modaliser-asset scheme handler (bundled IBM Plex woff2).
+            ;; See overlay.scm for the rationale.
+            (cons 'asset-root *scheme-directory*)))
 
     ;; Register message handler
     (webview-on-message chooser-webview-id chooser-message-handler)
