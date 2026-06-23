@@ -67,13 +67,18 @@
 
 .block-which-key .wk-row {
   display: grid;
-  grid-template-columns: 3ch auto 1fr;
-  column-gap: 4px;
-  align-items: baseline;
+  /* max-content (not the old 3ch pin) so a soft keycap box carries its own
+   * width without clipping; center-aligned so caps sit level with labels. */
+  grid-template-columns: max-content max-content 1fr;
+  column-gap: 7px;
+  align-items: center;
   padding: 1px 0;
 }
 
-.block-which-key .wk-row .entry-key { color: var(--color-key); font-weight: 600; }
+/* These are static command keys — soft NEUTRAL keycaps (--keycap-fg), as
+ * distinct from the accent keys in a live list. The global .entry-key rule
+ * paints the keycap box; this pins the neutral fg explicitly. */
+.block-which-key .wk-row .entry-key { color: var(--keycap-fg); }
 .block-which-key .wk-row .entry-arrow { color: var(--color-arrow); }
 .block-which-key .wk-row .entry-label { color: var(--color-label); }
 /* Bindings that open a panel (sub-overlay or chooser) take the accent

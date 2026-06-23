@@ -11,12 +11,17 @@
 
 .block-window-list .wl-row {
   display: grid;
-  grid-template-columns: 3ch auto 1fr;
-  column-gap: 4px;
-  align-items: baseline;
+  /* max-content (not the old 3ch pin) so the accent keycap box carries its
+   * own width without clipping; center-aligned with the title. */
+  grid-template-columns: max-content max-content 1fr;
+  column-gap: 7px;
+  align-items: center;
 }
 
-.block-window-list .wl-row .entry-key { color: var(--color-key); font-weight: 600; }
+/* List keys are accent keycaps — the global .entry-key box plus the accent
+ * --keycap-* remap (base.css) handle the cap; --color-key (= --accent) keeps
+ * the fg accent for the legacy top-level block too. */
+.block-window-list .wl-row .entry-key { color: var(--color-key); }
 .block-window-list .wl-row .entry-arrow { color: var(--color-arrow); }
 .block-window-list .wl-row .entry-label {
   color: var(--color-label);

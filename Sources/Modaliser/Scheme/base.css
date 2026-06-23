@@ -62,29 +62,79 @@
 
 /* ─── Theme Variables ──────────────────────────────────────── */
 
+/* The cheat-sheet token vocabulary (spec §7). The look is the new default:
+ * white panels on a tinted body, banded panel headers, soft keycaps, an
+ * indigo accent with amber group-opens, a separated footer strip, and an
+ * inset live-list. Every token is overridable from ~/.config/modaliser/
+ * theme.css — that slot is concatenated LAST in overlay.scm so user
+ * declarations win the cascade. */
 :root {
-  --overlay-bg: rgba(253, 247, 237, 1);
-  --overlay-border: rgba(153, 153, 153, 1);
-  --overlay-radius: 8px;
-  --overlay-padding: 12px;
+  /* ─ Surfaces ─ */
+  --overlay-bg: #ffffff;            /* outer card */
+  --overlay-body-bg: #f6f7fa;       /* tinted grid behind the panels */
+  --overlay-border: #e2e4ea;
+  --overlay-radius: 10px;
+  /* The card is edge-to-edge; the band, body and footer strips own their
+   * padding so each can span corner-to-corner. Kept as a token for configs
+   * that still reference it. */
+  --overlay-padding: 0;
   --overlay-width: 320px;
-  --overlay-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  --overlay-shadow: 0 12px 32px rgba(17, 20, 36, 0.16),
+                    0 2px 6px rgba(17, 20, 36, 0.08);
 
-  /* Sans for labels/body, mono for keys/paths/footer (spec §7). The mono
-   * stack keeps "SF Mono", monospace fallbacks so symbol glyphs absent
-   * from IBM Plex Mono still render. */
+  /* ─ Type ─ Sans for labels/body, mono for keys/paths/footer (spec §7).
+   * The mono stack keeps "SF Mono", monospace fallbacks so symbol glyphs
+   * absent from IBM Plex Mono still render. */
   --font-family: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "SF Mono", monospace;
   --font-size: 14px;
-  --line-height: 1.6;
+  --line-height: 1.55;
 
-  --color-key: rgba(33, 97, 186, 1);
-  --color-label: rgba(56, 56, 56, 1);
-  --color-group: rgba(204, 115, 25, 1);
-  --color-category: rgba(70, 105, 130, 1);
-  --color-arrow: rgba(128, 128, 128, 1);
-  --color-header: rgba(128, 128, 128, 1);
-  --color-separator: rgba(204, 204, 204, 1);
+  /* ─ Accents ─ */
+  --accent: #4f46e5;                /* keys-in-lists, focus, selection */
+  --color-group: #c2700f;           /* group-opens (› rows), amber */
+  --live: #23c161;                  /* live-list "live" dot */
+
+  /* ─ Panels ─ */
+  --panel-bg: #ffffff;
+  --panel-border: #e7e9ee;
+  --panel-radius: 8px;
+  --panel-head-bg: #eef0fb;         /* banded header */
+  --panel-head-fg: #3b3fb6;
+  --panel-shadow: 0 1px 2px rgba(17, 20, 36, 0.05);
+
+  /* ─ Keycaps ─ soft neutral for static command keys; the accent variant
+   * (live-list / chooser numeric keys) re-maps these three on a scoped
+   * selector so the single .entry-key box rule paints both. */
+  --keycap-bg: #f4f5f7;
+  --keycap-border: #e3e5ea;
+  --keycap-fg: #4b5563;
+  --keycap-accent-bg: rgba(79, 70, 229, 0.09);
+  --keycap-accent-border: rgba(79, 70, 229, 0.22);
+
+  /* ─ Embedded live list ─ */
+  --list-bg: #f7f8fb;
+  --list-border: #ebedf2;
+  --list-focus-bg: rgba(79, 70, 229, 0.07);   /* selection-cursor row tint */
+  --list-focus-bar: var(--accent);
+
+  /* ─ Footer strip ─ */
+  --footer-bg: #f5f6f8;
+  --footer-border: #e3e5ea;
+
+  /* ─ Text ─ */
+  --color-label: #374151;           /* body labels */
+  --color-arrow: #b6bcc7;           /* key→label connector, muted */
+  --color-header: #6b7280;          /* breadcrumb / footer / caption, muted */
+  --color-separator: var(--panel-border);
+
+  /* ─ Legacy aliases ─ used by the auto-layout block renderers
+   * (which-key / window-list / iterm-panes) that config-migration-k8
+   * retires. Kept so those renderers reskin to the new palette until then.
+   * `key` now means a list/accent key (window-list digits); static command
+   * keys take --keycap-fg. `category` follows the panel-header colour. */
+  --color-key: var(--accent);
+  --color-category: var(--panel-head-fg);
 }
 
 /* ─── Base Reset ───────────────────────────────────────────── */
@@ -110,13 +160,17 @@ body {
   background: var(--overlay-bg);
   border: 1px solid var(--overlay-border);
   border-radius: var(--overlay-radius);
-  padding: var(--overlay-padding);
+  /* The card holds three edge-to-edge strips (band / body / footer); each
+   * owns its padding so the band tint and footer tint reach the card edge.
+   * overflow: hidden clips those strips to the rounded corners. */
+  overflow: hidden;
   /* width grows to fit the widest of breadcrumb / entry list; the JS
    * resize observer reports the natural width back to the native panel
    * so it can match. min-width keeps the standard look for narrow trees. */
   min-width: var(--overlay-width);
   width: max-content;
   box-shadow: var(--overlay-shadow);
+  color: var(--color-label);
 }
 
 /* Persistent mode indicator. Added when the current navigation point is
@@ -131,15 +185,19 @@ body {
 
 /* ─── Header / Breadcrumb ──────────────────────────────────── */
 
+/* The app/context band at the card's top edge (e.g. "iTerm2 » F17 local").
+ * A full-width strip separated from the body by a bottom rule. When the
+ * user sets a host colour the band tints to it (instance identity); else
+ * it stays transparent over the white card with muted breadcrumb text. */
 .overlay-header,
 .chooser-header {
   background: var(--color-host-bg, transparent);
   color: var(--color-host-fg, var(--color-header));
-  font-size: var(--font-size);
-  padding: 4px 6px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid var(--color-separator);
-  border-radius: 4px;
+  font-size: calc(var(--font-size) - 1px);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--panel-border);
 }
 
 /* Overlay panel auto-resizes to fit the breadcrumb (see .overlay above);
@@ -183,53 +241,77 @@ body {
   column-count: var(--overlay-cols, 1);
   column-gap: 28px;
   column-fill: auto;
-  /* Indent the entry list under the header bar so the entries don't
-   * sit flush against the panel edge — gives the content a clear
-   * left/right margin under the breadcrumb above. */
-  padding-left: 12px;
-  padding-right: 12px;
+  /* The card is edge-to-edge, so the list owns its padding under the band
+   * above and the footer below. */
+  padding: 10px 12px;
 }
 
 .overlay-entry {
   display: grid;
-  /* Key column width is pinned to --entry-key-ch (ch units, set on the
-   * parent .overlay-entries by render-overlay-body — the widest key
-   * string across all entries). Monospaced font → ch matches an exact
-   * character width, so this aligns the arrow column across every
-   * entry AND across every CSS-multi-column column. Falls back to
-   * 2ch if the prop isn't set. */
-  grid-template-columns: calc(var(--entry-key-ch, 2) * 1ch) auto 1fr;
-  column-gap: 4px;
-  align-items: baseline;
+  /* The key column sizes to the keycap box (a soft keycap carries its own
+   * width and padding, so the old --entry-key-ch ch-pin would clip it).
+   * Each keycap is self-contained, so per-row sizing reads cleanly. */
+  grid-template-columns: max-content max-content 1fr;
+  column-gap: 6px;
+  align-items: center;
   break-inside: avoid;
 }
 
 /* ─── Key Badge ────────────────────────────────────────────── */
 
+/* The keycap — THE shared key vocabulary across panels, embedded lists,
+ * the legacy renderers and (chooser-restyle-k7) the chooser. A soft mono
+ * pill; modifier sigils (⌃⌥⇧) nested in the cell ride inside the cap, so a
+ * modified binding like ⌃I reads as one keycap. Glyphs absent from IBM Plex
+ * Mono fall back to SF Mono via the --font-mono stack. The accent variant
+ * (live-list / chooser numeric keys) re-maps --keycap-* on a scoped
+ * selector below, so this single box rule paints both. */
 .entry-key {
-  color: var(--color-key);
-  /* Mono so the key column aligns by ch units (--entry-key-ch) and reads
-   * as keycaps against the sans labels. Modifier sigils (control/option/
-   * shift) nested in the cell inherit it; glyphs absent from IBM Plex Mono
-   * fall back to SF Mono via the --font-mono stack. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.7em;
+  padding: 1px 6px;
+  background: var(--keycap-bg);
+  border: 1px solid var(--keycap-border);
+  border-radius: 5px;
+  color: var(--keycap-fg);
   font-family: var(--font-mono);
   font-weight: 600;
-  text-align: left;
-  padding: 1px 0;
+  font-size: calc(var(--font-size) - 1px);
+  line-height: 1.4;
+  white-space: nowrap;          /* keycaps are always single-line */
+}
+
+/* Accent keycap — numeric keys inside live lists (and the chooser, k7).
+ * Re-maps the three keycap vars so the .entry-key box rule above paints the
+ * accent variant with no bg/border/fg duplication. */
+.panel-list .entry-key,
+.list-row .entry-key,
+.block-window-list .wl-row .entry-key,
+.block-iterm-panes .ip-row .entry-key {
+  --keycap-bg: var(--keycap-accent-bg);
+  --keycap-border: var(--keycap-accent-border);
+  --keycap-fg: var(--accent);
 }
 
 /* ─── Arrow ────────────────────────────────────────────────── */
 
 .entry-arrow {
   color: var(--color-arrow);
-  padding: 1px 0;
 }
 
 /* ─── Label ────────────────────────────────────────────────── */
 
+/* Labels never wrap (spec §7 hard requirement): a long title truncates
+ * with an ellipsis rather than reflowing the row. min-width: 0 lets the
+ * label shrink inside its 1fr grid cell so the ellipsis engages. */
 .entry-label {
   color: var(--color-label);
-  padding: 1px 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .entry-label.group-label {
@@ -261,11 +343,11 @@ body {
 
 /* ─── Panel Grid (layout DSL renderer) ─────────────────────── */
 /*
- * STRUCTURAL layout only — the aesthetic skin (banded-header colours, soft
- * keycaps, list-inset tinting, the white-panels-on-tinted-body look) is
- * layered on top in the visual-skin step. Rules here just establish the
- * grid, the span→column-span mapping, and the card/header/rows/list boxes,
- * using var(...) fallbacks so they stand alone before the token set lands.
+ * The cheat-sheet body: white panel cards on a tinted grid. The tint is
+ * scoped to the panel-grid body so it sits behind the cards and shows
+ * through the gaps (white panels pop); the legacy blocks / default-list
+ * bodies stay on the white card. The card is edge-to-edge (.overlay has no
+ * padding), so the body strip owns its own padding under the band above.
  *
  * Column count: CSS-intrinsic auto-fit by default — panels flow into as many
  * --panel-min-width tracks as fit, capped by --panel-grid-max-width so the
@@ -273,11 +355,19 @@ body {
  * one row. An authored `cols` (payload → --panel-grid-cols, set inline by
  * overlay.js) pins an explicit track count instead. grid-auto-flow: dense
  * lets narrow tiles backfill the gaps a wide/full panel leaves. */
+.overlay-custom-body {
+  padding: 10px 12px;
+}
+.overlay-custom-body[data-renderer="panel-grid"] {
+  padding: 10px;
+  background: var(--overlay-body-bg);
+}
+
 .panel-grid {
   display: grid;
   grid-template-columns:
     repeat(var(--panel-grid-cols, auto-fit),
-           minmax(var(--panel-min-width, 180px), 1fr));
+           minmax(var(--panel-min-width, 184px), 1fr));
   grid-auto-flow: dense;
   gap: var(--panel-gap, 10px);
   align-items: start;
@@ -293,48 +383,138 @@ body {
 .panel-span-full   { grid-column: 1 / -1; }
 
 .panel {
-  border: 1px solid var(--panel-border, var(--color-separator));
-  border-radius: var(--panel-radius, 6px);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
   overflow: hidden;
   /* Panels are grid items; they never split across tracks. */
   break-inside: avoid;
 }
 
+/* Banded header — a tinted strip with indigo, tracked, eyebrow-cased label
+ * (a section marker, scoped to the panel's own width — what reconciles
+ * "banded header" with "tiles into columns", spec §7). Never wraps. */
 .panel-head {
-  padding: 4px 8px;
+  padding: 5px 10px;
+  background: var(--panel-head-bg);
+  color: var(--panel-head-fg);
   font-weight: 600;
-  color: var(--panel-head-fg, var(--color-category));
-  border-bottom: 1px solid var(--panel-border, var(--color-separator));
+  font-size: calc(var(--font-size) - 3px);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--panel-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .panel-rows {
-  padding: 4px 8px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-/* Per-row mini-grid: key / arrow / label. The row markup (.wk-row with
+/* Per-row mini-grid: keycap / arrow / label. The row markup (.wk-row with
  * .entry-key/.entry-arrow/.entry-label) is shared with the which-key block
  * renderer, but its grid there is scoped under .block-which-key, so panels
- * carry their own structural copy. The global .entry-key/.entry-arrow/
- * .entry-label colour rules above still apply. */
+ * carry their own structural copy. The global keycap / arrow / label rules
+ * above paint the cells; these are the soft (neutral) keycaps — static
+ * command keys, distinct from the accent keys in the embedded list below. */
 .panel-rows .wk-row {
   display: grid;
-  grid-template-columns: auto auto 1fr;
-  column-gap: 4px;
-  align-items: baseline;
-  padding: 1px 0;
+  grid-template-columns: max-content max-content 1fr;
+  column-gap: 7px;
+  align-items: center;
 }
 
-/* Embedded live-list section. Inset under the key rows; the list's own rows
- * (.wl-row etc.) keep their block CSS. */
+/* ─── Embedded live list — shared list-row vocabulary ──────── */
+/*
+ * The inset section that hosts a panel's dynamic list (window-list /
+ * iterm-panes). The .list-* classes below are the canonical row vocabulary;
+ * chooser-restyle-k7 adopts the same names so embedded lists and the
+ * standalone chooser read as one family. Today's block renderers emit
+ * .wl-row / .ip-row with .entry-key / .entry-label, so those are skinned
+ * alongside the .list-* names until the chooser converges on them. The
+ * caption / live-dot / detail / focused-row classes are defined here as the
+ * vocabulary the list-cursor (k6) and chooser (k7) attach to. */
 .panel-list {
-  margin: 4px 8px 8px;
-  padding: 4px 6px;
-  border: 1px solid var(--list-border, var(--color-separator));
-  border-radius: var(--panel-radius, 6px);
+  margin: 0 8px 8px;
+  padding: 5px 7px 6px;
+  background: var(--list-bg);
+  border: 1px solid var(--list-border);
+  border-radius: var(--panel-radius);
+}
+
+/* The standalone window-list / iterm-panes blocks carry a top separator
+ * (margin + rule) so they sit apart from the rows above them in a flat
+ * overlay. Inside a panel inset there is nothing above to separate from, so
+ * drop the leading margin (the inset's own border is the separator). */
+.panel-list.block-window-list,
+.panel-list.block-iterm-panes {
+  margin-top: 0;
+}
+
+/* Caption — "Panes" / "Windows" eyebrow with a green "live" dot. */
+.list-caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: calc(var(--font-size) - 3px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-header);
+}
+.list-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--live);
+  box-shadow: 0 0 0 2px rgba(35, 193, 97, 0.18);
+}
+
+/* One list row: accent keycap / title (proc · cwd, never wraps) / a
+ * right-aligned detail column when width allows. */
+.list-row {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content;
+  column-gap: 8px;
+  align-items: center;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.list-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-label);
+}
+.list-detail {
+  font-family: var(--font-mono);
+  font-size: calc(var(--font-size) - 3px);
+  color: var(--color-header);
+  white-space: nowrap;
+}
+
+/* The selection-cursor row (k6 adds .is-focused). Accent left bar + tint —
+ * the same marking the chooser's selected row uses, so the cursor reads
+ * identically across embedded lists and the chooser. */
+.list-row.is-focused,
+.panel-list .wl-row.is-focused,
+.panel-list .ip-row.is-focused {
+  background: var(--list-focus-bg);
+  box-shadow: inset 2px 0 0 var(--list-focus-bar);
 }
 
 /* ─── Footer ───────────────────────────────────────────────── */
 
+/* The separated footer strip at the card's bottom edge: its own tinted
+ * background and a top rule set it apart from the body above (spec §7). A
+ * full-width strip (the card is edge-to-edge), so it owns its padding. */
 .overlay-footer {
   color: var(--color-header);
   /* Footer hints are mono (spec §7: keys/paths/footer). Sigil glyphs
@@ -345,15 +525,9 @@ body {
    * rather than stretching the row. 1.5 × 12px = 18px line box,
    * which comfortably contains the 16px sigil inline-block. */
   line-height: 1.5;
-  padding-top: 6px;
-  /* Match the .overlay-entries indent so the hint text lines up with
-   * the entries above. The border-top stays full-width (no horizontal
-   * padding before it) so the rule visually separates the entire
-   * footer band from the entries band. */
-  padding-left: 12px;
-  padding-right: 12px;
-  margin-top: 6px;
-  border-top: 1px solid var(--color-separator);
+  padding: 6px 12px;
+  background: var(--footer-bg);
+  border-top: 1px solid var(--footer-border);
   /* Right-align hints across all overlay depths — the cancel/back
    * sigils anchor the right edge nearest where the user's eye lands
    * after pressing a key. Same alignment is used by the chooser
@@ -426,17 +600,21 @@ body {
 /* Chooser                                                     */
 /* ═══════════════════════════════════════════════════════════ */
 
+/* Chooser tokens point at the shared accent so the fuzzy-finder reads in
+ * the same indigo/white family as the overlay. The full chooser restyle
+ * (header band, shared list rows, separated footer) is chooser-restyle-k7;
+ * these token aliases keep it on-palette until then. */
 :root {
   --chooser-width: 500px;
   --chooser-max-height: 400px;
-  --chooser-input-bg: rgba(255, 255, 255, 1);
-  --chooser-input-border: rgba(180, 180, 180, 1);
-  --chooser-input-focus-border: rgba(33, 97, 186, 1);
-  --chooser-selected-bg: rgba(33, 97, 186, 0.1);
-  --chooser-selected-border: rgba(33, 97, 186, 0.4);
-  --chooser-match-color: rgba(33, 97, 186, 1);
+  --chooser-input-bg: #ffffff;
+  --chooser-input-border: #d8dbe2;
+  --chooser-input-focus-border: var(--accent);
+  --chooser-selected-bg: var(--list-focus-bg);
+  --chooser-selected-border: var(--accent);
+  --chooser-match-color: var(--accent);
   --chooser-match-weight: 700;
-  --chooser-action-bg: rgba(245, 242, 235, 1);
+  --chooser-action-bg: var(--footer-bg);
 }
 
 /* ─── Chooser Container ──────────────────────────────────── */
