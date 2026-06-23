@@ -2,6 +2,7 @@
 
 - **Date:** 2026-06-23
 - **Status:** Approved (design); ready for implementation planning
+- **Amended by [ADR-0011](../../adr/0011-presentation-first-layout-spec-lowers-to-operational-node-tree.md):** the config↔presentation primacy is **inverted**. §4–§5 below describe an operational-first authoring surface with auto-layout (`category` evolves into the panel; the renderer infers grouping). The implementation instead authors a **presentation-first layout spec** (a tree of screens, each a grid of panels) that **lowers to** the operational node-tree IR; the panel-grid renderer reads explicit presentation metadata rather than auto-laying-out. The *look*, the visual-token table (§7), the cursor/list behaviour (§6), font bundling (§7), and chooser scope (§8) are unchanged. The docs leaf reconciles §4–§5 in full.
 - **Scope:** One cohesive project — visual restyle + renderer/DSL change + config migration
 - **Brainstorm artifacts:** `.superpowers/brainstorm/90558-1782166819/content/*.html` (mockups, git-ignored). The visual language below is captured textually so this spec stands alone.
 

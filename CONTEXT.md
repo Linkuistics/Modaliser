@@ -110,6 +110,42 @@ line/document jumps, Cmd-Z/Shift-Cmd-Z undo, etc. Treated as one class
 because they share an event path; failing one usually means failing all.
 A chooser input should support the whole class.
 
+## Overlay-presentation domain
+
+**Layout spec** — the presentation-first authoring surface (the new config
+shape): a tree of **screens**. It is the *authored* artifact; the operational
+model is *extracted* from it (ADR-0011). _Avoid_: calling it the "command tree" —
+that's the derived IR below, not what the user writes.
+
+**Operational node-tree (IR)** — the internal `(kind . group)` / `(kind .
+command)` node-alist tree the state machine dispatches. Since ADR-0011 it is a
+**compile target / intermediate representation**, not authored by hand: the
+layout spec *lowers* to it, annotating nodes with presentation metadata
+(`panel`, `span`, `screen`). The dispatch engine (`state-machine.sld`) consumes
+it unchanged.
+
+**Screen** — one navigable level of the overlay: a **grid of panels**, named and
+referenced by symbol. A drill-down affordance (`open`) targets a screen by name;
+on lowering a screen becomes a navigable `group` in the operational IR. The
+overlay is a tree/graph of screens, one shown at a time.
+
+**Panel** — a strongly-separated, banded card in a screen's grid; one declared
+visual grouping. Holds command rows and/or an embedded **live list**. Remains
+**transparent for dispatch** (keys keep their paths — it lowers through to a
+`category`-equivalent, not a navigable level). Carries a width **span**.
+_Avoid_: "category" when speaking of the authored surface — `category` is the
+old operational-first primitive; the authored unit is now a `panel`.
+
+**Span** — a panel's width hint: `narrow` (1 column, default) | `wide` (2) |
+`full` (all). A panel holding a live list auto-promotes to `wide` unless an
+explicit span is given.
+
+**Live list** — a dynamic-list block (`window-list`, `iterm-panes`,
+`iterm-tabs`) placed *inside* a panel. Supports a **selection cursor** (`↑↓` /
+`k j` move, `⏎` activate) alongside the immediate `1–9` digit-jump selectors.
+The first live-list panel in a screen owns the cursor (multi-list `Tab` cycling
+is a non-goal). Distinct from the **Chip** overlays it can paint.
+
 ## Window-layout domain
 
 **Window-layout op** — a `w`-menu action that repositions or resizes the
