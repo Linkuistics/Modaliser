@@ -111,6 +111,9 @@ struct ChooserRenderTests {
     }
 
     @Test func renderChooserHtmlHighlightsSelectedRow() throws {
+        // The selected row carries the shared .is-focused marking (the same
+        // selection-cursor class the embedded pane/window lists use), not a
+        // chooser-private "selected" class.
         let engine = try loadAllModules()
         try engine.evaluate(testItemsSetup)
         let html = try engine.evaluate("""
@@ -118,7 +121,28 @@ struct ChooserRenderTests {
               '((0 "Safari" ()) (1 "Chrome" ()))
               "" 1 #f '())
             """).asString()
-        #expect(html.contains("selected"))
+        #expect(html.contains("is-focused"))
+    }
+
+    @Test func renderChooserHtmlUsesSharedListRowVocabulary() throws {
+        // chooser-restyle-k7: result rows adopt the shared .list-row /
+        // .list-main / .list-title classes so the chooser reads as one family
+        // with the embedded pane/window lists. Guards against a regression to
+        // the chooser-private .chooser-row* names.
+        let engine = try loadAllModules()
+        try engine.evaluate(testItemsSetup)
+        let html = try engine.evaluate("""
+            (render-chooser-html "Find app…"
+              '((0 "Safari" ()) (1 "Chrome" ()))
+              "" 0 #f '())
+            """).asString()
+        #expect(html.contains("list-row"))
+        #expect(html.contains("list-main"))
+        #expect(html.contains("list-title"))
+        // No chooser-private row class survives. (The bare token still appears
+        // in the embedded JS as the function name render-chooser-row, so match
+        // the class attribute precisely rather than the substring.)
+        #expect(!html.contains("class=\"chooser-row"))
     }
 
     @Test func renderChooserHtmlHighlightsMatchedCharacters() throws {

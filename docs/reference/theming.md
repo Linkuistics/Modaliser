@@ -190,11 +190,11 @@ unlike the host header.
 | `.chooser-search` | Search-input container. |
 | `.chooser-input` | The `<input>`. |
 | `.chooser-results` | Result `<ul>`. |
-| `.chooser-row` | Result `<li>`. |
-| `.chooser-row.selected` | Highlighted result. |
-| `.chooser-row-text`, `.chooser-row-subtext` | Row text / detail line. |
-| `.chooser-row-text .match`, `.chooser-row-subtext .match` | Fuzzy-match highlight. |
-| `.chooser-dir` | Directory prefix in file results. |
+| `.list-row` | Result `<li>` — the shared list-row vocabulary (one family with the embedded pane/window lists). |
+| `.list-row.is-focused` | Selection-cursor (highlighted) result. |
+| `.list-main`, `.list-title`, `.list-subtext` | Row main column / title line / path-detail line. |
+| `.list-title .match`, `.list-subtext .match` | Fuzzy-match highlight. |
+| `.list-title.chooser-dir` | Directory name in file results (semibold). |
 | `.chooser-footer` | Footer (result count + nav hints). |
 | `.chooser-actions` | Tab-panel action list container. |
 | `.chooser-action-item`, `.chooser-action-key`, `.chooser-action-label`, `.chooser-action-desc` | Action panel rows. |

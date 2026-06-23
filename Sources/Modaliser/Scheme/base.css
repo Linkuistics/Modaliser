@@ -476,15 +476,30 @@ body {
   box-shadow: 0 0 0 2px rgba(35, 193, 97, 0.18);
 }
 
-/* One list row: accent keycap / title (proc · cwd, never wraps) / a
- * right-aligned detail column when width allows. */
+/* One list row — the canonical row shared by the chooser (its first adopter,
+ * chooser-restyle-k7) and, as the live-list blocks converge, embedded
+ * pane/window lists. A flex row of three optional parts: an accent keycap, a
+ * flexible main column (a title that never wraps, plus an optional stacked
+ * subtext), and a right-aligned mono detail. A live row uses keycap + title +
+ * detail; the chooser uses keycap-less rows (title + an optional path subtext).
+ * Flex (not grid) so absent parts simply collapse — a keycap-less chooser row
+ * needs no empty placeholder cell. */
 .list-row {
-  display: grid;
-  grid-template-columns: max-content 1fr max-content;
-  column-gap: 8px;
+  display: flex;
   align-items: center;
-  padding: 2px 4px;
+  gap: 8px;
+  padding: 3px 12px;
   border-radius: 4px;
+  cursor: default;
+}
+/* The flexible middle column. Stacks an optional subtext beneath the title;
+ * min-width: 0 lets the title's ellipsis engage inside the flex row (a flex
+ * item won't shrink below its content width otherwise). */
+.list-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .list-title {
   min-width: 0;
@@ -493,7 +508,21 @@ body {
   white-space: nowrap;
   color: var(--color-label);
 }
+/* Second line under the title — the chooser's file path (or its highlighted
+ * match text). Muted + smaller, still single-line with an ellipsis. */
+.list-subtext {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--font-size) - 3px);
+  color: var(--color-header);
+  margin-top: 1px;
+}
+/* Right-aligned mono tag (live-list detail column, e.g. "focused ⌥2").
+ * margin-left: auto pushes it to the row's right edge in the flex layout. */
 .list-detail {
+  margin-left: auto;
   font-family: var(--font-mono);
   font-size: calc(var(--font-size) - 3px);
   color: var(--color-header);
@@ -602,17 +631,17 @@ body {
 /* ═══════════════════════════════════════════════════════════ */
 
 /* Chooser tokens point at the shared accent so the fuzzy-finder reads in
- * the same indigo/white family as the overlay. The full chooser restyle
- * (header band, shared list rows, separated footer) is chooser-restyle-k7;
- * these token aliases keep it on-palette until then. */
+ * the same indigo/white family as the overlay. The chooser is restyled
+ * (chooser-restyle-k7) to share the header band, the .list-row vocabulary, and
+ * a separated footer; its selected-row marking now comes from the shared
+ * .list-row.is-focused rule (accent inset bar + --list-focus-* tint), so no
+ * chooser-specific selection tokens remain. */
 :root {
   --chooser-width: 500px;
   --chooser-max-height: 400px;
   --chooser-input-bg: #ffffff;
   --chooser-input-border: #d8dbe2;
   --chooser-input-focus-border: var(--accent);
-  --chooser-selected-bg: var(--list-focus-bg);
-  --chooser-selected-border: var(--accent);
   --chooser-match-color: var(--accent);
   --chooser-match-weight: 700;
   --chooser-action-bg: var(--footer-bg);
@@ -661,48 +690,22 @@ body {
   overflow-y: auto;
 }
 
-.chooser-row {
-  padding: 4px 12px;
-  cursor: default;
-  display: flex;
-  align-items: baseline;
-  border-left: 3px solid transparent;
-}
-
-.chooser-row.selected {
-  background: var(--chooser-selected-bg);
-  border-left-color: var(--chooser-selected-border);
-}
-
-.chooser-row-text {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.chooser-row-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.chooser-row-text .match,
-.chooser-row-subtext .match {
+/* Result rows reuse the shared .list-row vocabulary (see "shared list-row
+ * vocabulary" above) so the chooser and the embedded pane/window lists read as
+ * one family: same row chrome, same .list-title / .list-subtext typography, and
+ * the same .list-row.is-focused selection marking (accent inset bar + tint).
+ * Only the fuzzy-match highlight and the directory-name weight are
+ * chooser-specific. */
+.list-title .match,
+.list-subtext .match {
   color: var(--chooser-match-color);
   font-weight: var(--chooser-match-weight);
 }
 
-.chooser-dir {
+/* Directory results render their name in semibold (the path sits in the
+ * .list-subtext line beneath). */
+.list-title.chooser-dir {
   font-weight: 600;
-}
-
-.chooser-row-subtext {
-  font-size: calc(var(--font-size) - 3px);
-  color: var(--color-header);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 1px;
 }
 
 /* ─── Result Count ────────────────────────────────────────── */
@@ -714,8 +717,11 @@ body {
   /* Match the overlay footer's explicit line-height so the 16px sigil
    * inline-blocks don't stretch the row. */
   line-height: 1.5;
-  padding: 4px 12px;
-  border-top: 1px solid var(--color-separator);
+  padding: 6px 12px;
+  /* A separated strip matching the overlay footer (spec §7): its own tinted
+   * background and a top rule set it apart from the result list above. */
+  background: var(--footer-bg);
+  border-top: 1px solid var(--footer-border);
   /* Two flex children — count on the left, hints on the right —
    * separated by all remaining whitespace via justify-content:
    * space-between. Aligns the navigation hints flush with the chooser's
@@ -751,7 +757,7 @@ body {
 }
 
 .chooser-action-item.selected {
-  background: var(--chooser-selected-bg);
+  background: var(--list-focus-bg);
 }
 
 .chooser-action-key {

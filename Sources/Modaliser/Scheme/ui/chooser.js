@@ -51,13 +51,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function moveSelection(delta) {
   if (chooserItems.length === 0) return;
-  var rows = document.querySelectorAll('.chooser-row');
+  var rows = document.querySelectorAll('.chooser-results .list-row');
   var oldIndex = chooserSelectedIndex;
   chooserSelectedIndex = Math.max(0, Math.min(chooserItems.length - 1, chooserSelectedIndex + delta));
   if (oldIndex !== chooserSelectedIndex) {
-    if (oldIndex < rows.length) rows[oldIndex].classList.remove('selected');
+    if (oldIndex < rows.length) rows[oldIndex].classList.remove('is-focused');
     if (chooserSelectedIndex < rows.length) {
-      rows[chooserSelectedIndex].classList.add('selected');
+      rows[chooserSelectedIndex].classList.add('is-focused');
       rows[chooserSelectedIndex].scrollIntoView({ block: 'nearest' });
     }
   }
@@ -75,12 +75,12 @@ function sendSelect(type) {
 
 // Move selection highlight between rows — no re-rendering needed.
 function setSelectedIndex(oldIndex, newIndex) {
-  var rows = document.querySelectorAll('.chooser-row');
+  var rows = document.querySelectorAll('.chooser-results .list-row');
   if (oldIndex >= 0 && oldIndex < rows.length) {
-    rows[oldIndex].classList.remove('selected');
+    rows[oldIndex].classList.remove('is-focused');
   }
   if (newIndex >= 0 && newIndex < rows.length) {
-    rows[newIndex].classList.add('selected');
+    rows[newIndex].classList.add('is-focused');
     rows[newIndex].scrollIntoView({ block: 'nearest' });
   }
 }
@@ -95,31 +95,36 @@ function updateResults(items, totalCount) {
   var ul = document.querySelector('.chooser-results');
   if (!ul) return;
 
+  // Mirror of render-chooser-row in chooser.scm — the shared .list-row
+  // vocabulary (.list-row/.is-focused/.list-main/.list-title/.list-subtext) so
+  // the chooser reads as one family with the embedded pane/window lists. Kept
+  // byte-for-byte in step with the Scheme path because this native
+  // fuzzy-search path bypasses Scheme entirely.
   var html = '';
   var len = items.length;
   for (var n = 0; n < len; n++) {
     var item = items[n];
     var isDir = item.k === 'directory';
-    var cls = n === 0 ? 'chooser-row selected' : 'chooser-row';
+    var cls = n === 0 ? 'list-row is-focused' : 'list-row';
 
     html += '<li class="' + cls + '">';
+    html += '<div class="list-main">';
 
     if (item.p) {
-      var textCls = isDir ? 'chooser-row-text chooser-dir' : 'chooser-row-text';
-      html += '<div class="chooser-row-content">';
-      html += '<span class="' + textCls + '">';
+      var titleCls = isDir ? 'list-title chooser-dir' : 'list-title';
+      html += '<span class="' + titleCls + '">';
       html += isDir ? highlightText(item.d, item.i) : escapeHtml(item.d);
       html += '</span>';
-      html += '<div class="chooser-row-subtext">';
+      html += '<div class="list-subtext">';
       html += isDir ? escapeHtml(item.p) : highlightText(item.s, item.i);
-      html += '</div></div>';
+      html += '</div>';
     } else {
-      html += '<span class="chooser-row-text">';
+      html += '<span class="list-title">';
       html += highlightText(item.s, item.i);
       html += '</span>';
     }
 
-    html += '</li>';
+    html += '</div></li>';
   }
 
   ul.innerHTML = html;

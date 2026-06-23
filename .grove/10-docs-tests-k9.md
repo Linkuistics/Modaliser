@@ -42,3 +42,10 @@ the final sweep before the grove finishes.
 - After this leaf retires, the grove root has **no live leaf** → trigger the
   **Finish** cycle (promote ADR-0011 / docs / glossary already live; delete
   `.grove/`; merge `visual-refresh` → `main`).
+- Token-vocabulary cleanup carried over from [[chooser-restyle-k7]]: the chooser
+  no longer defines `--chooser-selected-bg` / `--chooser-selected-border` — its
+  selected result row is now a shared `.list-row.is-focused`, themed by
+  `--list-focus-bg` / `--list-focus-bar` (one selection knob across the chooser
+  and the embedded live lists). Drop those two rows from the `theming.md` token
+  table + the `customise-theme.md` examples and document `--list-focus-*` /
+  `--list-bg` / `--list-border` instead.

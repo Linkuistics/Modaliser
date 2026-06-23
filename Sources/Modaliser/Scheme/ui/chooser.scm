@@ -68,23 +68,28 @@
          (kind (alist-ref source-item 'kind #f))
          (is-dir (and kind (equal? kind "directory")))
          (is-selected (= row-index selected))
-         (row-class (if is-selected "chooser-row selected" "chooser-row"))
+         ;; Shared list-row vocabulary (base.css): .list-row + .is-focused for
+         ;; the selection cursor, so the chooser reads as one family with the
+         ;; embedded pane/window lists. Mirrored by updateResults in chooser.js.
+         (row-class (if is-selected "list-row is-focused" "list-row"))
 )
-    ;; Show display-text as title with path underneath when available
+    ;; Show display-text as title with path in the subtext line when available;
+    ;; otherwise a single .list-title line.
     (if sub-text
       (li (list (cons 'class row-class))
-        (div '((class . "chooser-row-content"))
-          (span (list (cons 'class (if is-dir "chooser-row-text chooser-dir" "chooser-row-text")))
+        (div '((class . "list-main"))
+          (span (list (cons 'class (if is-dir "list-title chooser-dir" "list-title")))
             (if is-dir
               (highlight-matches display-text indices)
               display-text))
-          (div '((class . "chooser-row-subtext"))
+          (div '((class . "list-subtext"))
             (if is-dir
               sub-text
               (highlight-matches search-text indices)))))
       (li (list (cons 'class row-class))
-        (span '((class . "chooser-row-text"))
-          (highlight-matches search-text indices))))))
+        (div '((class . "list-main"))
+          (span '((class . "list-title"))
+            (highlight-matches search-text indices)))))))
 
 ;; Render the action panel.
 ;; actions: list of action alists ((name . "Open") (description . "...") ...)
