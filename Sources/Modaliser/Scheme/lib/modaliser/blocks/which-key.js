@@ -77,6 +77,13 @@
     return cat;
   }
 
+  // Expose the per-row renderer so the panel-grid renderer (overlay.js)
+  // draws panel key-rows with IDENTICAL markup — one row renderer, no
+  // divergence. (When the which-key block is retired with the auto-layout
+  // in config-migration-k8, overlay.js keeps an identical local fallback,
+  // so panel rows render the same either way.)
+  window.overlayRenderRow = renderRow;
+
   window.overlayBlockRenderers = window.overlayBlockRenderers || {};
   window.overlayBlockRenderers['which-key'] = function(block, container) {
     while (container.firstChild) container.removeChild(container.firstChild);

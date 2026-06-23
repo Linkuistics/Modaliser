@@ -259,6 +259,80 @@ body {
   margin-right: 6px;
 }
 
+/* ─── Panel Grid (layout DSL renderer) ─────────────────────── */
+/*
+ * STRUCTURAL layout only — the aesthetic skin (banded-header colours, soft
+ * keycaps, list-inset tinting, the white-panels-on-tinted-body look) is
+ * layered on top in the visual-skin step. Rules here just establish the
+ * grid, the span→column-span mapping, and the card/header/rows/list boxes,
+ * using var(...) fallbacks so they stand alone before the token set lands.
+ *
+ * Column count: CSS-intrinsic auto-fit by default — panels flow into as many
+ * --panel-min-width tracks as fit, capped by --panel-grid-max-width so the
+ * grid wraps inside the width:max-content .overlay rather than stretching to
+ * one row. An authored `cols` (payload → --panel-grid-cols, set inline by
+ * overlay.js) pins an explicit track count instead. grid-auto-flow: dense
+ * lets narrow tiles backfill the gaps a wide/full panel leaves. */
+.panel-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(var(--panel-grid-cols, auto-fit),
+           minmax(var(--panel-min-width, 180px), 1fr));
+  grid-auto-flow: dense;
+  gap: var(--panel-gap, 10px);
+  align-items: start;
+  max-width: var(--panel-grid-max-width, 760px);
+}
+
+/* span → column span. `wide` is 2 tracks; `full` spans the whole row
+ * regardless of track count. A narrow grid (1–2 tracks) clamps these via the
+ * grid itself — a span of 2 in a 1-track grid still occupies the single
+ * track. */
+.panel-span-narrow { grid-column: span 1; }
+.panel-span-wide   { grid-column: span 2; }
+.panel-span-full   { grid-column: 1 / -1; }
+
+.panel {
+  border: 1px solid var(--panel-border, var(--color-separator));
+  border-radius: var(--panel-radius, 6px);
+  overflow: hidden;
+  /* Panels are grid items; they never split across tracks. */
+  break-inside: avoid;
+}
+
+.panel-head {
+  padding: 4px 8px;
+  font-weight: 600;
+  color: var(--panel-head-fg, var(--color-category));
+  border-bottom: 1px solid var(--panel-border, var(--color-separator));
+}
+
+.panel-rows {
+  padding: 4px 8px;
+}
+
+/* Per-row mini-grid: key / arrow / label. The row markup (.wk-row with
+ * .entry-key/.entry-arrow/.entry-label) is shared with the which-key block
+ * renderer, but its grid there is scoped under .block-which-key, so panels
+ * carry their own structural copy. The global .entry-key/.entry-arrow/
+ * .entry-label colour rules above still apply. */
+.panel-rows .wk-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  column-gap: 4px;
+  align-items: baseline;
+  padding: 1px 0;
+}
+
+/* Embedded live-list section. Inset under the key rows; the list's own rows
+ * (.wl-row etc.) keep their block CSS. */
+.panel-list {
+  margin: 4px 8px 8px;
+  padding: 4px 6px;
+  border: 1px solid var(--list-border, var(--color-separator));
+  border-radius: var(--panel-radius, 6px);
+}
+
 /* ─── Footer ───────────────────────────────────────────────── */
 
 .overlay-footer {

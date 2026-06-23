@@ -343,7 +343,7 @@
 ;; into the renderer registry. Initial-render payload mirrors what
 ;; push-overlay-update sends for incremental updates.
 (define (render-overlay-custom cls segments current renderer path)
-  (let* ((payload-json (block-list-payload-json current))
+  (let* ((payload-json (renderer-body-json renderer current))
          ;; data-payload is single-quoted so the inner JSON's double
          ;; quotes don't need HTML entity-encoding. JS reads via
          ;; getAttribute('data-payload') + JSON.parse, which sees the
@@ -406,6 +406,89 @@
            (if e (cdr e) '()))))
       (else
        (block-spec->json (append b dyn))))))
+
+;; (renderer-body-json renderer current) → JSON object string
+;; The body payload for a custom-renderer group, dispatched by the group's
+;; 'renderer symbol. 'panel-grid serializes the presentation metadata the
+;; layout DSL lowered onto the screen/open group (ADR-0011); every other
+;; renderer — notably the legacy 'blocks — uses the block-list payload.
+;; Both render-overlay-custom (initial paint) and push-overlay-update
+;; (incremental) route through here so the two paths can never diverge.
+(define (renderer-body-json renderer current)
+  (cond
+    ((eq? renderer 'panel-grid) (panel-grid-payload-json current))
+    (else                       (block-list-payload-json current))))
+
+;; ─── Panel-grid renderer (layout DSL; ADR-0011 / ADR-0012) ───────
+;;
+;; A `screen` (or a drilled-into `open`) lowered from the layout DSL is a
+;; group carrying 'renderer 'panel-grid + an optional authored 'cols. Its
+;; DIRECT children are the grid cells: panels (transparent 'kind 'category
+;; nodes) and nested `open`s (navigable 'kind 'group nodes). This serializes
+;; exactly the alist shape the lowering (dsl.sld make-panel-node /
+;; lower-panel-grid-body) emits — the renderer owns the JSON, the DSL owns
+;; the alist; the contract was co-designed with that leaf.
+;;
+;; Shape: {"type":"panel-grid"[,"cols":N],"panels":[<panel>,…]}
+;;   <panel> = {"label":S,"span":S,"rows":[<row>,…][,"list":<block>]}
+;;   <row>   = the shared entry-row shape (entry->row-json): key (ready
+;;             key-display-html), label, isGroup, isSticky.
+;;   <block> = an embedded live list, serialized through the SAME block-json
+;;             path the block-list renderer uses for window-list / iterm-panes
+;;             / iterm-tabs (so on-render-fn fires + live rows merge in).
+(define (panel-grid-payload-json current)
+  (let ((cols   (node-renderer-payload current 'cols))
+        (panels (map grid-cell->json (node-children current))))
+    (string-append
+      "{\"type\":\"panel-grid\""
+      (if cols (string-append ",\"cols\":" (number->string cols)) "")
+      ",\"panels\":["
+      (string-join-comma panels)
+      "]}")))
+
+;; (grid-cell->json node) → panel JSON object string
+;; A screen's direct child is either a panel (category) or a top-level `open`
+;; (group). A category becomes a full panel of key-rows (+ optional list); a
+;; top-level open — and, defensively, any atom the lowering didn't pack into
+;; a panel — renders as a single-cell panel whose one row is the node's own
+;; affordance (an open shows as an accent drill-in row; the panel header names
+;; the destination). Nested opens declared *inside* a panel ride that panel's
+;; 'children and render as ordinary accent group-rows, not their own cell.
+(define (grid-cell->json node)
+  (if (category? node)
+    (panel->json node)
+    (single-row-panel->json node)))
+
+;; (panel->json category) → panel JSON object string
+;; Rows come from the category's dispatch children (sorted by key, hidden +
+;; nested-category entries filtered exactly as the list/which-key paths do —
+;; this also drops the lifted, 'hidden digit range of an embedded list, which
+;; the list section renders instead). 'span is always present (make-panel-node
+;; defaults it); 'list is present only when the panel embeds a live list.
+(define (panel->json category)
+  (let* ((label      (node-label category))
+         (span       (or (node-renderer-payload category 'span) 'narrow))
+         (rows       (filtered-rows (sort-children (node-children category))))
+         (list-block (node-renderer-payload category 'list)))
+    (string-append
+      "{\"label\":\""  (js-escape-overlay label)
+      "\",\"span\":\"" (js-escape-overlay (symbol->string span))
+      "\",\"rows\":["  (string-join-comma rows) "]"
+      (if list-block
+        (string-append ",\"list\":" (block-json list-block))
+        "")
+      "}")))
+
+;; (single-row-panel->json node) → panel JSON object string
+;; The minimal panel for a non-category grid child (a top-level `open`, or a
+;; stray atom). One narrow cell, header = node label, a single affordance row.
+(define (single-row-panel->json node)
+  (let ((row (entry->row-json node)))
+    (string-append
+      "{\"label\":\""  (js-escape-overlay (node-label node))
+      "\",\"span\":\"narrow\",\"rows\":["
+      (if row row "")
+      "]}")))
 
 ;; (which-key-payload-json children) → JSON object
 ;;
@@ -701,13 +784,14 @@
          (renderer (and current (node-renderer current))))
     (cond
       (renderer
-        ;; Custom-renderer payload carries both the block body AND the
-        ;; chrome (breadcrumb segments, sticky flag, footer HTML) so the
-        ;; JS update can refresh the header/footer alongside the body.
-        ;; Without this, navigating from the root list into a block-list
-        ;; group leaves stale chrome from the previous depth — notably
-        ;; the root footer with no backspace hint.
-        (let* ((body (block-list-payload-json current))
+        ;; Custom-renderer payload carries both the renderer body (block
+        ;; list or panel grid, per renderer-body-json) AND the chrome
+        ;; (breadcrumb segments, sticky flag, footer HTML) so the JS update
+        ;; can refresh the header/footer alongside the body. Without this,
+        ;; navigating from the root list into a custom-renderer group leaves
+        ;; stale chrome from the previous depth — notably the root footer
+        ;; with no backspace hint.
+        (let* ((body (renderer-body-json renderer current))
                (segments-json (path-segments-json node path))
                (path-json     (path-keys-json path))
                (sticky?       (and (deepest-sticky-on-path node path) #t))

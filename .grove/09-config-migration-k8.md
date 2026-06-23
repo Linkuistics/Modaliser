@@ -33,6 +33,34 @@ presentation change.
 - EndToEnd coverage for the global tree + at least one app tree rendering as
   panels.
 
+## Deferred here from panel-grid-renderer-k4
+
+[[panel-grid-renderer-k4]] added the `panel-grid` renderer **additively** and
+left the legacy auto-layout in place, because the bundled `default-config.scm`
+(+ the user config + ~10 test suites) still drive the old `define-tree` /
+`overlay` / `which-key-block` path that those functions serve. ADR-0011's
+"retire the auto-layout heuristics" therefore lands **here**, once this leaf
+migrates the last callers off the old forms (lowering-k10's "no flag-day; old
+forms stay working until k8" — that promise is kept). After the migration,
+delete (in `ui/overlay.scm` unless noted):
+
+- `which-key-payload-json`, `partition-which-key-segments`,
+  `distribute-which-key-columns`, `segment-row-count`, `segments-row-count`,
+  `render-segment` — the which-key block's whole-overlay column packing;
+- `overlay-column-count` (+ its `overlay-col-width-px` / `overlay-row-height-px`
+  seeds) — but **only after** `render-overlay-default` /
+  `push-overlay-update-default` stop calling it (the default *list* renderer
+  still uses it; either migrate its callers too or replace with a CSS-intrinsic
+  count);
+- the `'which-key` branch of `block-json`, and the `(modaliser blocks which-key)`
+  library + its `.js`/`.css` once nothing constructs a `which-key-block`. The
+  panel-grid row renderer in `overlay.js` (`renderPanelRow`) already carries an
+  identical local fallback, so deleting `which-key.js` (which sets
+  `window.overlayRenderRow`) leaves panel rows rendering unchanged.
+
+Then drop the `OverlayRenderTests` / `BlocksWhichKeyLibraryTests` cases that
+pin the deleted functions, and confirm `check-portable-surface.sh` stays green.
+
 ## Notes
 
 - Watch the façade-cutover failure mode (see feedback memory): a silent backend

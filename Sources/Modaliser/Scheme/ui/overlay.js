@@ -164,9 +164,127 @@ window.overlayRenderers.blocks = function(data, container) {
   notifyResize();
 };
 
-// Shared chrome update — breadcrumb, sticky flag, footer. Used by both
-// the list renderer and the blocks renderer so navigation depth changes
-// look consistent regardless of which renderer is showing the body.
+// Panel-grid renderer — handles {type:"panel-grid", cols?, panels:[…]}
+// payloads, the layout DSL's lowered `screen` / `open` (ADR-0011). Each
+// panel is a banded card: a header label, key rows, and an optional embedded
+// live list. A panel's `span` (narrow|wide|full) maps to a CSS grid column
+// span; base.css lays the cards out with grid-auto-flow: dense so narrow
+// tiles backfill around wide ones. The column count is CSS-intrinsic
+// (auto-fit) unless the payload carries an authored `cols`.
+//
+// Bootstrap passes the `.overlay-custom-body` div as `container` (chrome is
+// already baked into the initial HTML); push-updates pass none, so we refresh
+// the breadcrumb/sticky/footer chrome ourselves — same contract as the blocks
+// renderer above.
+window.overlayRenderers['panel-grid'] = function(data, container) {
+  if (!container) updateOverlayChrome(data);
+  var root = container
+    || document.querySelector('.overlay-custom-body[data-renderer="panel-grid"]');
+  if (!root) return;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  var grid = document.createElement('div');
+  grid.className = 'panel-grid';
+  // Authored column count pins the track count; absent, base.css auto-fits.
+  if (typeof data.cols === 'number') {
+    grid.style.setProperty('--panel-grid-cols', String(data.cols));
+  }
+  var panels = data.panels || [];
+  for (var i = 0; i < panels.length; i++) {
+    grid.appendChild(renderPanel(panels[i]));
+  }
+  root.appendChild(grid);
+  notifyResize();
+};
+
+// renderPanel — one banded card: header + key rows + optional live list.
+function renderPanel(panel) {
+  var card = document.createElement('div');
+  card.className = 'panel panel-span-' + (panel.span || 'narrow');
+
+  var head = document.createElement('div');
+  head.className = 'panel-head';
+  head.textContent = panel.label || '';
+  card.appendChild(head);
+
+  var rows = panel.rows || [];
+  if (rows.length) {
+    var body = document.createElement('div');
+    body.className = 'panel-rows';
+    for (var i = 0; i < rows.length; i++) {
+      body.appendChild(renderPanelRow(rows[i]));
+    }
+    card.appendChild(body);
+  }
+
+  // Embedded live list (window-list / iterm-panes / iterm-tabs): hand the
+  // block off to its registered block renderer — the SAME path the blocks
+  // renderer uses — so the list section reuses that block's markup + CSS.
+  if (panel.list && panel.list.type) {
+    card.appendChild(renderPanelList(panel.list));
+  }
+  return card;
+}
+
+// renderPanelRow — reuse which-key.js's renderRow (assigned to
+// window.overlayRenderRow when that block's JS asset loads, which the layout
+// DSL always pulls in transitively). Falls back to an identical local
+// renderer so a panel grid still draws rows if which-key.js is absent — and
+// so this stays the canonical row renderer once which-key.js is retired.
+function renderPanelRow(row) {
+  if (typeof window.overlayRenderRow === 'function') {
+    return window.overlayRenderRow(row);
+  }
+  var displayKey = row.key === ' ' ? '␣' : row.key;
+  var labelClass = row.isGroup ? 'entry-label group-label' : 'entry-label';
+  var labelText = row.isGroup ? (row.label + ' …') : row.label;
+  var labelNode = document.createElement('span');
+  labelNode.className = labelClass;
+  if (row.isSticky) {
+    var marker = document.createElement('span');
+    marker.className = 'entry-sticky-marker';
+    marker.textContent = '↻';
+    labelNode.appendChild(marker);
+    labelNode.appendChild(document.createTextNode(labelText));
+  } else {
+    labelNode.textContent = labelText;
+  }
+  var keyNode = document.createElement('span');
+  keyNode.className = 'entry-key';
+  keyNode.innerHTML = displayKey;   // ready key-display-html (sigil spans)
+  var arrowNode = document.createElement('span');
+  arrowNode.className = 'entry-arrow';
+  arrowNode.textContent = '→';
+  var rowEl = document.createElement('div');
+  rowEl.className = 'wk-row';
+  rowEl.appendChild(keyNode);
+  rowEl.appendChild(arrowNode);
+  rowEl.appendChild(labelNode);
+  return rowEl;
+}
+
+// renderPanelList — inset section wrapping an embedded live list, drawn by
+// the block's own renderer from window.overlayBlockRenderers (e.g.
+// window-list.js). Container carries the same "block block-<type>" classes
+// the blocks renderer uses so the block's CSS scopes identically.
+function renderPanelList(block) {
+  var section = document.createElement('div');
+  section.className = 'panel-list block block-' + block.type;
+  var fn = window.overlayBlockRenderers && window.overlayBlockRenderers[block.type];
+  if (fn) {
+    try {
+      fn(block, section);
+    } catch (e) {
+      console.error('panel-grid: list ' + block.type + ' render failed', e);
+    }
+  } else {
+    console.warn('panel-grid: no block renderer for', block.type);
+  }
+  return section;
+}
+
+// Shared chrome update — breadcrumb, sticky flag, footer. Used by the list,
+// blocks, and panel-grid renderers so navigation depth changes look
+// consistent regardless of which renderer is showing the body.
 function updateOverlayChrome(data) {
   var root = document.querySelector('.overlay');
   if (root) {
