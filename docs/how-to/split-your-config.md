@@ -29,54 +29,59 @@ glance.
 
    `(modaliser window)` is the raw window-management library
    (`list-windows`, `focus-window`); `(modaliser window-actions)`
-   provides the overlay blocks (`window:layout-block`,
+   provides the layout blocks (`window:layout-block`,
    `window:list-block`). Same prefix in your config, different
    libraries:
 
    ```scheme
    (define-library (me windows)
-     (export window-tree)
+     (export window-panels)
      (import (scheme base)
              (modaliser dsl)
              (modaliser window)            ; list-windows, focus-window
              (prefix (modaliser window-actions) window:))  ; blocks
      (begin
-       (define window-tree
-         (overlay
-           (window:layout-block
-             (("d" "f" "g"))
-             (("D" "F" "G")
-              ("C" "V" "B"))
-             (("e" "e" #f))
-             ((#f "t" "t"))
-             (("m"))
-             (center "c"))
-           (key "s" "Select Window"
-                (selector 'prompt "Window…"
-                          'source list-windows
-                          'on-select focus-window))
-           (window:list-block 'chips? #t)))))
+       (define window-panels
+         (fragment
+           (panel "Layout"
+             (window:layout-block
+               (("d" "f" "g"))
+               (("D" "F" "G")
+                ("C" "V" "B"))
+               (("e" "e" #f))
+               ((#f "t" "t"))
+               (("m"))
+               (center "c")))
+           (panel "Select"
+             (key "s" "Select Window"
+                  (selector 'prompt "Window…"
+                            'source list-windows
+                            'on-select focus-window)))
+           (panel "Windows"
+             (window:list-block 'chips? #t))))))
    ```
 
-   The library exports `window-tree` as a value (a node alist), so the
-   caller can drop it in anywhere a `(key …)` body fits.
+   The library exports `window-panels` as a **fragment** — a reusable
+   chunk of layout (here, three panels). A fragment is transparent:
+   whatever container you splice it into hoists its panels in place, so
+   the result is identical to writing them inline.
 
-4. **Import it from `config.scm`** and drop the binding:
+4. **Import it from `config.scm`** and splice it into a drill-down:
 
    ```scheme
    (import (me windows))
 
-   (define-tree 'global
-     ;; …other bindings…
-     (key "w" "Windows" window-tree))
+   (screen 'global
+     ;; …other panels…
+     (open "w" "Windows" window-panels))
    ```
 
-   `window-tree` is a node value, so the `(key K L X)` macro's
-   procedure-vs-pair dispatch sees the pair and decorates it with the
-   key/label.
+   `(open "w" "Windows" …)` makes a navigable sub-screen; the
+   `window-panels` fragment supplies its grid. You can splice the same
+   fragment into any number of screens, panels, or `open`s.
 
 5. **Save and relaunch.** Tap F18 → `w` to confirm the imported
-   overlay still renders.
+   drill-down still renders.
 
 ## Verify it worked
 
@@ -91,7 +96,7 @@ A larger config might end up as:
 
 ```
 ~/.config/modaliser/
-├── config.scm                  ; entry point — imports + define-tree calls
+├── config.scm                  ; entry point — imports + screen calls
 ├── theme.css                   ; user CSS overrides
 ├── me/
 │   ├── windows.sld             ; (me windows)

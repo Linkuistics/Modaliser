@@ -16,6 +16,7 @@ A working user config (snapshot 2026-06-20). Notable patterns:
   exit reason. See
   [`../specs/2026-06-19-keystroke-modifier-release-and-down-up.md`](../specs/2026-06-19-keystroke-modifier-release-and-down-up.md)
   for the mechanics.
-- **iTerm tree** with pane focus/split/move, a tab sub-overlay, and the
-  pane-list block.
-- **Window-manager overlay**, launcher selectors, and web-search bindings.
+- **iTerm tree** with pane focus/split/move, a tab sub-screen (`open`), and
+  the pane-list block.
+- **Window-manager drill-down** (`open`), launcher selectors, and web-search
+  bindings.

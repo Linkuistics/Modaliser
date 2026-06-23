@@ -69,12 +69,13 @@ Press the leader, then your sticky group's key. Confirm:
 
 ## Variations
 
-**Sticky tree (whole leader).** Set `'sticky #t` on `define-tree`'s
+**Sticky tree (whole leader).** Set `'sticky #t` on a `screen`'s
 leading keywords for a tree that is *always* sticky — useful when the
-local leader for an app should keep one binding fired in a row:
+local leader for an app should keep one binding fired in a row. Loose
+keys collect into a single "General" panel:
 
 ```scheme
-(define-tree 'my.app
+(screen 'my.app
   'sticky #t
   'exit-on-unknown #t
   'display-name "MyApp"
@@ -95,7 +96,7 @@ sticky mode. `'sticky-target` on a `(key …)` does both in one press:
   'sticky-target 'my-pane-focus)
 
 ;; Plus the registered sticky destination:
-(define-tree 'my-pane-focus
+(screen 'my-pane-focus
   'sticky #t
   'exit-on-unknown #t
   'display-name "Focus"
@@ -112,6 +113,12 @@ into the sticky tree. From the second press onward, `hjkl` dispatch
 against the sticky tree's own bindings. The bundled `(modaliser apps
 iterm)` uses this pattern — see its `.sld` for a worked example.
 
+When the entry keys and the destination keys are the same list (as
+above), `(sticky-set …)` packages both halves in one form — it
+registers the sticky mode *and* returns the entry keys decorated with
+`'sticky-target`, so you write the list once and splice it into any
+parent. See [reference/dsl.md](../reference/dsl.md#sticky-set-mode-id-display-name-key).
+
 **Nested sticky.** Sticky groups compose. The reset target after a
 leaf fires is always the *deepest* sticky group on the current path,
 so nested subgroups stay sticky in their own right.
@@ -120,7 +127,7 @@ so nested subgroups stay sticky in their own right.
 
 - [reference/state-machine.md](../reference/state-machine.md) — sticky
   semantics, hook gating, `modal-stack`.
-- [reference/dsl.md](../reference/dsl.md) — `(group …)`, `(define-tree
-  …)`, `'sticky-target` keyword.
+- [reference/dsl.md](../reference/dsl.md) — `(group …)`, `(screen …)`,
+  `(sticky-set …)`, `'sticky-target` keyword.
 - [add-a-per-app-tree.md](add-a-per-app-tree.md) — per-app trees that
   pair well with focus-movement sticky modes.

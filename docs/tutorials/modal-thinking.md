@@ -2,14 +2,14 @@
 
 In this tutorial you'll build a `w` "Windows" leader from a one-key
 stub up to something that looks a lot like the bundled
-`default-config.scm`'s window-management overlay. Along the way you'll
-meet every concept Modaliser is built from — leaders, overlays,
-blocks, selectors, sticky modes, sticky-target — by *using* them, not
-by reading a table.
+`default-config.scm`'s window-management screen. Along the way you'll
+meet every concept Modaliser is built from — leaders, screens &
+panels, blocks, selectors, sticky modes, sticky-target — by *using*
+them, not by reading a table.
 
 By the end you'll have:
 
-- A working `w` overlay you can keep using day-to-day.
+- A working `w` drill-down you can keep using day-to-day.
 - The vocabulary to read the rest of the docs as specific instances of
   two patterns you now understand: the **launcher** pattern (most of
   Modaliser) and the **modal** pattern (iTerm's `Focus` mode and
@@ -62,7 +62,7 @@ Replace `~/.config/modaliser/config.scm` with:
 (set-leaders! 'global-keycode F18
               'local-keycode  F17)
 
-(define-tree 'global
+(screen 'global
   (key "w" "Maximise" (λ () (move-window 0 0 1 1))))
 ```
 
@@ -79,10 +79,12 @@ whatever that call returned (a void). The lambda defers the call until
 you press the key.
 
 **Pick Relaunch from the menu bar icon, then press F18 w.** The
-current window maximises.
+current window maximises. (`w` sits in a leading **"General"** panel —
+a loose `(key …)` written directly under a `screen` collects into one
+automatically, so a flat config still renders as a tidy card.)
 
-That single binding is a *leader* (`F18`), opening a *tree* (the
-global tree, declared with `define-tree`), containing a *command*
+That single binding is a *leader* (`F18`), opening a *screen* (the
+global screen, declared with `screen`), containing a *command*
 (`(key "w" "Maximise" …)`). Three concepts, one for every level of
 the nesting you just typed. Each of the next six steps adds exactly
 one more.
@@ -91,15 +93,16 @@ one more.
 
 In Step 1 you bound `w` directly to a thunk, so pressing it fired
 maximise and dismissed the overlay. But a leader is supposed to open a
-*menu* — and a one-entry menu isn't really one. Here you'll replace
-the thunk with an `(overlay …)` and put three bindings inside it.
+*menu* — and a one-entry menu isn't really one. Here you'll turn `w`
+into a **drill-down** with `open`, and put three bindings inside a
+**panel**.
 
 Edit `config.scm`:
 
 ```scheme
-(define-tree 'global
-  (key "w" "Windows"
-    (overlay
+(screen 'global
+  (open "w" "Windows"
+    (panel "Window"
       (key "m" "Maximise" (λ () (move-window 0 0 1 1)))
       (key "c" "Centre"   (λ () (center-window)))
       (key "r" "Restore"  (λ () (restore-window))))))
@@ -109,35 +112,41 @@ No new imports are needed — `center-window` and `restore-window` come
 from the same `(modaliser window)` import you added in Step 1
 alongside `move-window`.
 
-Notice what `(key "w" "Windows" (overlay …))` does: `(overlay …)`
-*returns a node*, and the outer `(key …)` *decorates* it with the key
-(`"w"`) and label (`"Windows"`). The same dispatch you'd use for any
-sub-tree — overlays, groups, selectors — happens here.
+Two new forms, one for each job:
 
-**Relaunch. Press F18 w.** Three rows appear: *m Maximise*,
-*c Centre*, *r Restore*. Press one of the letters; the action fires
-and the overlay dismisses.
+- **`(open KEY LABEL …)`** is a *navigable* drill-down. Pressing `w`
+  descends into a fresh sub-screen — its own grid of panels — instead
+  of firing an action. `open` bakes the key and label in *positionally*
+  (`"w"` / `"Windows"`); it's the only layout form that changes where
+  you are in the tree.
+- **`(panel "Window" …)`** is a *transparent* banded card. It groups
+  rows under a header without changing the keys beneath it — `m` still
+  fires maximise whether or not a panel wraps it.
+
+**Relaunch. Press F18 w.** A card titled *Window* appears with three
+rows: *m Maximise*, *c Centre*, *r Restore*. Press one of the letters;
+the action fires and the overlay dismisses.
 
 That's the **launcher** pattern in miniature — the reader (you) steps
-into the tree, picks an entry, the entry fires, the tree disappears.
-Steps 3–5 enrich the launcher; you won't change its essential shape
-until Part 2.
+into the screen, picks an entry, the entry fires, the overlay
+disappears. Steps 3–5 enrich the launcher; you won't change its
+essential shape until Part 2.
 
 ## Step 3 — A layout block
 
-So far the overlay's contents are all `(key …)` forms — bindings that
-get one row each in the menu. Try writing a window manager with nine
-move/resize bindings that way and the overlay is unreadable.
+So far the sub-screen holds one panel of `(key …)` rows — bindings
+that get one row each. Try writing a window manager with nine
+move/resize bindings that way and the card is unreadable.
 
-A *block* solves this. A block is a renderer-aware overlay ingredient
-that brings *both* bindings *and* chrome (a diagram, a chip strip,
-custom layout). `window:layout-block` is the one you want here: you
-hand it a sequence of letter matrices describing the screen regions
-each key should target, and it paints a grid of mini screen-diagrams
-with the letters in the regions they bind to.
+A *block* solves this. A block is a renderer-aware ingredient you embed
+*inside a panel*; it brings *both* bindings *and* chrome (a diagram, a
+chip strip, custom layout). `window:layout-block` is the one you want
+here: you hand it a sequence of letter matrices describing the screen
+regions each key should target, and it paints a grid of mini
+screen-diagrams with the letters in the regions they bind to.
 
-Replace the contents of the overlay with a `window:layout-block`, and
-keep *Restore* as a loose `(key …)` so you can see a block and a key
+Wrap the block in a `(panel "Layout" …)`, and keep *Restore* in its own
+`(panel "Actions" …)` so you can see a block-panel and a key-panel
 coexisting:
 
 ```scheme
@@ -147,40 +156,42 @@ coexisting:
         (modaliser window)
         (prefix (modaliser window-actions) window:))
 
-(define-tree 'global
-  (key "w" "Windows"
-    (overlay
+(screen 'global
+  (open "w" "Windows"
+    (panel "Layout"
       (window:layout-block
         (("d" "f" "g"))                  ; full thirds
         (("e" "e" #f))                   ; left two-thirds
         ((#f "t" "t"))                   ; right two-thirds
         (("m"))                          ; maximise (full cell)
-        (center "c"))                    ; centre (inward arrows)
+        (center "c")))                   ; centre (inward arrows)
+    (panel "Actions"
       (key "r" "Restore" (λ () (restore-window))))))
 ```
 
-Each matrix is a row-major description of a panel: `(("d" "f" "g"))`
-is one row of three cells (full-thirds), `(("e" "e" #f))` is one row
-where the same letter spanning two adjacent cells produces one wider
-binding (left two-thirds), and `#f` marks an empty cell. `(("m"))`
-is a 1×1 matrix — one binding that fills the full cell, which is
-exactly the `(move-window 0 0 1 1)` call you wrote literally in
-Step 1. The `(center "c")` head-symbol form is the one exception —
-it doesn't fit a grid, so it gets its own panel rendered with inward
-arrows.
+Each matrix is a row-major description of one diagram tile:
+`(("d" "f" "g"))` is one row of three cells (full-thirds),
+`(("e" "e" #f))` is one row where the same letter spanning two adjacent
+cells produces one wider binding (left two-thirds), and `#f` marks an
+empty cell. `(("m"))` is a 1×1 matrix — one binding that fills the full
+cell, which is exactly the `(move-window 0 0 1 1)` call you wrote
+literally in Step 1. The `(center "c")` head-symbol form is the one
+exception — it doesn't fit a grid, so it gets its own tile rendered
+with inward arrows.
 
-**Relaunch. Press F18 w.** You see the diagram strip with the letters
-laid out spatially, and a single text row for *r Restore* underneath.
-Press **d** — the window snaps to the left third. Press **e** —
-left two-thirds. Press **m** — full-screen. Press **c** — centred.
+**Relaunch. Press F18 w.** You see two cards: a *Layout* card with the
+diagram tiles laid out spatially, and an *Actions* card with a single
+*r Restore* row. Press **d** — the window snaps to the left third.
+Press **e** — left two-thirds. Press **m** — full-screen. Press **c** —
+centred.
 
-Two ideas live in that snippet. First: an overlay can hold *multiple*
-blocks alongside *loose* `(key …)` forms; you'll add more in Steps
-4–5. Second: a block carries chrome the renderer paints (the grid),
-not just a flat list of choices. Most of the visual richness in
-Modaliser overlays comes from blocks — `window:layout-block` here,
-`window:list-block` in Step 5, `which-key-block` automatically wrapped
-around your loose keys.
+Two ideas live in that snippet. First: a screen holds *multiple panels*
+— some wrapping a block, some holding plain keys; you'll add more in
+Steps 4–5. Second: a block carries chrome the renderer paints (the
+grid), not just a flat list of choices. Most of the visual richness in
+Modaliser screens comes from blocks — `window:layout-block` here,
+`window:list-block` in Step 5 — while plain `(key …)` rows you don't
+wrap in a named panel simply collect into a leading *General* card.
 
 
 ## Step 4 — A selector
@@ -203,27 +214,31 @@ because of *how* they're bound. Look at the form you're about to type:
 The third arg to `(key …)` is a *call* — `(selector …)`. Modaliser
 evaluates it at config-load time. It returns a node — an alist
 describing a selector. The `(key …)` macro sees that node and
-*decorates* it with `"s"` / `"Select Window"`. The same dispatch you
-saw on `(overlay …)` in Step 2.
+*decorates* it with `"s"` / `"Select Window"`. This is a different
+binding idiom from `open`: `open` baked its key and label in
+*positionally*, whereas a selector is a *node* you wrap with a `(key …)`
+to give it its key and label.
 
 Once you spot this pattern, every factory in the codebase reads the
 same way: `(settings:actions)`, `(launcher:find-application)`,
 `(web-search:google)` — they all return nodes that get decorated by
 the wrapping `(key …)`.
 
-Add the selector to your overlay (you'll already have `(modaliser window)`
-in your imports — it provides `list-windows` and `focus-window`):
+Add the selector to the *Actions* panel (you'll already have
+`(modaliser window)` in your imports — it provides `list-windows` and
+`focus-window`):
 
 ```scheme
-(define-tree 'global
-  (key "w" "Windows"
-    (overlay
+(screen 'global
+  (open "w" "Windows"
+    (panel "Layout"
       (window:layout-block
         (("d" "f" "g"))
         (("e" "e" #f))
         ((#f "t" "t"))
         (("m"))
-        (center "c"))
+        (center "c")))
+    (panel "Actions"
       (key "r" "Restore" (λ () (restore-window)))
       (key "s" "Select Window"
         (selector 'prompt "Select window by name…"
@@ -251,30 +266,33 @@ underneath it.
 
 ## Step 5 — The window list, with chips
 
-Add `(window:list-block 'chips? #t)` to the bottom of the overlay:
+Add a `(panel "Windows" …)` holding `(window:list-block 'chips? #t)`:
 
 ```scheme
-(overlay
+(open "w" "Windows"
   ...
-  (window:list-block 'chips? #t))
+  (panel "Windows"
+    (window:list-block 'chips? #t)))
 ```
 
-**Relaunch. Press F18 w.** Two things happen at once: the overlay
-gains a third block at the bottom listing your visible windows by
-title, *and* the real windows on screen acquire little chips with
-labels that match the rows in that block. The chips are the link
-between "I see a row in the overlay" and "I see which window it talks
-about".
+**Relaunch. Press F18 w.** Two things happen at once: the screen gains
+a *Windows* card listing your visible windows by title, *and* the real
+windows on screen acquire little chips with labels that match the rows
+in that card. The chips are the link between "I see a row in the
+overlay" and "I see which window it talks about". (A panel holding a
+live list auto-promotes to a *wide* card, since lists want horizontal
+room.)
 
-You've now seen three different blocks in one overlay
-(`window:layout-block`, the implicit which-key block of loose
-`(key …)` forms, and `window:list-block`), plus one selector
-(`Select Window`). Each fires once and the overlay dismisses; control
-returns to whatever you were doing before F18.
+You've now seen three panels, each a different ingredient — a
+*Layout* card embedding `window:layout-block`, an *Actions* card of
+plain `(key …)` rows, and a *Windows* card embedding
+`window:list-block` — plus one selector (`Select Window`). Each fires
+once and the overlay dismisses; control returns to whatever you were
+doing before F18.
 
 That's Part 1 done. Everything you've built so far is the **launcher
-pattern**: a tree you step through, a single action, dismiss. Most of
-Modaliser looks like this — the global tree, the per-app trees, the
+pattern**: a screen you step through, a single action, dismiss. Most of
+Modaliser looks like this — the global screen, the per-app screens, the
 launchers themselves. Part 2 is one new idea: what if some bindings
 *didn't* dismiss?
 
@@ -288,7 +306,10 @@ focused window through different half-screen arrangements while you
 decide on a layout, say? Pressing F18 w between each press is too
 many keystrokes.
 
-Add an `(a Arrange)` sub-group inside the overlay, bound to hjkl:
+Add an `(a Arrange)` sub-group inside the `w` drill-down, bound to
+hjkl. `group` is the lightweight cousin of `open`: a flat `›` drill-in
+row (a single list of children, no panel grid) — perfect for a tight
+directional cluster:
 
 ```scheme
 (group "a" "Arrange"
@@ -334,9 +355,9 @@ dozens of times an hour. Step 7 fixes it with a small refactor.
 
 Look at iTerm's `Focus` mode — open
 [`Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld) and find the
-"Focus" category around line 179. It binds hjkl too, but you don't
-press an `a` first when you're in iTerm; the very first `h` *both*
-moves pane-focus *and* puts you in the sticky focus tree. How?
+`Focus` panel and its `focus-mode-tree`. It binds hjkl too, but you
+don't press an `a` first when you're in iTerm; the very first `h`
+*both* moves pane-focus *and* puts you in the sticky focus tree. How?
 
 `'sticky-target`. A trailing keyword on a `(key …)` binding: when the
 binding fires, the state machine (a) runs the action, then (b)
@@ -347,13 +368,14 @@ leaders.
 
 The refactor: take the four hjkl bindings out of the `(group "a" …)`
 in Step 6, give them `'sticky-target 'window-arrange`, and put them
-directly into the `w` overlay. Register a *separate* sticky tree
-named `'window-arrange` for the modal navigation to land in:
+directly into the `w` drill-down (say, an `Arrange` panel). Register a
+*separate* sticky tree named `'window-arrange` for the modal
+navigation to land in:
 
 ```scheme
-;; A new top-level form, outside (define-tree 'global …):
+;; A new top-level form, outside (screen 'global …):
 
-(define-tree 'window-arrange
+(screen 'window-arrange
   'sticky #t
   'exit-on-unknown #t
   'display-name "Arrange"
@@ -362,8 +384,8 @@ named `'window-arrange` for the modal navigation to land in:
   (key "k" "Top half"    (λ () (move-window 0    0    1    0.5)))
   (key "l" "Right half"  (λ () (move-window 0.5  0    0.5  1))))
 
-;; Inside the `w` overlay, in place of the (group "a" …) you wrote
-;; in Step 6:
+;; Inside the `w` drill-down, in place of the (group "a" …) you wrote
+;; in Step 6 — e.g. as an (panel "Arrange" …):
 
 (key "h" "Left half"   (λ () (move-window 0    0    0.5  1))
      'sticky-target 'window-arrange)
@@ -383,12 +405,12 @@ halves. Esc exits. Compare: Step 6 needed `w a h`; Step 7 needs `w h`.
 Two concepts arrived together here. The obvious one is
 `'sticky-target` — fire-and-enter as a single press. The other is
 quieter but more useful: **sticky trees are *named, top-level trees***
-registered with their own `define-tree`. The launcher tree
-(`'global`), a per-app tree (e.g. `'com.googlecode.iterm2`), and a
-sticky tree (`'window-arrange`) are all sibling top-level forms — they
-look structurally identical; the only difference is what *references*
-them. Once you've seen three trees alongside each other, "tree"
-becomes the unit of mental composition for the whole system.
+registered with their own `screen`. The launcher screen
+(`'global`), a per-app screen (e.g. `'com.googlecode.iterm2`), and a
+sticky screen (`'window-arrange`) are all sibling top-level forms —
+they look structurally identical; the only difference is what
+*references* them. Once you've seen three screens alongside each other,
+"screen" becomes the unit of mental composition for the whole system.
 
 iTerm's pane Focus mode is doing exactly what you just wrote, applied
 to AppleScript pane-focus instead of window arrangement. Your `w h`
@@ -397,17 +419,18 @@ sticky-target plumbing, different action surface.
 
 ## Step 8 — Why this is "modal"
 
-You just built two patterns. Both live in the same `w` overlay; both
-are the same DSL forms, composed differently. Naming them explicitly
-is what closes the conceptual loop.
+You just built two patterns. Both live in the same `w` drill-down;
+both are the same DSL forms, composed differently. Naming them
+explicitly is what closes the conceptual loop.
 
 ### The launcher pattern (Steps 1–5)
 
-A tree the reader steps through. Each leaf fires once and the overlay
+A screen the reader steps through. Each leaf fires once and the overlay
 dismisses. Steps 1–5 built this from the ground up: a one-binding
-leader, an overlay, a layout-block, a selector, a window-list. Most
-of what ships in `default-config.scm` is this pattern — the global
-tree, per-app trees, instant-app launchers, the search category.
+leader, an `open` drill-down, a layout-block, a selector, a
+window-list. Most of what ships in `default-config.scm` is this pattern
+— the global screen, per-app screens, instant-app launchers, the search
+panel.
 
 When a feature should be "type X, get Y, done", this is the shape.
 
@@ -425,16 +448,16 @@ When a feature should be "stay in this tiny vocabulary until I tell
 you to leave", this is the shape. The canonical example is iTerm's
 pane Focus — open
 [`Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld) and read
-the `Focus` category alongside the `focus-mode-tree` definition. It's
-structurally identical to your `w` overlay's hjkl + `'window-arrange`
+the `Focus` panel alongside the `focus-mode-tree` definition. It's
+structurally identical to your `w` drill-down's hjkl + `'window-arrange`
 tree.
 
 ### Why this matters
 
 The system's surface area looks bigger than it is because there are
-two patterns multiplying through every layer. Per-app trees? Launcher
-pattern, with the tree selected by frontmost-app. `(category …)`?
-A layout marker for one launcher overlay. Selectors? A launcher leaf
+two patterns multiplying through every layer. Per-app screens? Launcher
+pattern, with the screen selected by frontmost-app. `(panel …)`?
+A banded card grouping rows in one screen. Selectors? A launcher leaf
 that runs a fuzzy-finder before firing `'on-select`. Sticky modes?
 The modal pattern, scoped to a named tree. Sticky-target? The modal
 pattern's polite way of saying "first press does both jobs."
@@ -465,5 +488,5 @@ backup back:
 cp ~/.config/modaliser/config.scm.tutorial-bak ~/.config/modaliser/config.scm
 ```
 
-Then pick **Relaunch** from the menu bar icon. Or keep the `w` overlay
-you just built — it's a real config, not a throwaway.
+Then pick **Relaunch** from the menu bar icon. Or keep the `w`
+drill-down you just built — it's a real config, not a throwaway.

@@ -39,8 +39,8 @@ See the third-arg dispatch table in
 ## 2. Pressed the wrong leader
 
 The seeded config wires F18 to the global tree and F17 to the local
-(per-app) tree. A binding under `(define-tree 'global …)` only fires
-from F18; one under `(define-tree 'com.your.app …)` only fires from
+(per-app) tree. A binding under `(screen 'global …)` only fires
+from F18; one under `(screen 'com.your.app …)` only fires from
 F17 while that app is frontmost.
 
 Check:
@@ -51,7 +51,7 @@ osascript -e 'tell application "System Events" to bundle identifier of first app
 ```
 
 The bundle ID it prints must match the scope you used in
-`define-tree`. Modaliser itself becomes frontmost briefly when you
+`screen`. Modaliser itself becomes frontmost briefly when you
 trigger menu bar items — switch via the keyboard if you want a clean
 read.
 
@@ -89,14 +89,14 @@ this trivial; without them, the failure mode is silent.
 
 ## 4. Scope collision (one tree replaces another)
 
-Two `(define-tree 'global …)` calls don't merge — the second replaces
+Two `(screen 'global …)` calls don't merge — the second replaces
 the first. If you have multiple files declaring the same scope (e.g.
 your config + a bundled factory's `register!`), the later call wins.
 
 Check the call order in `config.scm`. Bundled factories like
 `(safari:register!)` are forgiving — pass `'extra-bindings (list …)`
 to add without replacing. For your own trees, keep a single
-`define-tree` call per scope.
+`screen` call per scope.
 
 ## 5. Modal isn't even being entered
 
@@ -121,8 +121,8 @@ might not be set. Confirm:
 ## When the Console has the answer
 
 Modaliser logs to Console.app under the `Modaliser` process. LispKit
-import errors, schema-validation failures inside `define-tree`, and
-any `(error …)` calls from your config land there. If a binding's
+import errors, schema-validation failures inside `screen` / `panel`,
+and any `(error …)` calls from your config land there. If a binding's
 behaviour is genuinely mysterious, the first move is to filter
 Console for `Modaliser` and reproduce the press.
 

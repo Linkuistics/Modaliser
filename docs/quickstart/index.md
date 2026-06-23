@@ -55,23 +55,24 @@ just a menu bar icon. On first run it also seeds
 
 ## 3. Press F18
 
-F18 is the default global leader. Tap it once — a *which-key* overlay
-appears showing every binding at the root of the global tree:
+F18 is the default global leader. Tap it once — the overlay appears.
+Read it like a reference card: a grid of banded **panels**, one card
+per group, showing every binding at the root of the global tree. The
+seeded global screen has four panels:
 
-```
-1..    Switch Space
-,      Settings
-w      Windows
-   Instant Apps         AI               Search           Apps
-   b   Browser          c   ChatGPT      g   Google       j   Jump Desktop
-   e   Editor           C   Claude…      a   Find App     m   Mail
-   t   Terminal                          f   Find File    n   Notes
-                                                          o   Obsidian
-                                                          z   Zotero
-```
+- **General** — `1..` Switch Space, `,` Settings, `␣` Highlight
+  Cursor, and `w ›` Windows (a drill-down into its own grid of panels).
+- **Applications** — `b` Browser, `e` Editor, `t` Terminal, … one key
+  per app.
+- **AI** — `c` ChatGPT, `C` Claude Desktop.
+- **Search** — `g` Google, `a` Find Application, `f` Find File.
 
-Type one of those keys to fire its action (or descend into the
-subgroup). Press <kbd>Escape</kbd> at any time to dismiss the modal.
+Each card bands its label across the top; a `›` on a row marks a
+drill-down into a sub-screen.
+
+Type one of those keys to fire its action (or, on a `›` row, descend
+into the sub-screen). Press <kbd>Escape</kbd> at any time to dismiss
+the modal.
 
 The overlay appears after a short delay (0.3 s in the seeded config)
 so muscle-memory keypresses produce no UI at all — the modal still
@@ -80,13 +81,15 @@ captures and dispatches the key, the user just never sees a flash.
 ## 4. Edit one binding
 
 Open `~/.config/modaliser/config.scm` (the menu bar icon's **Settings**
-item launches it in your default editor). Find this block:
+item launches it in your default editor). Find the `Applications`
+panel — a `(panel "Applications" …)` block, abridged here:
 
 ```scheme
-(category "Instant Apps"
+(panel "Applications"
   (key "b" "Browser"          (λ () (launch-app "Dia")))
   (key "e" "Editor"           (λ () (launch-app "Zed")))
-  (key "t" "Terminal"         (λ () (launch-app "iTerm"))))
+  (key "t" "Terminal"         (λ () (launch-app "iTerm")))
+  …)                          ; more app keys follow
 ```
 
 A few things to notice:
@@ -98,17 +101,19 @@ A few things to notice:
   side-effecting call in a thunk so it fires on key press, not at
   config-load. `(key "b" "Browser" (launch-app "Dia"))` *without* the
   `λ` would launch Dia every time Modaliser starts.
-- **`(category …)`** groups a slice of the overlay under a label. The
-  state machine treats categories as transparent — typing `b` still
-  fires the Browser binding regardless of the category wrapping.
+- **`(panel …)`** is a banded card in the screen's grid. It's
+  *transparent* for dispatch — typing `b` still fires the Browser
+  binding regardless of the panel wrapping; the panel only shapes how
+  the rows are grouped and drawn.
 
 Change one label or app:
 
 ```scheme
-(category "Instant Apps"
+(panel "Applications"
   (key "b" "Safari"           (λ () (launch-app "Safari")))   ; was Dia
   (key "e" "Editor"           (λ () (launch-app "Zed")))
-  (key "t" "Terminal"         (λ () (launch-app "iTerm"))))
+  (key "t" "Terminal"         (λ () (launch-app "iTerm")))
+  …)
 ```
 
 Save the file.
@@ -127,14 +132,15 @@ You now have the loop: edit `config.scm`, relaunch, try the binding.
 - **Tutorial** — [Modal Thinking — build a window-manager leader](../tutorials/modal-thinking.md).
   30–60 minutes; the natural next step if you want to *understand*
   the system rather than look up recipes for specific tasks. Walks
-  through the launcher and modal patterns by building a `w` overlay
+  through the launcher and modal patterns by building a `w` drill-down
   from a one-key stub up to something close to `default-config.scm`.
 - **How-to guides** — task-oriented recipes for adding bindings,
   per-app trees, sticky modes, fuzzy-finders, theming, and debugging.
   → [how-to/index.md](../how-to/index.md)
-- **The DSL** — every form available inside `define-tree`, including
-  `keys` for multi-key bindings, `group` for nested submenus, `selector`
-  for fuzzy-finder choosers, and `overlay` for custom block layouts.
+- **The DSL** — the layout forms (`screen`, `panel`, `open`,
+  `fragment`) you author the overlay with, plus the dispatch atoms they
+  hold: `key`, `keys` for multi-key bindings, `group` for flat nested
+  submenus, and `selector` for fuzzy-finder choosers.
   → [reference/dsl.md](../reference/dsl.md)
 - **Bundled libraries** — `(modaliser launchers)` for app/file pickers,
   `(modaliser web-search)` for web queries, `(modaliser apps safari)` /

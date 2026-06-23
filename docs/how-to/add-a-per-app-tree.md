@@ -14,7 +14,7 @@ to the global tree; the global leader (F18) is always there for that.
   `com.googlecode.iterm2`, `dev.zed.Zed`. Run
   `osascript -e 'id of app "Safari"'` if you don't know it.
 - For form-by-form detail: [reference/dsl.md](../reference/dsl.md)
-  (`define-tree`).
+  (`screen`).
 
 ## Steps
 
@@ -24,7 +24,7 @@ to the global tree; the global leader (F18) is always there for that.
      apps chrome)`, or `(modaliser apps iterm)` — see
      [reference/libraries.md](../reference/libraries.md).
    - Extend a bundled factory via its `'extra-bindings` option.
-   - Write a fresh tree with `(define-tree 'com.your.app …)`.
+   - Write a fresh tree with `(screen 'com.your.app …)`.
 
 2. **For a bundled app (Safari shown):**
 
@@ -49,24 +49,28 @@ to the global tree; the global leader (F18) is always there for that.
    ```
 
    The extras are appended to the factory's defaults — they appear
-   after the Tabs/Browser groups in the overlay.
+   after the factory's own panels in the overlay.
 
-4. **For an app with no factory,** write a tree from scratch. Use the
-   app's bundle ID as the scope symbol:
+4. **For an app with no factory,** write a screen from scratch. Use the
+   app's bundle ID as the scope symbol, and group the rows into
+   `(panel …)` cards:
 
    ```scheme
-   (define-tree 'dev.zed.Zed
-     (key "p" "Command Palette"
-          (λ () (send-keystroke '(cmd shift) "p")))
-     (key "f" "Find in Project"
-          (λ () (send-keystroke '(cmd shift) "f")))
+   (screen 'dev.zed.Zed
+     (panel "Editor"
+       (key "p" "Command Palette"
+            (λ () (send-keystroke '(cmd shift) "p")))
+       (key "f" "Find in Project"
+            (λ () (send-keystroke '(cmd shift) "f"))))
      (group "g" "Git"
        (key "s" "Status" (λ () (send-keystroke '(ctrl) "g")))
        (key "b" "Blame"  (λ () (send-keystroke '(ctrl shift) "g")))))
    ```
 
-   Same DSL as the global tree; only the scope differs. Tap F17 with
-   Zed frontmost to see it.
+   Same DSL as the global screen; only the scope differs. (A loose
+   `(key …)` outside any panel would collect into a leading "General"
+   card — wrapping them in a named `(panel …)` just reads better.) Tap
+   F17 with Zed frontmost to see it.
 
 5. **Save and relaunch** from the menu bar icon.
 
@@ -75,7 +79,7 @@ to the global tree; the global leader (F18) is always there for that.
 Focus the app you targeted, tap F17, wait for the overlay. Your
 bindings should appear with the app's name in the breadcrumb. If the
 overlay shows the *global* tree instead, the local leader fell back —
-either the scope ID is wrong, or `define-tree` didn't run.
+either the scope ID is wrong, or the `screen` form didn't run.
 
 `osascript -e 'tell application "System Events" to bundle identifier of
 first application process whose frontmost is true'` prints the bundle
@@ -84,7 +88,7 @@ F17 will dispatch against.
 
 ## Notes
 
-**One tree per scope.** A second `(define-tree 'com.apple.Safari …)`
+**One tree per scope.** A second `(screen 'com.apple.Safari …)`
 replaces the first — there's no merging across calls. Reach for
 `'extra-bindings` on a bundled factory if you want to add without
 replacing.
@@ -106,8 +110,8 @@ walkthrough of pane-aware variant trees, see
 
 ## Related
 
-- [reference/dsl.md](../reference/dsl.md) — `(define-tree …)`
-  signature and keyword set.
+- [reference/dsl.md](../reference/dsl.md) — `(screen …)` signature and
+  keyword set.
 - [reference/libraries.md](../reference/libraries.md) — `(modaliser
   apps safari | chrome | iterm)` factory APIs.
 - [sticky-mode.md](sticky-mode.md) — for app-modes where one binding

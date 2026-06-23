@@ -14,22 +14,25 @@ keystroke replay, or a shell-command trigger.
 1. **Open your config.** The menu bar icon's **Settings…** item reveals
    `~/.config/modaliser/` in Finder. Open `config.scm` in your editor.
 
-2. **Find `(define-tree 'global …)`.** Everything after the leading
-   keyword block is content — `(key …)`, `(category …)`, `(group …)`
-   forms in any order. The auto-packer collapses consecutive `(key …)`
-   forms into one which-key block; categories render as their own
-   columns underneath.
+2. **Find `(screen 'global …)`.** Everything after the leading keyword
+   block is content — `(panel …)` cards holding `(key …)` rows, plus
+   `(open …)` drill-downs. A loose `(key …)` written directly under the
+   `screen` (outside any panel) collects into a leading **"General"**
+   panel automatically, so you can drop one in without picking a card.
 
-3. **Drop a `(key …)` form** inside the tree. The third argument must
-   be either a thunk (an action) or a node-returning call (a
-   selector, an overlay). Side-effecting calls must be wrapped:
+3. **Drop a `(key …)` form** inside a panel (or loosely, to land in
+   "General"). The third argument must be either a thunk (an action) or
+   a node-returning call (a selector). Side-effecting calls must be
+   wrapped:
 
    ```scheme
-   (key "v" "Vim Notes" (λ () (launch-app "MacVim")))
+   (panel "Applications"
+     …
+     (key "v" "Vim Notes" (λ () (launch-app "MacVim"))))
    ```
 
-   Place it wherever you want it to read in the overlay — bindings flow
-   in declaration order within each block.
+   Place it wherever you want it to read in the overlay — rows flow in
+   declaration order within each panel.
 
 4. **For keystroke replay** instead of an app launch, use
    `send-keystroke`:
@@ -71,7 +74,9 @@ This renders as a single `"1.."` row in the overlay and binds digits
 `"1"` through `"9"`. The action receives the matched key, its index,
 and the full keylist — branch on whichever you need.
 
-**Submenu.** Use `(group …)` for a nested overlay:
+**Submenu.** Use `(group …)` for a quick flat nested menu — a `›` row
+that drills into a single list of children (reach for `(open …)`
+instead when the destination wants its own grid of panels):
 
 ```scheme
 (group "f" "Files"
@@ -89,8 +94,9 @@ present in the seeded default config.
 
 ## Related
 
-- [reference/dsl.md](../reference/dsl.md) — every form available
-  inside `define-tree`, with signatures.
+- [reference/dsl.md](../reference/dsl.md) — every layout form
+  (`screen`, `panel`, `open`, `fragment`) and dispatch atom, with
+  signatures.
 - [reference/keyboard.md](../reference/keyboard.md) — navigation keys
   inside the modal (Escape, Backspace, …).
 - [add-a-per-app-tree.md](add-a-per-app-tree.md) — for bindings that

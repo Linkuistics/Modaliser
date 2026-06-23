@@ -17,7 +17,7 @@ and returns a suffix string (e.g. `/nvim`) or `#f`.
 `resolve-app-tree` (called internally by the leader handler) then
 prefers the tree registered under `"com.googlecode.iterm2/nvim"`,
 falling back to the plain `"com.googlecode.iterm2"` tree when no
-suffix matches. You register the variant trees with `define-tree`.
+suffix matches. You register the variant trees with `screen`.
 
 For how detection works — what the TTY probe does, which terminals
 support it, and the nvim RPC route — see
@@ -34,7 +34,7 @@ support it, and the nvim RPC route — see
   ../reference/terminal-detection.md#the-nvim-side) in the
   detection reference.
 - For form-by-form detail: [reference/dsl.md](../reference/dsl.md)
-  (`define-tree`).
+  (`screen`).
 
 ## The quick path: `(iterm:register!)`
 
@@ -49,9 +49,10 @@ need to register the matching variant trees:
         (prefix (modaliser apps iterm) iterm:))
 (iterm:register!)
 
-(define-tree 'com.googlecode.iterm2/nvim
-  (key "w" "Write"  (λ () (nvim-remote-send ":w<CR>")))
-  (key "q" "Close"  (λ () (nvim-remote-send "<Esc>:q<CR>"))))
+(screen 'com.googlecode.iterm2/nvim
+  (panel "nvim"
+    (key "w" "Write"  (λ () (nvim-remote-send ":w<CR>")))
+    (key "q" "Close"  (λ () (nvim-remote-send "<Esc>:q<CR>")))))
 ```
 
 Tap F17 with nvim in the focused split — the `/nvim` tree appears.
@@ -61,7 +62,7 @@ tree appears instead.
 ## If you've inlined your iTerm tree
 
 Inlining the iTerm tree by hand — writing a
-`(define-tree 'com.googlecode.iterm2 …)` instead of calling
+`(screen 'com.googlecode.iterm2 …)` instead of calling
 `(iterm:register!)` — keeps your bindings but **drops two
 behaviours the library would otherwise install**:
 
@@ -87,8 +88,8 @@ everything `register!` normally does **except** the
 ;; mode + suffix handler with the façade, but leave the tree to us.
 (iterm:register! 'install-tree? #f)
 
-(define-tree 'com.googlecode.iterm2
-  (category "Focus"
+(screen 'com.googlecode.iterm2
+  (panel "Focus"
     (key "h" "Left"  terminal:focus-pane-left)
     (key "j" "Down"  terminal:focus-pane-down)
     (key "k" "Up"    terminal:focus-pane-up)
@@ -105,8 +106,8 @@ section.
 ## Worked example: a custom context suffix
 
 The general recipe — branch on the focused split's foreground command.
-Add this alongside your `(define-tree 'com.googlecode.iterm2 …)`
-(your config already imports `(modaliser dsl)` for `define-tree`,
+Add this alongside your `(screen 'com.googlecode.iterm2 …)`
+(your config already imports `(modaliser dsl)` for `screen`,
 `key`, and `λ`):
 
 ```scheme
@@ -127,9 +128,10 @@ Add this alongside your `(define-tree 'com.googlecode.iterm2 …)`
              ((string-contains? cmd "lazygit") "/lazygit")
              (else                             #f))))))
 
-(define-tree 'com.googlecode.iterm2/lazygit
-  (key "p" "Push"  (λ () (send-keystroke '() "P")))
-  (key "f" "Pull"  (λ () (send-keystroke '() "p"))))
+(screen 'com.googlecode.iterm2/lazygit
+  (panel "lazygit"
+    (key "p" "Push"  (λ () (send-keystroke '() "P")))
+    (key "f" "Pull"  (λ () (send-keystroke '() "p")))))
 ```
 
 The suffix itself can go deeper — ask the focused nvim a question.
@@ -156,7 +158,7 @@ so a static tree that hard-codes every op will surface entries
 that silently no-op on backends that don't support them.
 
 The capability predicates let the tree omit those entries
-on the backends where they wouldn't work. `define-tree` is a
+on the backends where they wouldn't work. `screen` is a
 regular procedure, so the canonical splice idiom is `apply` +
 `append` — the same pattern the bundled `(modaliser apps iterm)`
 module uses for its own conditional children:
@@ -166,10 +168,10 @@ module uses for its own conditional children:
         (prefix (modaliser terminal) terminal:))
 
 (define (rebuild-terminal-tree!)
-  (apply define-tree 'com.googlecode.iterm2
+  (apply screen 'com.googlecode.iterm2
     (append
       (list
-        (category "Focus"
+        (panel "Focus"
           (key "h" "Left"  terminal:focus-pane-left)
           (key "j" "Down"  terminal:focus-pane-down)
           (key "k" "Up"    terminal:focus-pane-up)
