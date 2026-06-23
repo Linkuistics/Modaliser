@@ -34,6 +34,8 @@
     set-overlay-delay! set-overlay-aspect-ratio!
     ;; Key handler hook (installed by event-dispatch after it defines modal-key-handler)
     set-modal-key-handler!
+    ;; On-leave arity predicate hook (installed by the host at boot)
+    set-on-leave-accepts-reason!
     ;; Overlay/chooser hooks
     overlay-open? show-overlay update-overlay hide-overlay open-chooser
     set-overlay-open! set-show-overlay! set-update-overlay!
@@ -42,7 +44,6 @@
     ;; Breadcrumb
     resolve-app-segments compute-root-segments compute-tree-root-segments)
   (import (scheme base)
-          (only (lispkit core) procedure-arity-includes?)
           (modaliser util)
           (modaliser app)
           (modaliser keyboard)
@@ -267,11 +268,26 @@
 ;; them in a nullary thunk (dsl.sld stays host-portable, so it can't do arity
 ;; introspection); those receive no reason. Reason-aware leave hooks therefore
 ;; belong on a (group …) — which is the natural home for an app-side sub-mode.
+;;
+;; Deciding 1-arg-vs-0-arg needs procedure-arity introspection, which R7RS
+;; has no portable primitive for. So — exactly like the overlay/chooser hooks
+;; below — the predicate is a host-injected cell: the portable default assumes
+;; nullary (the legacy behaviour before reason-aware leave hooks landed), and
+;; the host installs the real arity-backed predicate at boot via
+;; set-on-leave-accepts-reason!. An uninstalled host still calls every 0-arg
+;; hook correctly; only reason-aware hooks need the injected predicate. Read
+;; through the on-leave-accepts-reason? procedure (dynamic dispatch) so the
+;; mutation is always seen, never snapshotted (same reason overlay-open? is a
+;; thunk).
+(define on-leave-accepts-reason?-impl (lambda (thunk) #f))
+(define (on-leave-accepts-reason? thunk) (on-leave-accepts-reason?-impl thunk))
+(define (set-on-leave-accepts-reason! pred) (set! on-leave-accepts-reason?-impl pred))
+
 (define (run-on-leave node . opt)
   (let ((thunk (node-on-leave node))
         (reason (if (pair? opt) (car opt) 'navigate)))
     (when thunk
-      (if (procedure-arity-includes? thunk 1)
+      (if (on-leave-accepts-reason? thunk)
           (thunk reason)
           (thunk)))))
 

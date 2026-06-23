@@ -18,6 +18,12 @@
         (modaliser web-search)
         (modaliser theming))
 
+;; (modaliser state-machine) stays host-portable, so it can't introspect a raw
+;; on-leave hook's arity to decide whether to pass the exit reason. Install the
+;; host's real arity predicate here (procedure-arity-includes? is a LispKit
+;; primitive); the library's portable default assumes nullary until this runs.
+(set-on-leave-accepts-reason! (lambda (thunk) (procedure-arity-includes? thunk 1)))
+
 ;; ─── Plain .scm modules (Phase D will library-ize the remaining ones) ────────
 
 (include "ui/css.scm")
