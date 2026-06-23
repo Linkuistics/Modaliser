@@ -91,7 +91,7 @@ modal exits. Most launcher-style bindings use this — press `b`, the
 browser launches, the modal closes.
 
 A group can opt into **sticky** mode by setting `'sticky #t` on the
-group (or on the tree root via `define-tree`'s leading keywords):
+group (or on the tree root via `screen`'s leading keywords):
 
 ```scheme
 (group "p" "Pane" 'sticky #t
@@ -197,20 +197,20 @@ muscle-memory press through the mode never flashes chips.
    range match only commits if no literal match is found.
 2. **First-range wins.** If multiple ranges include the same key,
    declaration order picks the winner.
-3. **Categories are transparent.** `(category "X" (key …) …)` flattens
+3. **Panels are transparent.** `(panel "X" (key …) …)` flattens
    in dispatch — typing a child key dispatches as if the children
-   were direct group siblings. Categories only affect overlay
+   were direct group siblings. Panels only affect overlay
    rendering, not key paths.
 
 ```scheme
-(define-tree 'global
-  (category "Apps"
+(screen 'global
+  (panel "Apps"
     (key "b" "Browser" (λ () (launch-app "Safari"))))
   …)
 ```
 
 Typing `b` from the global root fires the browser binding — the
-`category` wrapper is invisible to dispatch.
+`panel` wrapper is invisible to dispatch.
 
 ## Modal state inspection
 

@@ -39,7 +39,8 @@ user-shipped `.sld` file may import from:
      `event-dispatch`, `util`, `ax-hints`, `terminal`, `leader`,
      `window-actions`, `apps/iterm`, `apps/safari`, `apps/chrome`,
      `launchers`, `web-search`, `settings-menu`,
-     `blocks/which-key`, `blocks/window-list`, `blocks/window-diagram`)
+     `blocks/window-list`, `blocks/window-diagram`, `blocks/iterm-panes`,
+     `blocks/iterm-tabs`)
      port verbatim across hosts.
    - *Native* libraries (`shell`, `app`, `keyboard`, `window`,
      `webview`, `input`, `accessibility`, `hints`, `fuzzy`,

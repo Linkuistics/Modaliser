@@ -1,6 +1,6 @@
 # The layout DSL surface is `screen` / `panel` / `open` over the unchanged dispatch atoms
 
-- **Status:** accepted (refines [ADR-0011](0011-presentation-first-layout-spec-lowers-to-operational-node-tree.md) §"layout DSL")
+- **Status:** accepted (refines [ADR-0011](0011-presentation-first-layout-spec-lowers-to-operational-node-tree.md) §"layout DSL"); the "no flag-day" consequence was **reversed 2026-06-24** — see [Amendment](#amendment-2026-06-24--the-flag-day-happened-after-all)
 
 ADR-0011 inverts authoring to a presentation-first layout spec that **lowers** to
 the operational node-tree. This ADR fixes the *concrete surface*. The layout
@@ -52,3 +52,28 @@ chunks splice in via a **`fragment`** form built on the existing `expand-splices
   there.
 - Portability preserved: all new forms stay within `(scheme …)` / `(srfi …)` /
   `(modaliser …)`; `check-portable-surface.sh` stays green.
+
+## Amendment (2026-06-24) — the flag-day happened after all
+
+The final Consequence above ("No flag-day") was **reversed by a post-k9
+user decision**. `docs-tests-k9` deprecated the old forms in the docs but
+left the code in place because shipped libraries still used it; the user
+then chose to **physically delete** the legacy path rather than finish the
+work on deprecation alone.
+
+The `legacy-whichkey-deletion-k13` workstream performed that flag-day in
+two steps: `migrate-callers-k14` moved the remaining live callers onto
+`screen` / `panel` / `register-tree!`, then `delete-which-key-k15` removed
+`define-tree` / `category` / `overlay` / `which-key-block`, the
+`(modaliser blocks which-key)` library and its assets, the `which-key`
+block-list render path, and the `set-overlay-aspect-ratio!` /
+`overlay-column-count` aspect-ratio column search. The layout forms
+`screen` / `panel` / `open` / `fragment` over the unchanged dispatch atoms
+are now the **only** authoring surface, and the default list renderer that
+plain `(group …)` drill-downs use flows CSS-intrinsic auto-fit columns
+rather than a Scheme-computed count.
+
+So "the old forms keep working unchanged" holds **only up to the k15
+commit**; thereafter they are gone. The dispatch atoms, the lowering
+contract, and the `'panel-grid` renderer marker — the substance of this
+ADR — are unaffected.

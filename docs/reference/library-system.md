@@ -103,12 +103,10 @@ The foundational set is always available. From a user `.sld` or
 `config.scm` you can:
 
 ```scheme
-(import (modaliser dsl))            ; key, keys, key-range, group, category,
-                                    ; selector, action, overlay, define-tree,
-                                    ; λ, set-leader!, set-theme!,
-                                    ; set-overlay-delay!,
-                                    ; set-overlay-aspect-ratio!,
-                                    ; modifier-symbols->mask
+(import (modaliser dsl))            ; key, keys, key-range, group, selector,
+                                    ; action, screen, panel, open, fragment,
+                                    ; sticky-set, λ, set-leader!, set-theme!,
+                                    ; set-overlay-delay!, modifier-symbols->mask
 (import (modaliser state-machine))  ; lookup-tree, modal-* introspection
 (import (modaliser event-dispatch)) ; set-local-context-suffix!
 (import (modaliser util))           ; alist-ref, props->alist, string-join,

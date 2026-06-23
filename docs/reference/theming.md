@@ -23,7 +23,6 @@ Source files:
 - [`blocks/window-list.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/window-list.css)
 - [`blocks/iterm-panes.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/iterm-panes.css)
 - [`blocks/window-diagram.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/window-diagram.css)
-- [`blocks/which-key.css`](../../Sources/Modaliser/Scheme/lib/modaliser/blocks/which-key.css) — legacy block renderer.
 
 CSS load order (last wins on equal specificity):
 
@@ -87,7 +86,7 @@ Panel-grid layout knobs (set on `.panel-grid`; the renderer pins
 ### Keycaps
 
 The keycap is the shared key vocabulary across panels, embedded lists,
-the chooser, and the legacy renderers. A soft mono pill; the **accent
+and the chooser. A soft mono pill; the **accent
 variant** (numeric keys inside live lists and the chooser) re-maps the
 three keycap vars on a scoped selector, so one `.entry-key` box rule
 paints both.
@@ -131,25 +130,27 @@ row is a `.list-row.is-focused`.)
 | `--color-header` | `#6b7280` | Breadcrumb / footer / caption / subtext (muted). |
 | `--color-separator` | `var(--panel-border)` | Header / footer / chooser rules. |
 
-### Legacy aliases
+### Live-list key alias
 
-Kept so the auto-layout block renderers (the deprecated `which-key`
-path) reskin to the new palette. `--color-key` now means a list/accent
-key; `--color-category` follows the panel-header colour.
+`--color-key` is the accent colour for the numeric keys in the live-list
+blocks (`window-list` / `iterm-panes` / `iterm-tabs` / `window-diagram`),
+until those blocks converge on the `.list-*` row vocabulary.
 
 | Variable | Default | Role |
 |---|---|---|
-| `--color-key` | `var(--accent)` | Legacy which-key / chooser-action keys. |
-| `--color-category` | `var(--panel-head-fg)` | Legacy which-key category labels. |
+| `--color-key` | `var(--accent)` | Numeric keys in the live-list blocks. |
 
 ### Default list renderer
 
-The plain-`(group …)` fallback list uses a CSS multi-column flow whose
-column count is computed in Scheme:
+The plain-`(group …)` fallback list flows into a CSS Grid with
+**CSS-intrinsic auto-fit columns** — as many `--overlay-entry-min-width`
+tracks as fit, capped by `--overlay-entries-max-width`. No column count
+is computed in Scheme.
 
 | Variable | Default | Role |
 |---|---|---|
-| `--overlay-cols` | computed | Column count picked by `overlay-column-count` to hit `set-overlay-aspect-ratio!`. Promoted onto `.overlay-entries` per render. (Not used by the panel grid.) |
+| `--overlay-entry-min-width` | `200px` | Minimum track width for the auto-fit list grid. |
+| `--overlay-entries-max-width` | `620px` | Caps the list width so it wraps rather than stretching to one row. |
 
 ### Host theme
 
@@ -253,7 +254,7 @@ unlike the host header.
 
 | Class | Where |
 |---|---|
-| `.entry-key` | The keycap — shared across panels, lists, chooser, legacy renderers. Soft by default; the accent variant is scoped under `.panel-list`, `.list-row`, and the block-list rows. |
+| `.entry-key` | The keycap — shared across panels, lists, and the chooser. Soft by default; the accent variant is scoped under `.panel-list`, `.list-row`, and the live-list block rows. |
 | `.entry-arrow` | Key → label arrow glyph. |
 | `.entry-label` | Label cell (never wraps; truncates with ellipsis). |
 | `.entry-label.group-label` | Modifier for rows that *open* a sub-screen / chooser (amber). |
@@ -296,19 +297,6 @@ inside the inset; those are skinned alongside the `.list-*` names, and
 | `.chooser-footer` | Separated footer (match count + nav hints). |
 | `.chooser-actions` | Tab-panel action list container. |
 | `.chooser-action-item` (`.selected`), `.chooser-action-key`, `.chooser-action-label`, `.chooser-action-desc` | Action panel rows. |
-
-### Legacy: which-key block
-
-Emitted by the deprecated `define-tree` / `category` / `overlay`
-auto-packing. Still skinned, but new configs render panels instead.
-
-| Class | Where |
-|---|---|
-| `.block-which-key` | Block container. |
-| `.block-which-key .wk-columns` | Column flow. |
-| `.block-which-key .wk-misc` / `.wk-category` | Misc / category segment columns. |
-| `.block-which-key .wk-category-label` | Category label. |
-| `.block-which-key .wk-row` | Single binding row. |
 
 ### Window-list / window-diagram blocks
 

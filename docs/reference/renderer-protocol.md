@@ -3,29 +3,30 @@
 The overlay renders through a **two-tier renderer registry**.
 
 **Tier 1 — the body renderer.** A group's `'renderer` metadata selects
-how its whole body is drawn. Three outcomes:
+how its whole body is drawn. Two outcomes:
 
 | `'renderer` | Authored by | Scheme payload builder | JS renderer |
 |---|---|---|---|
 | `'panel-grid` | `screen` / `open` (layout DSL) | `panel-grid-payload-json` | `overlayRenderers['panel-grid']` |
-| `'blocks` | `define-tree` / `overlay` (legacy) | `block-list-payload-json` | `overlayRenderers.blocks` |
 | *(none)* | a plain `(group …)` | inline list payload | `overlayRenderers.list` |
+
+`'panel-grid` is the sole custom body renderer; any other `'renderer`
+marker is a misuse and errors loudly.
 
 **Tier 2 — the block renderer.** A *block* (an alist carrying `'type`)
 is drawn by the JS handler registered under `window.overlayRenderers[TYPE]`.
-The block-list body iterates its blocks and dispatches each by `'type`
-(`window-list`, `iterm-panes`, `window-diagram`, the legacy
-`which-key`). The **panel-grid body composes tier 2**: it draws each
-panel's key-rows with the shared row renderer (`window.overlayRenderRow`,
-contributed by `which-key.js`) and draws a panel's embedded live list by
-calling that list block's own tier-2 renderer.
+The built-in block types are the live lists — `window-list`,
+`iterm-panes`, `iterm-tabs`, `window-diagram`. The **panel-grid body
+composes tier 2**: it draws each panel's key-rows with the shared row
+renderer (`renderPanelRow` in `overlay.js`) and draws a panel's embedded
+live list by calling that list block's own tier-2 renderer.
 
 So `panel-grid` is a tier-1 body renderer that *reuses* the tier-2 block
 renderers for the dynamic lists inside its panels — one registry, two
 levels of dispatch.
 
 Source: [`ui/overlay.scm`](../../Sources/Modaliser/Scheme/ui/overlay.scm)
-(`renderer-body-json`, `panel-grid-payload-json`, `block-list-payload-json`,
+(`renderer-body-json`, `panel-grid-payload-json`,
 `block-json`, `push-overlay-update`) and
 [`ui/overlay.js`](../../Sources/Modaliser/Scheme/ui/overlay.js)
 (`window.overlayRenderers`).
@@ -69,9 +70,8 @@ lowering emits:
   `narrow`, or `wide` when the panel embeds a list). The JS maps it to a
   grid column span: `narrow` = 1, `wide` = 2, `full` = the whole row.
 - **`list`** is present only when the panel embeds a dynamic list. It is
-  serialized through the **same `block-json` path** the block-list
-  renderer uses, so the block's `on-render-fn` fires and its live rows
-  merge in (see below). When that list owns the selection cursor, its
+  serialized through `block-json` (the return-and-merge path described
+  below), so the block's `on-render-fn` fires and its live rows merge in. When that list owns the selection cursor, its
   current selected index rides into the payload as `"selected"`, which
   the JS marks `.is-focused`.
 
@@ -84,8 +84,9 @@ The panel grid's column count is **CSS-intrinsic auto-fit by default**:
 panels flow into as many `--panel-min-width` tracks as fit, with
 `grid-auto-flow: dense` backfilling narrow tiles around wide/full
 panels. An authored `'cols N` (payload `"cols"`) pins an explicit track
-count instead. The legacy `set-overlay-aspect-ratio!` column search does
-**not** apply here — it governs only the default list renderer.
+count instead. (The default list renderer that plain `(group …)`
+drill-downs use is likewise CSS-intrinsic — no column count is computed
+in Scheme; see [theming.md](theming.md#default-list-renderer).)
 
 ## Block spec shape
 
@@ -93,10 +94,10 @@ A block is an alist with the following recognised fields:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `'type` | symbol | yes | Tier-2 renderer identifier. Built-ins: `'window-list`, `'window-diagram`, `'iterm-panes`, `'iterm-tabs`, and the legacy `'which-key`. Custom renderers register a handler under `window.overlayRenderers[TYPE]` in JS. |
-| `'block-children` | node list | optional | Dispatch entries — keys lifted onto the parent group's `'children` so the state machine routes presses correctly. The `(overlay …)` constructor lifts these for legacy block-list groups; `(panel …)` lifts an embedded list's `'block-children` into the panel's dispatch children. |
+| `'type` | symbol | yes | Tier-2 renderer identifier. Built-ins: `'window-list`, `'window-diagram`, `'iterm-panes`, `'iterm-tabs`. Custom renderers register a handler under `window.overlayRenderers[TYPE]` in JS. |
+| `'block-children` | node list | optional | Dispatch entries — keys lifted onto the parent group's `'children` so the state machine routes presses correctly. `(panel …)` lifts an embedded list's `'block-children` into the panel's dispatch children. |
 | `'on-render-fn` | thunk | optional | Side-effect + return-value hook fired before serialization. Return-and-merge pattern (see below). |
-| `'on-enter-fn` | thunk | optional | Fires when the overlay containing this block becomes visible. Composed with user-supplied `'on-enter` in the parent `(overlay …)` / `(screen …)` / `(open …)`. |
+| `'on-enter-fn` | thunk | optional | Fires when the overlay containing this block becomes visible. Composed with user-supplied `'on-enter` in the parent `(screen …)` / `(open …)`. |
 | `'on-leave-fn` | thunk | optional | Fires when the overlay closes. Composed with user-supplied `'on-leave`. |
 | `'cursor-targets-fn` | thunk | optional | `→ ((label . target) …)` accessor offered to the selection cursor; the first list to offer in a render pass owns the cursor. |
 
@@ -128,9 +129,9 @@ This is how the window-list block injects the current window snapshot:
 
 The serializer sees `(spec ∪ on-render-result)`, so the emitted JSON
 carries `"windows": [...]` per render even though the spec itself
-never holds windows data. This is identical whether the block sits at
-the top level of a legacy `(overlay …)` or **embedded inside a
-`(panel …)`** — the panel-grid renderer calls the same `block-json`.
+never holds windows data. This fires identically for every block
+**embedded inside a `(panel …)`** — the panel-grid renderer calls
+`block-json` for each one.
 
 Order of operations per render:
 
@@ -142,9 +143,8 @@ Order of operations per render:
 
 ## Hook composition
 
-When the user supplies `'on-enter` / `'on-leave` to a container that
-holds blocks — a legacy `(overlay …)`, or a `(screen …)` / `(open …)`
-whose panels embed live lists — the resulting group's hooks are
+When the user supplies `'on-enter` / `'on-leave` to a `(screen …)` /
+`(open …)` whose panels embed live lists, the resulting group's hooks are
 composed:
 
 - **On enter:** the user hook runs first; then each block's
@@ -168,8 +168,8 @@ The initial overlay render is HTML, built from `render-overlay-body`.
 Subsequent navigation (descend / step-back / sticky-reset) sends an
 *incremental update* to JS via `webview-eval("updateOverlay(...)")`.
 
-For custom-renderer bodies (panel-grid and the legacy block-list), the
-update payload is the renderer body augmented with chrome fields:
+For panel-grid bodies, the update payload is the renderer body augmented
+with chrome fields:
 
 | Field | Description |
 |---|---|
@@ -225,9 +225,8 @@ The renderer receives the host DOM element and the parsed payload
 (everything from your block's alist, plus `on-render-fn` merges).
 Update calls re-invoke the same function with the new payload.
 
-Your block can be embedded in a `(panel …)` as its single live list
-(the panel-grid renderer calls `overlayRenderers[block.type]` for it),
-or placed at the top level of a legacy `(overlay …)`.
+Your block can be embedded in a `(panel …)` as its single live list —
+the panel-grid renderer calls `overlayRenderers[block.type]` for it.
 
 Bundling assets: `(add-overlay-asset-file! 'css PATH)` and
 `(add-overlay-asset-file! 'js PATH)` (from `(modaliser
@@ -235,35 +234,10 @@ overlay-assets)`) register file paths relative to the Scheme bundle
 root. The overlay's `<head>` concatenates them after `base.css` and
 `overlay.js`, in registration order.
 
-## Legacy: the which-key payload
-
-The which-key block — produced by the deprecated `define-tree` /
-`category` / `overlay` auto-packing — has its own serialization path
-(`which-key-payload-json`, handled specially in `block-json`). It
-partitions its children into ordered segments (each `(category …)` its
-own segment; consecutive loose entries coalesce into a `misc` segment),
-chooses a column count from the total visible row count and the target
-aspect ratio (`set-overlay-aspect-ratio!`), and distributes the segments
-into that many columns:
-
-```json
-{
-  "type": "which-key",
-  "columns": [ [ <segment>, … ], … ]
-}
-```
-
-where `<segment>` is `{ "kind": "misc", "rows": [...] }` or
-`{ "kind": "category", "label": "…", "rows": [...] }`. This is the
-auto-layout the panel grid replaces — a `panel` declares its grouping
-and span explicitly instead of having the renderer infer them. New
-configs should not depend on this path.
-
 ## See also
 
-- [dsl.md](dsl.md) — `screen` / `panel` / `open`, the embedded live
-  list, and the deprecated block forms.
+- [dsl.md](dsl.md) — `screen` / `panel` / `open` and the embedded live
+  list.
 - [libraries.md](libraries.md) — the bundled blocks
-  (`window-list`, `window-diagram`, `iterm-panes`, `iterm-tabs`, and the
-  legacy `which-key`).
+  (`window-list`, `window-diagram`, `iterm-panes`, `iterm-tabs`).
 - [theming.md](theming.md) — CSS variables your renderer can consume.

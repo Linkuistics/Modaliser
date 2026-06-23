@@ -125,8 +125,17 @@ forces fork-1's CSS swap into the same commit as the which-key deletion):
 3. **`reconcile-docs-k16`** — reconcile docs the way k9 left "deprecated, still
    present": `dsl.md` legacy-forms section + `set-overlay-aspect-ratio!` entry,
    which-key mentions in `renderer-protocol.md` / `theming.md` / `libraries.md` /
-   `library-system.md`, `CONTEXT.md` glossary, and a short **ADR-0012 amendment**
-   recording the post-k9 flag-day deletion.
+   `library-system.md` / `state-machine.md` / `portability.md`, `CONTEXT.md`
+   glossary, a supersession note on the 2026-06-23 design spec, and a short
+   **ADR-0012 amendment** recording the post-k9 flag-day deletion. **Scoped to the
+   reference surface** by a user decision on 2026-06-24 (the how-to/tutorial/
+   quickstart/example docs were broken by k15 too, but their migration is a larger
+   semantic rewrite — spun out into k17 below).
+4. **`migrate-secondary-docs-k17`** — migrate the how-to guides, the tutorial, the
+   quickstart, and the runnable example config off the deleted forms onto
+   `screen` / `panel` / `open`. The leaf k16 could not absorb without ceasing to be
+   one focused session. After it retires the node is done and the deferred **Finish**
+   cycle runs.
 
 ## Pointers
 
@@ -138,11 +147,11 @@ forces fork-1's CSS swap into the same commit as the which-key deletion):
 
 ## Notes
 
-- After `reconcile-docs-k16` retires, this node has no live leaf → the grove root
-  again has none → the **Finish** cycle the user deferred from k9 runs (promote =
-  likely no-op; FF-merge `visual-refresh` → `main`; remove worktree + branch). At
-  k9's retirement `main` was still at the branch point (`2d1709e`) → clean
-  fast-forward; re-check before merging.
+- After `migrate-secondary-docs-k17` retires, this node has no live leaf → the
+  grove root again has none → the **Finish** cycle the user deferred from k9 (and
+  again from k16) runs (promote = likely no-op; FF-merge `visual-refresh` → `main`;
+  remove worktree + branch). At k9's retirement `main` was still at the branch point
+  (`2d1709e`) → clean fast-forward; re-check before merging.
 - Project memory: façade cutovers can silently break inline-tree configs; LispKit
   has no `set-cdr!` (return-and-merge only); install via `./scripts/install.sh` to
   test the real `.app`; skip the pre-existing flaky `ModaliserAppsItermLibraryTests`

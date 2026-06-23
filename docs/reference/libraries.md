@@ -137,7 +137,7 @@ Settings group: edit `config.scm`, relaunch.
 
 | Export | Signature | Returns |
 |---|---|---|
-| `actions` | `(actions [keyword value]...)` | Group node — already decorated with `'key` and `'label`. Splice into a `(panel …)` of a `screen` (or, legacy, a `define-tree`). |
+| `actions` | `(actions [keyword value]...)` | Group node — already decorated with `'key` and `'label`. Splice into a `(panel …)` of a `screen`. |
 
 **Options:**
 
@@ -256,7 +256,7 @@ Minimal Safari tree (Tabs, Browser).
 | Export | Signature | Description |
 |---|---|---|
 | `tree` | `(tree [keyword value]...)` | List of nodes — splice into a `(panel …)` of your own `(screen 'com.apple.Safari …)`. |
-| `register!` | `(register! [keyword value]...)` | Calls `(define-tree 'com.apple.Safari (tree opts…))`. |
+| `register!` | `(register! [keyword value]...)` | Calls `(screen 'com.apple.Safari (tree opts…))`. |
 
 **Options:**
 
@@ -324,14 +324,16 @@ edit `~/.config/modaliser/theme.css` to customise.
 (iterm:register!)
 ```
 
-The transient iTerm tree gets `c` (Copy Mode), `z` (Toggle Zoom), a
-`(category "Focus" …)` wrapping the four hjkl focus moves (each
-carries `'sticky-target 'iterm-panes-focus` so the first press lands
-the user in the sticky mode), and an `x` split subgroup. The
-`category` is rendered as a labelled column but stays transparent for
-dispatch, so the keys still fire as direct children of the tree. The sticky focus mode (`'iterm-panes-focus`) holds only the
-four hjkl Cmd+Alt focus moves and uses `'exit-on-unknown #t` so typing
-any non-binding key returns control to iTerm.
+The transient iTerm tree is a `(screen 'com.googlecode.iterm2 …)` whose
+panels hold `c` (Copy Mode), `z` (Toggle Zoom), a `(panel "Focus" …)`
+wrapping the four hjkl focus moves (each carries
+`'sticky-target 'iterm-panes-focus` so the first press lands the user in
+the sticky mode), and an `x` split subgroup. The panel is rendered as a
+banded card but stays transparent for dispatch, so the keys still fire as
+direct children of the tree. The sticky focus mode (`'iterm-panes-focus`)
+holds only the four hjkl Cmd+Alt focus moves and uses
+`'exit-on-unknown #t` so typing any non-binding key returns control to
+iTerm.
 
 **Configure iTerm.** The split, swap, copy-mode and zoom keys fire
 iTerm keyboard shortcuts that are not all iTerm defaults. The
@@ -358,20 +360,9 @@ is the file updated.
 ## Blocks
 
 Block constructors return alist specs (`'type SYM 'block-children (…)
-…`) consumed by the block-list renderer. The full protocol is
-documented in [renderer-protocol.md](renderer-protocol.md).
-
-### `(modaliser blocks which-key)` *(legacy)*
-
-The block behind the deprecated `define-tree` / `category` / `overlay`
-auto-packing — see [dsl.md](dsl.md#legacy-forms-deprecated). New configs
-declare a `(panel …)`, whose rows *are* the which-key block, so this
-form is rarely written by hand. The library is auto-loaded transitively
-via `(modaliser dsl)`.
-
-| Export | Signature |
-|---|---|
-| `which-key-block` | `(which-key-block . children)` |
+…`) consumed by the panel-grid renderer when embedded as a panel's live
+list. The full protocol is documented in
+[renderer-protocol.md](renderer-protocol.md).
 
 ### `(modaliser blocks window-list)`
 

@@ -31,12 +31,6 @@ The practical consequence: the four **layout forms** (`screen`, `panel`,
 panel is a transparent visual card: it groups rows without changing the
 keys beneath it.
 
-> **Legacy forms.** The pre-inversion authoring surface — `define-tree`,
-> `category`, `overlay`, `which-key-block` — still works unchanged, but
-> is **deprecated**. New configs should use the layout DSL. The mapping
-> is one-to-one (`define-tree`→`screen`, `category`→`panel`,
-> `(key K L (overlay …))`→`open`); see [Legacy forms](#legacy-forms-deprecated).
-
 ## Imports
 
 The common case is one import:
@@ -47,11 +41,9 @@ The common case is one import:
 
 That surfaces the layout forms `screen`, `panel`, `open`, `fragment`;
 the dispatch atoms `key`, `keys`, `key-range`, `group`, `selector`,
-`action`, `sticky-set`; the helper `λ`; the configuration setters
-`set-leader!`, `set-overlay-delay!`, `set-overlay-aspect-ratio!`,
-`set-theme!`, `modifier-symbols->mask`; and the deprecated legacy forms
-`define-tree`, `category`, `overlay` (and `which-key-block`, re-exported
-from `(modaliser blocks which-key)`). The bundled seed config also pulls
+`action`, `sticky-set`; the helper `λ`; and the configuration setters
+`set-leader!`, `set-overlay-delay!`, `set-theme!`,
+`modifier-symbols->mask`. The bundled seed config also pulls
 in `(modaliser leader)` (for `set-leaders!`) and a handful of native
 libraries (`(modaliser app)`, `(modaliser keyboard)`, etc.).
 
@@ -111,23 +103,6 @@ the key.
 (set-overlay-delay! 0.3)
 ```
 
-### `(set-overlay-aspect-ratio! ratio)`
-
-Target width-to-height ratio for the **default list renderer's**
-multi-column layout — the renderer that draws a plain `(group …)`
-drill-down (and the deprecated which-key block). It picks the column
-count that gets closest to this ratio for the current entry count. `1.0`
-is square; `1.6` (default) prefers wider, shorter layouts.
-
-This setting does **not** affect the panel grid: a `screen`/`open`
-flows panels by CSS-intrinsic auto-fit, or by an authored `'cols N`
-(see [`screen`](#layout-forms)). It governs only the
-list-renderer fallback that plain groups still use.
-
-```scheme
-(set-overlay-aspect-ratio! 1.6)
-```
-
 ### Theming
 
 All visual customisation — colours, fonts, spacing, host-theme
@@ -154,7 +129,7 @@ own *layout*; the dispatch atoms they contain own *behaviour*.
 ### `(screen scope [keyword value]... . panels)`
 
 Registers a command tree under `scope` and renders it as a **grid of
-panels** — the presentation-first replacement for `define-tree`. `scope`
+panels** — the top-level layout form. `scope`
 is a symbol (or string) like `'global`, `'com.apple.Safari`, or
 `'iterm-panes-focus`; symbols and strings are equivalent.
 
@@ -178,7 +153,7 @@ flat config still renders as a single tidy card.
     (key "t" "Terminal" (λ () (launch-app "iTerm")))))
 ```
 
-Optional leading keywords (the `define-tree` set, plus `'cols`):
+Optional leading keywords:
 
 | Keyword | Type | Description |
 |---|---|---|
@@ -192,8 +167,7 @@ Optional leading keywords (the `define-tree` set, plus `'cols`):
 A `screen` lowers to a tree-root group carrying `'renderer 'panel-grid`
 (plus `'cols` when authored), so the panel-grid renderer draws it. The
 live-list `'on-enter-fn` / `'on-leave-fn` of any panel-embedded block
-compose with the user hooks, exactly as `define-tree` composes block
-hooks.
+compose with the user hooks supplied to the `screen`.
 
 ### `(panel label [span value] . children)`
 
@@ -244,8 +218,7 @@ It is an error to embed two list blocks in one panel.
 
 ### `(open KEY LABEL [keyword value]... . panels)`
 
-A **navigable drill-down** into a sub-screen — the panel-native
-replacement for the old `(key K L (overlay …))` idiom. Pressing `KEY`
+A **navigable drill-down** into a sub-screen. Pressing `KEY`
 descends into a fresh grid of `panels` (its own screen). `open` is the
 *only* navigable layout form; a `panel`, by contrast, is transparent and
 never changes key paths.
@@ -287,8 +260,8 @@ panel-level reuse).
 ```
 
 A `fragment` is **fully transparent**: the container forms (`screen` /
-`panel` / `open`, and the legacy `define-tree` / `group` / `category`)
-hoist its children in place at construction time via `expand-splices`,
+`panel` / `open` / `group`) hoist its children in place at construction
+time via `expand-splices`,
 so the lowered tree is identical to writing the children inline —
 nothing downstream ever sees the fragment. Nested fragments and
 `sticky-set`s compose for free, since `expand-splices` recurses through
@@ -505,9 +478,9 @@ into many parents (DRY). It does two things at evaluation time:
    `'sticky-target MODE-ID`.
 
 A splice node is **fully transparent**: the container forms (`screen`,
-`panel`, `open`, and the legacy `define-tree`, `group`, `overlay`,
-`category`) hoist its children into their own child list at construction
-time, so the result is identical to writing those entry keys inline —
+`panel`, `open`, `group`) hoist its children into their own child list at
+construction time, so the result is identical to writing those entry keys
+inline —
 and nothing downstream ever sees the splice. So one key list supplies
 both the registered mode *and* every entry point, with no duplication.
 
@@ -552,67 +525,6 @@ expected by native hotkey APIs. Recognised symbols: `'cmd`, `'shift`,
 `'alt`, `'ctrl`. Unknown symbols are silently ignored. Mostly
 internal — `set-leader!` and `set-leaders!` already accept symbol
 lists via their `'modifiers` keyword.
-
----
-
-## Legacy forms (deprecated)
-
-These are the pre-inversion authoring surface. They still work
-unchanged — the bundled terminal/app libraries still use some of them
-internally — but new configs should prefer the layout forms above. The
-mapping is direct:
-
-| Legacy form | Layout replacement |
-|---|---|
-| `(define-tree 'scope …)` | `(screen 'scope …)` |
-| `(category "L" …)` | `(panel "L" …)` (+ optional `'span`) |
-| `(key K L (overlay …))` | `(open K L …)` |
-| `(which-key-block …)` | implicit — a `panel`'s rows |
-
-### `(define-tree scope [keyword value]... . content)`
-
-Registers a command tree under `scope`. `content` is node-forms
-(`(key …)`, `(category …)`, …) and block specs (`(which-key-block …)`,
-`(window:list-block …)`, …). A `define-tree` renders through the
-**block-list** renderer: consecutive runs of node-forms auto-pack into a
-single `(which-key-block …)`; mixed runs split into two blocks
-(uncategorised first, then categories). Accepts the same leading
-keywords as `screen` minus `'cols` (`'on-enter`, `'on-leave`, `'sticky`,
-`'exit-on-unknown`, `'display-name`).
-
-Prefer `screen`: it renders as a panel grid (the default look), with the
-loose-keys "General" panel replacing the misc-bucket auto-split.
-
-### `(category LABEL . children)`
-
-Visual grouping for the block-list / which-key renderer — `children`
-render as a labelled column. Categories are **transparent** to the state
-machine (typing a child key dispatches as if the children were direct
-siblings), which is exactly the property `panel` inherits. Prefer
-`panel`: it is a `category` plus a `'span` and the ability to embed a
-live list, drawn as a banded card.
-
-### `(overlay [keyword value]... . blocks)`
-
-Generic block-list group — renders as a block-list overlay. Keywords
-`'key` (default `"?"`), `'label` (default `"Overlay"`), `'on-enter`,
-`'on-leave`. Positional args are content: node-form runs auto-pack into a
-`which-key-block`, block specs pass through. Prefer `open`: it is the
-panel-grid drill-down that replaces the `(key K L (overlay …))` idiom.
-
-### `(which-key-block . children)`
-
-Explicit which-key block, imported from `(modaliser blocks which-key)`.
-Returns a block spec with `'type 'which-key` and `'block-children`
-holding the dispatch entries. `define-tree` and `overlay` auto-pack node
-runs into these; the explicit form gives fine-grained control over which
-entries land in which visual block. There is no panel-grid analogue
-because a `panel` *is* the grouping — its rows are the which-key block.
-
-Other block constructors live in their own libraries: `window:layout-block`
-and `window:list-block` from `(modaliser blocks window-list)` /
-`(modaliser blocks window-diagram)`. See [libraries.md](libraries.md) for
-the bundled block set.
 
 ---
 

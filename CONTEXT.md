@@ -161,8 +161,7 @@ Distinct from a **Selector** (the chooser-opening node) and from the digit
 
 **Open** — the authored drill-down affordance: `(open KEY LABEL panel…)`. A row
 in a panel that navigates *into* a sub-screen (its own grid of panels). Lowers to
-a navigable `group` carrying `'renderer 'panel-grid`. The presentation-first
-replacement for the `(key K L (overlay …))` idiom; the only navigable layout
+a navigable `group` carrying `'renderer 'panel-grid`. The only navigable layout
 form (a `panel`, by contrast, is transparent — it never changes key paths).
 
 **Fragment** — a reusable, named chunk of layout (panels or command rows) spliced
