@@ -62,7 +62,7 @@ struct OverlayIntegrationTests {
     @Test func modalEnterOpensOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -80,7 +80,7 @@ struct OverlayIntegrationTests {
     @Test func modalExitClosesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -94,7 +94,7 @@ struct OverlayIntegrationTests {
     @Test func groupNavigationUpdatesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))
                 (key "m" "Maximize" (lambda () 'ok))))
@@ -122,7 +122,7 @@ struct OverlayIntegrationTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define action-fired #f)
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () (set! action-fired #t))))
             """)
 
@@ -138,7 +138,7 @@ struct OverlayIntegrationTests {
     @Test func stepBackUpdatesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok))
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))))
@@ -169,7 +169,7 @@ struct OverlayIntegrationTests {
         // is purely navigational.
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -189,7 +189,7 @@ struct OverlayIntegrationTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define test-result #f)
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () (set! test-result 'centered)))))
             """)
@@ -214,7 +214,7 @@ struct OverlayIntegrationTests {
     @Test func leaderToggleClosesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -230,7 +230,7 @@ struct OverlayIntegrationTests {
     @Test func escapeClosesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -247,7 +247,7 @@ struct OverlayIntegrationTests {
         // modal or closing the overlay. Escape is the sole exit key.
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -265,7 +265,7 @@ struct OverlayIntegrationTests {
     @Test func modalExitIsIdempotent() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -284,7 +284,7 @@ struct OverlayIntegrationTests {
     @Test func overlayCancelMessageExitsModal() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -319,7 +319,7 @@ struct OverlayIntegrationTests {
     @Test func overlayContentMatchesCurrentPosition() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok))
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))

@@ -5,26 +5,25 @@
 ;;   (import (modaliser dsl))
 ;;
 ;; Then write (key …), (group …), (selector …), (action …),
-;; (define-tree …), (set-leader! …) etc. directly in their config.scm
+;; (screen …), (set-leader! …) etc. directly in their config.scm
 ;; or in their own .sld libraries. The library is portable: imports
 ;; only (scheme …) and other (modaliser …) — no host-specific libraries.
 
 (define-library (modaliser dsl)
   (export key key-range keys group selector action
-          category overlay sticky-set fragment
+          sticky-set fragment
           screen panel open
           λ
-          define-tree set-theme!
+          set-theme!
           modifier-symbols->mask set-leader!
           ;; Re-exported from (modaliser state-machine) so user configs
           ;; can do a single (import (modaliser dsl)) for the common case.
-          set-overlay-delay! set-overlay-aspect-ratio!)
+          set-overlay-delay!)
   (import (scheme base)
           (scheme bitwise)
           (modaliser state-machine)
           (modaliser event-dispatch)
-          (modaliser keyboard)
-          (modaliser blocks which-key))
+          (modaliser keyboard))
   (begin
 
 ;; Pure Scheme node constructors for the command tree. These produce
@@ -332,18 +331,6 @@
        (loop (cdr args) on-enter on-leave sticky exit-unk extras
              (cons (car args) children))))))
 
-;; (category label . children) → category alist
-;;
-;; Category nodes group a slice of group children under a label for
-;; rendering by the (modaliser blocks which-key) block. The state machine
-;; treats them as TRANSPARENT for dispatch: find-child descends through
-;; category nodes as if their children were hoisted into the parent.
-;; This lets configs add visual grouping without changing key paths.
-(define (category label . children)
-  (list (cons 'kind 'category)
-        (cons 'label label)
-        (cons 'children (expand-splices children))))
-
 ;; (sticky-set MODE-ID DISPLAY-NAME key …) → splice node
 ;;
 ;; Define a reusable "act + latch" navigation set ONCE, then splice it
@@ -401,68 +388,6 @@
   (list (cons 'kind 'splice)
         (cons 'children children)))
 
-;; (overlay [keyword value]... block...) → group alist with 'renderer 'blocks
-;;
-;; Generic block-list group constructor. Opts:
-;;
-;;   'key      STRING  — leader key (default "?")
-;;   'label    STRING  — group label (default "Overlay")
-;;   'on-enter THUNK   — user-supplied enter hook (composed with block hooks)
-;;   'on-leave THUNK   — user-supplied leave hook (composed with block hooks)
-;;
-;; Positional args after the opts are block specs (alists carrying
-;; ('type . SYM)). Each block can opt into the modal lifecycle and
-;; dispatch via three optional fields read by `overlay`:
-;;
-;;   'block-children  — dispatch keys, lifted onto the group's 'children
-;;   'on-enter-fn     — thunk run when the overlay becomes visible
-;;   'on-leave-fn     — thunk run when the overlay closes
-;;
-;; User-supplied on-enter/on-leave run BEFORE the block-contributed
-;; ones, then each block's hooks fire in declaration order. on-render-fn
-;; is part of the rendering protocol (see ui/overlay.scm's
-;; block-list-payload-json), not collected here.
-(define (overlay . args)
-  (let loop ((rest args) (key #f) (label #f) (user-on-enter #f) (user-on-leave #f))
-    (cond
-      ((and (pair? rest) (eq? (car rest) 'key) (pair? (cdr rest)))
-       (loop (cddr rest) (cadr rest) label user-on-enter user-on-leave))
-      ((and (pair? rest) (eq? (car rest) 'label) (pair? (cdr rest)))
-       (loop (cddr rest) key (cadr rest) user-on-enter user-on-leave))
-      ((and (pair? rest) (eq? (car rest) 'on-enter) (pair? (cdr rest)))
-       (loop (cddr rest) key label (cadr rest) user-on-leave))
-      ((and (pair? rest) (eq? (car rest) 'on-leave) (pair? (cdr rest)))
-       (loop (cddr rest) key label user-on-enter (cadr rest)))
-      (else
-        ;; Everything from here is positional content. Consecutive
-        ;; node-forms (e.g. (key …)) are auto-packed into a single
-        ;; which-key-block; block forms pass through. This mirrors
-        ;; define-tree, so the same structural shorthand works inside
-        ;; nested overlays without explicit (which-key-block …).
-        (let* ((blocks (pack-node-runs (expand-splices rest)))
-               (block-children
-                 (apply append
-                   (map (lambda (b)
-                          (let ((e (assoc 'block-children b)))
-                            (if e (cdr e) '())))
-                        blocks)))
-               (on-enter-fns
-                 (filter-fns blocks 'on-enter-fn))
-               (on-leave-fns
-                 (filter-fns blocks 'on-leave-fn))
-               (composed-on-enter
-                 (compose-hooks user-on-enter on-enter-fns))
-               (composed-on-leave
-                 (compose-hooks user-on-leave on-leave-fns)))
-          (apply group
-                 (or key "?")
-                 (or label "Overlay")
-                 'renderer 'blocks
-                 'blocks blocks
-                 'on-enter composed-on-enter
-                 'on-leave composed-on-leave
-                 block-children))))))
-
 ;; Collect the procedure values of `tag` across `blocks`, preserving order.
 (define (filter-fns blocks tag)
   (let loop ((rest blocks) (acc '()))
@@ -507,119 +432,6 @@
       (loop (cdr (cdr rest))
             (cons (cons (car rest) (car (cdr rest))) entries)))))
 
-;; (define-tree scope [keyword value]... . content) → registers tree
-;;
-;; A top-level tree behaves like an overlay: its content is a list of
-;; blocks (alists with 'type) interleaved with node-forms (alists with
-;; 'kind). Consecutive runs of node-forms are auto-packed into a single
-;; (which-key-block …), so a config can write
-;;
-;;   (define-tree 'global
-;;     (key "a" "X" …)
-;;     (key "b" "Y" …)
-;;     (key "w" "Windows" (overlay …)))
-;;
-;; and the three (key …) forms collapse into one which-key-block at the
-;; root. Blocks pass through untouched. The registered group carries
-;; 'renderer 'blocks so the top-level overlay always renders as a
-;; block-list — uniform with nested overlays.
-;;
-;; Optional leading keyword/value pairs (same set as register-tree!):
-;;   'on-enter THUNK / 'on-leave THUNK / 'sticky BOOL
-;;   'display-name STRING / 'exit-on-unknown BOOL
-(define (define-tree scope . args)
-  (let loop ((rest args)
-             (on-enter #f) (on-leave #f)
-             (sticky #f) (display-name #f) (exit-unk #f))
-    (cond
-      ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave sticky display-name exit-on-unknown)))
-       (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky display-name exit-unk))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky display-name exit-unk))
-         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) display-name exit-unk))
-         ((display-name)    (loop (cddr rest) on-enter on-leave sticky (cadr rest) exit-unk))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky display-name (cadr rest)))))
-      (else
-        ;; rest is the positional content. Pack node-runs into which-key-blocks.
-        (let* ((blocks (pack-node-runs (expand-splices rest)))
-               (block-children
-                 (apply append
-                   (map (lambda (b)
-                          (let ((e (assoc 'block-children b)))
-                            (if e (cdr e) '())))
-                        blocks)))
-               (on-enter-fns (filter-fns blocks 'on-enter-fn))
-               (on-leave-fns (filter-fns blocks 'on-leave-fn))
-               (composed-on-enter (compose-hooks on-enter on-enter-fns))
-               (composed-on-leave (compose-hooks on-leave on-leave-fns))
-               (head (append
-                       (if composed-on-enter (list 'on-enter composed-on-enter) '())
-                       (if composed-on-leave (list 'on-leave composed-on-leave) '())
-                       (if sticky            (list 'sticky sticky)              '())
-                       (if display-name      (list 'display-name display-name)  '())
-                       (if exit-unk          (list 'exit-on-unknown exit-unk)   '())
-                       (list 'renderer 'blocks 'blocks blocks))))
-          (apply register-tree! scope (append head block-children)))))))
-
-;; Partition `items` into a list of blocks. Consecutive node-forms
-;; (alists with a 'kind entry) are packed into which-key-blocks; explicit
-;; block forms (alists with a 'type entry) pass through unchanged.
-;;
-;; Mixed runs split into TWO blocks — uncategorised entries first, then
-;; categories — so the overlay renders the loose bindings as a single
-;; section, with the category columns underneath. Categories preserve
-;; declaration order across the split; miscs are collected together
-;; regardless of where they appear in the source. A homogeneous run
-;; (all misc OR all categories) produces a single block.
-;;
-;; We never re-nest existing (which-key-block …) forms — those are
-;; passed through verbatim, honouring the author's explicit grouping.
-(define (pack-node-runs items)
-  (let loop ((rest items) (pending '()) (out '()))
-    (cond
-      ((null? rest)
-       (reverse (append (flush-node-run pending) out)))
-      ((node-form? (car rest))
-       (loop (cdr rest) (cons (car rest) pending) out))
-      (else
-       (loop (cdr rest) '()
-             (cons (car rest) (append (flush-node-run pending) out)))))))
-
-;; Build 0..2 which-key-blocks from a pending run of node-forms.
-;; Returned list is in REVERSE final order so it can be cons'd onto
-;; `out` (which pack-node-runs reverses at the end).
-(define (flush-node-run pending)
-  ;; `pending` arrives in reverse-of-declaration order (pack-node-runs
-  ;; conses onto it). Walking it and consing each item onto either
-  ;; `miscs` or `cats` reverses that order back to declaration order
-  ;; inside each bucket — so neither bucket needs a final reverse.
-  (cond
-    ((null? pending) '())
-    (else
-     (let split ((rest pending) (miscs '()) (cats '()))
-       (cond
-         ((null? rest)
-          (let ((misc-block (and (not (null? miscs))
-                                 (apply which-key-block miscs)))
-                (cat-block  (and (not (null? cats))
-                                 (apply which-key-block cats))))
-            ;; Output order is uncategorised → categorised. The list we
-            ;; return is reversed here so it cons'es cleanly onto
-            ;; pack-node-runs's `out` accumulator.
-            (cond
-              ((and misc-block cat-block) (list cat-block misc-block))
-              (misc-block                 (list misc-block))
-              (cat-block                  (list cat-block))
-              (else                       '()))))
-         ((category? (car rest))
-          (split (cdr rest) miscs (cons (car rest) cats)))
-         (else
-          (split (cdr rest) (cons (car rest) miscs) cats)))))))
-
-(define (node-form? x)
-  (and (pair? x) (pair? (car x)) (assoc 'kind x) #t))
-
 ;; ─── Layout DSL (presentation-first; ADR-0011 / ADR-0012) ────────
 ;;
 ;; Three container forms that LOWER — at construction time, like
@@ -634,8 +446,9 @@
 ;; The dispatch atoms (key / keys / key-range / selector / group /
 ;; sticky-set) are kept verbatim — they ARE the operational IR. Panels are
 ;; categories, which stay transparent for dispatch, so flatten-categories /
-;; find-child descend through them untouched. The old forms (define-tree /
-;; category / overlay) keep working — this is purely additive. See ADR-0012.
+;; find-child descend through them untouched. See ADR-0012. (The legacy
+;; define-tree / category / overlay forms these replaced were removed in the
+;; post-k9 flag-day deletion.)
 ;;
 ;; Co-designed contract with panel-grid-renderer-k4 — the metadata a screen
 ;; group / its panels carry, which the renderer reads (no JSON owned here):

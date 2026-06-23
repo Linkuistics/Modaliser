@@ -32,138 +32,7 @@ struct OverlayRenderTests {
 
     // MARK: - render-overlay-html (pure)
 
-    // MARK: - Multi-column layout (overlay-column-count)
-
-    /// Defaults: aspect ratio = 1.6, col-width = 200px, row-height = 22px.
-    /// overlay-column-count picks the N that minimises |ratio(N) - target|.
-    /// Each pair below is (item-count, expected-cols).
-    @Test func overlayColumnCountPicksClosestToTargetRatio() throws {
-        let engine = try loadOverlay()
-        let cases: [(Int, Int)] = [
-            (0, 1), (1, 1), (2, 1),   // never more cols than items
-            (5, 1), (10, 1),          // short lists stay one column
-            (20, 2),                  // medium → 2
-            (50, 3),                  // big   → 3
-            (100, 4),                 // huge  → 4
-        ]
-        for (n, want) in cases {
-            let got = try engine.evaluate("(overlay-column-count \(n))").asInt64()
-            #expect(Int(got) == want, "n=\(n): expected \(want) cols, got \(got)")
-        }
-    }
-
-    // MARK: - Column packing (distribute-which-key-columns)
-
-    @Test func segmentRowCountCountsHeadingForCategory() throws {
-        let engine = try loadOverlay()
-        // A misc segment's height is its row count.
-        #expect(try engine.evaluate("(segment-row-count (list 'misc '(1 2)))").asInt64() == 2)
-        // A category adds one row for its heading.
-        #expect(try engine.evaluate("(segment-row-count (list 'category \"X\" '(1 2 3)))").asInt64() == 4)
-    }
-
-    @Test func distributeBackfillsShortCategoryUnderShortCategory() throws {
-        let engine = try loadOverlay()
-        // Global overlay: Apps(8 rows) Search(3) AI(2) → heights 9/4/3,
-        // target ceil(16/2)=8. Apps fills column 1; Search+AI pack column 2.
-        try engine.evaluate("""
-          (define cols
-            (distribute-which-key-columns
-              (list (list 'category "Apps"   '(1 2 3 4 5 6 7 8))
-                    (list 'category "Search" '(1 2 3))
-                    (list 'category "AI"     '(1 2)))
-              2))
-        """)
-        #expect(try engine.evaluate("(length cols)").asInt64() == 2)
-        #expect(try engine.evaluate("(length (car cols))").asInt64() == 1)
-        #expect(try engine.evaluate("(cadr (caar cols))").asString() == "Apps")
-        #expect(try engine.evaluate("(length (cadr cols))").asInt64() == 2)
-        #expect(try engine.evaluate("(cadr (car (cadr cols)))").asString() == "Search")
-        #expect(try engine.evaluate("(cadr (cadr (cadr cols)))").asString() == "AI")
-    }
-
-    @Test func distributePreservesDeclaredOrder() throws {
-        let engine = try loadOverlay()
-        // Four equal categories, 2 columns → column 1 = [A,B], column 2 = [C,D].
-        try engine.evaluate("""
-          (define cols
-            (distribute-which-key-columns
-              (list (list 'category "A" '(1 2))
-                    (list 'category "B" '(1 2))
-                    (list 'category "C" '(1 2))
-                    (list 'category "D" '(1 2)))
-              2))
-        """)
-        #expect(try engine.evaluate("(cadr (caar cols))").asString() == "A")
-        #expect(try engine.evaluate("(cadr (cadr (car cols)))").asString() == "B")
-        #expect(try engine.evaluate("(cadr (car (cadr cols)))").asString() == "C")
-        #expect(try engine.evaluate("(cadr (cadr (cadr cols)))").asString() == "D")
-    }
-
-    @Test func distributeLastColumnAbsorbsRemainder() throws {
-        let engine = try loadOverlay()
-        // One tall category then three short ones, 2 columns: the short
-        // ones all land in column 2 — never a third column.
-        try engine.evaluate("""
-          (define cols
-            (distribute-which-key-columns
-              (list (list 'category "Tall" '(1 2 3 4 5 6 7 8))
-                    (list 'category "S1"   '(1))
-                    (list 'category "S2"   '(1))
-                    (list 'category "S3"   '(1)))
-              2))
-        """)
-        #expect(try engine.evaluate("(length cols)").asInt64() == 2)
-        #expect(try engine.evaluate("(length (car cols))").asInt64() == 1)
-        #expect(try engine.evaluate("(length (cadr cols))").asInt64() == 3)
-    }
-
-    @Test func distributeSingleColumnWhenNIsOne() throws {
-        let engine = try loadOverlay()
-        try engine.evaluate("""
-          (define cols
-            (distribute-which-key-columns
-              (list (list 'category "A" '(1 2))
-                    (list 'category "B" '(1 2)))
-              1))
-        """)
-        #expect(try engine.evaluate("(length cols)").asInt64() == 1)
-        #expect(try engine.evaluate("(length (car cols))").asInt64() == 2)
-    }
-
-    @Test func distributeNeverMoreColumnsThanSegments() throws {
-        let engine = try loadOverlay()
-        // 5 columns requested but only 2 segments → at most 2 columns.
-        try engine.evaluate("""
-          (define cols
-            (distribute-which-key-columns
-              (list (list 'category "A" '(1 2 3))
-                    (list 'category "B" '(1 2 3)))
-              5))
-        """)
-        #expect(try engine.evaluate("(length cols)").asInt64() == 2)
-    }
-
-    @Test func distributeEmptySegmentsYieldsNoColumns() throws {
-        let engine = try loadOverlay()
-        #expect(try engine.evaluate("(null? (distribute-which-key-columns '() 2))") == .true)
-    }
-
-    @Test func renderOverlayBodyEmitsColumnCountAttr() throws {
-        let engine = try loadOverlay()
-        // 20 entries → 2 cols at default 1.6 ratio (see other test).
-        // Use a bare (group …) — top-level (define-tree …) now uses the
-        // block-list renderer; this test drives the default list renderer.
-        let keys = "abcdefghijklmnopqrst"
-        var bindings = ""
-        for c in keys { bindings += "(key \"\(c)\" \"\(c)\" (lambda () 'ok)) " }
-        try engine.evaluate("(define test-node (group \"g\" \"G\" \(bindings)))")
-        let html = try engine.evaluate("""
-            (render-overlay-html test-node '("Global") '())
-            """).asString()
-        #expect(html.contains("data-cols=\"2\""),
-                "Expected data-cols=\"2\" attribute on .overlay-entries; got HTML did not match")
-    }
+    // MARK: - render-overlay-html key-column width (data-key-ch)
 
     @Test func renderOverlayBodyEmitsKeyChFromWidestKey() throws {
         let engine = try loadOverlay()
@@ -199,23 +68,10 @@ struct OverlayRenderTests {
                 "Expected data-key-ch=\"2\" attribute (single-char keys clamp to min 2); got HTML did not match")
     }
 
-    @Test func overlayColumnCountFollowsTargetAspectRatio() throws {
-        let engine = try loadOverlay()
-        // Wide target → prefer more columns. n=10 at ratio 5.0 should jump
-        // to 2 cols because the wider target needs the extra width.
-        try engine.evaluate("(set-overlay-aspect-ratio! 5.0)")
-        let wide = try engine.evaluate("(overlay-column-count 10)").asInt64()
-        #expect(wide >= 2, "ratio 5.0, n=10 should pick ≥2 cols, got \(wide)")
-        // Tall target → 1 col for everything reasonable.
-        try engine.evaluate("(set-overlay-aspect-ratio! 0.2)")
-        let tall = try engine.evaluate("(overlay-column-count 20)").asInt64()
-        #expect(tall == 1, "ratio 0.2, n=20 should pick 1 col, got \(tall)")
-    }
-
     @Test func renderOverlayHtmlProducesValidDocument() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok))
               (key "f" "Finder" (lambda () 'ok)))
             """)
@@ -231,7 +87,7 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlShowsEntries() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok))
               (key "f" "Finder" (lambda () 'ok)))
             """)
@@ -261,7 +117,7 @@ struct OverlayRenderTests {
         // Sigils: ⎋ (U+238B) for escape, ⌫ (U+232B) for backspace.
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
@@ -278,7 +134,7 @@ struct OverlayRenderTests {
     @Test func renderOverlayFooterDeepOmitsRootModifier() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))))
             """)
@@ -294,7 +150,7 @@ struct OverlayRenderTests {
         // Below the root, backspace navigates back up — surface the hint.
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))))
             """)
@@ -315,7 +171,7 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlPaintsStickyMarkerOnTaggedKeys() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "h" "Focus Left" (lambda () 'ok)
                 'sticky-target 'iterm-panes-focus)
               (key "c" "Copy" (lambda () 'ok)))
@@ -390,7 +246,7 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlWithPath() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))
                 (key "m" "Maximize" (lambda () 'ok))))
@@ -409,7 +265,7 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlPathRendersLabelsNotKeyChars() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (group "x" "Layouts"
                   (key "c" "Center" (lambda () 'ok)))))
@@ -430,7 +286,7 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlIncludesCSS() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
@@ -458,7 +314,7 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlSpaceKeyDisplaysSymbol() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key " " "Space action" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
@@ -517,11 +373,11 @@ struct OverlayRenderTests {
 
     @Test func registerTreeStoresScopeOnRoot() throws {
         let engine = try loadOverlay()
-        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
         #expect(try engine.evaluate("(alist-ref (lookup-tree \"global\") 'scope #f)").asString()
                   == "global")
 
-        try engine.evaluate("(define-tree 'com.apple.Safari (key \"t\" \"Tabs\" (lambda () 'ok)))")
+        try engine.evaluate("(register-tree! 'com.apple.Safari (key \"t\" \"Tabs\" (lambda () 'ok)))")
         #expect(try engine.evaluate("(alist-ref (lookup-tree \"com.apple.Safari\") 'scope #f)").asString()
                   == "com.apple.Safari")
     }
@@ -544,7 +400,7 @@ struct OverlayRenderTests {
 
     @Test func modalEnterPopulatesRootSegments() throws {
         let engine = try loadOverlay()
-        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
         // Stub the keymap registrations (modal-enter calls register-all-keys!).
         try engine.evaluate("(define (register-all-keys! h) #t)")
         try engine.evaluate("(define (unregister-all-keys!) #t)")
@@ -558,7 +414,7 @@ struct OverlayRenderTests {
         // and the chooser reads modal-root-segments to render its breadcrumb.
         // If modal-exit cleared the segments the chooser would lose the scope.
         let engine = try loadOverlay()
-        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
         try engine.evaluate("(define (register-all-keys! h) #t)")
         try engine.evaluate("(define (unregister-all-keys!) #t)")
         try engine.evaluate("(modal-enter (lookup-tree \"global\") 0)")
@@ -569,7 +425,7 @@ struct OverlayRenderTests {
 
     @Test func renderOverlayHtmlPrependsHostSegment() throws {
         let engine = try loadOverlay()
-        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
         let html = try engine.evaluate("""
             (render-overlay-html (lookup-tree "global") '("my-server" "Global") '("w"))
             """).asString()
@@ -581,7 +437,7 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlVariantSegmentsRendered() throws {
         let engine = try loadOverlay()
         try engine.evaluate(
-            "(define-tree 'com.googlecode.iterm2/nvim (key \"x\" \"X\" (lambda () 'ok)))")
+            "(register-tree! 'com.googlecode.iterm2/nvim (key \"x\" \"X\" (lambda () 'ok)))")
         let html = try engine.evaluate("""
             (render-overlay-html (lookup-tree "com.googlecode.iterm2/nvim")
                                  '("iTerm" "nvim") '())
@@ -614,7 +470,7 @@ struct OverlayRenderTests {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))))
             """)
@@ -633,7 +489,7 @@ struct OverlayRenderTests {
 
     @Test func renderOverlayHtmlOmitsHostCssWhenNotSet() throws {
         let engine = try loadOverlay()
-        try engine.evaluate("(define-tree 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
         let html = try engine.evaluate("""
             (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()

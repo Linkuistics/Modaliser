@@ -35,7 +35,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(define cmd (key \"x\" \"X\" (lambda () #t)))")
         #expect(try engine.evaluate("(eq? (cdr (assoc 'kind cmd)) 'command)") == .true)
         #expect(try engine.evaluate("(procedure? group)") == .true)
-        #expect(try engine.evaluate("(procedure? define-tree)") == .true)
+        #expect(try engine.evaluate("(procedure? screen)") == .true)
         #expect(try engine.evaluate("(procedure? set-leader!)") == .true)
     }
 
@@ -49,7 +49,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'launched-safari)))
             """)
 
@@ -66,7 +66,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'com.apple.Safari
+            (register-tree! 'com.apple.Safari
               (key "t" "New Tab" (lambda () 'new-tab)))
             """)
 
@@ -84,7 +84,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -107,7 +107,7 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("""
             (define action-called #f)
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () (set! action-called #t))))
             """)
 
@@ -126,7 +126,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'centered))))
             """)
@@ -148,7 +148,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'centered))))
             """)
@@ -174,7 +174,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -196,7 +196,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             (set-leader! 'global F18)
             """)
@@ -215,7 +215,7 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("""
             (define test-action-log '())
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () (set! test-action-log (cons 'safari test-action-log))))
               (group "w" "Windows"
                 (key "c" "Center" (lambda () (set! test-action-log (cons 'center test-action-log))))))
@@ -242,9 +242,9 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("""
             (define which-tree #f)
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () (set! which-tree 'global))))
-            (define-tree 'com.apple.Safari
+            (register-tree! 'com.apple.Safari
               (key "t" "Tab" (lambda () (set! which-tree 'safari))))
             """)
 
@@ -275,7 +275,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -306,7 +306,7 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("""
             (define fire-count 0)
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (key "h" "Left" (lambda () (set! fire-count (+ fire-count 1)))))
             """)
@@ -329,7 +329,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (key "h" "Left" (lambda () 'ok)))
             """)
@@ -350,7 +350,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (key "h" "Left" (lambda () 'ok)))
             """)
@@ -370,7 +370,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (group "x" "Split"
                 'sticky #t
@@ -396,7 +396,7 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("""
             (define split-count 0)
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (group "x" "Split"
                 'sticky #t
@@ -424,7 +424,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (group "x" "Split"
                 'sticky #t
@@ -450,7 +450,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -466,7 +466,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               'display-name "Pane Mode"
               (key "h" "Left" (lambda () 'ok)))
@@ -485,10 +485,10 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (key "h" "Left" (lambda () 'ok)))
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok)))
             """)
 
@@ -515,11 +515,11 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'walk
+            (register-tree! 'walk
               'sticky #t
               'display-name "Splits"
               (key "h" "Left" (lambda () 'ok)))
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Splits" (lambda () 'ok)))
             """)
 
@@ -550,7 +550,7 @@ struct SchemeCoreSmokeTests {
               (sticky-set 'walk "Walk"
                 (key "h" "Left"  (lambda () 'l))
                 (key "l" "Right" (lambda () 'r))))
-            (define-tree 'global
+            (register-tree! 'global
               (key "x" "X" (lambda () 'x))
               nav)
             """)
@@ -584,7 +584,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               'exit-on-unknown #t
               (key "h" "Left" (lambda () 'ok)))
@@ -604,7 +604,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               'exit-on-unknown #t
               (group "x" "Split"
@@ -628,7 +628,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (key "h" "Root H" (lambda () 'ok))
               (group "x" "Strict"
@@ -658,10 +658,10 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (key "h" "Left" (lambda () 'ok)))
-            (define-tree 'launcher
+            (register-tree! 'launcher
               (key "p" "Pane Mode" (lambda () (enter-mode! 'panes))))
             """)
 
@@ -689,7 +689,7 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (key "h" "Left" (lambda () 'ok)))
             """)
@@ -709,10 +709,10 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'panes
+            (register-tree! 'panes
               'sticky #t
               (key "h" "Left" (lambda () 'ok)))
-            (define-tree 'launcher
+            (register-tree! 'launcher
               (key "p" "Pane Mode" (lambda () (enter-mode! 'panes))))
             """)
 
@@ -733,13 +733,13 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (define-tree 'b
+            (register-tree! 'b
               'sticky #t
               (key "x" "Noop" (lambda () 'ok)))
-            (define-tree 'a
+            (register-tree! 'a
               'sticky #t
               (key "n" "Next" (lambda () (enter-mode! 'b))))
-            (define-tree 'launcher
+            (register-tree! 'launcher
               (key "p" "Mode A" (lambda () (enter-mode! 'a))))
             """)
 

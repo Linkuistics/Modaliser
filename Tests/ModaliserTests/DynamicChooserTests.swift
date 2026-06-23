@@ -64,7 +64,7 @@ struct DynamicChooserTests {
             (define search-queries '())
             (define (my-dynamic-search query)
               (set! search-queries (cons query search-queries)))
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search my-dynamic-search
@@ -90,7 +90,7 @@ struct DynamicChooserTests {
             (define search-queries '())
             (define (my-dynamic-search query)
               (set! search-queries (cons query search-queries)))
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
@@ -117,7 +117,7 @@ struct DynamicChooserTests {
             (define search-queries '())
             (define (my-dynamic-search query)
               (set! search-queries (cons query search-queries)))
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
@@ -147,7 +147,7 @@ struct DynamicChooserTests {
               (chooser-push-results
                 (list (list (cons 'text "Result A"))
                       (list (cons 'text "Result B")))))
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
@@ -176,7 +176,7 @@ struct DynamicChooserTests {
               (chooser-push-results
                 (list (list (cons 'text "Alpha"))
                       (list (cons 'text "Beta")))))
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
@@ -212,7 +212,7 @@ struct DynamicChooserTests {
                 (list (list (cons 'text "First"))
                       (list (cons 'text "Second"))
                       (list (cons 'text "Third")))))
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
@@ -243,7 +243,7 @@ struct DynamicChooserTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define (my-dynamic-search query) #t)
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search
@@ -267,7 +267,7 @@ struct DynamicChooserTests {
               (list (list (cons 'text "Safari"))
                     (list (cons 'text "Chrome"))))
             (define (test-source) test-items)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find App" (selector
                 'prompt "Find app…"
                 'source test-source
@@ -293,7 +293,7 @@ struct DynamicChooserTests {
               (chooser-push-results
                 (list (list (cons 'text "He said \\"hello\\""))
                       (list (cons 'text "Line1\\nLine2")))))
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search…"
                 'dynamic-search my-dynamic-search

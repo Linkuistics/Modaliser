@@ -205,10 +205,9 @@ struct PanelGridRendererTests {
         let js = try String(contentsOfFile: joinPath(schemePath, "ui/overlay.js"), encoding: .utf8)
         #expect(js.contains("overlayRenderers['panel-grid']"))
         #expect(js.contains("renderPanel"))
-        // The which-key block exposes its row renderer for the panel grid to reuse.
-        let wk = try String(
-            contentsOfFile: joinPath(schemePath, "lib/modaliser/blocks/which-key.js"),
-            encoding: .utf8)
-        #expect(wk.contains("window.overlayRenderRow"))
+        // The canonical key-row renderer now lives in overlay.js itself
+        // (relocated from the removed which-key block); the panel grid draws its
+        // key rows with it.
+        #expect(js.contains("renderPanelRow"))
     }
 }

@@ -152,7 +152,7 @@ struct ConfigDslTests {
     @Test func selectorInTreeExitsModalOnSelect() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "f" "Find File"
                 (selector 'prompt "Search…" 'source (lambda () '()))))
             """)
@@ -168,7 +168,7 @@ struct ConfigDslTests {
     @Test func selectorInGroupNavigationWorks() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (group "f" "Find"
                 (key "a" "Find Apps"
                   (selector 'prompt "Find app…" 'source (lambda () '())))
@@ -203,7 +203,7 @@ struct ConfigDslTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (set! user-theme-css ":root { --overlay-bg: #333; }")
-            (define-tree 'global (key "s" "Safari" (lambda () 'ok)))
+            (register-tree! 'global (key "s" "Safari" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
             (render-overlay-html (lookup-tree "global") '("Global") '())
@@ -337,7 +337,7 @@ struct ConfigDslTests {
             (set-leader! 'global F18)
             (set-leader! 'local F17)
 
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () 'ok))
               (group "f" "Find"
                 (key "a" "Find Apps"
@@ -357,7 +357,7 @@ struct ConfigDslTests {
                             'source (lambda () '())
                             'on-select (lambda (c) c)))))
 
-            (define-tree 'com.apple.Safari
+            (register-tree! 'com.apple.Safari
               (group "t" "Tabs"
                 (key "n" "New Tab" (lambda () 'ok))))
             """)
@@ -463,11 +463,11 @@ struct ConfigDslTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define fired '())
-            (define-tree 'iterm-focus-test
+            (register-tree! 'iterm-focus-test
               'sticky #t
               'display-name "Focus"
               (key "h" "Left" (lambda () (set! fired (cons 'left fired)))))
-            (define-tree 'transient-test
+            (register-tree! 'transient-test
               (key "h" "Focus Left"
                 (lambda () (set! fired (cons 'transient-left fired)))
                 'sticky-target 'iterm-focus-test))

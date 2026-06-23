@@ -16,7 +16,7 @@ struct EndToEndSchemeModalTests {
 
         try engine.evaluate("""
             (set-leader! 'global F18)
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () #t)))
             """)
 
@@ -33,7 +33,7 @@ struct EndToEndSchemeModalTests {
 
         try engine.evaluate("""
             (define test-result #f)
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () (set! test-result 'safari-launched))))
             """)
 
@@ -61,7 +61,7 @@ struct EndToEndSchemeModalTests {
 
         try engine.evaluate("""
             (define test-result #f)
-            (define-tree 'global
+            (register-tree! 'global
               (key "H" "Split Left" (lambda () (set! test-result 'shift-H-fired))))
             """)
 
@@ -84,7 +84,7 @@ struct EndToEndSchemeModalTests {
         try engine.evaluate("""
             (define ctrl-result #f)
             (define alt-result #f)
-            (define-tree 'global
+            (register-tree! 'global
               (key "C-I" "Configure"  (lambda () (set! ctrl-result 'ctrl-shift-i)))
               (key "M-i" "Alt Eye"    (lambda () (set! alt-result 'alt-i))))
             """)
@@ -112,7 +112,7 @@ struct EndToEndSchemeModalTests {
 
         try engine.evaluate("""
             (define result #f)
-            (define-tree 'global
+            (register-tree! 'global
               (key "S-1" "Shifted One" (lambda () (set! result 'shift-1))))
             """)
 
@@ -131,7 +131,7 @@ struct EndToEndSchemeModalTests {
 
         try engine.evaluate("""
             (define test-result #f)
-            (define-tree 'global
+            (register-tree! 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () (set! test-result 'centered)))))
             """)
@@ -157,7 +157,7 @@ struct EndToEndSchemeModalTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () #t)))
             """)
 
@@ -177,7 +177,7 @@ struct EndToEndSchemeModalTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "s" "Safari" (lambda () #t)))
             """)
 
@@ -210,9 +210,9 @@ struct EndToEndSchemeModalTests {
         // to return the suffix unconditionally. resolve-app-tree should pick
         // the variant.
         try engine.evaluate("""
-            (define-tree "com.googlecode.iterm2"
+            (register-tree! "com.googlecode.iterm2"
               (key "t" "Tabs" (lambda () 'plain)))
-            (define-tree "com.googlecode.iterm2/zellij"
+            (register-tree! "com.googlecode.iterm2/zellij"
               (key "z" "Zellij" (lambda () 'zellij)))
             (set-local-context-suffix! (lambda (bundle-id) "/zellij"))
             """)
@@ -240,9 +240,9 @@ struct EndToEndSchemeModalTests {
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (define-tree "com.googlecode.iterm2"
+            (register-tree! "com.googlecode.iterm2"
               (key "t" "Tabs" (lambda () 'plain)))
-            (define-tree "com.googlecode.iterm2/zellij"
+            (register-tree! "com.googlecode.iterm2/zellij"
               (key "z" "Zellij" (lambda () 'zellij)))
             ;; default local-context-suffix returns #f — no override
             """)

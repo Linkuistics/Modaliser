@@ -70,7 +70,7 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Firefox") (cons 'bundleId "org.mozilla.Firefox"))))
             (define (test-source) test-items)
             (define test-selected #f)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find App" (selector
                 'prompt "Find app..."
                 'source test-source
@@ -99,7 +99,7 @@ struct ChooserIntegrationTests {
               (list (list (cons 'text "Safari") (cons 'bundleId "com.apple.Safari"))
                     (list (cons 'text "Chrome") (cons 'bundleId "com.google.Chrome"))))
             (define (test-source) test-items)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find App" (selector
                 'prompt "Find app..."
                 'source test-source
@@ -124,7 +124,7 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Chrome"))
                     (list (cons 'text "Firefox"))))
             (define (test-source) test-items)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
@@ -154,7 +154,7 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Beta"))
                     (list (cons 'text "Charlie"))))
             (define (test-source) test-items)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
@@ -176,7 +176,7 @@ struct ChooserIntegrationTests {
               (list (list (cons 'text "Safari") (cons 'bundleId "com.apple.Safari"))
                     (list (cons 'text "Chrome") (cons 'bundleId "com.google.Chrome"))))
             (define (test-source) test-items)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find App" (selector
                 'prompt "Find app..."
                 'source test-source
@@ -205,7 +205,7 @@ struct ChooserIntegrationTests {
         try engine.evaluate("""
             (define test-items (list (list (cons 'text "Safari"))))
             (define (test-source) test-items)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
@@ -229,7 +229,7 @@ struct ChooserIntegrationTests {
             (define test-items (list (list (cons 'text "Safari"))))
             (define (test-source) test-items)
             (set-leader! 'global F18)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
@@ -255,7 +255,7 @@ struct ChooserIntegrationTests {
         try engine.evaluate("""
             (define test-items (list (list (cons 'text "Safari"))))
             (define (test-source) test-items)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
@@ -285,7 +285,7 @@ struct ChooserIntegrationTests {
             (define test-items
               (list (list (cons 'text "Safari") (cons 'path "/Apps/Safari.app"))))
             (define (test-source) test-items)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
@@ -317,7 +317,7 @@ struct ChooserIntegrationTests {
             (define test-items (list (list (cons 'text "Alpha")) (list (cons 'text "Beta"))))
             (define (test-source) test-items)
             (define test-selected #f)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source
@@ -349,7 +349,7 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Firefox") (cons 'bundleId "org.mozilla.Firefox"))))
             (define (test-source) test-items)
             (set-leader! 'global F18)
-            (define-tree 'global
+            (register-tree! 'global
               (group "f" "Find"
                 (key "a" "Find App" (selector
                   'prompt "Find app..."
@@ -390,7 +390,7 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Beta"))
                     (list (cons 'text "Charlie"))))
             (define (test-source) test-items)
-            (define-tree 'global
+            (register-tree! 'global
               (key "a" "Find" (selector
                 'prompt "Find..."
                 'source test-source

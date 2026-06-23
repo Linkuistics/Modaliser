@@ -73,39 +73,6 @@
 (define overlay-panel-width 340)
 (define overlay-panel-height 400)
 
-;; Pixel estimates per entry, used to pick a column count that matches
-;; the user's target aspect ratio (overlay-target-aspect-ratio in
-;; (modaliser state-machine)). The monospaced font keeps these stable;
-;; the exact values aren't critical — they only seed the integer search
-;; below, and the user can re-tune via set-overlay-aspect-ratio!.
-;; overlay-col-width-px is now a loose proxy: which-key columns are
-;; content-width (see distribute-which-key-columns and the 2026-05-21
-;; overlay-category-packing spec), so the real column width varies.
-(define overlay-col-width-px 200)   ;; key + arrow + label + padding
-(define overlay-row-height-px 22)   ;; font-size 14 × line-height ≈ 1.4 + pad
-
-;; (overlay-column-count item-count) → integer ≥ 1
-;;
-;; Pick the column count N whose resulting overlay shape — N columns of
-;; ceil(item-count / N) rows — comes closest to overlay-target-aspect-ratio.
-;; Integer search over N ∈ [1, item-count]; cheap (≤ item-count
-;; iterations, typically <20). Avoids importing (scheme inexact) — `/`
-;; on integers yields exact rationals which `abs` and `<` handle.
-(define (overlay-column-count item-count)
-  (if (<= item-count 1)
-    1
-    (let loop ((n 1) (best 1) (best-diff #f))
-      (if (> n item-count)
-        best
-        (let* ((rows  (quotient (+ item-count n -1) n))   ;; ceil(item-count/n)
-               (w     (* n overlay-col-width-px))
-               (h     (* rows overlay-row-height-px))
-               (ratio (/ w h))
-               (diff  (abs (- ratio (overlay-target-aspect-ratio)))))
-          (if (or (not best-diff) (< diff best-diff))
-            (loop (+ n 1) n diff)
-            (loop (+ n 1) best best-diff)))))))
-
 ;; ─── Rendering (Pure Functions) ───────────────────────────────
 
 ;; Build a breadcrumb header from a list of segments.
@@ -343,14 +310,13 @@
   (list-cursor-clear!)
   (let* ((children (if current (flatten-categories (node-children current)) '()))
          (sorted   (sort-children children))
-         (n-items  (length sorted))
-         (n-cols   (overlay-column-count n-items))
          (key-ch   (max-key-chars sorted))
-         ;; overlay.js promotes these to --overlay-cols / --entry-key-ch
-         ;; custom properties on initial render, mirroring the update path.
+         ;; overlay.js promotes data-key-ch to the --entry-key-ch custom
+         ;; property on initial render, mirroring the update path. The column
+         ;; count is CSS-intrinsic now (.overlay-entries is an auto-fit grid),
+         ;; so no data-cols is emitted.
          (entries-attrs
            (list (cons 'class "overlay-entries")
-                 (cons 'data-cols   (number->string n-cols))
                  (cons 'data-key-ch (number->string key-ch)))))
     (div (list (cons 'class cls))
       (render-header-breadcrumb "overlay-header" segments)
@@ -392,40 +358,24 @@
                                 "overlay-footer")))
         (make-raw-html (footer-html-for-path path))))))
 
-;; (block-list-payload-json current) → JSON string
-;; Payload: {"type":"blocks","blocks":[<block-json>, ...]}
-;;
-;; Each block in the group's 'blocks list serializes itself. Blocks
-;; that carry their own dispatch children declare them under
-;; 'block-children; the (window:overlay …) constructor lifts those
-;; into the group's 'children for the state machine. The which-key
-;; block additionally partitions its own block-children into ordered
-;; misc/category segments at render time.
-(define (block-list-payload-json current)
-  (let ((blocks (or (node-renderer-payload current 'blocks) '())))
-    (string-append
-      "{\"type\":\"blocks\",\"blocks\":["
-      (string-join-comma (map block-json blocks))
-      "]}")))
-
 ;; (block-json b) → JSON object string
 ;; Runs the block's optional 'on-render-fn FIRST so side-effects (e.g.
 ;; chip painting) happen before serialization; its return value — when
 ;; a pair/alist — is merged into the spec for serialization. LispKit
 ;; doesn't expose set-cdr!, so blocks that need to splice live data
 ;; into the payload return it from the thunk rather than mutating their
-;; spec.  Then dispatch on 'type:
-;;   'which-key — emit segments by partitioning the block's own children.
-;;   other      — block-spec->json on (spec ∪ dynamic-data).
+;; spec.  Then block-spec->json on (spec ∪ dynamic-data).
 ;; A live-list block carries a 'cursor-targets-fn (a thunk → ((label . target)
 ;; …)); it offers that accessor to the cursor here as it serializes, so the
 ;; first list in the screen claims the cursor (renderer-body-json brackets the
 ;; pass). When this block is the one that owns the cursor, its current selected
 ;; index rides into the payload as "selected", which the JS renderer marks with
 ;; .is-focused. The accessor itself is a procedure, so block-spec->json skips it.
+;; block-json now serves only the live-list blocks embedded in panels
+;; (window-list / iterm-panes / iterm-tabs / window-diagram) via panel->json —
+;; the which-key block-list path was removed in the flag-day deletion.
 (define (block-json b)
-  (let* ((type (let ((e (assoc 'type b))) (and e (cdr e))))
-         (fn-entry (assoc 'on-render-fn b))
+  (let* ((fn-entry (assoc 'on-render-fn b))
          (fn (and fn-entry (cdr fn-entry)))
          (dyn (if (procedure? fn)
                 (let ((r (fn))) (if (pair? r) r '()))
@@ -433,24 +383,19 @@
          (tf-entry (assoc 'cursor-targets-fn b))
          (tf (and tf-entry (cdr tf-entry))))
     (when tf (list-cursor-offer! tf))
-    (cond
-      ((eq? type 'which-key)
-       (which-key-payload-json
-         (let ((e (assoc 'block-children b)))
-           (if e (cdr e) '()))))
-      (else
-       (let ((dyn* (if (and tf (eq? tf (list-cursor-active-targets-fn)))
-                     (cons (cons 'selected (list-cursor-index)) dyn)
-                     dyn)))
-         (block-spec->json (append b dyn*)))))))
+    (let ((dyn* (if (and tf (eq? tf (list-cursor-active-targets-fn)))
+                  (cons (cons 'selected (list-cursor-index)) dyn)
+                  dyn)))
+      (block-spec->json (append b dyn*)))))
 
 ;; (renderer-body-json renderer current) → JSON object string
-;; The body payload for a custom-renderer group, dispatched by the group's
-;; 'renderer symbol. 'panel-grid serializes the presentation metadata the
-;; layout DSL lowered onto the screen/open group (ADR-0011); every other
-;; renderer — notably the legacy 'blocks — uses the block-list payload.
-;; Both render-overlay-custom (initial paint) and push-overlay-update
-;; (incremental) route through here so the two paths can never diverge.
+;; The body payload for a custom-renderer group. 'panel-grid is the sole
+;; renderer — it serializes the presentation metadata the layout DSL lowered
+;; onto the screen/open group (ADR-0011). (The legacy 'blocks block-list path
+;; was removed in the flag-day deletion; any other marker is a misuse and
+;; errors loudly.) Both render-overlay-custom (initial paint) and
+;; push-overlay-update (incremental) route through here so the two paths can
+;; never diverge.
 ;; Bracket the body serialization with a list-cursor render pass: each embedded
 ;; list block offers its targets accessor as it serializes (block-json), the
 ;; first offer wins (first declared list owns the cursor), and a pass with no
@@ -461,7 +406,7 @@
   (list-cursor-begin-pass!)
   (let ((body (cond
                 ((eq? renderer 'panel-grid) (panel-grid-payload-json current))
-                (else                       (block-list-payload-json current)))))
+                (else (error "overlay: unknown renderer marker" renderer)))))
     (list-cursor-end-pass!)
     body))
 
@@ -535,116 +480,6 @@
       "\",\"span\":\"narrow\",\"rows\":["
       (if row row "")
       "]}")))
-
-;; (which-key-payload-json children) → JSON object
-;;
-;; Partition `children` into ordered segments (each (category …) is its
-;; own segment; consecutive non-category entries coalesce into one misc
-;; segment in declared position), choose a column count from the total
-;; visible row count, then distribute the segments into that many columns
-;; so short categories backfill the space under other short ones.
-;;
-;; Shape: {"type":"which-key","columns":[[<seg>,…],[<seg>,…]]}
-;; — an array of columns, each an array of segment objects. The renderer
-;; draws one element per column; declared order reads top-down column 1,
-;; then column 2.
-(define (which-key-payload-json children)
-  (let* ((segments  (partition-which-key-segments children))
-         (row-count (segments-row-count segments))
-         (n-cols    (overlay-column-count row-count))
-         (columns   (distribute-which-key-columns segments n-cols)))
-    (string-append
-      "{\"type\":\"which-key\",\"columns\":["
-      (string-join-comma
-        (map (lambda (col)
-               (string-append "[" (string-join-comma (map render-segment col)) "]"))
-             columns))
-      "]}")))
-
-;; Partition into segments, preserving declaration order. Consecutive
-;; non-category entries flush into one ('misc <nodes>) segment; each
-;; category becomes its own ('category <label> <inner>) segment.
-(define (partition-which-key-segments children)
-  (let loop ((xs children) (pending '()) (acc '()))
-    (cond
-      ((null? xs)
-       (let ((acc (if (null? pending)
-                    acc
-                    (cons (list 'misc (reverse pending)) acc))))
-         (reverse acc)))
-      ((category? (car xs))
-       (let* ((c     (car xs))
-              (label (let ((e (assoc 'label c)))    (if e (cdr e) "")))
-              (inner (let ((e (assoc 'children c))) (if e (cdr e) '())))
-              (acc   (if (null? pending)
-                       acc
-                       (cons (list 'misc (reverse pending)) acc)))
-              (acc   (cons (list 'category label inner) acc)))
-         (loop (cdr xs) '() acc)))
-      (else
-       (loop (cdr xs) (cons (car xs) pending) acc)))))
-
-;; (segment-row-count seg) → integer
-;; Visible row height of one segment. A misc segment is its row count; a
-;; category adds 1 for the heading row.
-(define (segment-row-count seg)
-  (let ((kind (car seg)))
-    (cond ((eq? kind 'misc)     (length (cadr seg)))
-          ((eq? kind 'category) (+ 1 (length (caddr seg))))
-          (else                 0))))
-
-;; (segments-row-count segments) → integer
-;; Total visible rows across all segments. Drives aspect-ratio-aware
-;; column-count selection.
-(define (segments-row-count segments)
-  (let loop ((rest segments) (total 0))
-    (if (null? rest)
-      total
-      (loop (cdr rest) (+ total (segment-row-count (car rest)))))))
-
-;; (distribute-which-key-columns segments n) → list of column lists
-;;
-;; Column-major sequential fill. Walk `segments` in declared order,
-;; accumulating each into the current column; start the next column when
-;; the current one is non-empty AND adding the segment would push its
-;; height past the per-column target (ceil(total-rows / n)). The last
-;; column absorbs every remaining segment, so the result never exceeds
-;; `n` columns. Declared order is preserved — the overlay reads top-down
-;; column 1, then column 2. Purely functional (accumulate + reverse):
-;; LispKit has no set-cdr!.
-(define (distribute-which-key-columns segments n)
-  (let ((n (min n (length segments))))
-    (if (<= n 1)
-      (if (null? segments) '() (list segments))
-      (let* ((total  (segments-row-count segments))
-             (target (quotient (+ total n -1) n)))   ;; ceil(total / n)
-        (let loop ((rest  segments)
-                   (col   '())     ;; current column, reversed
-                   (col-h 0)
-                   (done  '()))    ;; completed columns, reversed
-          (if (null? rest)
-            (reverse (if (null? col) done (cons (reverse col) done)))
-            (let* ((seg (car rest))
-                   (h   (segment-row-count seg)))
-              (if (and (not (null? col))
-                       (> (+ col-h h) target)
-                       (< (length done) (- n 1)))
-                ;; close the current column, open a new one with `seg`
-                (loop (cdr rest) (list seg) h (cons (reverse col) done))
-                ;; append `seg` to the current column
-                (loop (cdr rest) (cons seg col) (+ col-h h) done)))))))))
-
-(define (render-segment seg)
-  (cond
-    ((eq? (car seg) 'misc)
-     (let ((rows (filtered-rows (sort-children (cadr seg)))))
-       (string-append "{\"kind\":\"misc\",\"rows\":["
-                      (string-join-comma rows) "]}")))
-    (else  ; 'category
-     (let ((rows (filtered-rows (sort-children (caddr seg)))))
-       (string-append "{\"kind\":\"category\",\"label\":\""
-                      (js-escape-overlay (cadr seg))
-                      "\",\"rows\":[" (string-join-comma rows) "]}")))))
 
 ;; (filtered-rows children) → list of JSON strings (each a row)
 (define (filtered-rows children)
@@ -935,7 +770,6 @@
         ",\"path\":" path-json
         ",\"sticky\":" (if sticky? "true" "false")
         ",\"footer\":\"" (js-escape-overlay (footer-html-for-path path)) "\""
-        ",\"cols\":" (number->string (overlay-column-count (length sorted)))
         ",\"keyCh\":" (number->string (max-key-chars sorted))
         ",\"entries\":" entries-json "})"))))
 

@@ -5,31 +5,6 @@ import Testing
 @Suite("(modaliser window-actions) library")
 struct ModaliserWindowActionsLibraryTests {
 
-    @Test func overlayReturnsGroupNode() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
-        try engine.evaluate("""
-          (define g (overlay 'key "w" 'label "Windows"
-                      (default-layout-block)
-                      (list-block 'chips? #t)))
-        """)
-        #expect(try engine.evaluate("(group? g)") == .true)
-        #expect(try engine.evaluate("(equal? (cdr (assoc 'key g)) \"w\")") == .true)
-        #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Windows\")") == .true)
-        #expect(try engine.evaluate("(eq? (node-renderer g) 'blocks)") == .true)
-    }
-
-    @Test func overlayDefaultsKeyAndLabel() throws {
-        // overlay is now in (modaliser dsl) and is window-agnostic, so
-        // defaults are generic ("?", "Overlay") rather than windows-
-        // specific. Configs declare their own key/label.
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser window-actions))")
-        try engine.evaluate("(define g (overlay (default-layout-block)))")
-        #expect(try engine.evaluate("(equal? (cdr (assoc 'key g)) \"?\")") == .true)
-        #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Overlay\")") == .true)
-    }
-
     // A live (chips) window list-block carries a 'cursor-targets-fn accessor so
     // the selection cursor (list-cursor-k6) moves over the same label→window
     // targets the digit dispatch uses, alongside its hidden digit range.
@@ -133,78 +108,4 @@ struct ModaliserWindowActionsLibraryTests {
         #expect(try engine.evaluate("(equal? (cdr (assoc 'hidden rng)) #t)") == .true)
     }
 
-    @Test func overlayLiftsBlockChildrenToGroupChildren() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
-        try engine.evaluate("""
-          (define g (overlay 'key "w" 'label "Windows"
-                      (layout-block (("d" "f" "g")))
-                      (list-block 'chips? #t)))
-          (define ch (cdr (assoc 'children g)))
-        """)
-        // 3 panel keys + 1 window-range = 4 children
-        #expect(try engine.evaluate("(= (length ch) 4)") == .true)
-        // find-child sees "d" through the lifted block-children
-        #expect(try engine.evaluate("(and (find-child g \"d\") #t)") == .true)
-        // and resolves a digit via the window-range
-        #expect(try engine.evaluate("(and (find-child g \"5\") #t)") == .true)
-    }
-
-    @Test func windowListBlockContributesOnLeaveHook() throws {
-        // The window-list block (with 'chips? #t) owns the chip
-        // lifecycle end-to-end: its 'on-leave-fn calls (hints-hide)
-        // when the overlay closes. The generic overlay constructor in
-        // (modaliser dsl) collects 'on-leave-fn from every block and
-        // composes them into the group's on-leave hook.
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
-        try engine.evaluate("""
-          (define g (overlay 'key "w" 'label "Windows"
-                      (default-layout-block)
-                      (list-block 'chips? #t)))
-        """)
-        #expect(try engine.evaluate("(procedure? (node-on-leave g))") == .true)
-    }
-
-    @Test func overlayEndToEndRendersFullPayload() throws {
-        // End-to-end render-path coverage. Exercises block-list-payload-
-        // json -> each block's on-render-fn (including the window-list
-        // chip-painting effect) -> serialization. Guards against the
-        // (now-fixed) set-cdr! issue and any future regression in the
-        // serialization path.
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else {
-            Issue.record("Scheme directory not found"); throw SchemeTestError.noSchemeDir
-        }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
-        try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
-        try engine.evaluateFile(schemePath + "/ui/css.scm")
-        try engine.evaluateFile(schemePath + "/ui/overlay.scm")
-        try engine.evaluate("(import (modaliser blocks which-key) (modaliser window-actions))")
-        try engine.evaluate("""
-          (define g (overlay 'key "w" 'label "Windows"
-                      (default-layout-block)
-                      (which-key-block
-                        (key "r" "Restore" (lambda () #t)))
-                      (list-block 'chips? #t)))
-          (define payload (block-list-payload-json g))
-        """)
-        let p = try engine.evaluate("payload").asString()
-        #expect(p.contains("\"type\":\"blocks\""))
-        #expect(p.contains("\"type\":\"window-diagram\""))
-        #expect(p.contains("\"type\":\"which-key\""))
-        #expect(p.contains("\"type\":\"window-list\""))
-        // which-key carries the user-declared "r" (Restore)
-        #expect(p.contains("\"label\":\"Restore\""))
-        // Panel keys are owned by window-diagram, NOT which-key
-        guard let wkStart = p.range(of: "\"type\":\"which-key\"") else {
-            Issue.record("which-key block missing"); return
-        }
-        let afterWk = p[wkStart.lowerBound...]
-        let wkSlice = String(afterWk.prefix(while: { $0 != "]" }))
-        #expect(!wkSlice.contains("\"key\":\"d\""),
-                "panel key 'd' leaked into which-key (block-children leak?)")
-        // block-children should NOT appear as a JSON field
-        #expect(!p.contains("block-children"))
-    }
 }

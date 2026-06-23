@@ -4,7 +4,7 @@ import Testing
 
 @Suite("End-to-end: user library imports (modaliser dsl)")
 struct ModaliserDslImportEndToEndTests {
-    @Test func userLibraryCanImportModaliserDslAndDefineTree() throws {
+    @Test func userLibraryCanImportModaliserDslAndRegisterScreen() throws {
         let tmpRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("modaliser-dsl-e2e-\(UUID().uuidString)",
                                    isDirectory: true)
@@ -21,7 +21,7 @@ struct ModaliserDslImportEndToEndTests {
                   (modaliser state-machine))
           (begin
             (define (register!)
-              (define-tree 'global
+              (screen 'global
                 (key "s" "Safari" (lambda () 'ok))))))
         """
         try libBody.write(to: userDir.appendingPathComponent("bindings.sld"),

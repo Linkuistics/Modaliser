@@ -73,7 +73,7 @@ struct KeyRangeTests {
     @Test func findChildMatchesAnyKeyInRange() throws {
         let engine = try loadStack()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key-range "1..9" "Space <n>"
                 '("1" "2" "3" "4" "5" "6" "7" "8" "9")
                 (lambda (k) k)))
@@ -94,7 +94,7 @@ struct KeyRangeTests {
     @Test func literalKeyWinsOverOverlappingRange() throws {
         let engine = try loadStack()
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key-range "1..9" "Space <n>"
                 '("1" "2" "3" "4" "5" "6" "7" "8" "9")
                 (lambda (k) 'range))
@@ -119,7 +119,7 @@ struct KeyRangeTests {
         let engine = try loadStack()
         try engine.evaluate("""
             (define received '())
-            (define-tree 'global
+            (register-tree! 'global
               (key-range "1..9" "Space <n>"
                 '("1" "2" "3" "4" "5" "6" "7" "8" "9")
                 (lambda (k) (set! received (cons k received)))))
@@ -135,7 +135,7 @@ struct KeyRangeTests {
         let engine = try loadStack()
         try engine.evaluate("""
             (define received '())
-            (define-tree 'global
+            (register-tree! 'global
               (key-range "1..9" "Space <n>"
                 '("1" "2" "3") (lambda (k) (set! received (cons k received)))))
             """)
@@ -212,7 +212,7 @@ struct KeyRangeTests {
         let engine = try loadStack()
         try engine.evaluate("""
             (define received #f)
-            (define-tree 'global
+            (register-tree! 'global
               (keys '("1" "2" "3" "4" "5") "Space <n>"
                 (lambda (k i ks)
                   (set! received (list k i (length ks))))))
@@ -238,8 +238,8 @@ struct KeyRangeTests {
 
     @Test func overlayRendersRangeAsSingleEntry() throws {
         let engine = try loadStack()
-        // Use a bare (group …) — top-level (define-tree …) now renders as
-        // a block-list, while this test exercises the default list renderer.
+        // Use a bare (group …) so the test exercises the default list renderer
+        // directly.
         try engine.evaluate("""
             (define test-node (group "g" "G"
               (key-range "1..9" "Space <n>"

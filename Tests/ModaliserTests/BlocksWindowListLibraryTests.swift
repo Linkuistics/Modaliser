@@ -46,9 +46,8 @@ struct BlocksWindowListLibraryTests {
         try engine.evaluateFile(schemePath + "/ui/overlay.scm")
         try engine.evaluate("(import (modaliser blocks window-list))")
         try engine.evaluate("""
-          (define grp (group "w" "Win" 'renderer 'blocks
-                        'blocks (list (make-window-list-block))))
-          (define html (render-overlay-html grp '("Root") '()))
+          (screen 'w (panel "Win" (make-window-list-block)))
+          (define html (render-overlay-html (lookup-tree "w") '("Root") '()))
         """)
         let html = try engine.evaluate("html").asString()
         #expect(html.contains("\"type\":\"window-list\""))
@@ -64,9 +63,8 @@ struct BlocksWindowListLibraryTests {
         try engine.evaluateFile(schemePath + "/ui/overlay.scm")
         try engine.evaluate("(import (modaliser blocks window-list))")
         try engine.evaluate("""
-          (define grp (group "w" "Win" 'renderer 'blocks
-                        'blocks (list (make-window-list-block))))
-          (define html (render-overlay-html grp '("Root") '()))
+          (screen 'w (panel "Win" (make-window-list-block)))
+          (define html (render-overlay-html (lookup-tree "w") '("Root") '()))
         """)
         let html = try engine.evaluate("html").asString()
         #expect(html.contains("overlayBlockRenderers['window-list']"))

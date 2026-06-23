@@ -184,7 +184,7 @@ struct LayoutDslTests {
     @Test func screenComposesEmbeddedListOnLeaveHook() throws {
         let engine = try loadLayout()
         // The embedded list's on-leave-fn (chip clear) must be composed
-        // onto the screen group's on-leave, exactly as define-tree does.
+        // onto the screen group's on-leave (via panel-grid-head's hook merge).
         try engine.evaluate("(screen 'scr-hooks (panel \"Windows\" (fake-list-block)))")
         #expect(try engine.evaluate("(procedure? (node-on-leave (lookup-tree \"scr-hooks\")))") == .true)
     }

@@ -129,15 +129,12 @@
   --color-header: #6b7280;          /* breadcrumb / footer / caption, muted */
   --color-separator: var(--panel-border);
 
-  /* ─ Legacy aliases ─ used by the deprecated which-key block renderer and
-   * by the live-list blocks (window-list / iterm-panes) until they converge
-   * on the .list-* vocabulary. Kept so those renderers reskin to the new
-   * palette; physically retiring the which-key path is a deferred follow-up
-   * (it is still reachable from the bundled *-pane-digit / focus-mode trees).
-   * `key` now means a list/accent key (window-list digits); static command
-   * keys take --keycap-fg. `category` follows the panel-header colour. */
+  /* ─ Live-list alias ─ --color-key is the accent colour for the numeric keys
+   * in the live-list blocks (window-list / iterm-panes / iterm-tabs /
+   * window-diagram), until they converge on the .list-* vocabulary. (The
+   * which-key block renderer that also used these legacy aliases — and
+   * --color-category with it — was removed in the flag-day deletion.) */
   --color-key: var(--accent);
-  --color-category: var(--panel-head-fg);
 }
 
 /* ─── Base Reset ───────────────────────────────────────────── */
@@ -225,25 +222,24 @@ body {
 
 /* ─── Entry List ───────────────────────────────────────────── */
 
-/* The entry list is a CSS multi-column container; the column count is
- * picked by overlay-column-count in overlay.scm to match the user's
- * target aspect ratio (set-overlay-aspect-ratio! in (modaliser dsl)).
- * column-fill: auto fills column 1 top-to-bottom before column 2 —
- * what the user expects from "trade width for height" rather than the
- * balanced flow of the default.
+/* The entry list is a CSS-intrinsic grid: auto-fit tracks of at least
+ * --overlay-entry-min-width, capped by --overlay-entries-max-width so the grid
+ * wraps inside the width:max-content .overlay rather than stretching to one row
+ * (the same pattern .panel-grid uses). The column count falls out of the
+ * available width — there is no Scheme-side count and no aspect-ratio knob.
+ * Entries flow row-major (left-to-right, then wrap); with keys sorted
+ * alphabetically the rhythm across rows stays predictable.
  *
- * Each <li> is its own 3-column mini-grid for key / arrow / label, with
- * break-inside: avoid so a row never splits across columns. (The 3-col
- * grid is per-entry rather than shared across all entries — the
- * trade-off for multi-column flow: each column's widest key sets its
- * own key-column width, but column 1's key width no longer applies to
- * column 2. Acceptable: with the keys themselves sorted alphabetically
- * the visual rhythm across columns stays predictable.) */
+ * Each entry is itself a 3-column mini-grid (key / arrow / label) — the
+ * .overlay-entry rule below lays that out. */
 .overlay-entries {
   list-style: none;
-  column-count: var(--overlay-cols, 1);
-  column-gap: 28px;
-  column-fill: auto;
+  display: grid;
+  grid-template-columns:
+    repeat(auto-fit, minmax(var(--overlay-entry-min-width, 200px), 1fr));
+  gap: 2px 28px;
+  align-items: start;
+  max-width: var(--overlay-entries-max-width, 620px);
   /* The card is edge-to-edge, so the list owns its padding under the band
    * above and the footer below. */
   padding: 10px 12px;
@@ -257,7 +253,6 @@ body {
   grid-template-columns: max-content max-content 1fr;
   column-gap: 6px;
   align-items: center;
-  break-inside: avoid;
 }
 
 /* ─── Key Badge ────────────────────────────────────────────── */
@@ -419,11 +414,11 @@ body {
   gap: 2px;
 }
 
-/* Per-row mini-grid: keycap / arrow / label. The row markup (.wk-row with
- * .entry-key/.entry-arrow/.entry-label) is shared with the which-key block
- * renderer, but its grid there is scoped under .block-which-key, so panels
- * carry their own structural copy. The global keycap / arrow / label rules
- * above paint the cells; these are the soft (neutral) keycaps — static
+/* Per-row mini-grid: keycap / arrow / label. The .wk-row markup (with
+ * .entry-key/.entry-arrow/.entry-label) is emitted by renderPanelRow in
+ * overlay.js — the .wk-row class name is a vestige of the removed which-key
+ * block, kept because this rule targets it. The global keycap / arrow / label
+ * rules above paint the cells; these are the soft (neutral) keycaps — static
  * command keys, distinct from the accent keys in the embedded list below. */
 .panel-rows .wk-row {
   display: grid;

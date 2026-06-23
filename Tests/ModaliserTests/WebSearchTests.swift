@@ -181,7 +181,7 @@ struct WebSearchTests {
 
         // Open a dynamic chooser with web-search-handler
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler
@@ -215,7 +215,7 @@ struct WebSearchTests {
             """)
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler
@@ -240,7 +240,7 @@ struct WebSearchTests {
         let engine = try loadAllModules()
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler
@@ -277,7 +277,7 @@ struct WebSearchTests {
             (define http-get-calls '())
             (set-web-search-fetch! (lambda (url callback)
               (set! http-get-calls (cons url http-get-calls))))
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler
@@ -309,7 +309,7 @@ struct WebSearchTests {
             """)
 
         try engine.evaluate("""
-            (define-tree 'global
+            (register-tree! 'global
               (key "g" "Google" (selector
                 'prompt "Search Google…"
                 'dynamic-search web-search-handler

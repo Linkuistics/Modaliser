@@ -81,15 +81,12 @@ window.overlayRenderers.list = function(data) {
     footer.classList.toggle('overlay-footer-root', atRoot);
   }
 
-  // Update entry list — column count and key-column width come through
-  // as data.cols and data.keyCh and are applied as CSS custom properties
-  // the entries' .overlay-entries rule reads via var(--overlay-cols)
-  // and var(--entry-key-ch). Mirrors the inline style emitted by
-  // render-overlay-body for the initial paint.
+  // Update entry list — the key-column width comes through as data.keyCh and
+  // is promoted to the --entry-key-ch custom property the .overlay-entries
+  // rule reads. The column count is CSS-intrinsic (an auto-fit grid), so there
+  // is no --overlay-cols. Mirrors the data-attr emitted by
+  // render-overlay-default for the initial paint.
   var ul = document.querySelector('.overlay-entries');
-  if (ul && typeof data.cols === 'number') {
-    ul.style.setProperty('--overlay-cols', String(data.cols));
-  }
   if (ul && typeof data.keyCh === 'number') {
     ul.style.setProperty('--entry-key-ch', String(data.keyCh));
   }
@@ -122,47 +119,12 @@ window.overlayRenderers.list = function(data) {
   notifyResize();
 };
 
-// Block-list renderer — handles {type: "blocks", blocks: [{type, …}, …]}
-// payloads. Each block in payload.blocks is rendered by looking up
-// window.overlayBlockRenderers[block.type] and calling it with
-// (block, blockContainer). Block renderers append their own DOM into
-// their per-block container; the renderer here just builds the row of
-// containers in source order. Containers carry a "block block-<type>"
-// class so block-specific CSS can scope its styles.
+// Block renderer registry. The live-list block renderers (window-list.js,
+// iterm-panes, iterm-tabs, window-diagram) register themselves here under their
+// type; the panel-grid renderer's renderPanelList looks them up to draw a
+// panel's embedded live list. (The whole-overlay block-list renderer that also
+// drew from this registry was removed in the flag-day deletion.)
 window.overlayBlockRenderers = window.overlayBlockRenderers || {};
-
-window.overlayRenderers.blocks = function(data, container) {
-  // Update chrome (breadcrumb, sticky flag, footer) alongside the body.
-  // The Scheme-side push includes these fields on every update so the
-  // header/footer track the navigation depth — e.g. so the backspace
-  // hint appears once the user descends into a nested block-list group.
-  // The bootstrap path passes a `container` and skips chrome (initial
-  // HTML already has it baked in by render-overlay-custom).
-  if (!container) {
-    updateOverlayChrome(data);
-  }
-  var root = container || document.querySelector('.overlay-custom-body[data-renderer="blocks"]');
-  if (!root) return;
-  while (root.firstChild) root.removeChild(root.firstChild);
-  var list = data.blocks || [];
-  for (var i = 0; i < list.length; i++) {
-    var block = list[i];
-    var bc = document.createElement('div');
-    bc.className = 'block block-' + block.type;
-    root.appendChild(bc);
-    var fn = window.overlayBlockRenderers[block.type];
-    if (fn) {
-      try {
-        fn(block, bc);
-      } catch (e) {
-        console.error('block ' + block.type + ' render failed', e);
-      }
-    } else {
-      console.warn('overlay: no block renderer for', block.type);
-    }
-  }
-  notifyResize();
-};
 
 // Panel-grid renderer — handles {type:"panel-grid", cols?, panels:[…]}
 // payloads, the layout DSL's lowered `screen` / `open` (ADR-0011). Each
@@ -225,15 +187,12 @@ function renderPanel(panel) {
   return card;
 }
 
-// renderPanelRow — reuse which-key.js's renderRow (assigned to
-// window.overlayRenderRow when that block's JS asset loads, which the layout
-// DSL always pulls in transitively). Falls back to an identical local
-// renderer so a panel grid still draws rows if which-key.js is absent — and
-// so this stays the canonical row renderer once which-key.js is retired.
+// renderPanelRow — the canonical key-row renderer: keycap / arrow / label.
+// (Previously shared via window.overlayRenderRow with the which-key block's JS;
+// that block was removed in the flag-day deletion, so this local renderer — the
+// former fallback — is now the single source. The row keeps the .wk-row class
+// the panel CSS targets.)
 function renderPanelRow(row) {
-  if (typeof window.overlayRenderRow === 'function') {
-    return window.overlayRenderRow(row);
-  }
   var displayKey = row.key === ' ' ? '␣' : row.key;
   var labelClass = row.isGroup ? 'entry-label group-label' : 'entry-label';
   var labelText = row.isGroup ? (row.label + ' …') : row.label;
@@ -338,16 +297,14 @@ function bootstrapCustomBody() {
 }
 
 // Default-renderer counterpart to bootstrapCustomBody. The Scheme side
-// emits data-cols / data-key-ch on .overlay-entries; promote them to
-// the --overlay-cols / --entry-key-ch custom properties the CSS reads.
-// Mirrors the update-path code in the list renderer above. Until this
-// runs, base.css fallbacks (1 col, 2ch) cover the first-paint window.
+// emits data-key-ch on .overlay-entries; promote it to the --entry-key-ch
+// custom property the CSS reads. Mirrors the update-path code in the list
+// renderer above. Until this runs, the base.css fallback (2ch) covers the
+// first-paint window. (Column count is CSS-intrinsic — no data-cols.)
 function applyOverlayEntryProps() {
   var ul = document.querySelector('.overlay-entries');
   if (!ul) return;
-  var cols = ul.dataset.cols;        // data-cols
   var keyCh = ul.dataset.keyCh;      // data-key-ch (kebab → camel)
-  if (cols) ul.style.setProperty('--overlay-cols', cols);
   if (keyCh) ul.style.setProperty('--entry-key-ch', keyCh);
 }
 
