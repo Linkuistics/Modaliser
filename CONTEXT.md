@@ -146,6 +146,18 @@ explicit span is given.
 The first live-list panel in a screen owns the cursor (multi-list `Tab` cycling
 is a non-goal). Distinct from the **Chip** overlays it can paint.
 
+**Open** — the authored drill-down affordance: `(open KEY LABEL panel…)`. A row
+in a panel that navigates *into* a sub-screen (its own grid of panels). Lowers to
+a navigable `group` carrying `'renderer 'panel-grid`. The presentation-first
+replacement for the `(key K L (overlay …))` idiom; the only navigable layout
+form (a `panel`, by contrast, is transparent — it never changes key paths).
+
+**Fragment** — a reusable, named chunk of layout (panels or command rows) spliced
+into multiple screens/panels for DRY (e.g. a shared `window-actions` set). Built
+on `expand-splices` — the same splice mechanism `sticky-set` already uses for
+keys — so nothing downstream sees the fragment; the result is identical to
+writing its contents inline.
+
 ## Window-layout domain
 
 **Window-layout op** — a `w`-menu action that repositions or resizes the
