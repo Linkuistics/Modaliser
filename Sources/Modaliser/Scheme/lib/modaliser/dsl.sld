@@ -11,7 +11,7 @@
 
 (define-library (modaliser dsl)
   (export key key-range keys group selector action
-          category overlay sticky-set
+          category overlay sticky-set fragment
           screen panel open
           λ
           define-tree set-theme!
@@ -376,6 +376,30 @@
         (cons 'children
               (map (lambda (k) (cons (cons 'sticky-target mode-id) k))
                    keys))))
+
+;; (fragment child …) → splice node
+;;
+;; A reusable, NAMED chunk of layout — panels (for screen-level reuse) or
+;; command rows (for panel-level reuse) — bound once to a Scheme variable and
+;; spliced into any number of screens/panels for DRY. It is sticky-set's
+;; second half on its own: a 'kind 'splice node, with NO mode registration
+;; and NO 'sticky-target decoration — pure structural reuse.
+;;
+;; expand-splices (run by screen / panel / open and the legacy define-tree /
+;; group / overlay / category constructors) hoists the children in place, so
+;; nothing downstream ever sees the fragment — the lowered tree is identical
+;; to writing the children inline. Nested fragments / sticky-sets compose for
+;; free, since expand-splices recurses through splice children.
+;;
+;;   (define window-ops
+;;     (fragment
+;;       (key "c" "Center"   center-window)
+;;       (key "m" "Maximise" maximise-window)))
+;;   (screen 'global (panel "Windows" window-ops …))   ; spliced here …
+;;   (screen 'finder (panel "Layout"  window-ops …))   ; … and here
+(define (fragment . children)
+  (list (cons 'kind 'splice)
+        (cons 'children children)))
 
 ;; (overlay [keyword value]... block...) → group alist with 'renderer 'blocks
 ;;
