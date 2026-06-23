@@ -16,6 +16,10 @@
 ;; CSS/JS at library-import time without depending on this side-effecting
 ;; top-level file being loaded.
 (import (modaliser overlay-assets))
+;; The selection-cursor state for embedded live lists (list-cursor-k6). The
+;; renderer registers the owning list each render pass and reads back the
+;; selected index; the footer advertises the nav keys while a cursor is active.
+(import (modaliser list-cursor))
 
 ;; ─── Overlay State ────────────────────────────────────────────
 
@@ -214,6 +218,16 @@
   (string-append overlay-sigil-back " back \xb7; "
                  overlay-sigil-escape " cancel"))
 
+;; Selection-cursor nav hints, prepended to the footer while an embedded list
+;; owns the cursor (list-cursor-k6). ↑↓/⏎ reuse the .sigil-arrows / .sigil-return
+;; glyph styling already in base.css; "1–9 jump" advertises the immediate digit
+;; selectors that stay live alongside the cursor.
+(define overlay-footer-html-cursor
+  (string-append
+    "<span class=\"sigil sigil-arrows\">\x2191;\x2193;</span> move \xb7; "
+    "<span class=\"sigil sigil-return\">\x23ce;</span> select \xb7; "
+    "1\x2013;9 jump"))
+
 ;; (back-available-for-path? path) → #t when backspace navigates somewhere
 ;; — mirrors modal-step-back's conditions exactly so the hint advertises
 ;; the actual binding behaviour. The path is the live modal navigation
@@ -231,9 +245,15 @@
     (else #f)))
 
 (define (footer-html-for-path path)
-  (if (back-available-for-path? path)
-    overlay-footer-html-deep
-    overlay-footer-html-root))
+  (let ((base (if (back-available-for-path? path)
+                overlay-footer-html-deep
+                overlay-footer-html-root)))
+    ;; When a list cursor is active (set during the just-finished render pass —
+    ;; renderer-body-json runs before the footer is built), lead with the nav
+    ;; hints so the user sees ↑↓/⏎ alongside the cancel/back sigils.
+    (if (list-cursor-active?)
+      (string-append overlay-footer-html-cursor " \xb7; " base)
+      base)))
 
 ;; ─── Key display ──────────────────────────────────────────────
 ;;
@@ -316,6 +336,11 @@
 ;; Default list renderer body (formerly inline in render-overlay-body).
 ;; Sorted-children list with multi-column layout + breadcrumb + footer.
 (define (render-overlay-default cls segments current path)
+  ;; A plain key-list screen embeds no live list, so it never re-offers the
+  ;; cursor (only the custom-renderer path brackets a render pass). Clear it
+  ;; here so navigating from a list screen into a plain one leaves cursor keys
+  ;; inert and drops the footer nav hints.
+  (list-cursor-clear!)
   (let* ((children (if current (flatten-categories (node-children current)) '()))
          (sorted   (sort-children children))
          (n-items  (length sorted))
@@ -392,20 +417,32 @@
 ;; spec.  Then dispatch on 'type:
 ;;   'which-key — emit segments by partitioning the block's own children.
 ;;   other      — block-spec->json on (spec ∪ dynamic-data).
+;; A live-list block carries a 'cursor-targets-fn (a thunk → ((label . target)
+;; …)); it offers that accessor to the cursor here as it serializes, so the
+;; first list in the screen claims the cursor (renderer-body-json brackets the
+;; pass). When this block is the one that owns the cursor, its current selected
+;; index rides into the payload as "selected", which the JS renderer marks with
+;; .is-focused. The accessor itself is a procedure, so block-spec->json skips it.
 (define (block-json b)
   (let* ((type (let ((e (assoc 'type b))) (and e (cdr e))))
          (fn-entry (assoc 'on-render-fn b))
          (fn (and fn-entry (cdr fn-entry)))
          (dyn (if (procedure? fn)
                 (let ((r (fn))) (if (pair? r) r '()))
-                '())))
+                '()))
+         (tf-entry (assoc 'cursor-targets-fn b))
+         (tf (and tf-entry (cdr tf-entry))))
+    (when tf (list-cursor-offer! tf))
     (cond
       ((eq? type 'which-key)
        (which-key-payload-json
          (let ((e (assoc 'block-children b)))
            (if e (cdr e) '()))))
       (else
-       (block-spec->json (append b dyn))))))
+       (let ((dyn* (if (and tf (eq? tf (list-cursor-active-targets-fn)))
+                     (cons (cons 'selected (list-cursor-index)) dyn)
+                     dyn)))
+         (block-spec->json (append b dyn*)))))))
 
 ;; (renderer-body-json renderer current) → JSON object string
 ;; The body payload for a custom-renderer group, dispatched by the group's
@@ -414,10 +451,19 @@
 ;; renderer — notably the legacy 'blocks — uses the block-list payload.
 ;; Both render-overlay-custom (initial paint) and push-overlay-update
 ;; (incremental) route through here so the two paths can never diverge.
+;; Bracket the body serialization with a list-cursor render pass: each embedded
+;; list block offers its targets accessor as it serializes (block-json), the
+;; first offer wins (first declared list owns the cursor), and a pass with no
+;; offer clears the cursor — so a screen with no live list leaves its keys
+;; inert. Both initial paint and incremental push route through here, so the
+;; cursor registration can never diverge between the two.
 (define (renderer-body-json renderer current)
-  (cond
-    ((eq? renderer 'panel-grid) (panel-grid-payload-json current))
-    (else                       (block-list-payload-json current))))
+  (list-cursor-begin-pass!)
+  (let ((body (cond
+                ((eq? renderer 'panel-grid) (panel-grid-payload-json current))
+                (else                       (block-list-payload-json current)))))
+    (list-cursor-end-pass!)
+    body))
 
 ;; ─── Panel-grid renderer (layout DSL; ADR-0011 / ADR-0012) ───────
 ;;
@@ -838,6 +884,9 @@
 ;; Takes the root `node` (needed by path-labels / deepest-sticky-on-path),
 ;; the already-navigated `current` node, and `path`.
 (define (push-overlay-update-default node current path)
+  ;; Incremental counterpart to render-overlay-default's clear: a plain key-list
+  ;; push has no list to own the cursor, so retire it (and its footer hints).
+  (list-cursor-clear!)
   (let* ((children (if current (flatten-categories (node-children current)) '()))
          (sorted (sort-children children))
          ;; Helper: build a JSON string array from a list of strings.
@@ -976,7 +1025,10 @@
   (when (overlay-open?)
     (webview-close overlay-webview-id)
     (set-overlay-open! #f)
-    (set! overlay-current-renderer #f)))
+    (set! overlay-current-renderer #f)
+    ;; Modal closed — retire any active list cursor so the next session starts
+    ;; with no stale selection.
+    (list-cursor-clear!)))
 
 ;; Install overlay implementations into the state-machine.
 (set-show-overlay!   overlay-show-impl)

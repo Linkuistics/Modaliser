@@ -146,6 +146,15 @@ explicit span is given.
 The first live-list panel in a screen owns the cursor (multi-list `Tab` cycling
 is a non-goal). Distinct from the **Chip** overlays it can paint.
 
+**Selection cursor** — the movable highlight over a live list's rows: `↑↓` / `k j`
+move it (clamped, no wrap), `⏎` activates the highlighted row. Its activation
+label *is* the row's digit, so `⏎` dispatches through the same digit-jump path the
+immediate `1–9` selectors use — the cursor adds only a pointer, no separate
+action. State lives in `(modaliser list-cursor)`, owned by the first live list a
+screen renders; the focused row is marked `.is-focused` (accent bar + tint).
+Distinct from a **Selector** (the chooser-opening node) and from the digit
+**selectors** (immediate direct-jump keys).
+
 **Open** — the authored drill-down affordance: `(open KEY LABEL panel…)`. A row
 in a panel that navigates *into* a sub-screen (its own grid of panels). Lowers to
 a navigable `group` carrying `'renderer 'panel-grid`. The presentation-first

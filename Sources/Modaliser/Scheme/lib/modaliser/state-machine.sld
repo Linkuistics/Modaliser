@@ -30,6 +30,7 @@
     ;; Modal lifecycle
     modal-enter modal-exit modal-step-back modal-handle-key
     modal-show-overlay-now modal-show-overlay-delayed
+    modal-list-cursor-move! modal-list-cursor-activate!
     enter-mode!
     set-overlay-delay! set-overlay-aspect-ratio!
     ;; Key handler hook (installed by event-dispatch after it defines modal-key-handler)
@@ -47,7 +48,8 @@
           (modaliser util)
           (modaliser app)
           (modaliser keyboard)
-          (modaliser lifecycle))
+          (modaliser lifecycle)
+          (modaliser list-cursor))
   (begin
 
 ;; Manages command tree registration, lookup, and modal navigation.
@@ -689,6 +691,38 @@
              (run-on-enter modal-current-node)
              (update-overlay modal-root-node modal-current-path))))))))
 
+;; ─── List selection cursor ─────────────────────────────────────
+;;
+;; An embedded live list (window-list / iterm-panes / iterm-tabs) carries a
+;; movable selection cursor alongside its immediate digit selectors. The
+;; cursor's state lives in (modaliser list-cursor); the renderer registers the
+;; owning list each render pass (overlay.scm). These two helpers are the modal's
+;; bridge to it: the key path (modal-handle-key for k/j, modal-key-handler for
+;; ↑↓/⏎ by keycode) calls them, and they re-render through the overlay so the
+;; highlight follows.
+
+;; Move the active list cursor by DELTA and re-render the overlay so the
+;; highlighted row updates. Returns #t when a cursor was active (the key is
+;; consumed), #f when none is — the caller then handles the key normally.
+(define (modal-list-cursor-move! delta)
+  (and (list-cursor-active?)
+       (begin
+         (list-cursor-move! delta)
+         (when (overlay-open?)
+           (update-overlay modal-root-node modal-current-path))
+         #t)))
+
+;; Activate the highlighted list row: dispatch its label (a digit) through the
+;; normal range-command path, so the digit action AND the transient/sticky
+;; cleanup are reused verbatim — ⏎ on a selection behaves exactly like pressing
+;; that digit. Returns #t when it activated (Return is consumed), #f when no
+;; list / no selection (the caller falls back to confirm-exit).
+(define (modal-list-cursor-activate!)
+  (let ((label (and (list-cursor-active?)
+                    (list-cursor-has-selection?)
+                    (list-cursor-selected-label))))
+    (and label (begin (modal-handle-key label) #t))))
+
 ;; Handle a character key press while modal is active.
 ;; Side-effecting: directly calls actions, updates overlay, etc.
 ;;
@@ -718,10 +752,20 @@
 (define (modal-handle-key char)
   (let ((child (find-child modal-current-node char)))
     (cond
+      ;; No binding for this key. When a list cursor is active, k/j move it
+      ;; (the user navigates the embedded list); an explicit (key "j" …) is
+      ;; found by find-child above, so a real binding always wins over cursor
+      ;; nav. Arrow keys never reach here — keycode->char doesn't map them, so
+      ;; ↑↓ are handled by keycode in modal-key-handler. Otherwise honour
+      ;; exit-on-unknown, else swallow (forgiving default).
       ((not child)
-       (if (exit-on-unknown-context?)
-         (modal-exit 'cancel)
-         (if #f #f)))
+       (cond
+         ((and (or (string=? char "j") (string=? char "k"))
+               (modal-list-cursor-move! (if (string=? char "j") 1 -1)))
+          (if #f #f))
+         ((exit-on-unknown-context?)
+          (modal-exit 'cancel))
+         (else (if #f #f))))
       ((command? child)
        (let ((action        (node-action child))
              (sticky-target (node-sticky-target child))

@@ -720,10 +720,18 @@
               default-pane-labels
               (lambda (k) (focus-by-digit k)))))
 
+    ;; cursor-targets-fn rides only on a LIVE block (one with an on-render-fn
+    ;; that refreshes iterm-panes-current-targets every render — the 'chips?
+    ;; path); a static no-chips block never refreshes its targets, so the
+    ;; selection cursor must not attach to it. Same gate as window:list-block.
     (define (pane-list-block . opts)
-      (let ((base (apply make-iterm-panes-block opts)))
-        (append base (list (cons 'block-children
-                                 (list (pane-range)))))))
+      (let* ((base  (apply make-iterm-panes-block opts))
+             (live? (and (assoc 'on-render-fn base) #t)))
+        (append base
+                (if live?
+                  (list (cons 'cursor-targets-fn iterm-panes-current-targets))
+                  '())
+                (list (cons 'block-children (list (pane-range)))))))
 
     ;; ─── Block-based tab selection ─────────────────────────────────
     ;;
@@ -775,8 +783,16 @@
               default-pane-labels
               (lambda (k) (tab-select-by-digit k)))))
 
+    ;; The tabs block always carries an on-render-fn (it snapshots every render,
+    ;; chips or not), so the live? gate is always satisfied here — applied for
+    ;; uniformity with the pane/window wrappers, not because a static tab block
+    ;; exists today.
     (define (tab-list-block . opts)
-      (let ((base (apply make-iterm-tabs-block opts)))
-        (append base (list (cons 'block-children
-                                 (list (tab-range)))))))))
+      (let* ((base  (apply make-iterm-tabs-block opts))
+             (live? (and (assoc 'on-render-fn base) #t)))
+        (append base
+                (if live?
+                  (list (cons 'cursor-targets-fn iterm-tabs-current-targets))
+                  '())
+                (list (cons 'block-children (list (tab-range)))))))))
 

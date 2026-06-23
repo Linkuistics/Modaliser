@@ -505,7 +505,8 @@ body {
  * identically across embedded lists and the chooser. */
 .list-row.is-focused,
 .panel-list .wl-row.is-focused,
-.panel-list .ip-row.is-focused {
+.panel-list .ip-row.is-focused,
+.panel-list .it-row.is-focused {
   background: var(--list-focus-bg);
   box-shadow: inset 2px 0 0 var(--list-focus-bar);
 }

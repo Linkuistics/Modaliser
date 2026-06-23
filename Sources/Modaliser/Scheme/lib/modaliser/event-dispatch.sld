@@ -32,11 +32,23 @@
     ((and modal-leader-keycode (= keycode modal-leader-keycode))
      (modal-exit 'cancel)
      #t)
-    ;; Return — confirm-and-exit. Distinct from Escape so a leave hook can
-    ;; commit an app-side interaction on Return and cancel it otherwise.
+    ;; Return — when a list cursor is active and has a selection, ⏎ activates
+    ;; the highlighted row (modal-list-cursor-activate! returns #t, consuming
+    ;; the key). Otherwise Return confirm-exits — distinct from Escape so a
+    ;; leave hook can commit an app-side interaction on Return and cancel it
+    ;; otherwise.
+    ((and (= keycode RETURN) (modal-list-cursor-activate!))
+     #t)
     ((= keycode RETURN)
      (modal-exit 'confirm)
      #t)
+    ;; ↑/↓ move the list selection cursor when one is active (keycode->char
+    ;; doesn't map arrows, so they're matched by keycode here, not as chars).
+    ;; modal-list-cursor-move! returns #f when no cursor is active, so the
+    ;; clause falls through and the arrow drops to the no-char branch below
+    ;; (which cancels — arrows aren't bindable keys).
+    ((and (= keycode UP)   (modal-list-cursor-move! -1)) #t)
+    ((and (= keycode DOWN) (modal-list-cursor-move! 1))  #t)
     ;; Escape — cancel-and-exit
     ((= keycode ESCAPE)
      (modal-exit 'cancel)

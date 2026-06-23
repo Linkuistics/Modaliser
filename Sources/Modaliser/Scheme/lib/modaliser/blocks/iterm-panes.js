@@ -21,9 +21,13 @@
   window.overlayBlockRenderers['iterm-panes'] = function(block, container) {
     while (container.firstChild) container.removeChild(container.firstChild);
     const panes = block.panes || [];
-    for (const p of panes) {
+    // block.selected — the selection-cursor row index (list-cursor-k6) when
+    // this list owns the cursor. The focused row gets .is-focused (base.css).
+    const selected = typeof block.selected === 'number' ? block.selected : -1;
+    for (let i = 0; i < panes.length; i++) {
+      const p = panes[i];
       const text = p.title || p.fallback || 'Pane';
-      const row = el('div', { class: 'ip-row' },
+      const row = el('div', { class: i === selected ? 'ip-row is-focused' : 'ip-row' },
         el('span', { class: 'entry-key', text: p.label }),
         el('span', { class: 'entry-arrow', text: '→' }),
         el('span', { class: 'entry-label', text: text })

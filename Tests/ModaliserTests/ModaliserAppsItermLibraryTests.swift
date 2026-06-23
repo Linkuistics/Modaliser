@@ -4,6 +4,22 @@ import Testing
 
 @Suite("(modaliser apps iterm) library")
 struct ModaliserAppsItermLibraryTests {
+    // The live pane list-block (chips) and the tab list-block (always live —
+    // it snapshots every render) each carry a 'cursor-targets-fn accessor so the
+    // selection cursor (list-cursor-k6) moves over the same label→target
+    // snapshot the digit dispatch consults. A no-chips pane block, which never
+    // refreshes its targets, must NOT attach the cursor.
+    @Test func liveListBlocksCarryCursorTargets() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (prefix (modaliser apps iterm) iterm:))")
+        try engine.evaluate("(define pb (iterm:pane-list-block 'chips? #t))")
+        try engine.evaluate("(define tb (iterm:tab-list-block))")
+        try engine.evaluate("(define pb-static (iterm:pane-list-block))")
+        #expect(try engine.evaluate("(procedure? (cdr (assoc 'cursor-targets-fn pb)))") == .true)
+        #expect(try engine.evaluate("(procedure? (cdr (assoc 'cursor-targets-fn tb)))") == .true)
+        #expect(try engine.evaluate("(assoc 'cursor-targets-fn pb-static)") == .false)
+    }
+
     @Test func registerInstallsItermTree() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps iterm))")

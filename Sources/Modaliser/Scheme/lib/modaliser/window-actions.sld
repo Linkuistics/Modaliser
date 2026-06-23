@@ -164,13 +164,23 @@
               (lambda (k) (focus-by-digit k)))))
 
     ;; (list-block . opts) → window-list block spec with dispatch keys.
-    ;; Wraps make-window-list-block and bundles the 1.. range so
-    ;; digits resolve to focus-by-digit at the group level.
+    ;; Wraps make-window-list-block and bundles the 1.. range so digits resolve
+    ;; to focus-by-digit at the group level. When the block is LIVE (it has an
+    ;; on-render-fn that refreshes window-list-current-targets every render — the
+    ;; 'chips? path), it also carries 'cursor-targets-fn so the selection cursor
+    ;; (list-cursor-k6) moves over those live rows; ⏎ then dispatches the
+    ;; highlighted row's digit through the very same range. A static (no-chips)
+    ;; block never refreshes its targets, so it omits the accessor — the cursor
+    ;; must not attach to a list with no live data.
     ;;
     ;; Opts forwarded to make-window-list-block (currently just 'chips?).
     (define (list-block . opts)
-      (let ((base (apply make-window-list-block opts)))
-        (append base (list (cons 'block-children
-                                 (list (window-range)))))))
+      (let* ((base  (apply make-window-list-block opts))
+             (live? (and (assoc 'on-render-fn base) #t)))
+        (append base
+                (if live?
+                  (list (cons 'cursor-targets-fn window-list-current-targets))
+                  '())
+                (list (cons 'block-children (list (window-range)))))))
 
     ))

@@ -30,6 +30,28 @@ struct ModaliserWindowActionsLibraryTests {
         #expect(try engine.evaluate("(equal? (cdr (assoc 'label g)) \"Overlay\")") == .true)
     }
 
+    // A live (chips) window list-block carries a 'cursor-targets-fn accessor so
+    // the selection cursor (list-cursor-k6) moves over the same label→window
+    // targets the digit dispatch uses, alongside its hidden digit range.
+    @Test func liveListBlockCarriesCursorTargets() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (prefix (modaliser window-actions) window:))")
+        try engine.evaluate("(define b (window:list-block 'chips? #t))")
+        #expect(try engine.evaluate("(procedure? (cdr (assoc 'cursor-targets-fn b)))") == .true)
+        // The digit range still rides under 'block-children, unchanged.
+        #expect(try engine.evaluate("(pair? (assoc 'block-children b))") == .true)
+    }
+
+    // A no-chips window list-block has no on-render-fn, so it never refreshes its
+    // targets snapshot — the cursor must NOT attach to it (it would show nav
+    // chrome over stale/empty data). The cursor follows live data only.
+    @Test func staticListBlockOmitsCursorTargets() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (prefix (modaliser window-actions) window:))")
+        try engine.evaluate("(define b (window:list-block))")
+        #expect(try engine.evaluate("(assoc 'cursor-targets-fn b)") == .false)
+    }
+
     @Test func divisionsBuilderGeneratesKeysForMatrix() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (prefix (modaliser window-actions) window:))")

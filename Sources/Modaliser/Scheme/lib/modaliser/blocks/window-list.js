@@ -21,9 +21,15 @@
   window.overlayBlockRenderers['window-list'] = function(block, container) {
     while (container.firstChild) container.removeChild(container.firstChild);
     const windows = block.windows || [];
-    for (const w of windows) {
+    // block.selected is the selection-cursor row index (list-cursor-k6) when
+    // this list owns the cursor; absent otherwise. The focused row gets
+    // .is-focused (accent left-bar + tint, base.css).
+    const selected = typeof block.selected === 'number' ? block.selected : -1;
+    for (let i = 0; i < windows.length; i++) {
+      const w = windows[i];
       const name = w.title ? (w.app + ' · ' + w.title) : w.app;
-      const cls = w.visible ? 'wl-row' : 'wl-row dulled';
+      let cls = w.visible ? 'wl-row' : 'wl-row dulled';
+      if (i === selected) cls += ' is-focused';
       const row = el('div', { class: cls },
         el('span', { class: 'entry-key', text: w.label }),
         el('span', { class: 'entry-arrow', text: '→' }),
