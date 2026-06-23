@@ -108,10 +108,20 @@
     ;; Runtime helper invoked by the layout-block macro. Dispatches
     ;; each form, combines the results into one window-diagram block
     ;; with the matching dispatch keys lifted to 'block-children.
+    ;;
+    ;; The keys are marked 'hidden: the diagram itself draws each cell's
+    ;; key, so the lifted bindings are dispatch-only. When this block is
+    ;; embedded in a panel (panel-grid layout DSL) that would otherwise
+    ;; render the panel's dispatch children as text rows, the marker keeps
+    ;; them from duplicating the diagram — exactly as the list blocks hide
+    ;; their 1.. digit range. Dispatch is unaffected: find-child ignores
+    ;; 'hidden (the old block-list overlay never rendered them as rows
+    ;; either, so this is invisible there).
     (define (compose-layout-block forms)
       (let* ((pairs (map layout-form->pair forms))
              (panel-specs (map car pairs))
-             (panel-keys  (apply append (map cadr pairs)))
+             (panel-keys  (map (lambda (k) (cons (cons 'hidden #t) k))
+                               (apply append (map cadr pairs))))
              (base (make-window-diagram-block panel-specs)))
         (append base (list (cons 'block-children panel-keys)))))
 
