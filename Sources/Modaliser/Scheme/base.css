@@ -402,6 +402,35 @@ body {
   break-inside: avoid;
 }
 
+/* Bare diagram host (diagram-bare-panel-k22) — a panel embedding a
+ * window-diagram drops ALL card chrome AND its list inset so the diagram floats
+ * directly on the body tint (--overlay-body-bg). The diagram's filled cells
+ * stay white while empty cells reveal the tint, so the window-size proportions
+ * read; and with no white card edge the start-aligned grid no longer looks
+ * misaligned. Auto-applied via the payload `bare` flag (keyed on the block
+ * type — see panel-bare? in overlay.scm); other panels keep their white cards.
+ * Still a .panel grid item, so span / masonry placement is unchanged. The
+ * descendant rules beat .panel-head / .panel-list on specificity; .panel--bare
+ * follows .panel here so the same-specificity card override wins on source order. */
+.panel--bare {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+/* Flatten the banded header to a plain eyebrow label, flush with the grid. */
+.panel--bare .panel-head {
+  background: transparent;
+  border-bottom: none;
+  padding-left: 0;
+}
+/* Drop the inset chrome so the diagram sits directly on the tint. */
+.panel--bare .panel-list {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
 /* Banded header — a tinted strip with indigo, tracked, eyebrow-cased label
  * (a section marker, scoped to the panel's own width — what reconciles
  * "banded header" with "tiles into columns", spec §7). Never wraps. */

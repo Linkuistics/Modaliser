@@ -167,7 +167,14 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
 // renderPanel — one banded card: header + key rows + optional live list.
 function renderPanel(panel) {
   var card = document.createElement('div');
-  card.className = 'panel panel-span-' + (panel.span || 'narrow');
+  // A panel marked `bare` (it hosts a window-diagram — diagram-bare-panel-k22)
+  // gets the .panel--bare modifier so base.css drops the card fill/border/shadow
+  // and the list inset, letting the diagram's transparent empty cells reveal
+  // the body tint. The panel stays a .panel grid item, so span/masonry placement
+  // is unchanged.
+  var className = 'panel panel-span-' + (panel.span || 'narrow');
+  if (panel.bare) className += ' panel--bare';
+  card.className = className;
 
   var head = document.createElement('div');
   head.className = 'panel-head';

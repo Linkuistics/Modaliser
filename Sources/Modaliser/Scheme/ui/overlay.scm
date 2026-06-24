@@ -496,15 +496,30 @@
   (let* ((label      (node-label category))
          (span       (or (node-renderer-payload category 'span) 'narrow))
          (rows       (filtered-rows (sort-children (node-children category))))
-         (list-block (node-renderer-payload category 'list)))
+         (list-block (node-renderer-payload category 'list))
+         (bare?      (panel-bare? list-block)))
     (string-append
       "{\"label\":\""  (js-escape-overlay label)
-      "\",\"span\":\"" (js-escape-overlay (symbol->string span))
-      "\",\"rows\":["  (string-join-comma rows) "]"
+      "\",\"span\":\"" (js-escape-overlay (symbol->string span)) "\""
+      (if bare? ",\"bare\":true" "")
+      ",\"rows\":["  (string-join-comma rows) "]"
       (if list-block
         (string-append ",\"list\":" (block-json list-block))
         "")
       "}")))
+
+;; (panel-bare? list-block) → boolean (diagram-bare-panel-k22)
+;; A panel whose embedded block is a window-diagram hosts it BARE: the
+;; renderer drops the card chrome (fill / border / shadow) and the list inset
+;; so the diagram's transparent empty cells reveal --overlay-body-bg — window-
+;; size proportions become legible (white filled cell vs tinted empty cell) and
+;; there's no white card edge to read as misaligned against the start-aligned
+;; grid. Keyed on the block 'type so configs need no opt-in; scope is the
+;; window-diagram host only (other live-list panels keep their white cards).
+(define (panel-bare? list-block)
+  (and list-block
+       (let ((t (assoc 'type list-block)))
+         (and t (eq? (cdr t) 'window-diagram)))))
 
 ;; (single-row-panel->json node) → panel JSON object string
 ;; The minimal panel for a non-category grid child (a top-level `open`, or a

@@ -184,6 +184,71 @@ struct PanelGridRendererTests {
         #expect(!payload.contains("\"label\":\"Win <n>\""))
     }
 
+    // MARK: - bare diagram host (diagram-bare-panel-k22)
+
+    @Test func diagramPanelMarkedBare() throws {
+        let engine = try loadPanelGrid()
+        // A panel whose embedded block is a window-diagram hosts it BARE: the
+        // payload carries "bare":true so the JS renderer drops the card chrome
+        // and the diagram's transparent empty cells reveal the body tint.
+        // Keyed on the block 'type — no config opt-in.
+        try engine.evaluate("""
+          (define (fake-diagram-block)
+            (list (cons 'type 'window-diagram)
+                  (cons 'panels '())))
+          (screen 'pg-diagram
+            (panel "Layout" (fake-diagram-block)))
+          (define p (panel-grid-payload-json (lookup-tree "pg-diagram")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"bare\":true"))
+        #expect(payload.contains("\"type\":\"window-diagram\""))
+    }
+
+    @Test func nonDiagramListPanelNotBare() throws {
+        let engine = try loadPanelGrid()
+        // A panel embedding a non-diagram live list (window-list) keeps its
+        // white card: no "bare" flag in the payload.
+        try engine.evaluate("""
+          (screen 'pg-notbare
+            (panel "Live" (fake-list-block)))
+          (define p (panel-grid-payload-json (lookup-tree "pg-notbare")))
+        """)
+        #expect(!(try engine.evaluate("p").asString().contains("\"bare\"")))
+    }
+
+    @Test func keyOnlyPanelNotBare() throws {
+        let engine = try loadPanelGrid()
+        // A plain key-row panel (no embedded block) is never bare.
+        try engine.evaluate("""
+          (screen 'pg-keysonly
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-keysonly")))
+        """)
+        #expect(!(try engine.evaluate("p").asString().contains("\"bare\"")))
+    }
+
+    @Test func overlayJsAddsBareClassForBarePanels() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let js = try String(contentsOfFile: joinPath(schemePath, "ui/overlay.js"), encoding: .utf8)
+        // renderPanel adds the .panel--bare modifier when the payload marks the
+        // panel bare, so base.css can drop the card chrome for diagram hosts.
+        #expect(js.contains("panel.bare"))
+        #expect(js.contains("panel--bare"))
+    }
+
+    @Test func baseCssDefinesBarePanelVariant() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let css = try String(contentsOfFile: joinPath(schemePath, "base.css"), encoding: .utf8)
+        #expect(css.contains(".panel--bare"))
+    }
+
     // MARK: - opens
 
     @Test func nestedOpenRendersAsGroupRowInsidePanel() throws {

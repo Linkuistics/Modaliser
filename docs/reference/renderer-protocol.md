@@ -53,6 +53,7 @@ lowering emits:
     {
       "label": "General",
       "span": "narrow",            // "narrow" | "wide" | "full"
+      "bare": true,                // present (true) only when the panel hosts a window-diagram
       "rows": [ <row>, … ],
       "list": <block>              // present only when the panel embeds a live list
     },
@@ -75,6 +76,13 @@ lowering emits:
   below), so the block's `on-render-fn` fires and its live rows merge in. When that list owns the selection cursor, its
   current selected index rides into the payload as `"selected"`, which
   the JS marks `.is-focused`.
+- **`bare`** is emitted (`true`) only when the panel's embedded block is a
+  `window-diagram` (keyed on the block `'type`; see `panel-bare?`). The JS adds
+  the `.panel--bare` modifier so `base.css` drops the card chrome (fill / border
+  / shadow) and the list inset, letting the diagram's transparent empty cells
+  reveal `--overlay-body-bg` — the window-size proportions read against the body
+  tint and there is no white card edge to misalign with the start-aligned grid.
+  Auto-applied, no config opt-in; other panels keep their white cards.
 
 A top-level `open` (a navigable group directly under a `screen`)
 serializes as a minimal single-row panel whose one row is its drill-in
