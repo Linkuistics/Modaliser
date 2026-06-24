@@ -82,8 +82,11 @@ A user config that fails to load — a Scheme syntax error, a runtime error duri
 evaluation, or a reference to DSL forms the running binary doesn't provide (the new
 `screen`/`panel`/`open` forms against an older binary, or the now-deleted
 `define-tree`/`category`/`overlay`/`which-key-block` forms against a current one) —
-currently degrades to a **silent lock**: the status-bar menu items all show disabled
-and the app is inert, with no surfaced error. It is especially easy to hit around the
+currently degrades to a **lock**: it surfaces an error dialog ("Modaliser couldn't
+load your config… [eval error] variable not yet initialized: screen"), but the
+status-bar menu items still all show disabled and the app stays inert — the error is
+*visible* yet a dead end, with no path back to a usable state. It is especially easy
+to hit around the
 edit-config → Relaunch loop and across version skew (a config authored for a different
 binary than the one running). With the public release approaching, a bad config must
 never wedge the app. This is its own future grove.
