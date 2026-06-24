@@ -56,12 +56,14 @@ just a menu bar icon. On first run it also seeds
 ## 3. Press F18
 
 F18 is the default global leader. Tap it once — the overlay appears.
-Read it like a reference card: a grid of banded **panels**, one card
-per group, showing every binding at the root of the global tree. The
-seeded global screen has four panels:
+Read it like a reference card. The seeded global screen opens with a
+handful of **loose rows** at the top — rendered bare, with no card:
 
-- **General** — `1..` Switch Space, `,` Settings, `␣` Highlight
-  Cursor, and `w ›` Windows (a drill-down into its own grid of panels).
+- `1..` Switch Space, `,` Settings, `␣` Highlight Cursor, and `w ›`
+  Windows (a drill-down into its own screen).
+
+Below them sits a grid of banded **panels**, one card per group:
+
 - **Applications** — `b` Browser, `e` Editor, `t` Terminal, … one key
   per app.
 - **AI** — `c` ChatGPT, `C` Claude Desktop.

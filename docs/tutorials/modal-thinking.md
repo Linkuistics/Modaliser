@@ -79,9 +79,9 @@ whatever that call returned (a void). The lambda defers the call until
 you press the key.
 
 **Pick Relaunch from the menu bar icon, then press F18 w.** The
-current window maximises. (`w` sits in a leading **"General"** panel —
-a loose `(key …)` written directly under a `screen` collects into one
-automatically, so a flat config still renders as a tidy card.)
+current window maximises. (`w` is a loose `(key …)` written directly
+under a `screen`, outside any panel, so it renders **bare** in the loose
+region at the top of the overlay — a flat config needs no card at all.)
 
 That single binding is a *leader* (`F18`), opening a *screen* (the
 global screen, declared with `screen`), containing a *command*
@@ -191,7 +191,7 @@ Steps 4–5. Second: a block carries chrome the renderer paints (the
 grid), not just a flat list of choices. Most of the visual richness in
 Modaliser screens comes from blocks — `window:layout-block` here,
 `window:list-block` in Step 5 — while plain `(key …)` rows you don't
-wrap in a named panel simply collect into a leading *General* card.
+wrap in a named panel simply render bare in the loose region above the grid.
 
 
 ## Step 4 — A selector

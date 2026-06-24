@@ -17,11 +17,11 @@ keystroke replay, or a shell-command trigger.
 2. **Find `(screen 'global …)`.** Everything after the leading keyword
    block is content — `(panel …)` cards holding `(key …)` rows, plus
    `(open …)` drill-downs. A loose `(key …)` written directly under the
-   `screen` (outside any panel) collects into a leading **"General"**
-   panel automatically, so you can drop one in without picking a card.
+   `screen` (outside any panel) renders **bare** in the loose region
+   above the panel grid, so you can drop one in without picking a card.
 
-3. **Drop a `(key …)` form** inside a panel (or loosely, to land in
-   "General"). The third argument must be either a thunk (an action) or
+3. **Drop a `(key …)` form** inside a panel (or loosely, to render bare
+   above the grid). The third argument must be either a thunk (an action) or
    a node-returning call (a selector). Side-effecting calls must be
    wrapped:
 

@@ -77,3 +77,16 @@ So "the old forms keep working unchanged" holds **only up to the k15
 commit**; thereafter they are gone. The dispatch atoms, the lowering
 contract, and the `'panel-grid` renderer marker — the substance of this
 ADR — are unaffected.
+
+## Amendment (2026-06-24) — no implicit "General" panel
+
+The Consequence "loose top-level keys … pack into an implicit **'General'**
+panel" was **superseded by `bare-loose-rows-k23`**. Loose top-level atoms
+(a `key`/`keys` outside any panel), folded top-level `open`s, and loose
+blocks (diagram / live-list) now render **bare** in a header-less **loose
+region** above the panel grid — there is no auto-collecting "General" card.
+Eliding an explicitly-authored `(panel "General" …)` is therefore a pure
+authoring migration (`elide-general-panel-k27`): drop the wrapper and the
+children become loose rows. The lowering contract and dispatch substance of
+this ADR are unaffected — only the *presentation* of the unwrapped loose
+atoms changed (bare region vs. a card).

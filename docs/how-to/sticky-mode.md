@@ -72,7 +72,7 @@ Press the leader, then your sticky group's key. Confirm:
 **Sticky tree (whole leader).** Set `'sticky #t` on a `screen`'s
 leading keywords for a tree that is *always* sticky — useful when the
 local leader for an app should keep one binding fired in a row. Loose
-keys collect into a single "General" panel:
+keys render bare in the loose region above the panel grid (no card):
 
 ```scheme
 (screen 'my.app

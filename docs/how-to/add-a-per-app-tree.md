@@ -68,8 +68,9 @@ to the global tree; the global leader (F18) is always there for that.
    ```
 
    Same DSL as the global screen; only the scope differs. (A loose
-   `(key …)` outside any panel would collect into a leading "General"
-   card — wrapping them in a named `(panel …)` just reads better.) Tap
+   `(key …)` outside any panel renders bare in the loose region above
+   the grid — wrapping them in a named `(panel …)` gives them a titled
+   card instead.) Tap
    F17 with Zed frontmost to see it.
 
 5. **Save and relaunch** from the menu bar icon.

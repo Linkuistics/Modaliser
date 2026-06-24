@@ -137,7 +137,7 @@ Settings group: edit `config.scm`, relaunch.
 
 | Export | Signature | Returns |
 |---|---|---|
-| `actions` | `(actions [keyword value]...)` | Group node — already decorated with `'key` and `'label`. Splice into a `(panel …)` of a `screen`. |
+| `actions` | `(actions [keyword value]...)` | Group node — already decorated with `'key` and `'label`. Drop loose into a `screen` body (renders bare), or splice into a `(panel …)`. |
 
 **Options:**
 
@@ -151,7 +151,7 @@ Settings group: edit `config.scm`, relaunch.
 
 ```scheme
 (screen 'global
-  (panel "General" (settings:actions))
+  (settings:actions)   ; loose — renders bare in the loose region
   …)
 ```
 
