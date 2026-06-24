@@ -114,8 +114,8 @@
   --keycap-accent-border: rgba(79, 70, 229, 0.22);
 
   /* ─ Embedded live list ─ */
-  --list-bg: #f7f8fb;
-  --list-border: #ebedf2;
+  /* (The list renders frameless — no tint/border inset — so the old
+   *  --list-bg / --list-border tokens were retired in bare-panel-list-k34.) */
   --list-focus-bg: rgba(79, 70, 229, 0.07);   /* selection-cursor row tint */
   --list-focus-bar: var(--accent);
 
@@ -434,12 +434,12 @@ body {
   border-bottom: none;
   padding-left: 0;
 }
-/* Drop the inset chrome so the diagram sits directly on the tint. */
+/* The .panel-list base rule is already frameless (bare-panel-list-k34); the bare
+ * path only additionally zeros the padding so the diagram start-aligns flush with
+ * the body grid (its block has zero horizontal padding). */
 .panel--bare .panel-list {
   margin: 0;
   padding: 0;
-  background: transparent;
-  border: none;
 }
 
 /* ─── Loose region (bare-loose-rows-k23) ───────────────────── */
@@ -497,15 +497,14 @@ body {
   padding: 1px 0;
 }
 
-/* Loose bare blocks — strip the .panel-list inset (margin / padding / fill /
- * border) so the diagram's transparent cells and the live list sit directly on
- * the body tint, mirroring .panel--bare .panel-list. The list rows keep their
- * own padding, caption, accent keycaps, and cursor highlight. */
+/* Loose bare blocks — the .panel-list base rule is already frameless
+ * (bare-panel-list-k34); the loose path only additionally zeros the padding so
+ * the diagram's transparent cells and the live list sit flush on the body tint,
+ * mirroring .panel--bare .panel-list. The list rows keep their own padding,
+ * caption, accent keycaps, and cursor highlight. */
 .panel-loose .panel-list {
   margin: 0;
   padding: 0;
-  background: transparent;
-  border: none;
 }
 
 /* Banded header — a tinted strip with indigo, tracked, eyebrow-cased label
@@ -547,29 +546,48 @@ body {
 
 /* ─── Embedded live list — shared list-row vocabulary ──────── */
 /*
- * The inset section that hosts a panel's dynamic list (window-list /
- * iterm-panes). The .list-* classes below are the canonical row vocabulary;
- * chooser-restyle-k7 adopts the same names so embedded lists and the
- * standalone chooser read as one family. Today's block renderers emit
- * .wl-row / .ip-row with .entry-key / .entry-label, so those are skinned
- * alongside the .list-* names until the chooser converges on them. The
- * caption / live-dot / detail / focused-row classes are defined here as the
- * vocabulary the list-cursor (k6) and chooser (k7) attach to. */
+ * The section that hosts a panel's dynamic list (window-list / iterm-panes /
+ * iterm-tabs). It renders FRAMELESS — no tint / border / rounded inset — so the
+ * list rows sit directly in the panel card (bare-panel-list-k34): the card
+ * already frames the content, so the old inset was a redundant box-in-box. This
+ * is the single source the .panel--bare / .panel-loose paths now reduce to (they
+ * only zero the padding so the block start-aligns with the body grid / floats on
+ * the body tint). Side padding matches .panel-rows (10px) so the list rows align
+ * with the panel's key rows above them.
+ *
+ * The .list-* classes below are the canonical row vocabulary; chooser-restyle-k7
+ * adopts the same names so embedded lists and the standalone chooser read as one
+ * family. Today's block renderers emit .wl-row / .ip-row with .entry-key /
+ * .entry-label, so those are skinned alongside the .list-* names until the
+ * chooser converges on them. The caption / live-dot / detail / focused-row
+ * classes are defined here as the vocabulary the list-cursor (k6) and chooser
+ * (k7) attach to. */
 .panel-list {
-  margin: 0 8px 8px;
-  padding: 5px 7px 6px;
-  background: var(--list-bg);
-  border: 1px solid var(--list-border);
-  border-radius: var(--panel-radius);
+  padding: 6px 10px;
 }
 
-/* The standalone window-list / iterm-panes blocks carry a top separator
- * (margin + rule) so they sit apart from the rows above them in a flat
- * overlay. Inside a panel inset there is nothing above to separate from, so
- * drop the leading margin (the inset's own border is the separator). */
+/* Each live-list block's own CSS carries a standalone separator (a top margin,
+ * top padding, and rule) so it sits apart from the rows above it in a FLAT
+ * overlay. Inside a panel the panel section owns the spacing, so neutralise that
+ * margin + rule for every embedded list type — iterm-tabs INCLUDED (it was
+ * previously omitted, which left the Tabs list shoved 14px lower than the Panes /
+ * Windows lists: the vertical inconsistency this leaf fixes). Compound (0,2,0)
+ * so it always wins over the block CSS regardless of load order. (padding-top is
+ * left to the .panel-list rule above / the .panel-rows + rule below.) */
 .panel-list.block-window-list,
-.panel-list.block-iterm-panes {
+.panel-list.block-iterm-panes,
+.panel-list.block-iterm-tabs {
   margin-top: 0;
+  border-top: none;
+}
+
+/* Anchor the list with ONE uniform gap under whatever precedes it, so the
+ * spacing reads identically across panels (bare-panel-list-k34). With only a
+ * header above, the .panel-list's own 6px top padding is the gap. When key-rows
+ * precede the list they already pad 6px below their last row (.panel-rows), so
+ * drop the list's top padding here — the visible gap is then 6px in both cases. */
+.panel-rows + .panel-list {
+  padding-top: 0;
 }
 
 /* Caption — "Panes" / "Windows" eyebrow with a green "live" dot. */

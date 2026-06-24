@@ -6,7 +6,7 @@ ranges from a one-line variable override to wholesale custom CSS.
 
 The default look is the **cheat-sheet** style: white panel cards on a
 tinted body, banded panel headers, soft mono keycaps, an indigo accent
-with amber group-opens, a separated footer strip, and inset live lists.
+with amber group-opens, a separated footer strip, and frameless live lists.
 Type is **IBM Plex Sans** (labels) + **IBM Plex Mono** (keys/paths/
 footer), bundled locally — the WebView needs no network.
 
@@ -68,7 +68,7 @@ CSS load order (last wins on equal specificity):
 |---|---|---|
 | `--panel-bg` | `#ffffff` | Panel card background. |
 | `--panel-border` | `#e7e9ee` | Panel border (also `--color-separator`). |
-| `--panel-radius` | `8px` | Panel + inset border-radius. |
+| `--panel-radius` | `8px` | Panel card border-radius. |
 | `--panel-head-bg` | `#eef0fb` | Banded panel-header background. |
 | `--panel-head-fg` | `#3b3fb6` | Banded panel-header text (eyebrow-cased label). |
 | `--panel-shadow` | `0 1px 2px rgba(17,20,36,0.05)` | Panel lift. |
@@ -108,10 +108,14 @@ paints both.
 
 ### Embedded live list
 
+An embedded list renders **frameless** — directly in the panel card, with no
+tinted/bordered/rounded inset (the card already frames it). It anchors with a
+uniform gap under whatever precedes it (header or key-rows), so the gap reads the
+same across panels. (The former `--list-bg` / `--list-border` inset tokens were
+retired with the frame.)
+
 | Variable | Default | Role |
 |---|---|---|
-| `--list-bg` | `#f7f8fb` | Inset list background. |
-| `--list-border` | `#ebedf2` | Inset list border. |
 | `--list-focus-bg` | `rgba(79,70,229,0.07)` | Selection-cursor row tint. |
 | `--list-focus-bar` | `var(--accent)` | Selection-cursor row left bar. |
 
@@ -254,7 +258,7 @@ unlike the host header.
 |---|---|
 | `.panel-loose` | The bare, header-less loose region above the grid: a screen/open's loose rows, folded top-level opens, and loose bare blocks (no card). |
 | `.panel-loose .wk-row` | A loose key-row (same key / arrow / label mini-grid the panels use). |
-| `.panel-loose .panel-list` | A loose bare block (diagram / live list) — the `.panel-list` inset is stripped so it floats on the body tint, like `.panel--bare .panel-list`. |
+| `.panel-loose .panel-list` | A loose bare block (diagram / live list) — additionally zeros the (already frameless) `.panel-list`'s padding so it floats flush on the body tint, like `.panel--bare .panel-list`. |
 | `.panel-grid` | The grid container (`screen` / `open` body). |
 | `.panel` | A single panel card. |
 | `.panel--bare` | A panel hosting a `window-diagram` — card chrome dropped so the diagram floats on the body tint. |
@@ -280,7 +284,7 @@ The canonical row vocabulary, shared by the embedded pane/window lists
 
 | Class | Where |
 |---|---|
-| `.panel-list` | The inset that hosts a panel's live list. |
+| `.panel-list` | The frameless section that hosts a panel's live list (no tint/border/rounded inset; rows sit directly in the card). |
 | `.list-caption` | "Panes" / "Windows" eyebrow caption. |
 | `.list-live-dot` | The green "live" dot. |
 | `.list-row` | One list row (flex: keycap + main + detail). |
@@ -292,7 +296,7 @@ The canonical row vocabulary, shared by the embedded pane/window lists
 
 The block renderers currently emit `.wl-row` (window-list) / `.ip-row`
 (iterm-panes) / `.it-row` (iterm-tabs) with `.entry-key` / `.entry-label`
-inside the inset; those are skinned alongside the `.list-*` names, and
+inside the section; those are skinned alongside the `.list-*` names, and
 `.is-focused` covers all of them.
 
 ### Chooser
@@ -427,9 +431,6 @@ every other Modaliser config change.
   --keycap-bg:        #34343a;
   --keycap-border:    rgba(255, 255, 255, 0.12);
   --keycap-fg:        #d4d4d8;
-
-  --list-bg:          #26262b;
-  --list-border:      rgba(255, 255, 255, 0.08);
 
   --footer-bg:        #242428;
   --footer-border:    rgba(255, 255, 255, 0.10);

@@ -104,9 +104,6 @@ when overlay edits would work in a hypothetical hot reload.
   --keycap-border:    rgba(255, 255, 255, 0.12);
   --keycap-fg:        #d4d4d8;
 
-  --list-bg:          #26262b;
-  --list-border:      rgba(255, 255, 255, 0.08);
-
   --footer-bg:        #242428;
   --footer-border:    rgba(255, 255, 255, 0.10);
 
