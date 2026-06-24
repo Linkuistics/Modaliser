@@ -497,8 +497,8 @@
       "{\"type\":\"panel-grid\""
       (if cols (string-append ",\"cols\":" (number->string cols)) "")
       (if layout (string-append ",\"layout\":\"" (symbol->string layout) "\"") "")
-      ",\"loose\":["  (string-join-comma loose-json) "]"
-      ",\"panels\":[" (string-join-comma panels) "]}")))
+      ",\"loose\":["  (string-join loose-json ",") "]"
+      ",\"panels\":[" (string-join panels ",") "]}")))
 
 ;; (loose-region-json loose) → list of JSON strings, declaration order.
 ;; Each item the lowering placed in the loose region is either a loose node —
@@ -571,7 +571,7 @@
       "{\"label\":\""  (js-escape-overlay label)
       "\",\"span\":\"" (js-escape-overlay (symbol->string span)) "\""
       (if bare? ",\"bare\":true" "")
-      ",\"rows\":["  (string-join-comma rows) "]"
+      ",\"rows\":["  (string-join rows ",") "]"
       (if list-block
         (string-append ",\"list\":" (block-json list-block))
         "")
@@ -591,13 +591,9 @@
          (and t (eq? (cdr t) 'window-diagram)))))
 
 ;; (filtered-rows children) → list of JSON strings (each a row)
+;; entry->row-json returns #f for category / hidden nodes; filter-map drops them.
 (define (filtered-rows children)
-  (let loop ((xs children) (acc '()))
-    (cond
-      ((null? xs) (reverse acc))
-      (else
-        (let ((row (entry->row-json (car xs))))
-          (loop (cdr xs) (if row (cons row acc) acc)))))))
+  (filter-map entry->row-json children))
 
 ;; (node-hidden? node) → boolean
 ;; Resolve a node's 'hidden property. The value may be a literal
@@ -638,7 +634,7 @@
   (let loop ((rest spec) (acc '()))
     (cond
       ((null? rest)
-       (string-append "{" (string-join-comma (reverse acc)) "}"))
+       (string-append "{" (string-join (reverse acc) ",") "}"))
       (else
         (let* ((entry (car rest))
                (k (car entry))
@@ -656,16 +652,6 @@
                             "\":" (alist->json v))
                           acc)))))))))
 
-;; Helper: comma-separated join.
-(define (string-join-comma xs)
-  (let loop ((rest xs) (acc ""))
-    (if (null? rest)
-      acc
-      (loop (cdr rest)
-            (if (string=? acc "")
-              (car rest)
-              (string-append acc "," (car rest)))))))
-
 ;; alist->json — generic conversion. Values may be strings, numbers,
 ;; symbols (rendered as strings), booleans, or nested alists/lists.
 (define (alist->json a)
@@ -680,15 +666,16 @@
        ;; Heuristic: alist if every car is a symbol; otherwise list.
        ((every-pair-symbol-keyed? a)
         (string-append "{"
-          (string-join-comma
+          (string-join
             (map (lambda (entry)
                    (string-append "\"" (js-escape-overlay (symbol->string (car entry)))
                                   "\":" (alist->json (cdr entry))))
-                 a))
+                 a)
+            ",")
           "}"))
        (else
          (string-append "["
-           (string-join-comma (map alist->json a))
+           (string-join (map alist->json a) ",")
            "]"))))
     (else "null")))
 

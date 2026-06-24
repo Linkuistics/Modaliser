@@ -183,19 +183,6 @@
     (define (pane-ph p)     (list-ref p 7))
     (define (pane-tty p)    (list-ref p 8))
 
-    (define (list-filter pred xs)
-      (let loop ((xs xs) (acc '()))
-        (cond
-          ((null? xs)      (reverse acc))
-          ((pred (car xs)) (loop (cdr xs) (cons (car xs) acc)))
-          (else            (loop (cdr xs) acc)))))
-
-    (define (list-find pred xs)
-      (cond
-        ((null? xs) #f)
-        ((pred (car xs)) (car xs))
-        (else (list-find pred (cdr xs)))))
-
     ;; ─── Detection ──────────────────────────────────────────────────
     ;;
     ;; The active pane is the one with is_active = true. Pane IDs are
@@ -205,7 +192,7 @@
     ;; inside this WezTerm pane.
 
     (define (focused-pane)
-      (list-find (lambda (p) (string=? (pane-act p) "1"))
+      (find (lambda (p) (string=? (pane-act p) "1"))
                  (list-panes-raw)))
 
     (define (focused-pane-id)
@@ -343,7 +330,7 @@
         'on-enter
         (lambda ()
           (let* ((panes (list-panes-raw))
-                 (focus (list-find (lambda (p) (string=? (pane-act p) "1"))
+                 (focus (find (lambda (p) (string=? (pane-act p) "1"))
                                    panes))
                  (host  (host-frame)))
             (set-current-panes! panes)

@@ -404,6 +404,16 @@ General Scheme utilities used by every other library.
 | `read-file-text` | Read a file's contents into a string. |
 | `log` | Append a line to the Modaliser log. |
 
+It also re-exports, from one base library, the standard bindings that LispKit's
+`(scheme base)` omits — so a `(modaliser …)` library or portable config gets them
+without importing `(scheme cxr)` / `(srfi 1)` / `(srfi 69)` by name:
+
+| Re-exported family | Bindings |
+|---|---|
+| `(scheme cxr)` accessors | `caddr`, `cadddr`, and the rest of the 3-/4-deep `car`/`cdr` compositions. |
+| `(srfi 1)` list ops | `filter`, `remove`, `partition`, `filter-map`, `find`. |
+| `(srfi 69)` hashtables | `make-hash-table`, `hash-table-set!`, `hash-table-ref/default`, `string-hash`. |
+
 ### `(modaliser keymap)`
 
 Modifier predicates for keystroke handlers and AX listeners.

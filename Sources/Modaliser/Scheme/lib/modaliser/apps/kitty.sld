@@ -221,19 +221,6 @@
     (define (pane-bottoms p)  (list-ref p 7))
     (define (pane-fg p)       (list-ref p 8))
 
-    (define (list-filter pred xs)
-      (let loop ((xs xs) (acc '()))
-        (cond
-          ((null? xs)      (reverse acc))
-          ((pred (car xs)) (loop (cdr xs) (cons (car xs) acc)))
-          (else            (loop (cdr xs) acc)))))
-
-    (define (list-find pred xs)
-      (cond
-        ((null? xs) #f)
-        ((pred (car xs)) (car xs))
-        (else (list-find pred (cdr xs)))))
-
     ;; Comma-joined id string → list of id strings. "-" → '().
     (define (split-ids s)
       (cond
@@ -243,7 +230,7 @@
     ;; ─── Detection ──────────────────────────────────────────────────
 
     (define (focused-pane)
-      (list-find (lambda (p)
+      (find (lambda (p)
                    (let ((f (pane-focused p)))
                      (and f (= f 1))))
                  (list-panes-raw)))

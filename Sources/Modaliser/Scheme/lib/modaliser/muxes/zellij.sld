@@ -207,19 +207,6 @@
       (and (string=? (pane-plug p) "0")
            (string=? (pane-flot p) "0")))
 
-    (define (list-filter pred xs)
-      (let loop ((xs xs) (acc '()))
-        (cond
-          ((null? xs)      (reverse acc))
-          ((pred (car xs)) (loop (cdr xs) (cons (car xs) acc)))
-          (else            (loop (cdr xs) acc)))))
-
-    (define (list-find pred xs)
-      (cond
-        ((null? xs) #f)
-        ((pred (car xs)) (car xs))
-        (else (list-find pred (cdr xs)))))
-
     ;; ─── Detection ──────────────────────────────────────────────────
     ;;
     ;; `focused-pane-id` returns the zellij pane reference in the form
@@ -228,7 +215,7 @@
     ;; plugins and a floating overlay), so we treat the id as opaque.
 
     (define (focused-terminal-pane)
-      (list-find (lambda (p)
+      (find (lambda (p)
                    (and (terminal-pane? p)
                         (string=? (pane-foc p) "1")))
                  (list-panes-raw)))
@@ -407,7 +394,7 @@
         'on-enter
         (lambda ()
           (let* ((all-panes (list-panes-raw))
-                 (terminals (list-filter terminal-pane? all-panes))
+                 (terminals (filter terminal-pane? all-panes))
                  (host      (host-frame))
                  (grid      (compute-grid all-panes)))
             (set-current-terminal-panes! terminals)

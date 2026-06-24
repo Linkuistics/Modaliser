@@ -152,20 +152,13 @@
     ;; ([[feedback_lispkit_no_mutable_pairs]]).
     (define *backend-registry* '())
 
-    (define (list-filter pred lst)
-      (let loop ((xs lst) (acc '()))
-        (cond
-          ((null? xs)      (reverse acc))
-          ((pred (car xs)) (loop (cdr xs) (cons (car xs) acc)))
-          (else            (loop (cdr xs) acc)))))
-
     (define (register-backend! backend)
       (let ((sym (terminal-backend-symbol backend)))
         (set! *backend-registry*
               (cons backend
-                    (list-filter
+                    (remove
                       (lambda (b)
-                        (not (eq? (terminal-backend-symbol b) sym)))
+                        (eq? (terminal-backend-symbol b) sym))
                       *backend-registry*)))))
 
     ;; Frontmost bundle-id source. Parameterizable so tests can stub the

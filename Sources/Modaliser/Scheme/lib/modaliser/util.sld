@@ -17,6 +17,14 @@
           ;; Local string helpers (no SRFI 13 in LispKit's bundle,
           ;; so we implement these on (scheme base) directly).
           string-split string-trim string-contains?
+          ;; SRFI 1 list-searching/filtering surface (re-exported, same idea as
+          ;; the SRFI 69 re-exports above): (scheme base) omits filter / remove /
+          ;; partition / filter-map / find, so (modaliser …) libraries that want
+          ;; them would each have to reach for (srfi 1). We re-export the standard
+          ;; bindings from this one base library instead. Because they are the
+          ;; very same (srfi 1) bindings, a library importing both this and
+          ;; (srfi 1) sees no inconsistent-import conflict.
+          filter remove partition filter-map find
           ;; The R7RS (scheme cxr) accessor family — the 3- and 4-deep car/cdr
           ;; compositions (caddr / cadddr / …). LispKit's (scheme base) provides
           ;; only the 2-deep accessors (caar/cadr/cdar/cddr), so a (modaliser …)
@@ -33,9 +41,22 @@
           (scheme file)
           (scheme write)
           (scheme char)
-          (srfi 69))
+          (srfi 69)
+          ;; Only the five list procedures — `only` keeps SRFI 1's
+          ;; redefinitions of map / assoc / member / fold-right out of this
+          ;; library's own body.
+          (only (srfi 1) filter remove partition filter-map find))
   (begin
 
+    ;; alist-ref returns the default (or #f) on a MISSING key. That makes it
+    ;; the right tool for the (let ((e (assoc k a))) (if e (cdr e) DEFAULT))
+    ;; accessors (e.g. state-machine's node-*). It is deliberately NOT used to
+    ;; mechanically rewrite the many bare (cdr (assoc 'k a)) sites (window-actions
+    ;; js-cell, the app/mux libraries, …): those omit a default ON PURPOSE — the
+    ;; key is guaranteed present by construction, so the bare cdr is a presence
+    ;; assertion that errors loudly on a structural bug. Swapping in alist-ref
+    ;; would silently turn that crash into a propagating #f. Audited under
+    ;; util-extraction-audit-k26 (finding E): considered, intentionally not done.
     (define (alist-ref alist key . default)
       (let ((pair (assoc key alist)))
         (if pair

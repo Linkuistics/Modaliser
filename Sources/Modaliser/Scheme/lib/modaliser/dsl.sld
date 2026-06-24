@@ -244,12 +244,12 @@
             (last  (last-of keylist)))
        (cond
          ((not (contiguous-single-chars? keylist))
-          (slash-join keylist))
+          (string-join keylist "/"))
          ((and (digit-key? first) (string=? last "9"))
           (string-append first ".."))
          (else
           (string-append first ".." last)))))
-    (else (slash-join keylist))))
+    (else (string-join keylist "/"))))
 
 (define (all-single-char? lst)
   (or (null? lst)
@@ -269,12 +269,6 @@
 
 (define (last-of lst)
   (if (null? (cdr lst)) (car lst) (last-of (cdr lst))))
-
-(define (slash-join lst)
-  (cond
-    ((null? lst) "")
-    ((null? (cdr lst)) (car lst))
-    (else (string-append (car lst) "/" (slash-join (cdr lst))))))
 
 ;; (group k label [keyword value]... . children) → group alist
 ;;
@@ -391,15 +385,11 @@
 
 ;; Collect the procedure values of `tag` across `blocks`, preserving order.
 (define (filter-fns blocks tag)
-  (let loop ((rest blocks) (acc '()))
-    (cond
-      ((null? rest) (reverse acc))
-      (else
-        (let* ((b (car rest))
-               (e (assoc tag b))
-               (v (and e (cdr e))))
-          (loop (cdr rest)
-                (if (procedure? v) (cons v acc) acc)))))))
+  (filter-map (lambda (b)
+                (let* ((e (assoc tag b))
+                       (v (and e (cdr e))))
+                  (and (procedure? v) v)))
+              blocks))
 
 ;; Compose user-thunk (or #f) with a list of block thunks into a single
 ;; thunk. Returns #f when nothing to run, so the state machine's
@@ -542,24 +532,6 @@
       (else
        (make-panel-node label span order (expand-splices args))))))
 
-;; The non-block node-forms of a loose region, declaration order preserved.
-;; block-spec? distinguishes an embedded live-list / diagram block (carries
-;; 'type) from a node-form (carries 'kind).
-(define (loose-region-nodes loose)
-  (let loop ((rest loose) (acc '()))
-    (cond
-      ((null? rest) (reverse acc))
-      ((block-spec? (car rest)) (loop (cdr rest) acc))
-      (else (loop (cdr rest) (cons (car rest) acc))))))
-
-;; The block-specs of a loose region, declaration order preserved.
-(define (loose-region-blocks loose)
-  (let loop ((rest loose) (acc '()))
-    (cond
-      ((null? rest) (reverse acc))
-      ((block-spec? (car rest)) (loop (cdr rest) (cons (car rest) acc)))
-      (else (loop (cdr rest) acc)))))
-
 ;; Flatten the hidden dispatch keys ('block-children) of each loose block into
 ;; one list, so find-child resolves them at the screen/open root — the
 ;; loose-block analogue of make-panel-node's lift for a panel-embedded block.
@@ -599,8 +571,11 @@
       ((null? rest)
        (let* ((panels       (reverse panels))
               (loose-region (reverse loose))
-              (loose-nodes  (loose-region-nodes loose-region))
-              (loose-blocks (loose-region-blocks loose-region))
+              ;; block-spec? distinguishes an embedded live-list / diagram block
+              ;; (carries 'type) from a node-form (carries 'kind). Partition the
+              ;; loose region into the two, declaration order preserved.
+              (loose-nodes  (remove block-spec? loose-region))
+              (loose-blocks (filter block-spec? loose-region))
               (lifted       (lift-loose-block-children loose-blocks))
               (children     (append loose-nodes lifted panels))
               (blocks       (append loose-blocks (collect-panel-list-blocks panels))))

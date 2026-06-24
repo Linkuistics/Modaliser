@@ -27,30 +27,18 @@
     (css-properties properties)
     " }"))
 
-;; Render properties alist as "prop: val; prop: val;"
+;; Render properties alist as "prop: val; prop: val;" (space-joined decls).
 (define (css-properties properties)
-  (let loop ((pairs properties) (result ""))
-    (if (null? pairs)
-      result
-      (let* ((pair (car pairs))
-             (prop (css-property-name (car pair)))
-             (val (cdr pair))
-             (decl (string-append prop ": " val ";"))
-             (sep (if (string=? result "") "" " ")))
-        (loop (cdr pairs)
-              (string-append result sep decl))))))
+  (string-join
+    (map (lambda (pair)
+           (string-append (css-property-name (car pair)) ": " (cdr pair) ";"))
+         properties)
+    " "))
 
 ;; (css-rules . rules) → concatenated CSS string
-;; Each rule is a string (typically from css-rule).
-;; Joins with newlines.
+;; Each rule is a string (typically from css-rule). Joins with newlines.
 (define (css-rules . rules)
-  (let loop ((rest rules) (result ""))
-    (if (null? rest)
-      result
-      (loop (cdr rest)
-            (string-append result
-              (if (string=? result "") "" "\n")
-              (car rest))))))
+  (string-join rules "\n"))
 
 ;; ─── Inline Styles ────────────────────────────────────────────
 
@@ -61,12 +49,4 @@
 ;;   (inline-style '((color . "red") (font-size . "14px")))
 ;;   → "color: red; font-size: 14px"
 (define (inline-style properties)
-  (let loop ((pairs properties) (result ""))
-    (if (null? pairs)
-      result
-      (let* ((pair (car pairs))
-             (prop (css-property-name (car pair)))
-             (val (cdr pair))
-             (sep (if (string=? result "") "" " ")))
-        (loop (cdr pairs)
-              (string-append result sep prop ": " val ";"))))))
+  (css-properties properties))

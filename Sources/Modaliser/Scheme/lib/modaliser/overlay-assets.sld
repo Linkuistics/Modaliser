@@ -49,11 +49,4 @@
       (let ((items (case kind ((css) overlay-extra-css)
                               ((js)  overlay-extra-js)
                               (else '()))))
-        (let loop ((xs items) (acc ""))
-          (if (null? xs)
-            acc
-            (let ((text (resolve-entry (car xs))))
-              (loop (cdr xs)
-                    (if (string=? acc "")
-                      text
-                      (string-append acc "\n" text))))))))))
+        (string-join (map resolve-entry items) "\n")))))
