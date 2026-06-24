@@ -652,8 +652,22 @@
                             "\":" (alist->json v))
                           acc)))))))))
 
-;; alist->json — generic conversion. Values may be strings, numbers,
-;; symbols (rendered as strings), booleans, or nested alists/lists.
+;; alist->json — generic value->JSON conversion. Values may be strings,
+;; numbers, symbols (rendered as strings), booleans, or nested
+;; alists/lists. Strings and symbol keys are escaped with the overlay's
+;; js-escape-overlay flavour.
+;;
+;; Audited under util-extraction-audit-k26 (finding D): considered for
+;; extraction into a (modaliser …) library — k36's parameterised
+;; escape-string would let it take its escaper as an argument — but kept
+;; UI-local on purpose. block-spec->json (above) is its only caller. The
+;; chooser hand-builds a fixed-shape object with abbreviated keys and its
+;; own json-escape, and iterm-binding-json emits a fixed dict with
+;; space-bearing keys and pre-escaped text — neither is a generic-
+;; serializer consumer, and nothing in the portable tree serializes
+;; alists->JSON. Extraction would add an exported, escaper-parameterised
+;; API for a single host-side caller: speculative generality with no
+;; second user and no portability win.
 (define (alist->json a)
   (cond
     ((string? a) (string-append "\"" (js-escape-overlay a) "\""))
