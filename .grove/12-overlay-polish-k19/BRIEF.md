@@ -13,14 +13,19 @@ the same day — each leaf carries its full, approved design.
 1. **masonry-layout-k20** — panel packing via CSS Grid Lanes (masonry) +
    an opt-in `'layout 'grid` screen keyword. *(done)*
 2. **footer-applicability-k21** — generic greying of inapplicable footer
-   command hints (e.g. `choose`/`select` in a 0-result chooser).
+   command hints (e.g. `choose`/`select` in a 0-result chooser). *(done)*
 3. **diagram-bare-panel-k22** — render a window-diagram's host panel
-   background-transparent so proportions read and alignment is clean.
+   background-transparent so proportions read and alignment is clean. *(done)*
 4. **bare-loose-rows-k23** — drop the "General" panel: loose top-level rows
-   render bare at the top of the screen (like the Settings overlay), and
-   top-level `(open …)`s fold in as drill rows instead of one-row cards.
-   *(commissioned 2026-06-24 after the user saw masonry live; carries its
-   full approved design.)*
+   render bare at the top of the screen (like the Settings overlay),
+   top-level `(open …)`s fold in as drill rows, and loose top-level blocks
+   (diagram / live-list) render bare; the bundled Windows overlay migrated to
+   the flat/loose form. *(done; carried its full approved design.)*
+5. **manual-panel-order-k24** — opt-in to render a panel's entries in
+   declaration order instead of key-sorted. *(commissioned 2026-06-24 live.)*
+6. **list-cursor-initial-focus-k25** — a live list's selection cursor starts
+   on the currently-focused tab/split/window, not row 0. *(commissioned
+   2026-06-24 live.)*
 
 ## Context
 
@@ -43,9 +48,11 @@ the same day — each leaf carries its full, approved design.
 
 ## Notes
 
-- After all four retire, this node has no live leaf → the grove root re-checks
-  → the deferred **Finish** cycle runs (held since k9/k16/k17/k18). At k18's
-  retirement `main` was at the branch point; **re-check**
+- The **Finish** cycle (deferred since k9/k16/k17/k18) is **further deferred**:
+  on 2026-06-24 the user commissioned more work while reviewing the overlay
+  live — k24/k25 here, plus a root-level `util-extraction-audit-k26`. The grove
+  finishes only once all of those retire (and the node has no live leaf). At
+  k18's retirement `main` was at the branch point; **re-check**
   `git merge-base --is-ancestor main visual-refresh` before merging.
 - Verify live in the real app per change (`./scripts/install.sh` then Relaunch);
   the host is on the branch binary now. The bundled `default-config.scm` is the
