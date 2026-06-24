@@ -128,6 +128,46 @@ struct LayoutDslTests {
         #expect(try engine.evaluate("(command? (find-child p \"l\"))") == .true)
     }
 
+    @Test func stickySetForwardsOrderToRegisteredMode() throws {
+        let engine = try loadLayout()
+        // 'order 'declared on sticky-set rides through to the registered mode
+        // tree so the latched walk renders in declaration order rather than
+        // key-sorted (iterm-nav-declared-order-k38).
+        try engine.evaluate("""
+            (sticky-set 'sset-order-declared "Walk" 'order 'declared
+              (key "h" "Left"  (lambda () 'ok))
+              (key "l" "Right" (lambda () 'ok)))
+            """)
+        #expect(try engine.evaluate(
+          "(eq? (node-renderer-payload (lookup-tree \"sset-order-declared\") 'order) 'declared)") == .true)
+    }
+
+    @Test func stickySetOmitsOrderByDefault() throws {
+        let engine = try loadLayout()
+        // No 'order keyword → the registered mode carries no 'order entry, so
+        // it keeps the renderer's key-sort default.
+        try engine.evaluate("""
+            (sticky-set 'sset-order-default "Walk"
+              (key "h" "Left"  (lambda () 'ok))
+              (key "l" "Right" (lambda () 'ok)))
+            """)
+        #expect(try engine.evaluate(
+          "(node-renderer-payload (lookup-tree \"sset-order-default\") 'order)") == .false)
+    }
+
+    @Test func stickySetOrderKeywordDoesNotLeakIntoSplice() throws {
+        let engine = try loadLayout()
+        // The 'order keyword configures the registered mode only; the splice it
+        // returns must carry exactly the two key nodes (so they hoist cleanly),
+        // not the keyword pair.
+        try engine.evaluate("""
+            (define sp (sticky-set 'sset-order-splice "Walk" 'order 'declared
+              (key "h" "Left"  (lambda () 'ok))
+              (key "l" "Right" (lambda () 'ok))))
+            """)
+        #expect(try engine.evaluate("(= (length (node-children sp)) 2)") == .true)
+    }
+
     // MARK: - screen
 
     @Test func screenRegistersTreeWithPanelGridRenderer() throws {

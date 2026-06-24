@@ -519,7 +519,7 @@ Extra action for a selector's Tab panel. Used in a selector's
               'run (lambda (path) (reveal-in-finder path)))))
 ```
 
-### `(sticky-set MODE-ID DISPLAY-NAME key…)`
+### `(sticky-set MODE-ID DISPLAY-NAME ['order 'keys|'declared] key…)`
 
 Define a reusable **"act + latch"** navigation set once and splice it
 into many parents (DRY). It does two things at evaluation time:
@@ -539,6 +539,17 @@ both the registered mode *and* every entry point, with no duplication.
 
 Use individual `(key …)` forms — not `(keys …)` / `(key-range …)` —
 because `'sticky-target` is a `(key …)`-only keyword.
+
+**Row ordering of the latched walk.** An optional leading `'order` keyword
+(`'keys` | `'declared`, mirroring `panel` / `screen`) tunes how the
+**registered mode tree** — the list you see *after* a key latches — orders its
+rows. `'keys` (the default) key-sorts them; `'declared`
+shows them in declaration order, so a paired set reads grouped (e.g. Focus
+`h j k l` then Move `H J K L`) rather than interleaved (`h H j J k K l L`). The
+keyword is forwarded only to the registered mode; it never enters the splice,
+because the spliced **entry keys** land in their parent's **loose region**,
+which is already declaration-ordered. Reach for `'order 'declared` when you want
+the latched walk to match that grouped entry-point order.
 
 ```scheme
 (define split-nav

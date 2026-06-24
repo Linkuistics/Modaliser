@@ -326,7 +326,7 @@
        (loop (cdr args) on-enter on-leave sticky exit-unk extras
              (cons (car args) children))))))
 
-;; (sticky-set MODE-ID DISPLAY-NAME key …) → splice node
+;; (sticky-set MODE-ID DISPLAY-NAME ['order 'keys|'declared] key …) → splice node
 ;;
 ;; Define a reusable "act + latch" navigation set ONCE, then splice it
 ;; into any number of parents (DRY). It does two things:
@@ -343,21 +343,34 @@
 ;; entry point. Use individual (key …) forms — not (keys …)/(key-range …)
 ;; — since 'sticky-target is a (key …)-only keyword.
 ;;
+;; An optional leading 'order keyword ('keys | 'declared, mirroring panel /
+;; screen) tunes the row ordering of the REGISTERED mode tree — the latched
+;; walk: 'declared shows the keys in declaration order, 'keys (the default)
+;; key-sorts them. It is forwarded only to register-tree!, never into the
+;; splice — the spliced entry keys land in their parent's loose region, which
+;; is already declaration-ordered (iterm-nav-declared-order-k38).
+;;
 ;;   (define split-nav
-;;     (sticky-set 'iterm-split-walk "Splits"
+;;     (sticky-set 'iterm-split-walk "Splits" 'order 'declared
 ;;       (key "h" "Focus Left" focus-left)
 ;;       (key "H" "Move Left"  move-left) …))
 ;;   (open "s" "Splits" split-nav (group "n" "New Split" …))
-(define (sticky-set mode-id display-name . keys)
-  (apply register-tree! mode-id
-         'sticky #t
-         'exit-on-unknown #t
-         'display-name display-name
-         keys)
-  (list (cons 'kind 'splice)
-        (cons 'children
-              (map (lambda (k) (cons (cons 'sticky-target mode-id) k))
-                   keys))))
+(define (sticky-set mode-id display-name . rest)
+  ;; Parse the optional leading 'order <mode> off the front; the remaining
+  ;; args are the (key …) forms. Keeping 'order out of `keys` is what stops
+  ;; it leaking into the splice the map below builds.
+  (let* ((has-order (and (pair? rest) (eq? (car rest) 'order) (pair? (cdr rest))))
+         (order     (and has-order (cadr rest)))
+         (keys      (if has-order (cddr rest) rest)))
+    (apply register-tree! mode-id
+           'sticky #t
+           'exit-on-unknown #t
+           'display-name display-name
+           (if order (cons 'order (cons order keys)) keys))
+    (list (cons 'kind 'splice)
+          (cons 'children
+                (map (lambda (k) (cons (cons 'sticky-target mode-id) k))
+                     keys)))))
 
 ;; (fragment child …) → splice node
 ;;

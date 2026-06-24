@@ -340,8 +340,7 @@
   ;; here so navigating from a list screen into a plain one leaves cursor keys
   ;; inert and drops the footer nav hints.
   (list-cursor-clear!)
-  (let* ((children (if current (flatten-categories (node-children current)) '()))
-         (sorted   (sort-children children))
+  (let* ((sorted   (ordered-children current))
          (key-ch   (max-key-chars sorted))
          ;; overlay.js promotes data-key-ch to the --entry-key-ch custom
          ;; property on initial render, mirroring the update path. The column
@@ -735,6 +734,22 @@
       sorted
       (loop (cdr rest) (insert (car rest) sorted)))))
 
+;; (ordered-children current) → child nodes in render order.
+;; Key-sorted by default; declaration order when the group carries
+;; 'order 'declared. The non-panel-grid analogue of panel->json's panel-
+;; explicit 'order handling (manual-panel-order-k24): it lets a plain group —
+;; e.g. a sticky-set walk registered with 'order 'declared — opt its rows out
+;; of key-sorting, so the latched walk matches the declaration-ordered entry
+;; point it splices from (iterm-nav-declared-order-k38). Both default-render
+;; paths (initial render + push update) route through here so they can never
+;; disagree on order. Dispatch is key-addressed (find-child), so this is
+;; presentation only.
+(define (ordered-children current)
+  (let ((children (if current (flatten-categories (node-children current)) '())))
+    (if (eq? (and current (node-renderer-payload current 'order)) 'declared)
+      children
+      (sort-children children))))
+
 ;; (overlay-full-css) → string
 ;; The concatenated CSS stack that ends up inside the overlay's <style>
 ;; block: base.css + library asset contributions + user theme.css.
@@ -832,8 +847,7 @@
   ;; Incremental counterpart to render-overlay-default's clear: a plain key-list
   ;; push has no list to own the cursor, so retire it (and its footer hints).
   (list-cursor-clear!)
-  (let* ((children (if current (flatten-categories (node-children current)) '()))
-         (sorted (sort-children children))
+  (let* ((sorted (ordered-children current))
          ;; Helper: build a JSON string array from a list of strings.
          (string-list->json
            (lambda (lst)

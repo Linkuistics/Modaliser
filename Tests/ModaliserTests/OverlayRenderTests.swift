@@ -228,6 +228,43 @@ struct OverlayRenderTests {
         #expect(bLow < bUp)
     }
 
+    @Test func renderOverlayHtmlOrderDeclaredPreservesAuthoredOrder() throws {
+        let engine = try loadOverlay()
+        // A group carrying 'order 'declared (e.g. a sticky-set walk registered
+        // with 'order 'declared) renders rows in declaration order, opting out
+        // of the default key-sort (iterm-nav-declared-order-k38). Keys are
+        // shuffled so a pass really proves the sort was skipped.
+        try engine.evaluate("""
+            (register-tree! 'walk-declared 'order 'declared
+              (key "z" "Zulu"  (lambda () 'ok))
+              (key "a" "Alpha" (lambda () 'ok)))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "walk-declared") '("Walk") '())
+            """).asString()
+        // Declaration order: Zulu before Alpha (the default sort would invert).
+        let zPos = html.range(of: "Zulu")!.lowerBound
+        let aPos = html.range(of: "Alpha")!.lowerBound
+        #expect(zPos < aPos)
+    }
+
+    @Test func renderOverlayHtmlNoOrderStillSortsByKey() throws {
+        let engine = try loadOverlay()
+        // Control: a registered group with no 'order keeps key-sorting (the
+        // default), so 'order 'declared is genuinely opt-in.
+        try engine.evaluate("""
+            (register-tree! 'walk-default
+              (key "z" "Zulu"  (lambda () 'ok))
+              (key "a" "Alpha" (lambda () 'ok)))
+            """)
+        let html = try engine.evaluate("""
+            (render-overlay-html (lookup-tree "walk-default") '("Walk") '())
+            """).asString()
+        let zPos = html.range(of: "Zulu")!.lowerBound
+        let aPos = html.range(of: "Alpha")!.lowerBound
+        #expect(aPos < zPos)
+    }
+
     @Test func renderOverlayHtmlShowsGroupWithEllipsis() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
