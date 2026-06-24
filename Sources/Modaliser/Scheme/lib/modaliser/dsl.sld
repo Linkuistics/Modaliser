@@ -107,7 +107,7 @@
        (error "key: unknown keyword" (car rest))))))
 
 ;; (decorate-node k label node) → node with its 'key and 'label
-;; replaced. Used by the `key` macro for the (overlay …) / (group …)
+;; replaced. Used by the `key` macro for the (selector …) / (group …)
 ;; sub-form dispatch — the wrapping `(key K L …)` decides how the node
 ;; appears in the parent tree.
 (define (decorate-node k label node)
@@ -340,8 +340,8 @@
 ;;      unknown + DISPLAY-NAME breadcrumb) holding the bare keys — this is
 ;;      the latch target the walk repeats in.
 ;;   2. Returns a SPLICE node carrying the SAME keys, each decorated with
-;;      'sticky-target MODE-ID. Placing it in a parent (define-tree /
-;;      overlay / group / category) hoists those entry keys in place, so
+;;      'sticky-target MODE-ID. Placing it in a parent (screen / panel /
+;;      open / group) hoists those entry keys in place, so
 ;;      pressing one fires its action AND latches into the mode.
 ;;
 ;; The key list is thus written once and supplies both the mode and every
@@ -352,7 +352,7 @@
 ;;     (sticky-set 'iterm-split-walk "Splits"
 ;;       (key "h" "Focus Left" focus-left)
 ;;       (key "H" "Move Left"  move-left) …))
-;;   (overlay 'key "s" 'label "Splits" split-nav (group "n" "New Split" …))
+;;   (open "s" "Splits" split-nav (group "n" "New Split" …))
 (define (sticky-set mode-id display-name . keys)
   (apply register-tree! mode-id
          'sticky #t
@@ -372,9 +372,9 @@
 ;; second half on its own: a 'kind 'splice node, with NO mode registration
 ;; and NO 'sticky-target decoration — pure structural reuse.
 ;;
-;; expand-splices (run by screen / panel / open and the legacy define-tree /
-;; group / overlay / category constructors) hoists the children in place, so
-;; nothing downstream ever sees the fragment — the lowered tree is identical
+;; expand-splices (run by the screen / panel / open / group constructors)
+;; hoists the children in place, so nothing downstream ever sees the
+;; fragment — the lowered tree is identical
 ;; to writing the children inline. Nested fragments / sticky-sets compose for
 ;; free, since expand-splices recurses through splice children.
 ;;
@@ -415,8 +415,8 @@
 ;;
 ;; Returns a selector node without 'key or 'label. Wrap with
 ;; `(key K L (selector …))` to bind it; the wrapping `key` macro
-;; injects 'key/'label via `decorate-node`. Mirrors how `(key K L
-;; (overlay …))` works for groups.
+;; injects 'key/'label via `decorate-node` — the same way it decorates
+;; any bare node, e.g. a factory-returned group.
 (define (selector . props)
   (let loop ((rest props) (entries (list (cons 'kind 'selector))))
     (if (or (null? rest) (null? (cdr rest)))
@@ -524,7 +524,7 @@
 ;; top-level atoms collect into one leading "General" panel — the
 ;; presentation-first analogue of pack-node-runs' misc bucket. The returned
 ;; list-blocks are the live-list blocks embedded in this level's DIRECT
-;; panels (used to compose on-enter/on-leave hooks, like define-tree); blocks
+;; panels (used to compose on-enter/on-leave hooks, as screen / open do); blocks
 ;; under a nested `open` are excluded — they compose onto that open's group.
 (define (lower-panel-grid-body body)
   (let loop ((rest (expand-splices body)) (panels '()) (loose '()))
@@ -558,7 +558,7 @@
 ;; Assemble the leading keyword/value head (composed lifecycle hooks +
 ;; renderer marker + optional cols) shared by screen and open. BLOCKS are the
 ;; embedded list blocks whose on-enter-fn/on-leave-fn compose with the user
-;; thunks — exactly as define-tree composes block hooks.
+;; thunks.
 (define (panel-grid-head blocks on-enter on-leave sticky display-name exit-unk cols)
   (let* ((composed-on-enter (compose-hooks on-enter (filter-fns blocks 'on-enter-fn)))
          (composed-on-leave (compose-hooks on-leave (filter-fns blocks 'on-leave-fn))))
@@ -572,9 +572,9 @@
       (list 'renderer 'panel-grid))))
 
 ;; (screen 'scope [keywords…] panel…) → registers a panel-grid tree under
-;; 'scope (the define-tree analogue). Body is an implicit grid of panels;
-;; loose top-level atoms pack into a leading "General" panel. Keywords mirror
-;; define-tree (on-enter / on-leave / sticky / display-name / exit-on-unknown)
+;; 'scope. Body is an implicit grid of panels; loose top-level atoms pack
+;; into a leading "General" panel. Keywords mirror register-tree! (on-enter /
+;; on-leave / sticky / display-name / exit-on-unknown)
 ;; plus 'cols N — the authored column count (default CSS-intrinsic auto-fit,
 ;; resolved in the renderer leaf). The registered root carries
 ;; 'renderer 'panel-grid (+ 'cols) for the panel-grid renderer.
@@ -601,11 +601,11 @@
          (apply register-tree! scope (append head grid)))))))
 
 ;; (open KEY LABEL [keywords…] panel…) → a navigable group drilling into a
-;; sub-screen — the panel-native replacement for (key K L (overlay …)). Its
-;; children are the lowered sub-grid; it carries 'renderer 'panel-grid (+
-;; 'cols). Keywords: on-enter / on-leave / sticky / exit-on-unknown / cols —
-;; not 'display-name, which is a breadcrumb-root override that a child group
-;; (vs. a registered tree root) has no use for.
+;; sub-screen — the panel-native replacement for the old (key K L (overlay …))
+;; idiom. Its children are the lowered sub-grid; it carries 'renderer
+;; 'panel-grid (+ 'cols). Keywords: on-enter / on-leave / sticky /
+;; exit-on-unknown / cols — not 'display-name, which is a breadcrumb-root
+;; override that a child group (vs. a registered tree root) has no use for.
 (define (open key label . args)
   (let loop ((rest args)
              (on-enter #f) (on-leave #f) (sticky #f) (exit-unk #f) (cols #f))

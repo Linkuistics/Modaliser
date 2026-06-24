@@ -1,29 +1,28 @@
-;; (modaliser window-actions) — windows-overlay block constructors.
+;; (modaliser window-actions) — window-management panel blocks.
 ;;
-;; Provides the high-level block wrappers users compose with the
-;; generic (overlay …) constructor from (modaliser dsl):
+;; Provides the high-level block wrappers users embed in the panels of a
+;; window-management sub-screen — idiomatically an (open …) drill-down:
 ;;
 ;;   (import (modaliser dsl)
-;;           (modaliser blocks which-key)               ; which-key-block
 ;;           (prefix (modaliser window-actions) window:))
 ;;
-;;   (define-tree 'global
-;;     (key "w" "Windows"
-;;       (overlay
-;;         (window:default-layout-block)
-;;         (which-key-block
-;;           (key "n" "Named…"
-;;             (selector 'prompt "Select window…"
-;;                       'source list-windows
-;;                       'on-select focus-window))
-;;           (key "r" "Restore" (lambda () (restore-window))))
-;;         (window:list-block 'chips? #t))))
+;;   (open "w" "Windows"
+;;     (panel "Layout"
+;;       (window:default-layout-block))
+;;     (panel "Select"
+;;       (key "n" "Named…"
+;;         (selector 'prompt "Select window…"
+;;                   'source list-windows
+;;                   'on-select focus-window))
+;;       (key "r" "Restore" (lambda () (restore-window))))
+;;     (panel "Windows"
+;;       (window:list-block 'chips? #t)))
 ;;
-;; Each block carries its dispatch keys as 'block-children; overlay
-;; lifts them onto the group's 'children so the state machine routes
-;; keys correctly. The window-list block (with 'chips? #t) also carries
+;; Each block carries its dispatch keys as 'block-children; the panel
+;; lifts them onto its 'children so the state machine routes keys
+;; correctly. The window-list block (with 'chips? #t) also carries
 ;; its own 'on-leave-fn that calls (hints-hide) — chip cleanup lives
-;; with the block that paints chips, not at the overlay level.
+;; with the block that paints chips, not at the panel level.
 
 (define-library (modaliser window-actions)
   (export layout-block
@@ -163,10 +162,10 @@
         (when entry
           (focus-window (cdr entry)))))
 
-    ;; Dynamic window-range for 1.. — marked 'hidden so neither the
-    ;; default list renderer nor the which-key block surfaces the
-    ;; "1.. → Window <n>" row; the windows-list block at the bottom
-    ;; already shows the digit-to-window mapping per row.
+    ;; Dynamic window-range for 1.. — marked 'hidden so the renderer
+    ;; doesn't surface the "1.. → Window <n>" row; the windows-list
+    ;; block at the bottom already shows the digit-to-window mapping
+    ;; per row.
     (define (window-range)
       (cons (cons 'hidden #t)
             (key-range "1.." "Window <n>"

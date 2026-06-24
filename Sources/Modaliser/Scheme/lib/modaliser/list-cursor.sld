@@ -1,6 +1,6 @@
 ;; (modaliser list-cursor) — selection-cursor state for embedded live lists.
 ;;
-;; A which-key panel can embed a live list (window-list / iterm-panes /
+;; A panel can embed a live list (window-list / iterm-panes /
 ;; iterm-tabs). Alongside the immediate digit selectors (1–9/0, dispatched by a
 ;; hidden key-range), the list carries a movable SELECTION CURSOR: ↑↓ / k j move
 ;; a highlighted row, ⏎ activates it. This library holds that cursor's state —

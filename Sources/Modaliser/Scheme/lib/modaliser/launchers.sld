@@ -10,15 +10,16 @@
 ;; Quick start (prefix-style import — recommended; the bare exports
 ;; are short and collide easily with peer libraries):
 ;;   (import (prefix (modaliser launchers) launcher:))
-;;   (define-tree 'global
-;;     (key "a" "Find Application" (launcher:find-application))
-;;     (key "f" "Find File"        (launcher:find-file))
+;;   (screen 'global
+;;     (panel "Search"
+;;       (key "a" "Find Application" (launcher:find-application))
+;;       (key "f" "Find File"        (launcher:find-file)))
 ;;     …)
 ;;
 ;; Both factories accept keyword-style options with defaults that match
 ;; the bundled seed. Same shape as (modaliser window-actions): a single
 ;; factory returning a composable node, no side effects until placed
-;; inside a define-tree.
+;; inside a screen panel.
 
 (define-library (modaliser launchers)
   (export find-application

@@ -105,8 +105,8 @@
          (sticky-target (and (command? child) (node-sticky-target child)))
          ;; key-display-html wraps modifier glyphs in <span class="sigil-mod">,
          ;; so it's raw HTML — make-raw-html keeps the `span` builder from
-         ;; escaping it. The list-renderer update path (overlay.js) and the
-         ;; which-key block render the same key-display-html output.
+         ;; escaping it. The list-renderer update path and the panel-grid row
+         ;; renderer (both in overlay.js) render the same key-display-html output.
          (display-key (if (equal? k " ")
                         "\x2423;"
                         (make-raw-html (key-display-html k))))
@@ -452,7 +452,7 @@
 
 ;; (panel->json category) → panel JSON object string
 ;; Rows come from the category's dispatch children (sorted by key, hidden +
-;; nested-category entries filtered exactly as the list/which-key paths do —
+;; nested-category entries filtered exactly as the list path does —
 ;; this also drops the lifted, 'hidden digit range of an embedded list, which
 ;; the list section renders instead). 'span is always present (make-panel-node
 ;; defaults it); 'list is present only when the panel embeds a live list.
@@ -536,8 +536,8 @@
                (v (cdr entry)))
           (cond
             ;; Skip internal-only keys: procedures (on-render-fn) and
-            ;; block-children (dispatch keys, lifted to the group by
-            ;; (overlay …) — the JS side has no use for them).
+            ;; block-children (dispatch keys, lifted onto the panel by the
+            ;; `panel` form — the JS side has no use for them).
             ((procedure? v) (loop (cdr rest) acc))
             ((eq? k 'block-children) (loop (cdr rest) acc))
             (else

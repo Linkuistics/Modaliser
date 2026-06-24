@@ -398,7 +398,7 @@
 
     ;; Register the backend + the digit-jump mode. Safe to call more
     ;; than once: register-backend! is last-write-wins on backend
-    ;; symbol; define-tree replaces any prior tree of the same id.
+    ;; symbol; register-tree! replaces any prior tree of the same id.
     (define (register!)
       (register-backend! backend)
       (pane-digit-register!))))

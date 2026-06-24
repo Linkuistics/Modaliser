@@ -248,8 +248,9 @@
     ;; Returns an undecorated selector node. Bind it via the call site:
     ;;
     ;;   (import (prefix (modaliser web-search) web-search:))
-    ;;   (define-tree 'global
-    ;;     (key "g" "Google" (web-search:google))
+    ;;   (screen 'global
+    ;;     (panel "Search"
+    ;;       (key "g" "Google" (web-search:google)))
     ;;     …)
     ;;
     ;; Options:

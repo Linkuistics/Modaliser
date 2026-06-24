@@ -6,8 +6,9 @@
 ;;
 ;; Quick start (prefix-style import — recommended):
 ;;   (import (prefix (modaliser settings-menu) settings:))
-;;   (define-tree 'global
-;;     (settings:actions)
+;;   (screen 'global
+;;     (panel "General"
+;;       (settings:actions))
 ;;     …)
 ;;
 ;; Options (all keyword-style, all optional):

@@ -556,7 +556,7 @@
     ;; #t (default), also rebuilds the library's stock iTerm tree —
     ;; necessary if the library owns the tree (its key-range bakes UUIDs
     ;; at tree-build time). Pass 'rebuild? #f if your config inlines its
-    ;; own (define-tree 'com.googlecode.iterm2 …) — the rebuild would
+    ;; own (screen 'com.googlecode.iterm2 …) — the rebuild would
     ;; clobber the inline tree, and inline trees typically use
     ;; (iterm:pane-list-block …) which reads the snapshot directly at
     ;; render time.
@@ -644,7 +644,7 @@
     ;; Options:
     ;;   'install-tree? BOOL (default #t)
     ;;     #f to skip the (rebuild-tree! …) call. Use when you've
-    ;;     written your own (define-tree 'com.googlecode.iterm2 …) by
+    ;;     written your own (screen 'com.googlecode.iterm2 …) by
     ;;     hand and don't want this thunk to clobber it — the backend
     ;;     record is still registered with the façade so
     ;;     (terminal:focus-pane-*) / (terminal:split-pane-*) etc. work.
@@ -687,15 +687,15 @@
     ;;
     ;; Usage from config.scm:
     ;;
-    ;;   (define-tree 'com.googlecode.iterm2
-    ;;     (overlay
-    ;;       (key "c" "Copy Mode" …)
-    ;;       …
+    ;;   (screen 'com.googlecode.iterm2
+    ;;     (key "c" "Copy Mode" …)
+    ;;     …
+    ;;     (panel "Panes"
     ;;       (iterm:pane-list-block 'chips? #t)))
     ;;
-    ;; The 1.. range is marked 'hidden so the which-key strip doesn't
-    ;; surface a redundant "1.. → Pane <n>" row — the pane list block
-    ;; already shows the mapping.
+    ;; The 1.. range is marked 'hidden so the renderer doesn't surface
+    ;; a redundant "1.. → Pane <n>" row — the pane list block already
+    ;; shows the mapping.
 
     ;; Public passthrough so config-level code can dispatch by UUID
     ;; without reaching into library internals.
@@ -742,13 +742,14 @@
     ;; are no chips — iTerm tabs live in the tab bar, so the block only
     ;; contributes a row list.
     ;;
-    ;; Usage from config.scm — a keyed sub-overlay under the iTerm tree:
+    ;; Usage from config.scm — a keyed sub-screen under the iTerm tree:
     ;;
-    ;;   (overlay 'key "t" 'label "Tab"
+    ;;   (open "t" "Tab"
     ;;     (key "r" "Rename" rename-iterm-tab!)
     ;;     (key "n" "New"    new-iterm-tab!)
     ;;     (key "d" "Delete" close-iterm-tab!)
-    ;;     (iterm:tab-list-block))
+    ;;     (panel "Tabs"
+    ;;       (iterm:tab-list-block)))
 
     ;; Index is the tab's 1-based position rendered as a string by the
     ;; tab snapshot — numeric only, so inlining into AppleScript is safe.
@@ -776,7 +777,7 @@
 
     ;; Hidden 1.. range: digits switch to the tab at that position. The
     ;; tab list block already shows the label→title mapping, so the
-    ;; which-key strip suppresses this row ('hidden #t), as pane-range does.
+    ;; renderer suppresses this row ('hidden #t), as pane-range does.
     (define (tab-range)
       (cons (cons 'hidden #t)
             (key-range "1.." "Tab <n>"

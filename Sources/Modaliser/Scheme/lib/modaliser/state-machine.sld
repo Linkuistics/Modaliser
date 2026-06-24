@@ -117,8 +117,8 @@
            (else
              ;; Unknown keyword — pass through as opaque alist entry on the
              ;; registered group. Mirrors `group`'s extras pattern; used by
-             ;; define-tree to carry 'renderer 'blocks 'blocks (...) at the
-             ;; root, so the top-level overlay renders as a block-list.
+             ;; screen / open to carry 'renderer 'panel-grid (+ 'cols N) at
+             ;; the root, so the top-level overlay renders as a panel grid.
              (loop (cddr args) on-enter on-leave sticky display-name exit-unk
                    (cons (cons (car args) (cadr args)) extras)))))
         (else
@@ -164,15 +164,15 @@
          (and kind (eq? (cdr kind) 'range-command)))))
 
 ;; Category nodes are TRANSPARENT for dispatch — they group group-children
-;; under a label for the which-key renderer but their children are spliced
-;; in-place by find-child via flatten-categories. See dsl.sld's (category …).
+;; under a label (a panel) but their children are spliced in-place by
+;; find-child via flatten-categories. See dsl.sld's (panel …).
 (define (category? node)
   (and (pair? node)
        (let ((kind (assoc 'kind node)))
          (and kind (eq? (cdr kind) 'category)))))
 
 ;; (flatten-categories children) → list of non-category nodes
-;; Walks `children` and splices the children of any (category …) node
+;; Walks `children` and splices the children of any category node
 ;; into the result at the category's source position. Recursive — nested
 ;; categories flatten transparently. Used by find-child so dispatch sees
 ;; category-wrapped keys as if they were direct group children.
@@ -264,8 +264,8 @@
 ;; commit vs. cancel an app-side interaction). Zero-arg hooks are unaffected.
 ;;
 ;; Note: this reaches a *raw* on-leave thunk — one set directly on a (group …)
-;; or a register-tree!/define-tree root. Hooks on (overlay …) and the
-;; block-composed path go through (modaliser dsl) `compose-hooks`, which wraps
+;; or a register-tree! root. Hooks on the block-composed path (screen /
+;; panel / open) go through (modaliser dsl) `compose-hooks`, which wraps
 ;; them in a nullary thunk (dsl.sld stays host-portable, so it can't do arity
 ;; introspection); those receive no reason. Reason-aware leave hooks therefore
 ;; belong on a (group …) — which is the natural home for an app-side sub-mode.
@@ -465,7 +465,7 @@
   (set! modal-leader-keycode (cdr (assoc 'leader-kc    ctx)))
   (set-modal-root-segments! (cdr (assoc 'root-segments ctx))))
 
-;; (set-overlay-delay! seconds) — set the which-key overlay delay.
+;; (set-overlay-delay! seconds) — set the overlay delay.
 ;; 0 shows the overlay immediately; typical values are 0.3–1.0 seconds.
 (define (set-overlay-delay! seconds)
   (set! modal-overlay-delay seconds))
