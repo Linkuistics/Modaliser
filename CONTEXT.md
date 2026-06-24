@@ -176,7 +176,10 @@ fallback now; the default is the JS balance.
 `declared` (declaration order). Authored via the `'order` keyword on `panel`,
 or on `screen` / `open` as a grid-wide default; resolved **panel-explicit >
 screen/open default > `keys`**. Presentation only — dispatch is key-addressed
-and order-independent. The **loose region** is always `declared`.
+and order-independent. The **loose region** is always `declared`. A
+`sticky-set`'s **latched walk** (the registered sticky-mode tree) also takes an
+`'order` keyword, opting its rows out of the default key-sort so the walk reads
+in the same grouped order as its declaration-ordered entry point.
 
 **Live list** — a dynamic-list block (`window-list`, `iterm-panes`,
 `iterm-tabs`) placed inside a panel, or **loose** in a screen/open body (then it
