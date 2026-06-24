@@ -11,11 +11,16 @@ the same day — each leaf carries its full, approved design.
 ## Children (independent — any order)
 
 1. **masonry-layout-k20** — panel packing via CSS Grid Lanes (masonry) +
-   an opt-in `'layout 'grid` screen keyword.
+   an opt-in `'layout 'grid` screen keyword. *(done)*
 2. **footer-applicability-k21** — generic greying of inapplicable footer
    command hints (e.g. `choose`/`select` in a 0-result chooser).
 3. **diagram-bare-panel-k22** — render a window-diagram's host panel
    background-transparent so proportions read and alignment is clean.
+4. **bare-loose-rows-k23** — drop the "General" panel: loose top-level rows
+   render bare at the top of the screen (like the Settings overlay), and
+   top-level `(open …)`s fold in as drill rows instead of one-row cards.
+   *(commissioned 2026-06-24 after the user saw masonry live; carries its
+   full approved design.)*
 
 ## Context
 
@@ -38,7 +43,7 @@ the same day — each leaf carries its full, approved design.
 
 ## Notes
 
-- After all three retire, this node has no live leaf → the grove root re-checks
+- After all four retire, this node has no live leaf → the grove root re-checks
   → the deferred **Finish** cycle runs (held since k9/k16/k17/k18). At k18's
   retirement `main` was at the branch point; **re-check**
   `git merge-base --is-ancestor main visual-refresh` before merging.
