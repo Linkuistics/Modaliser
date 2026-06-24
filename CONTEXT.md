@@ -51,6 +51,14 @@ selects a variant tree. See `docs/how-to/terminal-pane-aware-tree.md`.
 
 ## Window-switching domain
 
+**Focused window** — the frontmost OS window: the top-level window macOS routes
+keystrokes to. Resolved via `NSWorkspace.frontmostApplication` → that app's AX
+`kAXFocusedWindow` (falling back to `kAXMainWindow`), the cold-AX-safe path
+already used by the window-layout ops (`focusedWindowAndFrame`). The
+`(modaliser window)` `focused-window` primitive surfaces its identity
+(`ownerPid`, `windowId`, frame) to Scheme. _Avoid_ conflating with **Focused
+pane** — a split *inside* a terminal window, a different granularity.
+
 **Window chip** — the digit-label overlay painted over an on-screen
 *window* (not a terminal pane) so the user can focus that window by
 typing its digit. Same overlay machinery as the pane **Chip** above
@@ -172,8 +180,18 @@ label *is* the row's digit, so `⏎` dispatches through the same digit-jump path
 immediate `1–9` selectors use — the cursor adds only a pointer, no separate
 action. State lives in `(modaliser list-cursor)`, owned by the first live list a
 screen renders; the focused row is marked `.is-focused` (accent bar + tint).
+On the pass that first claims the cursor (overlay open) it **seeds** to the
+currently-focused row (see **Cursor seed**), else row 0.
 Distinct from a **Selector** (the chooser-opening node) and from the digit
 **selectors** (immediate direct-jump keys).
+
+**Cursor seed** — the once-per-open derivation of the **Selection cursor**'s
+opening row: a list block MAY carry a `cursor-initial-index-fn` thunk returning
+the **Focused** item's row index (tabs/panes/windows), consulted *only* on the
+claiming pass so the focus probe runs once per overlay open, never per re-render.
+A non-negative integer seeds that row; anything else (`#f`, out-of-range, no
+thunk) falls back to row 0. Mechanism: `list-cursor-offer!` + `seed-index` in
+`(modaliser list-cursor)`.
 
 **Open** — the authored drill-down affordance: `(open KEY LABEL body…)`. A row
 that navigates *into* a sub-screen (its own body). A **top-level** open folds

@@ -30,7 +30,8 @@ the same day — each leaf carries its full, approved design.
 7. **elide-general-panel-k27** — (commissioned earlier; see its leaf).
 8. **list-cursor-window-focus-k28** — extend the k25 cursor-seed mechanism to
    the global Windows list (the hard case: spatially sorted, no focus marker,
-   no focused-window primitive). *(split out of k25 on 2026-06-24.)*
+   no focused-window primitive). *(split out of k25; now a node — design
+   settled 2026-06-24, implementation in focused-window-seed-k29.)*
 
 ## Context
 
