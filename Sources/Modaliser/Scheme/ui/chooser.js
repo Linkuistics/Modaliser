@@ -142,22 +142,34 @@ function updateResults(items, totalCount) {
   }
 }
 
+// Mirror of footer-hint-span in ui/overlay.scm — wraps one hint in a
+// .footer-hint span, adding .footer-hint--disabled (base.css dims it) when
+// the command can't act in the current context (footer-applicability-k21).
+function footerHintSpan(sigil, label, applicable) {
+  return '<span class="footer-hint' + (applicable ? '' : ' footer-hint--disabled') +
+         '">' + sigil + ' ' + label + '</span>';
+}
+
 // Mirror of chooser-footer-html in chooser.scm — kept in sync because
 // the native fuzzy-search path bypasses Scheme and calls updateResults
 // directly, so the footer template has to exist on the JS side too.
 // Count (left) and hints (right) are separate spans so base.css can
 // justify-between them. Sigils inside the hints span get .sigil so
-// they're enlarged + bolded.
+// they're enlarged + bolded. At zero results choose/select grey out
+// (nothing to choose or select); ⎋ exit always applies.
 function chooserFooterHtml(count) {
+  var have = count > 0;
   return '<span class="chooser-footer-count">' +
            count + (count === 1 ? ' item' : ' items') +
          '</span>' +
          // Hint order: ⏎ choose · ↑↓ select · ⎋ exit so exit anchors
          // the right edge (kept in sync with chooser-footer-html).
          '<span class="chooser-footer-hints">' +
-           '<span class="sigil sigil-return">⏎</span> choose' +
-           ' · <span class="sigil sigil-arrows">↑↓</span> select' +
-           ' · <span class="sigil sigil-escape">⎋</span> exit' +
+           footerHintSpan('<span class="sigil sigil-return">⏎</span>', 'choose', have) +
+           ' · ' +
+           footerHintSpan('<span class="sigil sigil-arrows">↑↓</span>', 'select', have) +
+           ' · ' +
+           footerHintSpan('<span class="sigil sigil-escape">⎋</span>', 'exit', true) +
          '</span>';
 }
 

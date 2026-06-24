@@ -98,6 +98,49 @@ struct ChooserRenderTests {
         #expect(!html.contains("\u{232B}"))  // ⌫ backspace omitted
     }
 
+    // footer-applicability-k21: at zero results there is nothing to choose or
+    // select, so those hints are greyed in place (the shared .footer-hint--
+    // disabled class); ⎋ exit stays live because it always applies.
+    @Test func chooserFooterDimsChooseSelectAtZeroResults() throws {
+        let engine = try loadAllModules()
+        let footer = try engine.evaluate("(chooser-footer-html 0)").asString()
+        // ⏎ choose and ↑↓ select are dimmed …
+        #expect(footer.contains(
+            "<span class=\"footer-hint footer-hint--disabled\">"
+            + "<span class=\"sigil sigil-return\">\u{23CE}</span> choose</span>"))
+        #expect(footer.contains(
+            "<span class=\"footer-hint footer-hint--disabled\">"
+            + "<span class=\"sigil sigil-arrows\">\u{2191}\u{2193}</span> select</span>"))
+        // … but ⎋ exit is a live (undimmed) hint.
+        #expect(footer.contains(
+            "<span class=\"footer-hint\">"
+            + "<span class=\"sigil sigil-escape\">\u{238B}</span> exit</span>"))
+    }
+
+    // At one or more results every hint applies, so none carry the disabled
+    // class — the dimming restores when the list re-populates.
+    @Test func chooserFooterRestoresHintsAtNonZeroResults() throws {
+        let engine = try loadAllModules()
+        let footer = try engine.evaluate("(chooser-footer-html 2)").asString()
+        #expect(!footer.contains("footer-hint--disabled"))
+        // The live hints are still wrapped in .footer-hint spans.
+        #expect(footer.contains(
+            "<span class=\"footer-hint\">"
+            + "<span class=\"sigil sigil-return\">\u{23CE}</span> choose</span>"))
+    }
+
+    // The JS dynamic-update path (chooserFooterHtml in chooser.js) bypasses
+    // Scheme on the native fuzzy-search path, so it must mirror the same
+    // dimming. Assert the embedded JS source carries the disabled-class
+    // mechanism keyed off the result count.
+    @Test func chooserJsFooterMirrorsDisabledMechanism() throws {
+        let engine = try loadAllModules()
+        let js = try engine.evaluate("chooser-js").asString()
+        #expect(js.contains("footer-hint--disabled"))
+        // The JS footer hints fan out per-command (count > 0 gates choose/select).
+        #expect(js.contains("count > 0"))
+    }
+
     @Test func renderChooserHtmlShowsItems() throws {
         let engine = try loadAllModules()
         try engine.evaluate(testItemsSetup)

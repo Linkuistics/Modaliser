@@ -244,6 +244,8 @@ unlike the host header.
 | `.overlay-custom-body` | Container for a custom-renderer body. `data-renderer` attribute = `"panel-grid"` or `"blocks"`. The `panel-grid` variant carries the tinted `--overlay-body-bg`. |
 | `.overlay-footer` | Separated footer strip (tinted background + top rule). |
 | `.overlay-footer-root` | Modifier at the root of a tree (no back-hint shown). |
+| `.footer-hint` | One footer command hint (sigil + label). Shared by the overlay and chooser footers. |
+| `.footer-hint--disabled` | Modifier greying a hint whose command can't act in the current context (e.g. `⏎ choose` with zero chooser results, or the cursor-nav hints over an empty live list). Dimmed in place, never hidden. |
 | `.sigil`, `.sigil-back`, `.sigil-return`, `.sigil-escape`, `.sigil-arrows`, `.sigil-mod` | Footer keyboard glyphs + in-key modifier sigils. |
 
 ### Panel grid (layout DSL renderer)

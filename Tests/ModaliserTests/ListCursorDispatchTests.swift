@@ -198,4 +198,50 @@ struct ListCursorDispatchTests {
         #expect(footer.contains("move"))
         #expect(footer.contains("select"))
     }
+
+    // footer-applicability-k21: when the active live list is non-empty the
+    // cursor-nav hints (↑↓ move · ⏎ select · 1–9 jump) read normally — no hint
+    // carries the disabled class.
+    @Test func cursorFooterNavHintsLiveWhenListNonEmpty() throws {
+        let engine = try loadCursor()
+        try engine.evaluate("""
+          (screen 'cur-foot-live (panel "Live" (fake-list-block)))
+          (renderer-body-json 'panel-grid (lookup-tree "cur-foot-live"))
+          (define f (footer-html-for-path '()))
+        """)
+        let footer = try engine.evaluate("f").asString()
+        #expect(!footer.contains("footer-hint--disabled"))
+    }
+
+    // When the active live list is empty there is nothing to move to, select,
+    // or jump to, so the cursor-nav hints are greyed in place via the shared
+    // .footer-hint--disabled class (the cancel/back hints stay live).
+    @Test func cursorFooterDimsNavHintsWhenListEmpty() throws {
+        let engine = try loadCursor()
+        // A list block whose cursor-targets accessor returns no rows — the
+        // cursor is still offered (block carries cursor-targets-fn) but the
+        // live count is zero, so the nav hints don't apply.
+        try engine.evaluate("""
+          (define (empty-targets) '())
+          (define (empty-list-block)
+            (list (cons 'type 'window-list)
+                  (cons 'on-render-fn (lambda () (list (cons 'windows '()))))
+                  (cons 'cursor-targets-fn empty-targets)))
+          (screen 'cur-foot-empty (panel "Live" (empty-list-block)))
+          (renderer-body-json 'panel-grid (lookup-tree "cur-foot-empty"))
+          (define f (footer-html-for-path '()))
+        """)
+        // The cursor is active but owns an empty list.
+        #expect(try engine.evaluate("(list-cursor-active?)") == .true)
+        #expect(try engine.evaluate("(list-cursor-has-selection?)") == .false)
+        let footer = try engine.evaluate("f").asString()
+        // move / select / jump all dimmed.
+        #expect(footer.contains(
+            "<span class=\"footer-hint footer-hint--disabled\">"
+            + "<span class=\"sigil sigil-arrows\">\u{2191}\u{2193}</span> move</span>"))
+        #expect(footer.contains(
+            "<span class=\"footer-hint footer-hint--disabled\">"
+            + "<span class=\"sigil sigil-return\">\u{23CE}</span> select</span>"))
+        #expect(footer.contains("footer-hint--disabled\">1\u{2013}9 jump</span>"))
+    }
 }

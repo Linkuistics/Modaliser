@@ -159,19 +159,24 @@
 ;; (right) into two flex children so base.css can justify-between them.
 ;; Kept in sync with chooserFooterHtml in chooser.js — the native
 ;; fuzzy-search path bypasses Scheme and writes the footer from JS.
+;; At zero results there is nothing to choose or select, so those hints
+;; grey out via the shared footer-hint mechanism (footer-hints-html in
+;; ui/overlay.scm); ⎋ exit always applies (footer-applicability-k21).
 (define (chooser-footer-html item-count)
-  (string-append
-    "<span class=\"chooser-footer-count\">"
-      (number->string item-count)
-      (if (= item-count 1) " item" " items")
-    "</span>"
-    ;; Hint order: `⏎ choose · ↑↓ select · ⎋ exit` so exit anchors the
-    ;; right edge — consistent with the overlay footers.
-    "<span class=\"chooser-footer-hints\">"
-      chooser-sigil-enter " choose"
-      " \xb7; " chooser-sigil-arrows " select"
-      " \xb7; " chooser-sigil-escape " exit"
-    "</span>"))
+  (let ((have? (> item-count 0)))
+    (string-append
+      "<span class=\"chooser-footer-count\">"
+        (number->string item-count)
+        (if (= item-count 1) " item" " items")
+      "</span>"
+      ;; Hint order: `⏎ choose · ↑↓ select · ⎋ exit` so exit anchors the
+      ;; right edge — consistent with the overlay footers.
+      "<span class=\"chooser-footer-hints\">"
+        (footer-hints-html
+          (list (list chooser-sigil-enter  "choose" have?)
+                (list chooser-sigil-arrows "select" have?)
+                (list chooser-sigil-escape "exit"   #t)))
+      "</span>")))
 
 (define (render-chooser-html prompt visible-items query selected-index
                              actions-visible? actions)

@@ -176,6 +176,31 @@
 ;; reads visually smaller than its siblings.
 (define overlay-sigil-back   "<span class=\"sigil sigil-back\">\x232b;</span>")
 
+;; ─── Shared footer-hint mechanism (footer-applicability-k21) ──────
+;;
+;; A footer advertises command hints; a hint that can't act in the CURRENT
+;; context is greyed IN PLACE (never hidden) so the user still sees the key
+;; exists. A hint is a (sigil-html label applicable?) triple: footer-hint-span
+;; wraps it in <span class="footer-hint">, adding .footer-hint--disabled (which
+;; base.css dims) when applicable? is #f. footer-hints-html joins a list of
+;; such triples with the ` · ` middot separator both footers already use.
+;; Generic by design — shared by the chooser footer (chooser-footer-html plus
+;; its chooser.js mirror) and the overlay cursor-nav footer below.
+(define (footer-hint-span sigil-html label applicable?)
+  (string-append
+    "<span class=\"footer-hint"
+    (if applicable? "" " footer-hint--disabled")
+    "\">" sigil-html " " label "</span>"))
+
+(define (footer-hints-html hints)
+  (let loop ((rest hints) (acc ""))
+    (if (null? rest)
+      acc
+      (let* ((h (car rest))
+             (span (footer-hint-span (car h) (cadr h) (caddr h)))
+             (sep (if (string=? acc "") "" " \xb7; ")))
+        (loop (cdr rest) (string-append acc sep span))))))
+
 (define overlay-footer-html-root
   (string-append overlay-sigil-escape " cancel"))
 ;; Deep paths show two hints. Order is `⌫ back · ⎋ cancel` so cancel
@@ -188,12 +213,15 @@
 ;; Selection-cursor nav hints, prepended to the footer while an embedded list
 ;; owns the cursor (list-cursor-k6). ↑↓/⏎ reuse the .sigil-arrows / .sigil-return
 ;; glyph styling already in base.css; "1–9 jump" advertises the immediate digit
-;; selectors that stay live alongside the cursor.
-(define overlay-footer-html-cursor
-  (string-append
-    "<span class=\"sigil sigil-arrows\">\x2191;\x2193;</span> move \xb7; "
-    "<span class=\"sigil sigil-return\">\x23ce;</span> select \xb7; "
-    "1\x2013;9 jump"))
+;; selectors that stay live alongside the cursor. Routed through the shared
+;; footer-hint mechanism so all three grey out together when the active live
+;; list is empty (applicable? = the list has > 0 rows) — there is then nothing
+;; to move to, select, or jump to (footer-applicability-k21).
+(define (overlay-footer-cursor-html applicable?)
+  (footer-hints-html
+    (list (list "<span class=\"sigil sigil-arrows\">\x2191;\x2193;</span>" "move" applicable?)
+          (list "<span class=\"sigil sigil-return\">\x23ce;</span>" "select" applicable?)
+          (list "1\x2013;9" "jump" applicable?))))
 
 ;; (back-available-for-path? path) → #t when backspace navigates somewhere
 ;; — mirrors modal-step-back's conditions exactly so the hint advertises
@@ -217,9 +245,13 @@
                 overlay-footer-html-root)))
     ;; When a list cursor is active (set during the just-finished render pass —
     ;; renderer-body-json runs before the footer is built), lead with the nav
-    ;; hints so the user sees ↑↓/⏎ alongside the cancel/back sigils.
+    ;; hints so the user sees ↑↓/⏎ alongside the cancel/back sigils. The nav
+    ;; hints grey out when the active list is empty (list-cursor-has-selection?
+    ;; is #f) — the cursor can be active over a zero-row list (block-json offers
+    ;; the targets accessor regardless of row count).
     (if (list-cursor-active?)
-      (string-append overlay-footer-html-cursor " \xb7; " base)
+      (string-append (overlay-footer-cursor-html (list-cursor-has-selection?))
+                     " \xb7; " base)
       base)))
 
 ;; ─── Key display ──────────────────────────────────────────────

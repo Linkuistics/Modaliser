@@ -575,6 +575,25 @@ body {
   text-align: right;
 }
 
+/* A single footer command hint (sigil + label) — the unit of the shared
+ * footer-hint mechanism used by both the overlay and chooser footers
+ * (footer-hint-span / footer-hints-html in ui/overlay.scm, mirrored by
+ * footerHintSpan in ui/chooser.js). A live hint is visually neutral: it
+ * reads exactly as the surrounding footer text. nowrap keeps the sigil and
+ * its label on one line so a hint never breaks mid-unit. */
+.footer-hint {
+  white-space: nowrap;
+}
+
+/* A hint whose command can't act in the current context — e.g. ⏎ choose /
+ * ↑↓ select with zero chooser results, or the cursor-nav hints over an empty
+ * live list. Greyed in place, never hidden, so the user still sees the key
+ * exists (footer-applicability-k21). Opacity dims the label and its enlarged
+ * .sigil glyph uniformly. */
+.footer-hint--disabled {
+  opacity: 0.4;
+}
+
 /* Footer-hint sigils (escape, backspace, return, arrows). Bumped above
  * the surrounding footer body so the glyphs read clearly at a glance:
  * footer text sits at (--font-size - 2px) = 12px; sigils sit at
