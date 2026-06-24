@@ -67,6 +67,23 @@ struct ListCursorDispatchTests {
         #expect(try engine.evaluate("p").asString().contains("\"selected\":0"))
     }
 
+    // list-cursor-initial-focus-k25: a live-list block may carry a
+    // 'cursor-initial-index-fn (a thunk → focused row index). block-json threads
+    // it into list-cursor-offer!, so the panel-grid payload's "selected" rides
+    // in seeded to the focused row on the opening render — not 0.
+    @Test func initialIndexFnSeedsSelectedInPayload() throws {
+        let engine = try loadCursor()
+        try engine.evaluate("""
+          (define (focused-list-block)
+            (append (fake-list-block)
+                    (list (cons 'cursor-initial-index-fn (lambda () 2)))))
+          (screen 'cur-focus (panel "Live" (focused-list-block)))
+          (define p (renderer-body-json 'panel-grid (lookup-tree "cur-focus")))
+        """)
+        #expect(try engine.evaluate("(list-cursor-index)") == .fixnum(2))
+        #expect(try engine.evaluate("p").asString().contains("\"selected\":2"))
+    }
+
     // A screen with no live list leaves the cursor inert after a render pass.
     @Test func renderWithoutListClearsCursor() throws {
         let engine = try loadCursor()

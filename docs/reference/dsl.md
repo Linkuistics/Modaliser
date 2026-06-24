@@ -329,6 +329,11 @@ cursor** alongside its immediate digit selectors:
   path*: the cursor adds a pointer, not a separate action.
 - The footer advertises the keys (`↑↓ move · ⏎ select · 1–9 jump`) while
   a cursor is active.
+- When a list knows which of its rows is currently focused — the iTerm
+  Tab list (the current tab) and Panes list (the focused split) — the
+  cursor **opens on that row** instead of the top, so `⏎` re-selects it
+  or an arrow steps to a neighbour. (The global windows list does not yet
+  seed this way.)
 
 When a screen renders more than one live list, the **first** one it
 draws owns the cursor (multi-list `Tab`-cycling is a non-goal). Cursor

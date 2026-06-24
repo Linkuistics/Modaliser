@@ -19,6 +19,7 @@
   (export make-iterm-tabs-block
           iterm-tabs-current-targets
           iterm-tabs-current-labels
+          iterm-tabs-focused-index
           iterm-tabs-refresh!)
   (import (scheme base)
           (modaliser dsl)
@@ -39,6 +40,21 @@
 
     (define (iterm-tabs-current-targets) current-tab-targets)
     (define (iterm-tabs-current-labels) (map car current-tab-targets))
+
+    ;; Row index of the focused tab — the snapshot already marks it 'current
+    ;; (the AppleScript probe sets mark "1" on the tab whose current session
+    ;; matches the window's), so initial-focus needs no extra query. The cursor
+    ;; index space is the rendered rows (current-tabs-data), which align with
+    ;; current-tab-targets for the first ten tabs (both built in lockstep); a
+    ;; focused tab past the tenth would exceed the targets count and the
+    ;; cursor's read-clamp pins it to the last addressable row. #f when no row
+    ;; is current (→ cursor seeds row 0). See list-cursor-initial-focus-k25.
+    (define (iterm-tabs-focused-index)
+      (let loop ((rows current-tabs-data) (i 0))
+        (cond
+          ((null? rows) #f)
+          ((let ((c (assoc 'current (car rows)))) (and c (cdr c))) i)
+          (else (loop (cdr rows) (+ i 1))))))
 
     ;; AppleScript emitting one line per tab of the focused window:
     ;;   <1-based index> TAB <0|1 is-current> TAB <tab title>

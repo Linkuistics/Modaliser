@@ -403,6 +403,10 @@
 ;; pass). When this block is the one that owns the cursor, its current selected
 ;; index rides into the payload as "selected", which the JS renderer marks with
 ;; .is-focused. The accessor itself is a procedure, so block-spec->json skips it.
+;; A block may also carry an optional 'cursor-initial-index-fn (a thunk →
+;; focused row index, list-cursor-initial-focus-k25); block-json hands it to
+;; list-cursor-offer!, which seeds the cursor to that row on the claiming pass
+;; (overlay open) instead of row 0.
 ;; block-json now serves only the live-list blocks embedded in panels
 ;; (window-list / iterm-panes / iterm-tabs / window-diagram) via panel->json —
 ;; the which-key block-list path was removed in the flag-day deletion.
@@ -413,8 +417,16 @@
                 (let ((r (fn))) (if (pair? r) r '()))
                 '()))
          (tf-entry (assoc 'cursor-targets-fn b))
-         (tf (and tf-entry (cdr tf-entry))))
-    (when tf (list-cursor-offer! tf))
+         (tf (and tf-entry (cdr tf-entry)))
+         ;; Optional focus-seed thunk (list-cursor-initial-focus-k25): a live
+         ;; list may name the currently-focused row so the cursor opens on it.
+         ;; Passed by reference — list-cursor-offer! invokes it only on the
+         ;; claiming pass, so the probe stays lazy. A procedure, so
+         ;; block-spec->json skips it (same as cursor-targets-fn).
+         (iif-entry (assoc 'cursor-initial-index-fn b))
+         (iif (and iif-entry (cdr iif-entry))))
+    (when tf
+      (if iif (list-cursor-offer! tf iif) (list-cursor-offer! tf)))
     (let ((dyn* (if (and tf (eq? tf (list-cursor-active-targets-fn)))
                   (cons (cons 'selected (list-cursor-index)) dyn)
                   dyn)))

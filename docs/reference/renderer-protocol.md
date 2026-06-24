@@ -130,6 +130,7 @@ A block is an alist with the following recognised fields:
 | `'on-enter-fn` | thunk | optional | Fires when the overlay containing this block becomes visible. Composed with user-supplied `'on-enter` in the parent `(screen …)` / `(open …)`. |
 | `'on-leave-fn` | thunk | optional | Fires when the overlay closes. Composed with user-supplied `'on-leave`. |
 | `'cursor-targets-fn` | thunk | optional | `→ ((label . target) …)` accessor offered to the selection cursor; the first list to offer in a render pass owns the cursor. |
+| `'cursor-initial-index-fn` | thunk | optional | `→` focused row index (or `#f`). Consulted **once**, when the list first claims the cursor (overlay open), to seed the selection on the currently-focused row instead of row 0; a later arrow-move is preserved across re-renders. `#f` / out-of-range falls back to row 0. The iTerm tab/pane lists supply this; the global windows list does not yet (`list-cursor-window-focus-k28`). |
 
 Anything else in the alist passes through to the JSON payload —
 renderers own their own keys (`'panels` for `window-diagram`,

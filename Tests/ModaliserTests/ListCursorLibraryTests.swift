@@ -127,6 +127,67 @@ struct ListCursorLibraryTests {
         #expect(try engine.evaluate("(list-cursor-selected-label)") == .makeString("1"))
     }
 
+    // list-cursor-initial-focus-k25: a fresh claim seeds the selection from the
+    // optional INITIAL-INDEX-FN thunk (the focused row), not row 0 — so an
+    // overlay opening onto a live list highlights the currently-focused
+    // tab/split, ready for ⏎ or an arrow to a neighbour.
+    @Test func offerWithInitialIndexSeedsFocusedRow() throws {
+        let engine = try loaded()
+        try engine.evaluate("""
+          (define tf (lambda () (list (cons "1" 'a) (cons "2" 'b) (cons "3" 'c))))
+          (list-cursor-begin-pass!)
+          (list-cursor-offer! tf (lambda () 2))
+          (list-cursor-end-pass!)
+        """)
+        #expect(try engine.evaluate("(list-cursor-index)") == .fixnum(2))
+        #expect(try engine.evaluate("(list-cursor-selected-label)") == .makeString("3"))
+    }
+
+    // The init-fn is a THUNK consulted ONLY on the claiming pass (overlay open),
+    // never on a re-offer of the same list — so a cursor move survives the
+    // re-render it triggers and is not snapped back to the focused row. (A
+    // counter proves the thunk runs exactly once.)
+    @Test func initialIndexConsultedOnlyOnClaim() throws {
+        let engine = try loaded()
+        try engine.evaluate("""
+          (define calls 0)
+          (define tf (lambda () (list (cons "1" 'a) (cons "2" 'b) (cons "3" 'c))))
+          (define (iif) (set! calls (+ calls 1)) 2)
+          (list-cursor-begin-pass!) (list-cursor-offer! tf iif) (list-cursor-end-pass!)
+        """)
+        #expect(try engine.evaluate("(list-cursor-index)") == .fixnum(2))
+        #expect(try engine.evaluate("calls") == .fixnum(1))
+        // The user arrows up; the move's own re-render re-offers the SAME list.
+        try engine.evaluate("(list-cursor-move! -1)")
+        try engine.evaluate("(begin (list-cursor-begin-pass!) (list-cursor-offer! tf iif) (list-cursor-end-pass!))")
+        // Index stays where the user left it; the thunk was not consulted again.
+        #expect(try engine.evaluate("(list-cursor-index)") == .fixnum(1))
+        #expect(try engine.evaluate("calls") == .fixnum(1))
+    }
+
+    // An init-fn returning #f (no focused row known / detection failed) falls
+    // back to row 0 — the prior behaviour, so detection failure is never worse
+    // than today.
+    @Test func initialIndexFalseFallsBackToZero() throws {
+        let engine = try loaded()
+        try engine.evaluate("""
+          (define tf (lambda () (list (cons "1" 'a) (cons "2" 'b))))
+          (list-cursor-begin-pass!) (list-cursor-offer! tf (lambda () #f)) (list-cursor-end-pass!)
+        """)
+        #expect(try engine.evaluate("(list-cursor-index)") == .fixnum(0))
+    }
+
+    // An out-of-range seed (a stale focused index past the live count) is
+    // clamped on read, same as a move past the end — never crashes.
+    @Test func initialIndexOutOfRangeClampsOnRead() throws {
+        let engine = try loaded()
+        try engine.evaluate("""
+          (define tf (lambda () (list (cons "1" 'a) (cons "2" 'b) (cons "3" 'c))))
+          (list-cursor-begin-pass!) (list-cursor-offer! tf (lambda () 99)) (list-cursor-end-pass!)
+        """)
+        #expect(try engine.evaluate("(list-cursor-index)") == .fixnum(2))
+    }
+
     // clear! drops the active controller; move!/selected-label go inert.
     @Test func clearDeactivates() throws {
         let engine = try loaded()

@@ -24,8 +24,13 @@ the same day — each leaf carries its full, approved design.
 5. **manual-panel-order-k24** — opt-in to render a panel's entries in
    declaration order instead of key-sorted. *(commissioned 2026-06-24 live.)*
 6. **list-cursor-initial-focus-k25** — a live list's selection cursor starts
-   on the currently-focused tab/split/window, not row 0. *(commissioned
-   2026-06-24 live.)*
+   on the currently-focused item, not row 0. *(done — iTerm Tab + Panes lists.
+   Added the portable `cursor-initial-index-fn` seed mechanism; windows split
+   out to k28 as it needs its own focus-detection design.)*
+7. **elide-general-panel-k27** — (commissioned earlier; see its leaf).
+8. **list-cursor-window-focus-k28** — extend the k25 cursor-seed mechanism to
+   the global Windows list (the hard case: spatially sorted, no focus marker,
+   no focused-window primitive). *(split out of k25 on 2026-06-24.)*
 
 ## Context
 

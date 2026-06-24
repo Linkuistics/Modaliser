@@ -720,16 +720,37 @@
               default-pane-labels
               (lambda (k) (focus-by-digit k)))))
 
+    ;; Row index of the focused split among the snapshotted pane targets —
+    ;; matched by the focused session's UUID (focused-pane-id). A thunk, so
+    ;; list-cursor consults it only when the pane list first claims the cursor
+    ;; (overlay open): the AppleScript probe runs once per open, not per
+    ;; re-render. The on-render snapshot has already refreshed
+    ;; iterm-panes-current-targets by the time block-json offers the cursor, so
+    ;; the targets read here are current. #f when iTerm reports no focused
+    ;; session or it isn't among the labelled panes (→ cursor seeds row 0).
+    ;; See list-cursor-initial-focus-k25.
+    (define (pane-focused-index)
+      (let ((fid (focused-pane-id)))
+        (and fid
+             (let loop ((ts (iterm-panes-current-targets)) (i 0))
+               (cond
+                 ((null? ts) #f)
+                 ((string=? (cdr (car ts)) fid) i)
+                 (else (loop (cdr ts) (+ i 1))))))))
+
     ;; cursor-targets-fn rides only on a LIVE block (one with an on-render-fn
     ;; that refreshes iterm-panes-current-targets every render — the 'chips?
     ;; path); a static no-chips block never refreshes its targets, so the
     ;; selection cursor must not attach to it. Same gate as window:list-block.
+    ;; A live block also carries cursor-initial-index-fn so the cursor opens on
+    ;; the focused split (list-cursor-initial-focus-k25).
     (define (pane-list-block . opts)
       (let* ((base  (apply make-iterm-panes-block opts))
              (live? (and (assoc 'on-render-fn base) #t)))
         (append base
                 (if live?
-                  (list (cons 'cursor-targets-fn iterm-panes-current-targets))
+                  (list (cons 'cursor-targets-fn iterm-panes-current-targets)
+                        (cons 'cursor-initial-index-fn pane-focused-index))
                   '())
                 (list (cons 'block-children (list (pane-range)))))))
 
@@ -793,7 +814,10 @@
              (live? (and (assoc 'on-render-fn base) #t)))
         (append base
                 (if live?
-                  (list (cons 'cursor-targets-fn iterm-tabs-current-targets))
+                  (list (cons 'cursor-targets-fn iterm-tabs-current-targets)
+                        ;; Open the cursor on the current tab (the snapshot's
+                        ;; 'current row); list-cursor-initial-focus-k25.
+                        (cons 'cursor-initial-index-fn iterm-tabs-focused-index))
                   '())
                 (list (cons 'block-children (list (tab-range)))))))))
 

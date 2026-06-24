@@ -51,15 +51,30 @@
     ;; A list block presents its targets accessor as a cursor candidate. The
     ;; first offer of the pass wins (first declared list owns the cursor). When
     ;; the winning list differs from the previously active one (a screen
-    ;; change), the selection resets to the top; re-offering the SAME accessor
-    ;; across re-renders preserves the index, so a cursor move's own re-render
-    ;; doesn't snap the cursor back to row 0.
-    (define (list-cursor-offer! targets-fn)
+    ;; change), the selection SEEDS to the focused row — the optional
+    ;; INITIAL-INDEX-FN, a thunk returning the currently-focused row index
+    ;; (list-cursor-initial-focus-k25), is consulted ONCE on that claim;
+    ;; anything but a non-negative integer (no thunk, #f, a stale out-of-range
+    ;; value) falls back to row 0 (the read-clamp handles the upper bound).
+    ;; Re-offering the SAME accessor across re-renders preserves the index, so a
+    ;; cursor move's own re-render doesn't snap the cursor back — and because
+    ;; the thunk is consulted only on the claim, its (possibly shell-backed)
+    ;; focus probe runs once per open, never per re-render.
+    (define (list-cursor-offer! targets-fn . initial-index-fn)
       (unless claimed-this-pass?
         (set! claimed-this-pass? #t)
         (unless (eq? targets-fn active-targets-fn)
           (set! active-targets-fn targets-fn)
-          (set! selected-index 0))))
+          (set! selected-index (seed-index initial-index-fn)))))
+
+    ;; Resolve the seed for a fresh claim: invoke the optional init-fn thunk and
+    ;; accept a non-negative integer; everything else seeds row 0.
+    (define (seed-index initial-index-fn)
+      (let ((iif (and (pair? initial-index-fn) (car initial-index-fn))))
+        (if (procedure? iif)
+          (let ((i (iif)))
+            (if (and (integer? i) (>= i 0)) i 0))
+          0)))
 
     ;; Finish a render pass — call once after serializing a screen body. If no
     ;; list claimed the cursor this pass, the current screen has no live list,
