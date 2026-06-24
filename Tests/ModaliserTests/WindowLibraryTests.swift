@@ -54,6 +54,28 @@ struct WindowLibraryTests {
         #expect(try engine.evaluate("(procedure? find-chip-position)") == .true)
     }
 
+    @Test func focusedWindowIsProcedure() throws {
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? focused-window)") == .true)
+    }
+
+    @Test func focusedWindowReturnsAlistOrFalse() throws {
+        // Smoke: with no deterministic frontmost window in CI, (focused-window)
+        // returns #f (nothing focused / AX unavailable) or the full identity
+        // alist. Assert the shape — pid + windowId + x/y/w/h — without
+        // asserting any concrete window. Mirrors findChipPositionReturnsAlistOrFalse.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser window))")
+        try engine.evaluate("(define f (focused-window))")
+        #expect(try engine.evaluate("""
+          (or (eq? f #f)
+              (and (pair? f)
+                   (assoc 'ownerPid f) (assoc 'windowId f)
+                   (assoc 'x f) (assoc 'y f) (assoc 'w f) (assoc 'h f)
+                   #t))
+        """) == .true)
+    }
+
     @Test func findChipPositionReturnsAlistOrFalse() throws {
         // Smoke: synthetic (wid, pid) won't match any real window, so the
         // target-not-found path returns the natural origin. Assert

@@ -158,6 +158,25 @@ enum WindowManipulator {
         return (window, CGRect(origin: position, size: size))
     }
 
+    /// Identity + frame of the currently focused window, or nil when nothing
+    /// regular is focused. Resolved by the same cold-AX-safe path the layout
+    /// ops use (frontmost-app → kAXFocusedWindow/kAXMainWindow), plus
+    /// `_AXUIElementGetWindow` for the CGWindowID and `AXUIElementGetPid` for
+    /// the owner pid. `windowId` is 0 when the private SPI can't resolve it —
+    /// the cursor-seed matcher's PID+origin fallback covers that residual
+    /// case (list-cursor-window-focus-k28). Coordinates are AX top-left
+    /// origin, matching `list-current-space-windows`, so the matcher can
+    /// compare frame origins directly against the window-list rows.
+    static func focusedWindowIdentity()
+        -> (ownerPid: pid_t, windowId: CGWindowID, frame: CGRect)? {
+        guard let (window, frame) = focusedWindowAndFrame() else { return nil }
+        var pid: pid_t = 0
+        AXUIElementGetPid(window, &pid)
+        var windowId: CGWindowID = 0
+        _ = _AXUIElementGetWindow(window, &windowId)
+        return (ownerPid: pid, windowId: windowId, frame: frame)
+    }
+
     private static func screenContaining(_ frame: CGRect) -> NSScreen? {
         let center = CGPoint(x: frame.midX, y: frame.midY)
         return NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.main

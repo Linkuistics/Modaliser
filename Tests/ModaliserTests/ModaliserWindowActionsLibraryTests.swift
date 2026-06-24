@@ -7,24 +7,29 @@ struct ModaliserWindowActionsLibraryTests {
 
     // A live (chips) window list-block carries a 'cursor-targets-fn accessor so
     // the selection cursor (list-cursor-k6) moves over the same label→window
-    // targets the digit dispatch uses, alongside its hidden digit range.
+    // targets the digit dispatch uses, alongside its hidden digit range. It
+    // also carries 'cursor-initial-index-fn so the cursor opens on the focused
+    // window rather than spatial row 0 (list-cursor-window-focus-k28).
     @Test func liveListBlockCarriesCursorTargets() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (prefix (modaliser window-actions) window:))")
         try engine.evaluate("(define b (window:list-block 'chips? #t))")
         #expect(try engine.evaluate("(procedure? (cdr (assoc 'cursor-targets-fn b)))") == .true)
+        #expect(try engine.evaluate("(procedure? (cdr (assoc 'cursor-initial-index-fn b)))") == .true)
         // The digit range still rides under 'block-children, unchanged.
         #expect(try engine.evaluate("(pair? (assoc 'block-children b))") == .true)
     }
 
     // A no-chips window list-block has no on-render-fn, so it never refreshes its
     // targets snapshot — the cursor must NOT attach to it (it would show nav
-    // chrome over stale/empty data). The cursor follows live data only.
+    // chrome over stale/empty data). The cursor follows live data only, so
+    // neither the targets accessor nor the initial-index seed attach.
     @Test func staticListBlockOmitsCursorTargets() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (prefix (modaliser window-actions) window:))")
         try engine.evaluate("(define b (window:list-block))")
         #expect(try engine.evaluate("(assoc 'cursor-targets-fn b)") == .false)
+        #expect(try engine.evaluate("(assoc 'cursor-initial-index-fn b)") == .false)
     }
 
     @Test func divisionsBuilderGeneratesKeysForMatrix() throws {

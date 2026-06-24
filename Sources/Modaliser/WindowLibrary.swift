@@ -31,6 +31,7 @@ final class WindowLibrary: NativeLibrary {
         self.define(Procedure("primary-screen-size", primaryScreenSizeFunction))
         self.define(Procedure("window-visible-at?", windowVisibleAtFunction))
         self.define(Procedure("find-chip-position", findChipPositionFunction))
+        self.define(Procedure("focused-window", focusedWindowFunction))
     }
 
     // MARK: - Functions
@@ -298,6 +299,32 @@ final class WindowLibrary: NativeLibrary {
             targetPid: targetPid,
             targetRect: targetRect,
             selfPid: myPID)
+    }
+
+    /// (focused-window) → ((ownerPid . p) (windowId . w)
+    ///                      (x . X) (y . Y) (w . W) (h . H))
+    ///                   → #f when nothing regular is focused.
+    ///
+    /// Identity + frame of the currently focused window, used to seed the
+    /// global Windows overlay's selection cursor to the focused row rather
+    /// than spatial row 0 (list-cursor-window-focus-k28). The `windowId`
+    /// derives from the *same* `_AXUIElementGetWindow` call WindowEnumerator
+    /// uses to fill the list rows' ids, so the Scheme matcher's id compare is
+    /// AX-id-vs-AX-id (self-consistent), unlike `window-visible-at?`'s
+    /// AX-id-vs-CGWindowList cross-source compare. Coordinates are AX
+    /// top-left origin, matching `list-current-space-windows`.
+    private func focusedWindowFunction() -> Expr {
+        guard let f = WindowManipulator.focusedWindowIdentity() else {
+            return .false
+        }
+        return SchemeAlistLookup.makeAlist([
+            ("ownerPid", .fixnum(Int64(f.ownerPid))),
+            ("windowId", .fixnum(Int64(f.windowId))),
+            ("x", .fixnum(Int64(f.frame.origin.x))),
+            ("y", .fixnum(Int64(f.frame.origin.y))),
+            ("w", .fixnum(Int64(f.frame.size.width))),
+            ("h", .fixnum(Int64(f.frame.size.height))),
+        ], symbols: self.context.symbols)
     }
 
     // MARK: - Helpers

@@ -29,7 +29,12 @@
           default-layout-block
           list-block
           divisions
-          center-panel)
+          center-panel
+          ;; Exported for unit testing the cursor-seed matcher
+          ;; (list-cursor-window-focus-k28). The live thunk
+          ;; window-focused-index just feeds it (focused-window) and the
+          ;; current targets; the branching lives here.
+          focused-row-index)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
@@ -172,15 +177,83 @@
               default-window-labels
               (lambda (k) (focus-by-digit k)))))
 
+    ;; ─── Cursor seed — focused-window index ────────────────────
+    ;;
+    ;; focused-row-index: the pure matcher. Given the focused window's
+    ;; identity alist (from the focused-window primitive) and the live target
+    ;; rows ((label . window-alist) ...), return the 0-based index of the row
+    ;; that IS the focused window, or #f. cursor-initial-index-fn reads #f as
+    ;; "seed row 0", so a miss is never worse than the spatial default. Match
+    ;; strategy (list-cursor-window-focus-k28):
+    ;;
+    ;;   1. focused windowId ≠ 0 → first row whose windowId equals it. This is
+    ;;      an AX-id-vs-AX-id compare: both ids come from the same
+    ;;      _AXUIElementGetWindow source (the list rows via WindowEnumerator,
+    ;;      the focused id via the focused-window primitive), so they agree by
+    ;;      construction — unlike window-visible-at?'s AX-id-vs-CGWindowList
+    ;;      cross-source compare. That self-consistency is why the id alone is
+    ;;      trusted here even when several rows share the pid.
+    ;;   2. windowId = 0 (the residual _AXUIElementGetWindow→0 case) → first
+    ;;      row with matching ownerPid AND exact frame origin (x,y); both
+    ;;      snapshots come from the same on-render instant, so origins agree.
+    ;;   3. still nothing, but exactly one row shares the pid (single-window
+    ;;      app) → that row; pid alone disambiguates only when unambiguous.
+    ;;   4. otherwise #f.
+    (define (focused-row-index focused targets)
+      (let ((fwid (cdr (assoc 'windowId focused)))
+            (fpid (cdr (assoc 'ownerPid focused)))
+            (fx   (cdr (assoc 'x focused)))
+            (fy   (cdr (assoc 'y focused))))
+        (if (not (zero? fwid))
+          (target-index targets
+            (lambda (win) (= (cdr (assoc 'windowId win)) fwid)))
+          (or (target-index targets
+                (lambda (win)
+                  (and (= (cdr (assoc 'ownerPid win)) fpid)
+                       (= (cdr (assoc 'x win)) fx)
+                       (= (cdr (assoc 'y win)) fy))))
+              (unique-pid-index targets fpid)))))
+
+    ;; First 0-based row index whose window-alist (the cdr of the row)
+    ;; satisfies pred, or #f.
+    (define (target-index targets pred)
+      (let loop ((ts targets) (i 0))
+        (cond
+          ((null? ts) #f)
+          ((pred (cdr (car ts))) i)
+          (else (loop (cdr ts) (+ i 1))))))
+
+    ;; Index of the sole row owned by pid, or #f when zero or several rows
+    ;; match (pid alone identifies a window only for a single-window app).
+    (define (unique-pid-index targets pid)
+      (let loop ((ts targets) (i 0) (found #f))
+        (cond
+          ((null? ts) found)
+          ((= (cdr (assoc 'ownerPid (cdr (car ts)))) pid)
+           (if found #f (loop (cdr ts) (+ i 1) i)))
+          (else (loop (cdr ts) (+ i 1) found)))))
+
+    ;; Live thunk wired into list-block as cursor-initial-index-fn. Consulted
+    ;; once when the window list first claims the cursor (overlay open). The
+    ;; on-render snapshot has already refreshed window-list-current-targets by
+    ;; the time block-json offers the cursor, so the rows read here are current
+    ;; and their frame origins are consistent with the focused frame. #f →
+    ;; cursor seeds row 0. Mirrors apps/iterm.sld pane-focused-index.
+    (define (window-focused-index)
+      (let ((fw (focused-window)))
+        (and fw (focused-row-index fw (window-list-current-targets)))))
+
     ;; (list-block . opts) → window-list block spec with dispatch keys.
     ;; Wraps make-window-list-block and bundles the 1.. range so digits resolve
     ;; to focus-by-digit at the group level. When the block is LIVE (it has an
     ;; on-render-fn that refreshes window-list-current-targets every render — the
     ;; 'chips? path), it also carries 'cursor-targets-fn so the selection cursor
     ;; (list-cursor-k6) moves over those live rows; ⏎ then dispatches the
-    ;; highlighted row's digit through the very same range. A static (no-chips)
-    ;; block never refreshes its targets, so it omits the accessor — the cursor
-    ;; must not attach to a list with no live data.
+    ;; highlighted row's digit through the very same range. A live block also
+    ;; carries 'cursor-initial-index-fn so the cursor opens on the focused
+    ;; window rather than spatial row 0 (list-cursor-window-focus-k28). A static
+    ;; (no-chips) block never refreshes its targets, so it omits both accessors —
+    ;; the cursor must not attach to a list with no live data.
     ;;
     ;; Opts forwarded to make-window-list-block (currently just 'chips?).
     (define (list-block . opts)
@@ -188,7 +261,8 @@
              (live? (and (assoc 'on-render-fn base) #t)))
         (append base
                 (if live?
-                  (list (cons 'cursor-targets-fn window-list-current-targets))
+                  (list (cons 'cursor-targets-fn window-list-current-targets)
+                        (cons 'cursor-initial-index-fn window-focused-index))
                   '())
                 (list (cons 'block-children (list (window-range)))))))
 
