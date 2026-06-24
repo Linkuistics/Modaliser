@@ -38,8 +38,8 @@ push-updates (`push-overlay-update`) route the body through the single
 ## The panel-grid payload
 
 A `screen` (or a drilled-into `open`) lowers to a group carrying
-`'renderer 'panel-grid` plus an optional authored `'cols`. Its direct
-children are the grid cells: **panels** (transparent `'kind 'category`
+`'renderer 'panel-grid` plus an optional authored `'cols` / `'layout`. Its
+direct children are the grid cells: **panels** (transparent `'kind 'category`
 nodes) and nested **opens** (navigable `'kind 'group` nodes).
 `panel-grid-payload-json` serializes exactly the alist the layout DSL
 lowering emits:
@@ -48,6 +48,7 @@ lowering emits:
 {
   "type": "panel-grid",
   "cols": 3,                       // omitted when no 'cols authored
+  "layout": "grid",                // omitted for the masonry default; "grid" opts into deterministic packing
   "panels": [
     {
       "label": "General",
@@ -81,12 +82,19 @@ affordance; a nested `open` declared *inside* a panel rides that panel's
 rows as an ordinary accent group-row.
 
 The panel grid's column count is **CSS-intrinsic auto-fit by default**:
-panels flow into as many `--panel-min-width` tracks as fit, with
-`grid-auto-flow: dense` backfilling narrow tiles around wide/full
-panels. An authored `'cols N` (payload `"cols"`) pins an explicit track
-count instead. (The default list renderer that plain `(group …)`
-drill-downs use is likewise CSS-intrinsic — no column count is computed
-in Scheme; see [theming.md](theming.md#default-list-renderer).)
+panels flow into as many `--panel-min-width` tracks as fit. An authored
+`'cols N` (payload `"cols"`) pins an explicit track count instead. (The
+default list renderer that plain `(group …)` drill-downs use is likewise
+CSS-intrinsic — no column count is computed in Scheme; see
+[theming.md](theming.md#default-list-renderer).)
+
+Panels **pack as masonry by default** (`display: grid-lanes`): each panel
+drops into the shortest lane, so a short panel tucks up under a shorter
+neighbour rather than being stranded by a tall panel's row track. An
+authored `'layout 'grid` (payload `"layout"`, reflected onto the
+`.panel-grid` as `data-layout="grid"`) opts back into the aligned grid,
+where `grid-auto-flow: dense` backfills narrow tiles around wide/full
+panels but row tracks share a height.
 
 ## Block spec shape
 

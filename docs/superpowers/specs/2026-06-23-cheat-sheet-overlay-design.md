@@ -46,7 +46,7 @@ A **screen** is one navigable level; an **`open`** drills into a fresh screen (i
 The overlay body is a **CSS-Grid of panels** drawn by a dedicated **`panel-grid` renderer** that reads the presentation metadata (`'span`, `'cols`) the lowering annotates onto the screen group — it does *not* infer grouping or auto-lay-out:
 
 - Each panel maps its width hint to a column span: `narrow` = 1, `wide` = 2, `full` = all columns (decision §11).
-- `grid-auto-flow: dense` backfills narrow tiles around wide/full panels.
+- **Amended (overlay-polish, masonry-layout-k20):** panels now pack as **masonry by default** (`display: grid-lanes`, Safari 26.4+) — each panel drops into the shortest lane, so a short panel tucks under a shorter neighbour instead of being stranded by a tall panel's row track. A `screen`/`open` authoring `'layout 'grid` opts back into the aligned grid below, where `grid-auto-flow: dense` backfills narrow tiles around wide/full panels.
 - Column count is **CSS-intrinsic auto-fit** by default (panels flow into as many `--panel-min-width` tracks as fit, capped by `--panel-grid-max-width`), or an **authored `'cols N`** pins an explicit track count. The legacy aspect-ratio search (`set-overlay-aspect-ratio!` / `overlay-column-count`) governs only the default list renderer that plain `(group …)` drill-downs still use.
 - Panels never split across columns (grid items don't split).
 
@@ -56,7 +56,7 @@ CSS Grid (not multicol) is required because multicol cannot span "2 of 3" column
 
 In `(modaliser dsl)` — three new **layout container forms** plus a reuse form, over the **unchanged dispatch atoms** (ADR-0012):
 
-- **`screen scope … panel…`** — registers a tree as a grid of panels (the `define-tree` analogue). Body is the implicit grid; loose atoms pack into a leading "General" panel. Lowers to a tree-root group carrying `'renderer 'panel-grid` (+ optional `'cols`).
+- **`screen scope … panel…`** — registers a tree as a grid of panels (the `define-tree` analogue). Body is the implicit grid; loose atoms pack into a leading "General" panel. Lowers to a tree-root group carrying `'renderer 'panel-grid` (+ optional `'cols` / `'layout`).
 - **`panel "label" ['span S] child…`** — a transparent banded card. Lowers to a `'kind 'category` node carrying `'span` (+ `'list` when it embeds a live list). Children are dispatch atoms plus at most one dynamic-list block; the block's hidden digit range lifts into the panel's dispatch children, the block rides under `'list` for the renderer.
 - **`open KEY LABEL … panel…`** — a navigable drill-down into a sub-screen. Lowers to a navigable `'group` carrying `'renderer 'panel-grid`.
 - **`fragment child…`** — a transparent named splice (panels or rows) for DRY, built on the same `expand-splices` `sticky-set` uses.

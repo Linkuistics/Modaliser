@@ -126,13 +126,14 @@ window.overlayRenderers.list = function(data) {
 // drew from this registry was removed in the flag-day deletion.)
 window.overlayBlockRenderers = window.overlayBlockRenderers || {};
 
-// Panel-grid renderer — handles {type:"panel-grid", cols?, panels:[…]}
+// Panel-grid renderer — handles {type:"panel-grid", cols?, layout?, panels:[…]}
 // payloads, the layout DSL's lowered `screen` / `open` (ADR-0011). Each
 // panel is a banded card: a header label, key rows, and an optional embedded
 // live list. A panel's `span` (narrow|wide|full) maps to a CSS grid column
-// span; base.css lays the cards out with grid-auto-flow: dense so narrow
-// tiles backfill around wide ones. The column count is CSS-intrinsic
-// (auto-fit) unless the payload carries an authored `cols`.
+// span. By default base.css packs the cards as masonry (display: grid-lanes)
+// so a short panel tucks under a shorter neighbour; an authored `layout:"grid"`
+// sets data-layout="grid" to switch to deterministic aligned placement. The
+// column count is CSS-intrinsic (auto-fit) unless the payload carries `cols`.
 //
 // Bootstrap passes the `.overlay-custom-body` div as `container` (chrome is
 // already baked into the initial HTML); push-updates pass none, so we refresh
@@ -149,6 +150,11 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
   // Authored column count pins the track count; absent, base.css auto-fits.
   if (typeof data.cols === 'number') {
     grid.style.setProperty('--panel-grid-cols', String(data.cols));
+  }
+  // Authored packing mode; absent, base.css packs as masonry. Only
+  // data-layout="grid" has a CSS override, so 'masonry stays the default.
+  if (typeof data.layout === 'string') {
+    grid.setAttribute('data-layout', data.layout);
   }
   var panels = data.panels || [];
   for (var i = 0; i < panels.length; i++) {

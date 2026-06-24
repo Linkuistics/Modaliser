@@ -146,6 +146,27 @@ struct LayoutDslTests {
         #expect(try engine.evaluate("(= (node-renderer-payload (lookup-tree \"scr-cols\") 'cols) 3)") == .true)
     }
 
+    @Test func screenCarriesLayoutWhenGiven() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("(screen 'scr-layout 'layout 'grid (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
+        #expect(try engine.evaluate("(eq? (node-renderer-payload (lookup-tree \"scr-layout\") 'layout) 'grid)") == .true)
+    }
+
+    @Test func screenDefaultsToMasonryWhenLayoutOmitted() throws {
+        let engine = try loadLayout()
+        // No 'layout keyword → no layout marker on the node; the renderer omits
+        // it and the CSS default (.panel-grid masonry) applies.
+        try engine.evaluate("(screen 'scr-nolayout (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
+        #expect(try engine.evaluate("(node-renderer-payload (lookup-tree \"scr-nolayout\") 'layout)") == .false)
+    }
+
+    @Test func screenRejectsUnknownLayout() throws {
+        let engine = try loadLayout()
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(screen 'scr-badlayout 'layout 'wat (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
+        }
+    }
+
     @Test func screenPacksLooseKeysIntoGeneralPanel() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
@@ -235,6 +256,15 @@ struct LayoutDslTests {
               (panel "P" (key "x" "X" (lambda () 'ok)))))
             """)
         #expect(try engine.evaluate("(= (node-renderer-payload o 'cols) 2)") == .true)
+    }
+
+    @Test func openCarriesLayoutWhenGiven() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("""
+            (define o (open "s" "Splits" 'layout 'grid
+              (panel "P" (key "x" "X" (lambda () 'ok)))))
+            """)
+        #expect(try engine.evaluate("(eq? (node-renderer-payload o 'layout) 'grid)") == .true)
     }
 
     // MARK: - fragment

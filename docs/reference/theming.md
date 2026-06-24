@@ -83,6 +83,13 @@ Panel-grid layout knobs (set on `.panel-grid`; the renderer pins
 | `--panel-grid-max-width` | `760px` | Caps the grid width so it wraps rather than stretching to one row. |
 | `--panel-gap` | `10px` | Gap between panels. |
 
+Panels pack as **masonry** by default (`.panel-grid` uses `display:
+grid-lanes`) — each panel drops into the shortest lane. A `screen`/`open`
+authoring `'layout 'grid` sets `data-layout="grid"` on the `.panel-grid`,
+which the `.panel-grid[data-layout="grid"]` rule switches to an aligned
+`display: grid` (with `grid-auto-flow: dense`). Both modes honour `'cols`
+and the panel `'span` classes.
+
 ### Keycaps
 
 The keycap is the shared key vocabulary across panels, embedded lists,

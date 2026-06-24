@@ -158,6 +158,7 @@ Optional leading keywords:
 | Keyword | Type | Description |
 |---|---|---|
 | `'cols` | integer | Authored column count. Default is CSS-intrinsic auto-fit (panels flow into as many tracks as fit the width). Pins an explicit track count instead. |
+| `'layout` | `'masonry` \| `'grid` | Panel packing. Default `'masonry`: each panel drops into the shortest lane, so a short panel tucks up under a shorter neighbour. `'grid` opts into a deterministic aligned grid where panels in a row share a track height. |
 | `'on-enter` | thunk | Runs when the modal navigates into this screen. Composed with any embedded live-list hooks. |
 | `'on-leave` | thunk | Runs when the modal navigates out. |
 | `'sticky` | boolean | If `#t`, firing a command leaf resets to this screen's root instead of exiting. |
@@ -165,7 +166,7 @@ Optional leading keywords:
 | `'display-name` | string | Overrides the breadcrumb scope segment. Useful for mode-id scopes (e.g. `'iterm-panes`) where the auto-resolved app name doesn't make sense. |
 
 A `screen` lowers to a tree-root group carrying `'renderer 'panel-grid`
-(plus `'cols` when authored), so the panel-grid renderer draws it. The
+(plus `'cols` / `'layout` when authored), so the panel-grid renderer draws it. The
 live-list `'on-enter-fn` / `'on-leave-fn` of any panel-embedded block
 compose with the user hooks supplied to the `screen`.
 
@@ -233,7 +234,7 @@ never changes key paths.
 
 Its body lowers the same way a `screen` body does (loose atoms → a
 "General" panel; nested `open`s drill further). Keywords: `'on-enter`,
-`'on-leave`, `'sticky`, `'exit-on-unknown`, `'cols` — **not**
+`'on-leave`, `'sticky`, `'exit-on-unknown`, `'cols`, `'layout` — **not**
 `'display-name` (a breadcrumb-root override a child group has no use
 for). An `open` lowers to a navigable `group` carrying
 `'renderer 'panel-grid`.

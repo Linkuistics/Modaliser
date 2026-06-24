@@ -87,6 +87,43 @@ struct PanelGridRendererTests {
         #expect(!(try engine.evaluate("p").asString().contains("\"cols\"")))
     }
 
+    @Test func authoredGridLayoutAppearsInPayload() throws {
+        let engine = try loadPanelGrid()
+        try engine.evaluate("""
+          (screen 'pg-grid 'layout 'grid
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-grid")))
+        """)
+        #expect(try engine.evaluate("p").asString().contains("\"layout\":\"grid\""))
+    }
+
+    @Test func absentLayoutOmittedFromPayload() throws {
+        let engine = try loadPanelGrid()
+        // Omitted layout → no key in the payload; JS sets no data-layout and the
+        // base .panel-grid masonry default renders.
+        try engine.evaluate("""
+          (screen 'pg-nolayout
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-nolayout")))
+        """)
+        #expect(!(try engine.evaluate("p").asString().contains("\"layout\"")))
+    }
+
+    @Test func colsAndSpanHonouredUnderGridLayout() throws {
+        let engine = try loadPanelGrid()
+        // 'layout 'grid composes with 'cols and a panel 'span — all three ride
+        // the one payload, so the deterministic grid keeps the width hints.
+        try engine.evaluate("""
+          (screen 'pg-grid-mix 'layout 'grid 'cols 3
+            (panel "Windows" 'span 'wide (key "c" "Center" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-grid-mix")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"layout\":\"grid\""))
+        #expect(payload.contains("\"cols\":3"))
+        #expect(payload.contains("\"span\":\"wide\""))
+    }
+
     @Test func panelCarriesLabelSpanAndKeyRows() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
@@ -209,5 +246,16 @@ struct PanelGridRendererTests {
         // (relocated from the removed which-key block); the panel grid draws its
         // key rows with it.
         #expect(js.contains("renderPanelRow"))
+    }
+
+    @Test func overlayJsAppliesDataLayoutAttribute() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let js = try String(contentsOfFile: joinPath(schemePath, "ui/overlay.js"), encoding: .utf8)
+        // The renderer reflects the payload's `layout` onto the grid element as
+        // data-layout; base.css keys the deterministic-grid override off it.
+        #expect(js.contains("data-layout"))
     }
 }

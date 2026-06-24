@@ -420,19 +420,23 @@
 ;; lower-panel-grid-body) emits — the renderer owns the JSON, the DSL owns
 ;; the alist; the contract was co-designed with that leaf.
 ;;
-;; Shape: {"type":"panel-grid"[,"cols":N],"panels":[<panel>,…]}
-;;   <panel> = {"label":S,"span":S,"rows":[<row>,…][,"list":<block>]}
-;;   <row>   = the shared entry-row shape (entry->row-json): key (ready
-;;             key-display-html), label, isGroup, isSticky.
-;;   <block> = an embedded live list, serialized through the SAME block-json
-;;             path the block-list renderer uses for window-list / iterm-panes
-;;             / iterm-tabs (so on-render-fn fires + live rows merge in).
+;; Shape: {"type":"panel-grid"[,"cols":N][,"layout":S],"panels":[<panel>,…]}
+;;   <panel>  = {"label":S,"span":S,"rows":[<row>,…][,"list":<block>]}
+;;   <row>    = the shared entry-row shape (entry->row-json): key (ready
+;;              key-display-html), label, isGroup, isSticky.
+;;   <block>  = an embedded live list, serialized through the SAME block-json
+;;              path the block-list renderer uses for window-list / iterm-panes
+;;              / iterm-tabs (so on-render-fn fires + live rows merge in).
+;;   "layout" = 'masonry (omitted — the CSS default) | 'grid (deterministic);
+;;              overlay.js reflects it onto .panel-grid as data-layout.
 (define (panel-grid-payload-json current)
   (let ((cols   (node-renderer-payload current 'cols))
+        (layout (node-renderer-payload current 'layout))
         (panels (map grid-cell->json (node-children current))))
     (string-append
       "{\"type\":\"panel-grid\""
       (if cols (string-append ",\"cols\":" (number->string cols)) "")
+      (if layout (string-append ",\"layout\":\"" (symbol->string layout) "\"") "")
       ",\"panels\":["
       (string-join-comma panels)
       "]}")))

@@ -466,6 +466,12 @@
 (define (valid-span? s)
   (and (memq s '(narrow wide full)) #t))
 
+;; A screen's panel-packing mode. 'masonry (the default) flows panels into the
+;; shortest lane (CSS grid-lanes); 'grid pins them to an aligned row/column grid
+;; (the renderer emits 'masonry as no marker — see panel-grid-head).
+(define (valid-layout? l)
+  (and (memq l '(masonry grid)) #t))
+
 ;; Build a panel (a 'kind 'category node) from an ALREADY splice-expanded
 ;; child list. Children partition into dispatch atoms (node-forms) and at
 ;; most one embedded live-list block. The block's own 'block-children (its
@@ -556,10 +562,11 @@
       (else (loop (cdr rest) acc)))))
 
 ;; Assemble the leading keyword/value head (composed lifecycle hooks +
-;; renderer marker + optional cols) shared by screen and open. BLOCKS are the
-;; embedded list blocks whose on-enter-fn/on-leave-fn compose with the user
-;; thunks.
-(define (panel-grid-head blocks on-enter on-leave sticky display-name exit-unk cols)
+;; renderer marker + optional cols / layout) shared by screen and open. BLOCKS
+;; are the embedded list blocks whose on-enter-fn/on-leave-fn compose with the
+;; user thunks. LAYOUT ('masonry | 'grid | #f) rides as an opaque marker the
+;; renderer reads back; #f (the masonry default) carries none.
+(define (panel-grid-head blocks on-enter on-leave sticky display-name exit-unk cols layout)
   (let* ((composed-on-enter (compose-hooks on-enter (filter-fns blocks 'on-enter-fn)))
          (composed-on-leave (compose-hooks on-leave (filter-fns blocks 'on-leave-fn))))
     (append
@@ -569,61 +576,75 @@
       (if display-name      (list 'display-name display-name)  '())
       (if exit-unk          (list 'exit-on-unknown exit-unk)   '())
       (if cols              (list 'cols cols)                  '())
+      (if layout            (list 'layout layout)              '())
       (list 'renderer 'panel-grid))))
 
 ;; (screen 'scope [keywords…] panel…) → registers a panel-grid tree under
 ;; 'scope. Body is an implicit grid of panels; loose top-level atoms pack
 ;; into a leading "General" panel. Keywords mirror register-tree! (on-enter /
-;; on-leave / sticky / display-name / exit-on-unknown)
-;; plus 'cols N — the authored column count (default CSS-intrinsic auto-fit,
-;; resolved in the renderer leaf). The registered root carries
-;; 'renderer 'panel-grid (+ 'cols) for the panel-grid renderer.
+;; on-leave / sticky / display-name / exit-on-unknown) plus 'cols N — the
+;; authored column count (default CSS-intrinsic auto-fit, resolved in the
+;; renderer leaf) — and 'layout ('masonry | 'grid) — the panel-packing mode
+;; (default 'masonry: shortest-lane packing; 'grid: aligned deterministic
+;; placement). The registered root carries 'renderer 'panel-grid (+ 'cols /
+;; 'layout) for the panel-grid renderer.
 (define (screen scope . args)
   (let loop ((rest args)
              (on-enter #f) (on-leave #f) (sticky #f)
-             (display-name #f) (exit-unk #f) (cols #f))
+             (display-name #f) (exit-unk #f) (cols #f) (layout #f))
     (cond
       ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave sticky display-name exit-on-unknown cols)))
+            (memq (car rest) '(on-enter on-leave sticky display-name exit-on-unknown cols layout)))
        (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky display-name exit-unk cols))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky display-name exit-unk cols))
-         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) display-name exit-unk cols))
-         ((display-name)    (loop (cddr rest) on-enter on-leave sticky (cadr rest) exit-unk cols))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky display-name (cadr rest) cols))
-         ((cols)            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk (cadr rest)))))
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky display-name exit-unk cols layout))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky display-name exit-unk cols layout))
+         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) display-name exit-unk cols layout))
+         ((display-name)    (loop (cddr rest) on-enter on-leave sticky (cadr rest) exit-unk cols layout))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky display-name (cadr rest) cols layout))
+         ((cols)            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk (cadr rest) layout))
+         ((layout)
+          (let ((v (cadr rest)))
+            (unless (valid-layout? v)
+              (error "screen: 'layout must be 'masonry or 'grid" v))
+            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk cols v)))))
       (else
        (let* ((lowered (lower-panel-grid-body rest))
               (grid    (car lowered))
               (blocks  (cdr lowered))
               (head    (panel-grid-head blocks on-enter on-leave sticky
-                                        display-name exit-unk cols)))
+                                        display-name exit-unk cols layout)))
          (apply register-tree! scope (append head grid)))))))
 
 ;; (open KEY LABEL [keywords…] panel…) → a navigable group drilling into a
 ;; sub-screen — the panel-native replacement for the old (key K L (overlay …))
 ;; idiom. Its children are the lowered sub-grid; it carries 'renderer
-;; 'panel-grid (+ 'cols). Keywords: on-enter / on-leave / sticky /
-;; exit-on-unknown / cols — not 'display-name, which is a breadcrumb-root
-;; override that a child group (vs. a registered tree root) has no use for.
+;; 'panel-grid (+ 'cols / 'layout). Keywords: on-enter / on-leave / sticky /
+;; exit-on-unknown / cols / layout — not 'display-name, which is a
+;; breadcrumb-root override that a child group (vs. a registered tree root) has
+;; no use for.
 (define (open key label . args)
   (let loop ((rest args)
-             (on-enter #f) (on-leave #f) (sticky #f) (exit-unk #f) (cols #f))
+             (on-enter #f) (on-leave #f) (sticky #f) (exit-unk #f) (cols #f) (layout #f))
     (cond
       ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave sticky exit-on-unknown cols)))
+            (memq (car rest) '(on-enter on-leave sticky exit-on-unknown cols layout)))
        (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky exit-unk cols))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky exit-unk cols))
-         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) exit-unk cols))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky (cadr rest) cols))
-         ((cols)            (loop (cddr rest) on-enter on-leave sticky exit-unk (cadr rest)))))
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky exit-unk cols layout))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky exit-unk cols layout))
+         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) exit-unk cols layout))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky (cadr rest) cols layout))
+         ((cols)            (loop (cddr rest) on-enter on-leave sticky exit-unk (cadr rest) layout))
+         ((layout)
+          (let ((v (cadr rest)))
+            (unless (valid-layout? v)
+              (error "open: 'layout must be 'masonry or 'grid" v))
+            (loop (cddr rest) on-enter on-leave sticky exit-unk cols v)))))
       (else
        (let* ((lowered (lower-panel-grid-body rest))
               (grid    (car lowered))
               (blocks  (cdr lowered))
               (head    (panel-grid-head blocks on-enter on-leave sticky
-                                        #f exit-unk cols)))
+                                        #f exit-unk cols layout)))
          (apply group key label (append head grid)))))))
 
 ;; (set-theme! . args) → no-op stub for backward compatibility

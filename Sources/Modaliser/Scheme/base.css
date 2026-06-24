@@ -351,8 +351,14 @@ body {
  * --panel-min-width tracks as fit, capped by --panel-grid-max-width so the
  * grid wraps inside the width:max-content .overlay rather than stretching to
  * one row. An authored `cols` (payload → --panel-grid-cols, set inline by
- * overlay.js) pins an explicit track count instead. grid-auto-flow: dense
- * lets narrow tiles backfill the gaps a wide/full panel leaves. */
+ * overlay.js) pins an explicit track count instead.
+ *
+ * Packing: masonry by default (display: grid-lanes, Safari 26.4+) — each panel
+ * drops into the shortest lane, so a short panel tucks up under a shorter
+ * neighbour instead of being stranded by a tall panel's row track. An authored
+ * `layout:"grid"` (payload → data-layout="grid", set by overlay.js) opts back
+ * into the aligned CSS grid with grid-auto-flow: dense, where narrow tiles
+ * backfill the gaps a wide/full panel leaves but row tracks share a height. */
 .overlay-custom-body {
   padding: 10px 12px;
 }
@@ -362,14 +368,20 @@ body {
 }
 
 .panel-grid {
-  display: grid;
+  display: grid-lanes;
   grid-template-columns:
     repeat(var(--panel-grid-cols, auto-fit),
            minmax(var(--panel-min-width, 184px), 1fr));
-  grid-auto-flow: dense;
   gap: var(--panel-gap, 10px);
   align-items: start;
   max-width: var(--panel-grid-max-width, 760px);
+}
+
+/* Opt-in deterministic placement: (screen … 'layout 'grid …). Restores the
+ * aligned grid — panels share row-track heights — instead of masonry lanes. */
+.panel-grid[data-layout="grid"] {
+  display: grid;
+  grid-auto-flow: dense;
 }
 
 /* span → column span. `wide` is 2 tracks; `full` spans the whole row
