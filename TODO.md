@@ -75,3 +75,39 @@ Read Sources/Modaliser/WindowCache.swift and Sources/Modaliser/Scheme/ui/chooser
 ```
 Read Sources/Modaliser/Scheme/lib/modaliser/dsl.sld (compose-hooks ~line 423, and its callers in overlay ~396 and define-tree ~496), Sources/Modaliser/Scheme/lib/modaliser/state-machine.sld (run-on-leave, which already uses (only (lispkit core) procedure-arity-includes?)), and Sources/Modaliser/Scheme/root.scm (boot wiring). Goal: make compose-hooks forward the modal exit reason to a user on-leave hook that accepts one argument, while keeping dsl.sld host-portable (no (lispkit core) import) and leaving 0-arg user hooks and all block on-leave-fns (which are always nullary) untouched. Approach: in dsl.sld add a mutable host-injected predicate, e.g. (define hook-applies-reason? (lambda (proc) #f)) plus a setter (set-hook-applies-reason!) exported from the library. Change compose-hooks to return a variadic wrapper (lambda args ...) that calls the user-thunk via (if (and (pair? args) (hook-applies-reason? user-thunk)) (apply user-thunk args) (user-thunk)) and always calls block-thunks with no args. At boot (root.scm, after libraries load) call (set-hook-applies-reason! (lambda (p) (procedure-arity-includes? p 1))) so the host supplies the LispKit-backed check. Because the wrapper is now variadic, run-on-leave's (procedure-arity-includes? thunk 1) will be true for composed hooks, so it passes the reason in; the wrapper then forwards only to user hooks that actually accept it. Verify: (a) existing 0-arg overlay/define-tree on-leave teardowns (e.g. window-list chip cleanup via on-leave-fn, the (lambda () (hints-hide)) hooks in the mux/term libs) still fire on exit; (b) a 1-arg on-leave on an (overlay …) now receives the reason instead of erroring; (c) the bundled test suites for state-machine and event-dispatch stay green. Ship as a patch release (v2.3.1).
 ```
+
+## Robustness in the face of config problems
+
+A user config that fails to load — a Scheme syntax error, a runtime error during
+evaluation, or a reference to DSL forms the running binary doesn't provide (the new
+`screen`/`panel`/`open` forms against an older binary, or the now-deleted
+`define-tree`/`category`/`overlay`/`which-key-block` forms against a current one) —
+currently degrades to a **silent lock**: the status-bar menu items all show disabled
+and the app is inert, with no surfaced error. It is especially easy to hit around the
+edit-config → Relaunch loop and across version skew (a config authored for a different
+binary than the one running). With the public release approaching, a bad config must
+never wedge the app. This is its own future grove.
+
+Goal: graceful degradation. Catch config load/eval failure, keep the status-bar menu
+fully functional so the user can recover (Open Config / Reveal in Finder / Relaunch /
+Reset to bundled default), and surface the actual error (notification, a "Config
+error: …" menu item, or a fallback overlay) instead of locking. Design it alongside
+the "Config reload without relaunch" item above — a failed hot-reload must also leave
+the previous good state intact rather than half-applying.
+
+```
+Read Sources/Modaliser/Scheme/root.scm (the config load path and status-bar
+construction) and Sources/Modaliser/SchemeEngine.swift (how LispKit evaluation errors
+propagate into Swift). Trace what happens when evaluating the user config raises: does
+the status bar still get built? Do its menu actions get installed? Goal: (1) wrap
+user-config evaluation so a raise is caught and recorded, not fatal; (2) always build a
+minimal, fully-enabled status-bar menu (Open Config, Reveal Config in Finder, Relaunch,
+Reset to bundled default, and a "Config error: …" item when load failed) regardless of
+config outcome; (3) surface the error (os.Logger with the subsystem + a user-visible
+notification or menu item); (4) on a failed config, fall back to the bundled
+default-config.scm so leader capture still works in a known-good state. Coordinate with
+the hot-reload item so reload failures are transactional — keep the prior good trees /
+leader bindings if the new config doesn't evaluate cleanly. Start the grove with a
+grilling pass to settle the recovery UX (notify vs fall-back-to-default vs both) and
+where the error is surfaced.
+```
