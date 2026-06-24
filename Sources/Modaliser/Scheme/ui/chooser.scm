@@ -360,17 +360,7 @@
 
 ;; Escape a string for embedding in a JavaScript string literal.
 (define (js-escape str)
-  (let loop ((chars (string->list str)) (result '()))
-    (if (null? chars)
-      (list->string (reverse result))
-      (let ((c (car chars)))
-        (loop (cdr chars)
-              (cond
-                ((char=? c #\\) (append '(#\\ #\\) result))
-                ((char=? c #\') (append '(#\' #\\) result))
-                ((char=? c #\newline) (append '(#\n #\\) result))
-                ((char=? c #\return) (append '(#\r #\\) result))
-                (else (cons c result))))))))
+  (escape-string str '((#\\ . "\\\\") (#\' . "\\'") (#\newline . "\\n") (#\return . "\\r"))))
 
 ;; Push updated results to the chooser WebView via JS DOM update.
 ;; Only updates the results list and footer — the input field stays intact.
@@ -432,18 +422,7 @@
 
 ;; Escape a string for embedding in a JSON string literal.
 (define (json-escape str)
-  (let loop ((chars (string->list str)) (result '()))
-    (if (null? chars)
-      (list->string (reverse result))
-      (let ((c (car chars)))
-        (loop (cdr chars)
-              (cond
-                ((char=? c #\\) (append '(#\\ #\\) result))
-                ((char=? c #\") (append '(#\" #\\) result))
-                ((char=? c #\newline) (append '(#\n #\\) result))
-                ((char=? c #\return) (append '(#\r #\\) result))
-                ((char=? c #\tab) (append '(#\t #\\) result))
-                (else (cons c result))))))))
+  (escape-string str '((#\\ . "\\\\") (#\" . "\\\"") (#\newline . "\\n") (#\return . "\\r") (#\tab . "\\t"))))
 
 ;; (chooser-push-results items) → void
 ;; Push dynamic results to the chooser WebView.

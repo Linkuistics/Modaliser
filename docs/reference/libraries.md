@@ -401,6 +401,7 @@ General Scheme utilities used by every other library.
 | `string-split` | Split a string on a delimiter. |
 | `string-trim` | Strip leading/trailing whitespace. |
 | `string-contains?` | Substring search. |
+| `escape-string` | `(escape-string str table)` — replace each char keyed in `table` (an alist of char → replacement-string) with its replacement; the shared char-walk behind the host UI's JS/JSON/HTML-attribute escapers, which supply their own tables. |
 | `read-file-text` | Read a file's contents into a string. |
 | `log` | Append a line to the Modaliser log. |
 

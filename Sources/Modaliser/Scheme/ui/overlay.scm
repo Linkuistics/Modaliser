@@ -874,27 +874,11 @@
 ;; a JSON payload containing a label like "it's" doesn't close the
 ;; data-payload attribute prematurely.
 (define (string-replace-apos str)
-  (let loop ((chars (string->list str)) (result '()))
-    (if (null? chars)
-      (list->string (reverse result))
-      (let ((c (car chars)))
-        (loop (cdr chars)
-              (if (char=? c #\')
-                (append '(#\; #\9 #\3 #\# #\&) result)
-                (cons c result)))))))
+  (escape-string str '((#\' . "&#39;"))))
 
 ;; Escape string for embedding in JSON/JS string literal.
 (define (js-escape-overlay str)
-  (let loop ((chars (string->list str)) (result '()))
-    (if (null? chars)
-      (list->string (reverse result))
-      (let ((c (car chars)))
-        (loop (cdr chars)
-              (cond
-                ((char=? c #\\) (append '(#\\ #\\) result))
-                ((char=? c #\") (append '(#\" #\\) result))
-                ((char=? c #\newline) (append '(#\n #\\) result))
-                (else (cons c result))))))))
+  (escape-string str '((#\\ . "\\\\") (#\" . "\\\"") (#\newline . "\\n"))))
 
 ;; ─── Overlay Lifecycle (Side-Effecting) ───────────────────────
 

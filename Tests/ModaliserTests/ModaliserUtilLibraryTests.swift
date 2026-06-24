@@ -86,6 +86,79 @@ struct ModaliserUtilLibraryTests {
         #expect(try engine.evaluate("(string-trim \"\")").asString() == "")
     }
 
+    // escape-string is the single char-walk that replaced the four near-duplicate
+    // escapers in ui/overlay.scm + ui/chooser.scm (audit finding C, escape-helper-merge-k36).
+    // Each test below pins the EXACT escape table of one former escaper, so a drift
+    // in the shared mechanism or in a call site's table is caught. Special chars are
+    // built with integer->char and replacements with (string …) to keep the Scheme
+    // source free of embedded backslashes/quotes — the part that must be exact.
+
+    @Test func escapeStringPassesThroughCharsNotInTable() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        #expect(try engine.evaluate("(escape-string \"hello\" '())").asString() == "hello")
+        #expect(try engine.evaluate(
+            "(escape-string \"\" (list (cons (integer->char 92) \"X\")))"
+        ).asString() == "")
+    }
+
+    @Test func escapeStringApostropheTablePreservesStringReplaceApos() throws {
+        // overlay.scm string-replace-apos: ' -> &#39;
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        #expect(try engine.evaluate(
+            "(let ((sq (integer->char 39)))"
+            + " (escape-string (string #\\i #\\t sq #\\s) (list (cons sq \"&#39;\"))))"
+        ).asString() == "it&#39;s")
+    }
+
+    @Test func escapeStringOverlayJsTablePreservesJsEscapeOverlay() throws {
+        // overlay.scm js-escape-overlay: \\ -> \\\\, " -> \\", newline -> \\n
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        #expect(try engine.evaluate(
+            "(let ((bs (integer->char 92)) (dq (integer->char 34)) (nl (integer->char 10)))"
+            + " (equal? (escape-string (string #\\a bs #\\b dq #\\c nl)"
+            + "                        (list (cons bs (string bs bs))"
+            + "                              (cons dq (string bs dq))"
+            + "                              (cons nl (string bs #\\n))))"
+            + "         (string #\\a bs bs #\\b bs dq #\\c bs #\\n)))"
+        ) == .true)
+    }
+
+    @Test func escapeStringChooserJsTablePreservesJsEscape() throws {
+        // chooser.scm js-escape: \\ -> \\\\, ' -> \\', newline -> \\n, return -> \\r
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        #expect(try engine.evaluate(
+            "(let ((bs (integer->char 92)) (sq (integer->char 39))"
+            + "       (nl (integer->char 10)) (cr (integer->char 13)))"
+            + " (equal? (escape-string (string #\\a bs sq nl cr)"
+            + "                        (list (cons bs (string bs bs))"
+            + "                              (cons sq (string bs sq))"
+            + "                              (cons nl (string bs #\\n))"
+            + "                              (cons cr (string bs #\\r))))"
+            + "         (string #\\a bs bs bs sq bs #\\n bs #\\r)))"
+        ) == .true)
+    }
+
+    @Test func escapeStringJsonTablePreservesJsonEscape() throws {
+        // chooser.scm json-escape: \\ -> \\\\, " -> \\", newline -> \\n, return -> \\r, tab -> \\t
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        #expect(try engine.evaluate(
+            "(let ((bs (integer->char 92)) (dq (integer->char 34)) (nl (integer->char 10))"
+            + "       (cr (integer->char 13)) (tb (integer->char 9)))"
+            + " (equal? (escape-string (string bs dq nl cr tb)"
+            + "                        (list (cons bs (string bs bs))"
+            + "                              (cons dq (string bs dq))"
+            + "                              (cons nl (string bs #\\n))"
+            + "                              (cons cr (string bs #\\r))"
+            + "                              (cons tb (string bs #\\t))))"
+            + "         (string bs bs bs dq bs #\\n bs #\\r bs #\\t)))"
+        ) == .true)
+    }
+
     @Test func hashTableMakeAndSetAndRef() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser util))")

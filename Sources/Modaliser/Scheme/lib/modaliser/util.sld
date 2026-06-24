@@ -16,7 +16,7 @@
           string-hash
           ;; Local string helpers (no SRFI 13 in LispKit's bundle,
           ;; so we implement these on (scheme base) directly).
-          string-split string-trim string-contains?
+          string-split string-trim string-contains? escape-string
           ;; SRFI 1 list-searching/filtering surface (re-exported, same idea as
           ;; the SRFI 69 re-exports above): (scheme base) omits filter / remove /
           ;; partition / filter-map / find, so (modaliser …) libraries that want
@@ -151,6 +151,28 @@
                 (if (char-whitespace? (string-ref str j))
                   (scan-right (- j 1))
                   (substring str i (+ j 1)))))))))
+
+    (define (escape-string str table)
+      ;; Walk str char by char, replacing every char that is a key in `table`
+      ;; (an alist of char -> replacement-string) with its replacement; all
+      ;; other chars pass through unchanged. This is the single char-walk
+      ;; skeleton shared by the host UI's JS-literal / JSON / HTML-attribute
+      ;; escapers: what differs between them is ONLY the table, since the set of
+      ;; chars unsafe to emit depends on the target (a JS string literal vs a
+      ;; JSON string vs a single-quoted HTML attribute). Keeping the mechanism
+      ;; here and the tables at the call sites means there is one place that can
+      ;; be wrong about the walk and a self-documenting table per target.
+      (let loop ((chars (string->list str)) (result '()))
+        (if (null? chars)
+          (list->string (reverse result))
+          (let* ((c (car chars))
+                 (hit (assv c table)))
+            (loop (cdr chars)
+                  (if hit
+                    ;; Prepend the replacement's chars (reversed, because
+                    ;; `result` accumulates in reverse and is reversed at the end).
+                    (append (reverse (string->list (cdr hit))) result)
+                    (cons c result)))))))
     ;; The (scheme cxr) accessors are re-exported, not redefined — see the
     ;; export list above; nothing to define here.
     ))
