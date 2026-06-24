@@ -298,6 +298,67 @@ struct LayoutDslTests {
         #expect(try engine.evaluate("(eq? (node-renderer-payload o 'layout) 'grid)") == .true)
     }
 
+    // MARK: - order (manual-panel-order-k24)
+
+    // 'order rides as opaque renderer metadata ('keys | 'declared) the
+    // panel-grid renderer reads back; stored only when authored so absence
+    // means "inherit" (panel-explicit > screen/open default > 'keys).
+
+    @Test func panelCarriesOrderWhenDeclared() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("(define p (panel \"X\" 'order 'declared (key \"c\" \"C\" (lambda () 'ok))))")
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'order p)) 'declared)") == .true)
+    }
+
+    @Test func panelCarriesOrderWhenKeys() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("(define p (panel \"X\" 'order 'keys (key \"c\" \"C\" (lambda () 'ok))))")
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'order p)) 'keys)") == .true)
+    }
+
+    @Test func panelAbsentOrderHasNoKey() throws {
+        let engine = try loadLayout()
+        // No 'order keyword → no 'order entry at all, so the renderer falls
+        // through to the screen/open default (and ultimately 'keys).
+        try engine.evaluate("(define p (panel \"X\" (key \"c\" \"C\" (lambda () 'ok))))")
+        #expect(try engine.evaluate("(assoc 'order p)") == .false)
+    }
+
+    @Test func panelRejectsUnknownOrder() throws {
+        let engine = try loadLayout()
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(panel \"X\" 'order 'random (key \"c\" \"C\" (lambda () 'ok)))")
+        }
+    }
+
+    @Test func screenCarriesOrderWhenGiven() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("(screen 'scr-order 'order 'declared (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
+        #expect(try engine.evaluate("(eq? (node-renderer-payload (lookup-tree \"scr-order\") 'order) 'declared)") == .true)
+    }
+
+    @Test func screenAbsentOrderHasNoPayload() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("(screen 'scr-noorder (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
+        #expect(try engine.evaluate("(node-renderer-payload (lookup-tree \"scr-noorder\") 'order)") == .false)
+    }
+
+    @Test func screenRejectsUnknownOrder() throws {
+        let engine = try loadLayout()
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(screen 'scr-badorder 'order 'wat (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
+        }
+    }
+
+    @Test func openCarriesOrderWhenGiven() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("""
+            (define o (open "s" "Splits" 'order 'declared
+              (panel "P" (key "x" "X" (lambda () 'ok)))))
+            """)
+        #expect(try engine.evaluate("(eq? (node-renderer-payload o 'order) 'declared)") == .true)
+    }
+
     // MARK: - fragment
 
     @Test func fragmentProducesTransparentSpliceNode() throws {

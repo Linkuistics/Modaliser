@@ -152,6 +152,12 @@ old operational-first primitive; the authored unit is now a `panel`.
 `full` (all). A panel holding a live list auto-promotes to `wide` unless an
 explicit span is given.
 
+**Row order** — a panel's row-ordering mode: `keys` (key-sorted, default) |
+`declared` (declaration order). Authored via the `'order` keyword on `panel`,
+or on `screen` / `open` as a grid-wide default; resolved **panel-explicit >
+screen/open default > `keys`**. Presentation only — dispatch is key-addressed
+and order-independent. The **loose region** is always `declared`.
+
 **Live list** — a dynamic-list block (`window-list`, `iterm-panes`,
 `iterm-tabs`) placed inside a panel, or **loose** in a screen/open body (then it
 renders bare in the **loose region**). Supports a **selection cursor** (`↑↓` /

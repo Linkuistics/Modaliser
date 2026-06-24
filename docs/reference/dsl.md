@@ -172,6 +172,7 @@ Optional leading keywords:
 |---|---|---|
 | `'cols` | integer | Authored column count. Default is CSS-intrinsic auto-fit (panels flow into as many tracks as fit the width). Pins an explicit track count instead. |
 | `'layout` | `'masonry` \| `'grid` | Panel packing. Default `'masonry`: each panel drops into the shortest lane, so a short panel tucks up under a shorter neighbour. `'grid` opts into a deterministic aligned grid where panels in a row share a track height. |
+| `'order` | `'keys` \| `'declared` | Grid-wide row-ordering default. `'keys` (the ultimate default) key-sorts each panel's rows alphabetically; `'declared` renders them in declaration order. A panel inherits this unless it sets its own `'order`. |
 | `'on-enter` | thunk | Runs when the modal navigates into this screen. Composed with any embedded live-list hooks. |
 | `'on-leave` | thunk | Runs when the modal navigates out. |
 | `'sticky` | boolean | If `#t`, firing a command leaf resets to this screen's root instead of exiting. |
@@ -179,11 +180,11 @@ Optional leading keywords:
 | `'display-name` | string | Overrides the breadcrumb scope segment. Useful for mode-id scopes (e.g. `'iterm-panes`) where the auto-resolved app name doesn't make sense. |
 
 A `screen` lowers to a tree-root group carrying `'renderer 'panel-grid`
-(plus `'cols` / `'layout` when authored), so the panel-grid renderer draws it. The
-live-list `'on-enter-fn` / `'on-leave-fn` of any panel-embedded block
-compose with the user hooks supplied to the `screen`.
+(plus `'cols` / `'layout` / `'order` when authored), so the panel-grid renderer
+draws it. The live-list `'on-enter-fn` / `'on-leave-fn` of any panel-embedded
+block compose with the user hooks supplied to the `screen`.
 
-### `(panel label [span value] . children)`
+### `(panel label [span value] [order value] . children)`
 
 A **transparent visual card** in a screen's grid — one declared
 grouping of rows, with a banded header carrying `label`. Transparent
@@ -216,6 +217,29 @@ Optional leading `'span` keyword:
   (key "z" "Zoom" (λ () (toggle-zoom)))
   (iterm:pane-list-block 'chips? #t))   ; embedded live list
 ```
+
+**Row ordering.** By default a panel **key-sorts** its rows alphabetically
+(case-insensitive, lowercase first). The optional `'order` keyword overrides
+that:
+
+| Order | Effect |
+|---|---|
+| `'keys` | Sort rows by binding key. The historic behaviour; also the ultimate default. |
+| `'declared` | Render rows in **declaration order** — exactly as authored. |
+
+```scheme
+(panel "Layouts" 'order 'declared       ; reads top-to-bottom as written
+  (key "f" "Fullscreen" (λ () (fullscreen)))
+  (key "l" "Left half"  (λ () (move-window 'left)))
+  (key "r" "Right half" (λ () (move-window 'right))))
+```
+
+Resolution is **panel-explicit `'order` > the enclosing `screen`/`open` `'order`
+default > `'keys`**, so a screen can set a grid-wide default that individual
+panels override. Ordering is **presentation only** — dispatch is
+key-addressed and unaffected. (The loose region above the grid already renders
+in declaration order regardless.) `'span` and `'order` may appear in either
+order before the children.
 
 **Embedding a live list.** A panel may hold one dynamic-list block
 (`window:list-block`, `iterm:pane-list-block`, `iterm:tab-list-block`)
@@ -251,7 +275,8 @@ folds into the parent's loose region as a single **"→ LABEL" drill row**
 Its body lowers the same way a `screen` body does: real panels become
 grid cards, and loose atoms / folded top-level opens / loose blocks render
 bare in the loose region. Keywords: `'on-enter`, `'on-leave`, `'sticky`,
-`'exit-on-unknown`, `'cols`, `'layout` — **not** `'display-name` (a
+`'exit-on-unknown`, `'cols`, `'layout`, `'order` (the grid-wide row-ordering
+default for this open's panels — see `panel`) — **not** `'display-name` (a
 breadcrumb-root override a child group has no use for). An `open` lowers
 to a navigable `group` carrying `'renderer 'panel-grid`.
 

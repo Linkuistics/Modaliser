@@ -473,6 +473,13 @@
 (define (valid-layout? l)
   (and (memq l '(masonry grid)) #t))
 
+;; A panel's row-ordering mode (manual-panel-order-k24). 'keys (the default)
+;; sorts rows alphabetically by binding key; 'declared preserves declaration
+;; order. Authored on panel / screen / open; the renderer resolves
+;; panel-explicit > enclosing screen/open default > 'keys (see panel->json).
+(define (valid-order? o)
+  (and (memq o '(keys declared)) #t))
+
 ;; Build a panel (a 'kind 'category node) from an ALREADY splice-expanded
 ;; child list. Children partition into dispatch atoms (node-forms) and at
 ;; most one embedded live-list block. The block's own 'block-children (its
@@ -480,8 +487,10 @@
 ;; lifted into the panel's dispatch children so find-child resolves the
 ;; digits transparently; the block-spec itself rides under 'list for the
 ;; renderer. SPAN is the explicit 'span value, or #f to default — 'narrow,
-;; auto-'wide when a list block is present.
-(define (make-panel-node label span children)
+;; auto-'wide when a list block is present. ORDER is the explicit row-ordering
+;; mode ('keys | 'declared), or #f when unauthored — stored only when given so
+;; its ABSENCE means "inherit the screen/open default" (manual-panel-order-k24).
+(define (make-panel-node label span order children)
   (let loop ((rest children) (atoms '()) (block #f))
     (cond
       ((null? rest)
@@ -495,7 +504,8 @@
               (base (list (cons 'kind 'category)
                           (cons 'label label)
                           (cons 'span span*)
-                          (cons 'children dispatch-children))))
+                          (cons 'children dispatch-children)))
+              (base (if order (append base (list (cons 'order order))) base)))
          (if block
            (append base (list (cons 'list block)))
            base)))
@@ -506,24 +516,31 @@
       (else
        (loop (cdr rest) (cons (car rest) atoms) block)))))
 
-;; (panel "label" ['span 'narrow|'wide|'full] child…) → category node.
-;; Default span 'narrow; auto-'wide when a live-list block is embedded and no
-;; explicit 'span is given. Children are dispatch atoms plus at most one
-;; live-list block; splices (sticky-set / fragment) hoist via expand-splices.
-;; A leading bare symbol is a keyword ('span only); the first non-symbol
-;; begins the children.
+;; (panel "label" ['span 'narrow|'wide|'full] ['order 'keys|'declared] child…)
+;; → category node. Default span 'narrow; auto-'wide when a live-list block is
+;; embedded and no explicit 'span is given. 'order ('keys | 'declared) opts the
+;; panel's rows out of (or back into) key-sorting; omitted, the panel inherits
+;; the enclosing screen/open default (manual-panel-order-k24). Children are
+;; dispatch atoms plus at most one live-list block; splices (sticky-set /
+;; fragment) hoist via expand-splices. A leading bare symbol is a keyword
+;; ('span / 'order); the first non-symbol begins the children.
 (define (panel label . rest)
-  (let loop ((args rest) (span #f))
+  (let loop ((args rest) (span #f) (order #f))
     (cond
       ((and (pair? args) (eq? (car args) 'span) (pair? (cdr args)))
        (let ((v (cadr args)))
          (unless (valid-span? v)
            (error "panel: 'span must be 'narrow, 'wide or 'full" v))
-         (loop (cddr args) v)))
+         (loop (cddr args) v order)))
+      ((and (pair? args) (eq? (car args) 'order) (pair? (cdr args)))
+       (let ((v (cadr args)))
+         (unless (valid-order? v)
+           (error "panel: 'order must be 'keys or 'declared" v))
+         (loop (cddr args) span v)))
       ((and (pair? args) (symbol? (car args)) (pair? (cdr args)))
        (error "panel: unknown keyword" (car args)))
       (else
-       (make-panel-node label span (expand-splices args))))))
+       (make-panel-node label span order (expand-splices args))))))
 
 ;; The non-block node-forms of a loose region, declaration order preserved.
 ;; block-spec? distinguishes an embedded live-list / diagram block (carries
@@ -615,7 +632,10 @@
 ;; is the ordered loose region (nodes + block-specs); it rides as an opaque
 ;; 'loose marker the renderer reads back to draw the bare row block, and is
 ;; omitted when empty (every child is a real panel).
-(define (panel-grid-head blocks on-enter on-leave sticky display-name exit-unk cols layout loose)
+;; ORDER ('keys | 'declared | #f) is the screen/open-wide default row-ordering
+;; mode each panel inherits unless it sets its own 'order; #f (no marker) leaves
+;; the renderer's ultimate 'keys default (manual-panel-order-k24).
+(define (panel-grid-head blocks on-enter on-leave sticky display-name exit-unk cols layout order loose)
   (let* ((composed-on-enter (compose-hooks on-enter (filter-fns blocks 'on-enter-fn)))
          (composed-on-leave (compose-hooks on-leave (filter-fns blocks 'on-leave-fn))))
     (append
@@ -626,6 +646,7 @@
       (if exit-unk          (list 'exit-on-unknown exit-unk)   '())
       (if cols              (list 'cols cols)                  '())
       (if layout            (list 'layout layout)              '())
+      (if order             (list 'order order)               '())
       (if (null? loose)     '() (list 'loose loose))
       (list 'renderer 'panel-grid))))
 
@@ -642,29 +663,34 @@
 (define (screen scope . args)
   (let loop ((rest args)
              (on-enter #f) (on-leave #f) (sticky #f)
-             (display-name #f) (exit-unk #f) (cols #f) (layout #f))
+             (display-name #f) (exit-unk #f) (cols #f) (layout #f) (order #f))
     (cond
       ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave sticky display-name exit-on-unknown cols layout)))
+            (memq (car rest) '(on-enter on-leave sticky display-name exit-on-unknown cols layout order)))
        (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky display-name exit-unk cols layout))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky display-name exit-unk cols layout))
-         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) display-name exit-unk cols layout))
-         ((display-name)    (loop (cddr rest) on-enter on-leave sticky (cadr rest) exit-unk cols layout))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky display-name (cadr rest) cols layout))
-         ((cols)            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk (cadr rest) layout))
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky display-name exit-unk cols layout order))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky display-name exit-unk cols layout order))
+         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) display-name exit-unk cols layout order))
+         ((display-name)    (loop (cddr rest) on-enter on-leave sticky (cadr rest) exit-unk cols layout order))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky display-name (cadr rest) cols layout order))
+         ((cols)            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk (cadr rest) layout order))
          ((layout)
           (let ((v (cadr rest)))
             (unless (valid-layout? v)
               (error "screen: 'layout must be 'masonry or 'grid" v))
-            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk cols v)))))
+            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk cols v order)))
+         ((order)
+          (let ((v (cadr rest)))
+            (unless (valid-order? v)
+              (error "screen: 'order must be 'keys or 'declared" v))
+            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk cols layout v)))))
       (else
        (let* ((lowered  (lower-panel-grid-body rest))
               (children (car lowered))
               (loose    (cadr lowered))
               (blocks   (caddr lowered))
               (head     (panel-grid-head blocks on-enter on-leave sticky
-                                         display-name exit-unk cols layout loose)))
+                                         display-name exit-unk cols layout order loose)))
          (apply register-tree! scope (append head children)))))))
 
 ;; (open KEY LABEL [keywords…] panel…) → a navigable group drilling into a
@@ -676,28 +702,33 @@
 ;; no use for.
 (define (open key label . args)
   (let loop ((rest args)
-             (on-enter #f) (on-leave #f) (sticky #f) (exit-unk #f) (cols #f) (layout #f))
+             (on-enter #f) (on-leave #f) (sticky #f) (exit-unk #f) (cols #f) (layout #f) (order #f))
     (cond
       ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave sticky exit-on-unknown cols layout)))
+            (memq (car rest) '(on-enter on-leave sticky exit-on-unknown cols layout order)))
        (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky exit-unk cols layout))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky exit-unk cols layout))
-         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) exit-unk cols layout))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky (cadr rest) cols layout))
-         ((cols)            (loop (cddr rest) on-enter on-leave sticky exit-unk (cadr rest) layout))
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky exit-unk cols layout order))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky exit-unk cols layout order))
+         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) exit-unk cols layout order))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky (cadr rest) cols layout order))
+         ((cols)            (loop (cddr rest) on-enter on-leave sticky exit-unk (cadr rest) layout order))
          ((layout)
           (let ((v (cadr rest)))
             (unless (valid-layout? v)
               (error "open: 'layout must be 'masonry or 'grid" v))
-            (loop (cddr rest) on-enter on-leave sticky exit-unk cols v)))))
+            (loop (cddr rest) on-enter on-leave sticky exit-unk cols v order)))
+         ((order)
+          (let ((v (cadr rest)))
+            (unless (valid-order? v)
+              (error "open: 'order must be 'keys or 'declared" v))
+            (loop (cddr rest) on-enter on-leave sticky exit-unk cols layout v)))))
       (else
        (let* ((lowered  (lower-panel-grid-body rest))
               (children (car lowered))
               (loose    (cadr lowered))
               (blocks   (caddr lowered))
               (head     (panel-grid-head blocks on-enter on-leave sticky
-                                         #f exit-unk cols layout loose)))
+                                         #f exit-unk cols layout order loose)))
          (apply group key label (append head children)))))))
 
 ;; (set-theme! . args) → no-op stub for backward compatibility

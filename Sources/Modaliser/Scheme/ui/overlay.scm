@@ -471,12 +471,16 @@
 (define (panel-grid-payload-json current)
   (let* ((cols       (node-renderer-payload current 'cols))
          (layout     (node-renderer-payload current 'layout))
+         ;; Screen/open-wide row-ordering default each panel inherits unless it
+         ;; sets its own 'order; #f → the panel's ultimate 'keys default
+         ;; (manual-panel-order-k24).
+         (order      (node-renderer-payload current 'order))
          (loose      (or (node-renderer-payload current 'loose) '()))
          ;; Serialize the loose region FIRST so a loose live-list claims the
          ;; selection cursor ahead of any panel list (first offer wins — see
          ;; block-json / list-cursor-offer!).
          (loose-json (loose-region-json loose))
-         (panels     (panels-json (node-children current))))
+         (panels     (panels-json (node-children current) order)))
     (string-append
       "{\"type\":\"panel-grid\""
       (if cols (string-append ",\"cols\":" (number->string cols)) "")
@@ -508,29 +512,40 @@
 (define (loose-block? x)
   (and (pair? x) (assoc 'type x) #t))
 
-;; (panels-json children) → list of panel JSON strings.
+;; (panels-json children screen-order) → list of panel JSON strings.
 ;; The screen/open group's children are loose nodes, lifted block-children, and
 ;; the real panels (categories). Only the categories render as grid cells —
 ;; loose nodes and lifted keys belong to the loose region / dispatch, so they
-;; are skipped here.
-(define (panels-json children)
+;; are skipped here. SCREEN-ORDER is the grid-wide row-ordering default a panel
+;; inherits when it carries no explicit 'order (manual-panel-order-k24).
+(define (panels-json children screen-order)
   (let loop ((rest children) (acc '()))
     (cond
       ((null? rest) (reverse acc))
       ((category? (car rest))
-       (loop (cdr rest) (cons (panel->json (car rest)) acc)))
+       (loop (cdr rest) (cons (panel->json (car rest) screen-order) acc)))
       (else (loop (cdr rest) acc)))))
 
-;; (panel->json category) → panel JSON object string
-;; Rows come from the category's dispatch children (sorted by key, hidden +
-;; nested-category entries filtered exactly as the list path does —
-;; this also drops the lifted, 'hidden digit range of an embedded list, which
-;; the list section renders instead). 'span is always present (make-panel-node
-;; defaults it); 'list is present only when the panel embeds a live list.
-(define (panel->json category)
+;; (panel->json category screen-order) → panel JSON object string
+;; Rows come from the category's dispatch children (hidden + nested-category
+;; entries filtered exactly as the list path does — this also drops the lifted,
+;; 'hidden digit range of an embedded list, which the list section renders
+;; instead). 'span is always present (make-panel-node defaults it); 'list is
+;; present only when the panel embeds a live list.
+;;
+;; Row order resolves panel-explicit 'order > SCREEN-ORDER (the grid-wide
+;; default) > 'keys (manual-panel-order-k24). 'keys key-sorts the rows (the
+;; historic behaviour); 'declared preserves declaration order — node-children is
+;; already in authored order, so it's the verbatim, unsorted list. Dispatch is
+;; order-independent (find-child), so this is presentation only.
+(define (panel->json category screen-order)
   (let* ((label      (node-label category))
          (span       (or (node-renderer-payload category 'span) 'narrow))
-         (rows       (filtered-rows (sort-children (node-children category))))
+         (order      (or (node-renderer-payload category 'order) screen-order 'keys))
+         (children   (node-children category))
+         (rows       (filtered-rows (if (eq? order 'declared)
+                                      children
+                                      (sort-children children))))
          (list-block (node-renderer-payload category 'list))
          (bare?      (panel-bare? list-block)))
     (string-append

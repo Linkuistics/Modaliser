@@ -430,4 +430,81 @@ struct PanelGridRendererTests {
         // data-layout; base.css keys the deterministic-grid override off it.
         #expect(js.contains("data-layout"))
     }
+
+    // MARK: - row order (manual-panel-order-k24)
+
+    // Rows declared "z" then "a" discriminate the two orderings: declaration
+    // order renders Zulu before Alpha; key-sorting renders Alpha first.
+    private func zulu(_ s: String) -> String.Index? { s.range(of: "Zulu")?.lowerBound }
+    private func alpha(_ s: String) -> String.Index? { s.range(of: "Alpha")?.lowerBound }
+
+    @Test func panelDefaultSortsRowsByKey() throws {
+        let engine = try loadPanelGrid()
+        try engine.evaluate("""
+          (screen 'pg-order-default
+            (panel "Layouts"
+              (key "z" "Zulu"  (lambda () 'ok))
+              (key "a" "Alpha" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-order-default")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        // No 'order keyword → key-sorted: Alpha ("a") precedes Zulu ("z").
+        #expect(alpha(payload)! < zulu(payload)!)
+    }
+
+    @Test func panelOrderDeclaredPreservesAuthoredRowOrder() throws {
+        let engine = try loadPanelGrid()
+        try engine.evaluate("""
+          (screen 'pg-order-declared
+            (panel "Layouts" 'order 'declared
+              (key "z" "Zulu"  (lambda () 'ok))
+              (key "a" "Alpha" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-order-declared")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        // 'order 'declared → declaration order: Zulu before Alpha.
+        #expect(zulu(payload)! < alpha(payload)!)
+    }
+
+    @Test func panelExplicitOrderKeysSortsRows() throws {
+        let engine = try loadPanelGrid()
+        try engine.evaluate("""
+          (screen 'pg-order-keys
+            (panel "Layouts" 'order 'keys
+              (key "z" "Zulu"  (lambda () 'ok))
+              (key "a" "Alpha" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-order-keys")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        // Explicit 'order 'keys → sorted, same as the default.
+        #expect(alpha(payload)! < zulu(payload)!)
+    }
+
+    @Test func screenOrderDeclaredInheritedByPanel() throws {
+        let engine = try loadPanelGrid()
+        try engine.evaluate("""
+          (screen 'pg-order-screen 'order 'declared
+            (panel "Layouts"
+              (key "z" "Zulu"  (lambda () 'ok))
+              (key "a" "Alpha" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-order-screen")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        // The panel has no explicit 'order → inherits the screen default 'declared.
+        #expect(zulu(payload)! < alpha(payload)!)
+    }
+
+    @Test func panelOrderOverridesScreenDefault() throws {
+        let engine = try loadPanelGrid()
+        try engine.evaluate("""
+          (screen 'pg-order-override 'order 'declared
+            (panel "Layouts" 'order 'keys
+              (key "z" "Zulu"  (lambda () 'ok))
+              (key "a" "Alpha" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-order-override")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        // Panel's explicit 'order 'keys wins over the screen's 'declared default.
+        #expect(alpha(payload)! < zulu(payload)!)
+    }
 }
