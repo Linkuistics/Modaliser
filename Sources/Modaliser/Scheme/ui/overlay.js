@@ -360,10 +360,17 @@ function renderPanel(panel) {
   if (panel.bare) className += ' panel--bare';
   card.className = className;
 
-  var head = document.createElement('div');
-  head.className = 'panel-head';
-  head.textContent = panel.label || '';
-  card.appendChild(head);
+  // A panel authored with a falsy label — (panel #f …) — is headerless: draw no
+  // banded header band at all (an empty .panel-head would still claim its own
+  // padding strip). The title is config-controlled, so a layout diagram drops
+  // its "Layout" eyebrow by dropping the label, not by renderer policy
+  // (window-diagram-polish-k31).
+  if (panel.label) {
+    var head = document.createElement('div');
+    head.className = 'panel-head';
+    head.textContent = panel.label;
+    card.appendChild(head);
+  }
 
   var rows = panel.rows || [];
   if (rows.length) {

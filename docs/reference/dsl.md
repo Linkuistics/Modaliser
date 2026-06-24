@@ -193,6 +193,12 @@ dispatches at `b` whether or not a panel encloses it. (A panel lowers to
 a `category` node, which the state machine descends through as if its
 children were hoisted into the parent.)
 
+Pass `label` as `#f` for a **headerless panel** — the card renders with no
+header band at all. Idiomatic for a panel whose body reads on its own (e.g. a
+layout-diagram card: the diagram is its own legend, so it needs no "Layout"
+eyebrow). The header is *config-controlled* — the renderer never drops it on
+its own.
+
 `children` are dispatch atoms (`key`/`keys`/`group`/`selector`/…) plus
 **at most one** embedded live-list block. Splices (`fragment` /
 `sticky-set`) hoist in place.

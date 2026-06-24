@@ -278,6 +278,53 @@ struct PanelGridRendererTests {
         #expect(css.contains(".panel--bare"))
     }
 
+    @Test func barePanelDropsOverflowClip() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let css = try String(contentsOfFile: joinPath(schemePath, "base.css"), encoding: .utf8)
+        // A bare panel must drop the .panel base rule's rounded clip (overflow:
+        // hidden + border-radius) — otherwise the flush, start-aligned diagram
+        // grid gets its bottom-left cell border nibbled (window-diagram-polish-
+        // k31). Scope the assertion to the .panel--bare block.
+        guard let bareStart = css.range(of: ".panel--bare {"),
+              let bareEnd = css.range(of: "}", range: bareStart.upperBound..<css.endIndex) else {
+            Issue.record("no .panel--bare {} rule"); return
+        }
+        let bareBody = css[bareStart.lowerBound..<bareEnd.upperBound]
+        #expect(bareBody.contains("overflow: visible"))
+    }
+
+    // MARK: - headerless panel (window-diagram-polish-k31)
+
+    @Test func headerlessPanelEmitsEmptyLabel() throws {
+        let engine = try loadPanelGrid()
+        // (panel #f …) is headerless: node-label hands back #f, which panel->json
+        // normalises to an empty label so js-escape-overlay doesn't choke and the
+        // JS draws no .panel-head. The title stays config-controlled.
+        try engine.evaluate("""
+          (screen 'pg-headerless
+            (panel #f (key "c" "Center" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-headerless")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"label\":\"\""))
+        // The row still renders — only the header is dropped.
+        #expect(payload.contains("\"label\":\"Center\""))
+    }
+
+    @Test func overlayJsSkipsHeadForEmptyLabel() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let js = try String(contentsOfFile: joinPath(schemePath, "ui/overlay.js"), encoding: .utf8)
+        // renderPanel guards .panel-head creation on a truthy label, so an empty
+        // label draws no header band at all (not just an empty one).
+        #expect(js.contains("if (panel.label) {"))
+    }
+
     // MARK: - loose region rendering (bare-loose-rows-k23)
 
     @Test func overlayJsRendersLooseRegion() throws {

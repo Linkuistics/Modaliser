@@ -419,6 +419,14 @@ body {
   background: transparent;
   border: none;
   box-shadow: none;
+  /* A bare panel has no card edge, so the .panel base rule's overflow:hidden +
+   * border-radius serve no purpose here — and they actively HARM: the diagram
+   * grid reaches flush to the panel's left/right edges (the block has zero
+   * horizontal padding so it stays start-aligned with the body grid), so the
+   * rounded clip mask nibbles the bottom-left diagram cell's border. Drop both
+   * so the diagram draws un-clipped (window-diagram-polish-k31). */
+  overflow: visible;
+  border-radius: 0;
 }
 /* Flatten the banded header to a plain eyebrow label, flush with the grid. */
 .panel--bare .panel-head {

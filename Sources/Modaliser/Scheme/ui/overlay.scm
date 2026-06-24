@@ -551,7 +551,14 @@
 ;; already in authored order, so it's the verbatim, unsorted list. Dispatch is
 ;; order-independent (find-child), so this is presentation only.
 (define (panel->json category screen-order)
-  (let* ((label      (node-label category))
+  (let* ((raw-label  (node-label category))
+         ;; A panel authored with a falsy label — (panel #f …) — is HEADERLESS:
+         ;; node-label hands back #f, which js-escape-overlay (string->list)
+         ;; can't take, so normalise to "". The JS reads an empty label as "draw
+         ;; no .panel-head" (renderPanel), so the title is config-controlled —
+         ;; the renderer never decides a panel's header away (window-diagram-
+         ;; polish-k31; cf. the overlay-structure-is-config rule).
+         (label      (if (string? raw-label) raw-label ""))
          (span       (or (node-renderer-payload category 'span) 'narrow))
          (order      (or (node-renderer-payload category 'order) screen-order 'keys))
          (children   (node-children category))
