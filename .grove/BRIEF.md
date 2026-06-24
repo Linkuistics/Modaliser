@@ -54,4 +54,7 @@ vs. evolving the `which-key` block).
   scope, **new default**). The grove's job is **implementation**, not re-grilling.
 - `main` carries unrelated in-flight changes (`dsl.sld`, `state-machine.sld`) —
   coordinate / rebase if they land before this branch merges, since the DSL work
-  here also touches `dsl.sld`.
+  here also touches `dsl.sld`. At the **Finish** step re-check
+  `git merge-base --is-ancestor main visual-refresh` before merging (promoted up
+  from the now-done overlay-polish-k19 brief): if `main` has advanced past the
+  branch point, rebase / merge-commit rather than assuming a fast-forward.
