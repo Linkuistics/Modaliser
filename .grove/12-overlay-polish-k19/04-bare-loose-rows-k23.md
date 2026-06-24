@@ -23,6 +23,21 @@ the interaction model is unchanged.
    label, so nothing is lost (the approved trigger was **"single-element opens
    only"** — see Design).
 
+3. **Loose top-level blocks render bare (added 2026-06-24).** After seeing the
+   bare diagram from `diagram-bare-panel-k22` rendered live, the user asked that
+   the **Windows (`w`) overlay** carry **no subpanels and no "Layout" title** —
+   and clarified this is a **configuration** decision, not a hardcoded renderer
+   choice. So the renderer must let a config express a flat screen by placing a
+   **block** — a `(window:layout-block …)` diagram or a `(window:list-block …)`
+   live-list — **loose at the top level** (not wrapped in a `(panel …)`), and
+   render it **bare** alongside the loose rows. Then **migrate the bundled
+   `default-config.scm` Windows overlay** to the flat/loose form: drop the
+   `(panel "Layout" …)` / `(panel "Select" …)` / `(panel "Windows" …)` wrappers
+   so the diagram, the `s`/`r` keys, and the live windows list render flat — no
+   subpanel cards, no "Layout" title. k22 stays the (config-independent)
+   capability for configs that *do* panel-wrap a diagram; this leaf delivers the
+   loose path + the config migration that realizes the user's flat overlay.
+
 ## Design (settled 2026-06-24, approved)
 
 Approved interactively against the live iTerm screen (`com.googlecode.iterm2`),
@@ -84,6 +99,12 @@ whose top level is: loose `c`/`z`/`configure` rows + a top-level `(open "t"
   the top of the body; real panels masonry-pack beneath. **Verified live.**
 - A top-level `(open …)` renders as a "→ Label" drill row among the loose rows
   and still drills in on its key. **Verified live.**
+- A **loose top-level block** (a `(window:layout-block …)` diagram or a
+  `(window:list-block …)` live-list placed directly under a `screen`/`open`, not
+  in a `(panel …)`) renders **bare** in the loose region — no card, no header.
+  The bundled `default-config.scm` **Windows (`w`) overlay is migrated** to this
+  flat/loose form: diagram + `s`/`r` keys + live windows list, **no subpanels and
+  no "Layout" title**. **Verified live.**
 - Multi-row panels, list (auto-`wide`) panels, and single-key panels still
   render as cards; an `open` nested inside a panel is unchanged.
 - A loose-only screen renders like a plain group list; a panel-only screen
