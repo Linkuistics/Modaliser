@@ -326,11 +326,16 @@ struct OverlayIntegrationTests {
                 (key "f" "Full Screen" (lambda () 'ok))))
             """)
 
-        // At root: should show "s" and "w" entries
+        // At root: should show "s" and "w" entries. The rendered document
+        // inlines all of base.css and overlay.js, so a label-absence check on
+        // the raw string can collide with an unrelated source comment (e.g.
+        // base.css mentions "Safari 26.4+" for the masonry @supports note).
+        // Scope the "Safari" checks to the entry-label markup (>Safari<) so
+        // they test the visible entry, not an incidental CSS substring.
         let rootHtml = try engine.evaluate("""
             (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
-        #expect(rootHtml.contains("Safari"))
+        #expect(rootHtml.contains(">Safari<"))
         #expect(rootHtml.contains("Windows"))
         #expect(!rootHtml.contains("Center"))
 
@@ -340,6 +345,6 @@ struct OverlayIntegrationTests {
             """).asString()
         #expect(groupHtml.contains("Center"))
         #expect(groupHtml.contains("Full Screen"))
-        #expect(!groupHtml.contains("Safari"))
+        #expect(!groupHtml.contains(">Safari<"))
     }
 }
