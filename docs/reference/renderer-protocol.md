@@ -38,20 +38,22 @@ push-updates (`push-overlay-update`) route the body through the single
 ## The panel-grid payload
 
 A `screen` (or a drilled-into `open`) lowers to a group carrying
-`'renderer 'panel-grid` plus an optional authored `'cols` / `'layout`. Its
-direct children are the grid cells: **panels** (transparent `'kind 'category`
-nodes) and nested **opens** (navigable `'kind 'group` nodes).
-`panel-grid-payload-json` serializes exactly the alist the layout DSL
-lowering emits:
+`'renderer 'panel-grid` plus an optional authored `'cols` / `'layout` and a
+`'loose` region. Its direct children are the dispatch children (loose atoms /
+folded opens, the lifted keys of loose blocks, and the **panel** categories);
+the categories serialize as grid cells, while the loose region rides the
+`'loose` marker. `panel-grid-payload-json` serializes exactly the alist the
+layout DSL lowering emits:
 
 ```json
 {
   "type": "panel-grid",
   "cols": 3,                       // omitted when no 'cols authored
   "layout": "grid",                // omitted for the masonry default; "grid" opts into deterministic packing
+  "loose": [ <row> | <block>, … ], // the bare, header-less region above the grid; [] when empty
   "panels": [
     {
-      "label": "General",
+      "label": "Applications",
       "span": "narrow",            // "narrow" | "wide" | "full"
       "bare": true,                // present (true) only when the panel hosts a window-diagram
       "rows": [ <row>, … ],
@@ -62,6 +64,15 @@ lowering emits:
 }
 ```
 
+- **`loose`** (bare-loose-rows-k23) is the screen/open's loose region —
+  everything not wrapped in a `(panel …)` — rendered **bare** (header-less, no
+  card) **above** the panel grid by a `.panel-loose` block. Items keep
+  declaration order; each is either a `<row>` (a loose atom, or a folded
+  top-level `open` → an `isGroup` drill row) or a `<block>` (a loose diagram /
+  live-list, serialized through `block-json` exactly like a panel's `list`). The
+  JS tells them apart by shape: a block carries `"type"`, a row carries `"key"`.
+  An empty array means the JS draws no `.panel-loose`. An empty `"panels"` array
+  (a loose-only screen) means it draws no `.panel-grid`.
 - **`<row>`** is the shared entry-row shape (`entry->row-json`):
   `{ "key": "…", "label": "…", "isGroup": bool, "isSticky": bool }`.
   `key` is ready key-display HTML (modifier glyphs pre-wrapped). Hidden
@@ -75,19 +86,22 @@ lowering emits:
   serialized through `block-json` (the return-and-merge path described
   below), so the block's `on-render-fn` fires and its live rows merge in. When that list owns the selection cursor, its
   current selected index rides into the payload as `"selected"`, which
-  the JS marks `.is-focused`.
+  the JS marks `.is-focused`. (A **loose** live-list block is serialized
+  first, so it claims the cursor ahead of any panel list.)
 - **`bare`** is emitted (`true`) only when the panel's embedded block is a
   `window-diagram` (keyed on the block `'type`; see `panel-bare?`). The JS adds
   the `.panel--bare` modifier so `base.css` drops the card chrome (fill / border
   / shadow) and the list inset, letting the diagram's transparent empty cells
   reveal `--overlay-body-bg` — the window-size proportions read against the body
   tint and there is no white card edge to misalign with the start-aligned grid.
-  Auto-applied, no config opt-in; other panels keep their white cards.
+  Auto-applied, no config opt-in; other panels keep their white cards. (A loose
+  block needs no `bare` flag — every block in the loose region is drawn bare via
+  `.panel-loose .panel-list`.)
 
-A top-level `open` (a navigable group directly under a `screen`)
-serializes as a minimal single-row panel whose one row is its drill-in
-affordance; a nested `open` declared *inside* a panel rides that panel's
-rows as an ordinary accent group-row.
+A top-level `open` (a navigable group directly under a `screen` / `open`)
+**folds into the loose region** as a single drill `<row>` (`isGroup` true);
+pressing its key still drills in. A nested `open` declared *inside* a panel
+rides that panel's rows as an ordinary accent group-row.
 
 The panel grid's column count is **CSS-intrinsic auto-fit by default**:
 panels flow into as many `--panel-min-width` tracks as fit. An authored

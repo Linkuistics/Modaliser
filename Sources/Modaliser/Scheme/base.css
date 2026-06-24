@@ -431,6 +431,46 @@ body {
   border: none;
 }
 
+/* ─── Loose region (bare-loose-rows-k23) ───────────────────── */
+/*
+ * A screen's loose top-level rows, folded top-level opens, and loose bare
+ * blocks (diagram / live list) render header-less directly on the body tint,
+ * ABOVE the panel grid — visual parity with a plain group / the Settings
+ * overlay (no card, no header). renderLoose (overlay.js) draws it: rows reuse
+ * the .wk-row keycap/arrow/label vocabulary, and loose blocks reuse the
+ * .panel-list section (so the cursor highlight + accent keycaps still apply)
+ * with the inset card stripped here so they float on the tint like .panel--bare.
+ * Empty loose region → the JS draws no .panel-loose at all. */
+.panel-loose {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Separator before the panel grid below. On a loose-only screen (no grid)
+   * the trailing margin is absorbed by the body padding — harmless. */
+  margin-bottom: 10px;
+  padding: 0 8px;
+}
+
+/* Loose rows — the same keycap / arrow / label mini-grid the panel rows use. */
+.panel-loose .wk-row {
+  display: grid;
+  grid-template-columns: max-content max-content 1fr;
+  column-gap: 7px;
+  align-items: center;
+  padding: 1px 0;
+}
+
+/* Loose bare blocks — strip the .panel-list inset (margin / padding / fill /
+ * border) so the diagram's transparent cells and the live list sit directly on
+ * the body tint, mirroring .panel--bare .panel-list. The list rows keep their
+ * own padding, caption, accent keycaps, and cursor highlight. */
+.panel-loose .panel-list {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
 /* Banded header — a tinted strip with indigo, tracked, eyebrow-cased label
  * (a section marker, scoped to the panel's own width — what reconciles
  * "banded header" with "tiles into columns", spec §7). Never wraps. */

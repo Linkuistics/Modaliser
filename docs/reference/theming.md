@@ -252,8 +252,12 @@ unlike the host header.
 
 | Class | Where |
 |---|---|
+| `.panel-loose` | The bare, header-less loose region above the grid: a screen/open's loose rows, folded top-level opens, and loose bare blocks (no card). |
+| `.panel-loose .wk-row` | A loose key-row (same key / arrow / label mini-grid the panels use). |
+| `.panel-loose .panel-list` | A loose bare block (diagram / live list) — the `.panel-list` inset is stripped so it floats on the body tint, like `.panel--bare .panel-list`. |
 | `.panel-grid` | The grid container (`screen` / `open` body). |
 | `.panel` | A single panel card. |
+| `.panel--bare` | A panel hosting a `window-diagram` — card chrome dropped so the diagram floats on the body tint. |
 | `.panel-span-narrow`, `.panel-span-wide`, `.panel-span-full` | Span modifiers (1 / 2 / all columns). |
 | `.panel-head` | Banded, eyebrow-cased panel header. |
 | `.panel-rows` | The panel's key-row column. |

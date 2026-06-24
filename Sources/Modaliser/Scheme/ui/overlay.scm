@@ -445,46 +445,81 @@
 ;; ─── Panel-grid renderer (layout DSL; ADR-0011 / ADR-0012) ───────
 ;;
 ;; A `screen` (or a drilled-into `open`) lowered from the layout DSL is a
-;; group carrying 'renderer 'panel-grid + an optional authored 'cols. Its
-;; DIRECT children are the grid cells: panels (transparent 'kind 'category
-;; nodes) and nested `open`s (navigable 'kind 'group nodes). This serializes
-;; exactly the alist shape the lowering (dsl.sld make-panel-node /
-;; lower-panel-grid-body) emits — the renderer owns the JSON, the DSL owns
-;; the alist; the contract was co-designed with that leaf.
+;; group carrying 'renderer 'panel-grid + an optional authored 'cols / 'layout
+;; and a 'loose region. Its DIRECT children are the dispatch children (loose
+;; atoms / folded opens, lifted block keys, and the panel categories); the
+;; categories render as grid cells, while the loose region rides the 'loose
+;; marker (bare-loose-rows-k23). This serializes exactly the alist shape the
+;; lowering (dsl.sld lower-panel-grid-body / make-panel-node) emits — the
+;; renderer owns the JSON, the DSL owns the alist; the contract was co-designed.
 ;;
-;; Shape: {"type":"panel-grid"[,"cols":N][,"layout":S],"panels":[<panel>,…]}
-;;   <panel>  = {"label":S,"span":S,"rows":[<row>,…][,"list":<block>]}
+;; Shape: {"type":"panel-grid"[,"cols":N][,"layout":S],
+;;         "loose":[<row>|<block>,…],"panels":[<panel>,…]}
+;;   <panel>  = {"label":S,"span":S[,"bare":true],"rows":[<row>,…][,"list":<block>]}
 ;;   <row>    = the shared entry-row shape (entry->row-json): key (ready
-;;              key-display-html), label, isGroup, isSticky.
-;;   <block>  = an embedded live list, serialized through the SAME block-json
-;;              path the block-list renderer uses for window-list / iterm-panes
-;;              / iterm-tabs (so on-render-fn fires + live rows merge in).
+;;              key-display-html), label, isGroup, isSticky. A folded top-level
+;;              open is a drill row (isGroup true → accent + arrow).
+;;   <block>  = a live list / diagram, serialized through the SAME block-json
+;;              path panels use for window-list / iterm-panes / iterm-tabs /
+;;              window-diagram (so on-render-fn fires + live rows merge in).
+;;   "loose"  = the bare, header-less region the JS draws ABOVE the grid: loose
+;;              rows and loose bare blocks, declaration order preserved so they
+;;              interleave as authored. Empty array → the JS draws no .panel-loose.
+;;   "panels" = the masonry grid of real panel cards. Empty array → no .panel-grid.
 ;;   "layout" = 'masonry (omitted — the CSS default) | 'grid (deterministic);
 ;;              overlay.js reflects it onto .panel-grid as data-layout.
 (define (panel-grid-payload-json current)
-  (let ((cols   (node-renderer-payload current 'cols))
-        (layout (node-renderer-payload current 'layout))
-        (panels (map grid-cell->json (node-children current))))
+  (let* ((cols       (node-renderer-payload current 'cols))
+         (layout     (node-renderer-payload current 'layout))
+         (loose      (or (node-renderer-payload current 'loose) '()))
+         ;; Serialize the loose region FIRST so a loose live-list claims the
+         ;; selection cursor ahead of any panel list (first offer wins — see
+         ;; block-json / list-cursor-offer!).
+         (loose-json (loose-region-json loose))
+         (panels     (panels-json (node-children current))))
     (string-append
       "{\"type\":\"panel-grid\""
       (if cols (string-append ",\"cols\":" (number->string cols)) "")
       (if layout (string-append ",\"layout\":\"" (symbol->string layout) "\"") "")
-      ",\"panels\":["
-      (string-join-comma panels)
-      "]}")))
+      ",\"loose\":["  (string-join-comma loose-json) "]"
+      ",\"panels\":[" (string-join-comma panels) "]}")))
 
-;; (grid-cell->json node) → panel JSON object string
-;; A screen's direct child is either a panel (category) or a top-level `open`
-;; (group). A category becomes a full panel of key-rows (+ optional list); a
-;; top-level open — and, defensively, any atom the lowering didn't pack into
-;; a panel — renders as a single-cell panel whose one row is the node's own
-;; affordance (an open shows as an accent drill-in row; the panel header names
-;; the destination). Nested opens declared *inside* a panel ride that panel's
-;; 'children and render as ordinary accent group-rows, not their own cell.
-(define (grid-cell->json node)
-  (if (category? node)
-    (panel->json node)
-    (single-row-panel->json node)))
+;; (loose-region-json loose) → list of JSON strings, declaration order.
+;; Each item the lowering placed in the loose region is either a loose node —
+;; serialized to the shared entry-row shape (entry->row-json), so a folded
+;; top-level open becomes a drill row — or a loose block-spec (a diagram /
+;; live-list), serialized through the SAME block-json path the panels use (so
+;; on-render-fn fires, live rows merge, and the selection cursor is offered).
+;; The JS tells the two apart by shape: a block carries "type", a row "key".
+;; Hidden / nested-category nodes drop out (entry->row-json returns #f).
+(define (loose-region-json loose)
+  (let loop ((rest loose) (acc '()))
+    (cond
+      ((null? rest) (reverse acc))
+      ((loose-block? (car rest))
+       (loop (cdr rest) (cons (block-json (car rest)) acc)))
+      (else
+       (let ((row (entry->row-json (car rest))))
+         (loop (cdr rest) (if row (cons row acc) acc)))))))
+
+;; A loose-region item is a live-list / diagram block-spec (carries 'type)
+;; rather than a node-form (carries 'kind). Mirrors dsl.sld's block-spec?
+;; (which is library-private, so we re-test the shape here).
+(define (loose-block? x)
+  (and (pair? x) (assoc 'type x) #t))
+
+;; (panels-json children) → list of panel JSON strings.
+;; The screen/open group's children are loose nodes, lifted block-children, and
+;; the real panels (categories). Only the categories render as grid cells —
+;; loose nodes and lifted keys belong to the loose region / dispatch, so they
+;; are skipped here.
+(define (panels-json children)
+  (let loop ((rest children) (acc '()))
+    (cond
+      ((null? rest) (reverse acc))
+      ((category? (car rest))
+       (loop (cdr rest) (cons (panel->json (car rest)) acc)))
+      (else (loop (cdr rest) acc)))))
 
 ;; (panel->json category) → panel JSON object string
 ;; Rows come from the category's dispatch children (sorted by key, hidden +
@@ -520,17 +555,6 @@
   (and list-block
        (let ((t (assoc 'type list-block)))
          (and t (eq? (cdr t) 'window-diagram)))))
-
-;; (single-row-panel->json node) → panel JSON object string
-;; The minimal panel for a non-category grid child (a top-level `open`, or a
-;; stray atom). One narrow cell, header = node label, a single affordance row.
-(define (single-row-panel->json node)
-  (let ((row (entry->row-json node)))
-    (string-append
-      "{\"label\":\""  (js-escape-overlay (node-label node))
-      "\",\"span\":\"narrow\",\"rows\":["
-      (if row row "")
-      "]}")))
 
 ;; (filtered-rows children) → list of JSON strings (each a row)
 (define (filtered-rows children)

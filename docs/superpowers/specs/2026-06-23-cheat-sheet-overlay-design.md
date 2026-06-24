@@ -37,7 +37,7 @@ A config is a **layout spec** — a tree of **screens**, each an implicit **grid
 - May **contain a dynamic-list block** (`window-list`, iTerm panes/tabs) among its children, in addition to key rows. A panel that contains a list block **auto-promotes** its span to `'wide` unless an explicit `'span` is given.
 - Renders a nested drill-down (`open`) child as an accent `›` row.
 
-**Loose top-level keys** (a `key` not wrapped in a panel) collapse into one implicit **"General"** panel — the presentation-first analogue of the old misc bucket. Migrated configs usually name these explicitly.
+**Loose top-level atoms** (a `key` not wrapped in a panel), folded top-level `open`s, and loose blocks (diagram / live-list) form the **loose region** — rendered **bare** (header-less, no card) above the panel grid, like a plain `(group …)`. _(Superseded the original "General" panel — bare-loose-rows-k23, 2026-06-24; see [renderer-protocol.md](../../reference/renderer-protocol.md) `loose`.)_
 
 A **screen** is one navigable level; an **`open`** drills into a fresh screen (its own grid of panels) — the presentation-first replacement for the `(key K L (overlay …))` idiom. Reusable layout chunks splice in via **`fragment`**.
 
@@ -56,7 +56,7 @@ CSS Grid (not multicol) is required because multicol cannot span "2 of 3" column
 
 In `(modaliser dsl)` — three new **layout container forms** plus a reuse form, over the **unchanged dispatch atoms** (ADR-0012):
 
-- **`screen scope … panel…`** — registers a tree as a grid of panels (the `define-tree` analogue). Body is the implicit grid; loose atoms pack into a leading "General" panel. Lowers to a tree-root group carrying `'renderer 'panel-grid` (+ optional `'cols` / `'layout`).
+- **`screen scope … body…`** — registers a tree as a grid of panels (the `define-tree` analogue). Body is the implicit grid; loose atoms / folded top-level opens / loose blocks render bare in the loose region above it (bare-loose-rows-k23 — no "General" panel). Lowers to a tree-root group carrying `'renderer 'panel-grid` (+ optional `'cols` / `'layout`).
 - **`panel "label" ['span S] child…`** — a transparent banded card. Lowers to a `'kind 'category` node carrying `'span` (+ `'list` when it embeds a live list). Children are dispatch atoms plus at most one dynamic-list block; the block's hidden digit range lifts into the panel's dispatch children, the block rides under `'list` for the renderer.
 - **`open KEY LABEL … panel…`** — a navigable drill-down into a sub-screen. Lowers to a navigable `'group` carrying `'renderer 'panel-grid`.
 - **`fragment child…`** — a transparent named splice (panels or rows) for DRY, built on the same `expand-splices` `sticky-set` uses.
@@ -113,7 +113,7 @@ The standalone fuzzy-finder chooser (`Select Window`, `Find File`, `Find Applica
 
 ## 9. Migration
 
-- **`Sources/Modaliser/Scheme/default-config.scm`** — restructure the global tree into named panels (`General`, `Applications`, `AI`, `Search`) and per-app trees into panels; mark dynamic-list panels `wide`.
+- **`Sources/Modaliser/Scheme/default-config.scm`** — restructure the global tree into named panels (`Applications`, `AI`, `Search`) and per-app trees into panels; mark dynamic-list panels `wide`. _(The original `General` panel was later unwrapped to loose rows, and the Windows overlay flattened to loose blocks — bare-loose-rows-k23.)_
 - **User config** — `~/.config/modaliser/config.scm` + `app-trees/*.scm` migrated to the panel model (user pre-approved). Keep `config.scm` in sync with the bundled default per existing convention.
 - **Docs** (source of truth) — update `docs/reference/{dsl,theming,renderer-protocol,libraries}.md`, `docs/how-to/customise-theme.md`, and add the term **"panel"** to the `CONTEXT.md` glossary.
 - **Tests** mirror sources (repo convention) — see §10.
@@ -122,7 +122,7 @@ The standalone fuzzy-finder chooser (`Select Window`, `Find File`, `Find Applica
 
 Scheme behaviour is exercised through a real LispKit context (repo convention), so behavioural `.sld` changes need matching tests:
 
-- `category` → panel packing (one category = one panel; loose keys = General panel).
+- `category` → panel packing (one category = one panel; loose atoms / folded top-level opens / loose blocks → the bare loose region, no "General" panel — bare-loose-rows-k23).
 - `'span` hint plumbing and auto-`wide` promotion for list-bearing panels.
 - A dynamic-list block accepted as a `category` child; live `on-render-fn` merge still emits rows.
 - List selection-cursor dispatch (`↑↓`/`k`/`j` move index; `⏎` activates; digits jump) at the state-machine/event-dispatch level.

@@ -167,7 +167,7 @@ struct LayoutDslTests {
         }
     }
 
-    @Test func screenPacksLooseKeysIntoGeneralPanel() throws {
+    @Test func screenRendersLooseKeysWithoutGeneralPanel() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
             (screen 'scr-general
@@ -175,19 +175,50 @@ struct LayoutDslTests {
               (panel "P" (key "b" "B" (lambda () 'ok))))
             """)
         let root = "(lookup-tree \"scr-general\")"
-        // A "General" panel exists holding the loose key.
-        #expect(try engine.evaluate("(category? (find-panel \(root) \"General\"))") == .true)
-        #expect(try engine.evaluate("(command? (find-child (find-panel \(root) \"General\") \"a\"))") == .true)
-        // The explicit panel passed through, and dispatch is transparent.
+        // No "General" category is created — loose atoms no longer bucket into one.
+        #expect(try engine.evaluate("(find-panel \(root) \"General\")") == .false)
+        // The loose key rides the screen's 'loose region (the renderer reads it
+        // back to draw a bare, header-less row block above the panel grid).
+        #expect(try engine.evaluate("(pair? (node-renderer-payload \(root) 'loose))") == .true)
+        // The explicit panel passed through, and dispatch stays transparent for
+        // both the loose key and the panel key.
         #expect(try engine.evaluate("(category? (find-panel \(root) \"P\"))") == .true)
         #expect(try engine.evaluate("(command? (find-child \(root) \"a\"))") == .true)
         #expect(try engine.evaluate("(command? (find-child \(root) \"b\"))") == .true)
     }
 
-    @Test func screenWithoutLooseKeysHasNoGeneralPanel() throws {
+    @Test func screenWithoutLooseAtomsHasNoLooseRegion() throws {
         let engine = try loadLayout()
         try engine.evaluate("(screen 'scr-nogeneral (panel \"P\" (key \"b\" \"B\" (lambda () 'ok))))")
-        #expect(try engine.evaluate("(find-panel (lookup-tree \"scr-nogeneral\") \"General\")") == .false)
+        let root = "(lookup-tree \"scr-nogeneral\")"
+        // No General category, and no 'loose marker when every child is a panel.
+        #expect(try engine.evaluate("(find-panel \(root) \"General\")") == .false)
+        #expect(try engine.evaluate("(node-renderer-payload \(root) 'loose)") == .false)
+    }
+
+    @Test func screenLiftsLooseBlockChildrenIntoDispatch() throws {
+        let engine = try loadLayout()
+        // A live-list block placed LOOSE at the screen top level (not wrapped in
+        // a panel) lifts its hidden dispatch range into the screen's children so
+        // the digits resolve transparently, while the block itself rides the
+        // 'loose region for the renderer to draw bare.
+        try engine.evaluate("""
+            (screen 'scr-loose-block
+              (key "a" "Loose A" (lambda () 'ok))
+              (fake-list-block))
+            """)
+        let root = "(lookup-tree \"scr-loose-block\")"
+        #expect(try engine.evaluate("(range-command? (find-child \(root) \"1\"))") == .true)
+        #expect(try engine.evaluate("(command? (find-child \(root) \"a\"))") == .true)
+        #expect(try engine.evaluate("(find-panel \(root) \"General\")") == .false)
+    }
+
+    @Test func screenComposesLooseListOnLeaveHook() throws {
+        let engine = try loadLayout()
+        // A LOOSE list block's on-leave-fn (chip clear) must compose onto the
+        // screen group's on-leave, exactly as a panel-embedded list's does.
+        try engine.evaluate("(screen 'scr-loose-hooks (fake-list-block))")
+        #expect(try engine.evaluate("(procedure? (node-on-leave (lookup-tree \"scr-loose-hooks\")))") == .true)
     }
 
     @Test func screenAcceptsLifecycleKeywords() throws {
@@ -217,7 +248,7 @@ struct LayoutDslTests {
               (key "h" "Left" (lambda () 'ok))))
             (screen 'scr-splice sp2 (panel "P" (key "c" "C" (lambda () 'ok))))
             """)
-        // The spliced key lands in General and dispatches from the root.
+        // The spliced key lands in the loose region and dispatches from the root.
         #expect(try engine.evaluate("(command? (find-child (lookup-tree \"scr-splice\") \"h\"))") == .true)
     }
 
@@ -371,7 +402,7 @@ struct LayoutDslTests {
     @Test func fragmentComposesWithStickySetInScreen() throws {
         let engine = try loadLayout()
         // Same composition at screen level: a fragment + a sticky-set both
-        // spliced into the screen body, their loose keys landing in General.
+        // spliced into the screen body, their loose keys landing in the loose region.
         try engine.evaluate("""
             (define act (lambda () 'ok))
             (define ops (fragment (key "c" "Center" act)))

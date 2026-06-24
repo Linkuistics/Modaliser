@@ -235,9 +235,11 @@ struct ConfigDslTests {
     // MARK: - Migrated bundled config renders as panels (config-migration-k8)
 
     /// The bundled global tree, migrated to the layout DSL, registers as a
-    /// panel-grid SCREEN whose grid is the four authored panels — and a
-    /// command stays reachable by its original key through the (transparent)
-    /// panel, so dispatch is unchanged by the presentation restructure.
+    /// panel-grid SCREEN whose grid is the authored panels — and a command
+    /// stays reachable by its original key through the (transparent) panel, so
+    /// dispatch is unchanged by the presentation restructure. After
+    /// bare-loose-rows-k23 the former "General" panel is unwrapped: its keys
+    /// (and the Windows drill-in) render BARE in the loose region, not a card.
     @Test func defaultGlobalTreeRendersAsPanelGrid() throws {
         let engine = try loadAllModules()
         guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
@@ -246,14 +248,21 @@ struct ConfigDslTests {
         // Registered as a panel-grid screen, not the legacy auto-layout.
         #expect(try engine.evaluate("(eq? (node-renderer (lookup-tree \"global\")) 'panel-grid)") == .true)
 
-        // The top-level grid serialises the four authored panels. (The top
-        // level embeds no live-list block — the windows list lives a level
-        // down under "w" — so this render fires no on-render side effects.)
+        // The top-level grid serialises the authored panels. (The top level
+        // embeds no live-list block — the windows list lives a level down under
+        // "w" — so this render fires no on-render side effects.)
         let json = try engine.evaluate("(panel-grid-payload-json (lookup-tree \"global\"))").asString()
         #expect(json.contains("\"type\":\"panel-grid\""))
-        for label in ["General", "Applications", "AI", "Search"] {
+        for label in ["Applications", "AI", "Search"] {
             #expect(json.contains("\"label\":\"\(label)\""), "missing panel \(label)")
         }
+        // No "General" card — those keys moved to the loose region.
+        #expect(!json.contains("\"label\":\"General\""))
+        #expect(json.contains("\"loose\":["))
+        #expect(json.contains("\"label\":\"Settings\""))
+        #expect(json.contains("\"label\":\"Highlight Cursor\""))
+        // The top-level Windows `open` folds into the loose region as a drill row.
+        #expect(json.contains("\"label\":\"Windows\""))
 
         // Transparent dispatch preserved: "b" (Browser) keeps its path
         // through the Applications panel; "w" is the navigable Windows
@@ -263,39 +272,46 @@ struct ConfigDslTests {
         #expect(try engine.evaluate("(group? (find-child (lookup-tree \"global\") \"w\"))") == .true)
     }
 
-    /// The "w" Windows drill-down is itself a panel-grid: the Layout panel
-    /// embeds the window-diagram, the Windows panel embeds the live window
-    /// list, and the diagram's move-window keys stay dispatchable through the
-    /// transparent Layout panel WITHOUT rendering as duplicate text rows
-    /// beside the diagram (the lifted keys are 'hidden — see
-    /// window-actions.sld compose-layout-block).
-    @Test func defaultWindowsScreenEmbedsDiagramAndHidesItsKeys() throws {
+    /// The "w" Windows drill-down, migrated to the FLAT/loose form
+    /// (bare-loose-rows-k23): the diagram and the live window list ride the
+    /// open's loose region as bare blocks (no "Layout"/"Windows"/"Select"
+    /// panel cards, no headers), the diagram's move-window keys stay
+    /// dispatchable (lifted into the open's children, 'hidden so they don't
+    /// duplicate as text rows beside the diagram), and the s/r action keys are
+    /// loose rows.
+    @Test func defaultWindowsScreenFlattensDiagramAndListIntoLooseRegion() throws {
         let engine = try loadAllModules()
         guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
         try engine.evaluateFile(schemePath + "/default-config.scm")
 
         try engine.evaluate("""
-          (define (grid-panel root lbl)
-            (let loop ((cs (node-children root)))
-              (cond ((null? cs) #f)
-                    ((and (category? (car cs)) (equal? (node-label (car cs)) lbl)) (car cs))
-                    (else (loop (cdr cs))))))
           (define win (find-child (lookup-tree "global") "w"))
+          ;; Is there a loose-region block-spec of type T?
+          (define (loose-block-type? node t)
+            (let loop ((xs (node-renderer-payload node 'loose)))
+              (cond ((null? xs) #f)
+                    ((let ((e (assoc 'type (car xs)))) (and e (eq? (cdr e) t))) #t)
+                    (else (loop (cdr xs))))))
+          ;; How many direct PANEL (category) children does NODE have?
+          (define (count-categories node)
+            (let loop ((cs (node-children node)) (n 0))
+              (cond ((null? cs) n)
+                    ((category? (car cs)) (loop (cdr cs) (+ n 1)))
+                    (else (loop (cdr cs) n)))))
         """)
         #expect(try engine.evaluate("(eq? (node-renderer win) 'panel-grid)") == .true)
 
-        // Layout panel embeds the window-diagram block under 'list…
-        #expect(try engine.evaluate(
-            "(eq? (cdr (assoc 'type (node-renderer-payload (grid-panel win \"Layout\") 'list))) 'window-diagram)") == .true)
-        // …and renders NO key rows (its dispatch keys are hidden, drawn by the
-        // diagram instead) — the regression the 'hidden marker prevents.
-        #expect(try engine.evaluate(
-            "(null? (filtered-rows (node-children (grid-panel win \"Layout\"))))") == .true)
-        // Windows panel embeds the live window list (auto-wide).
-        #expect(try engine.evaluate(
-            "(eq? (cdr (assoc 'type (node-renderer-payload (grid-panel win \"Windows\") 'list))) 'window-list)") == .true)
-        // Move-window key "d" still dispatches transparently through Layout.
+        // The diagram and the live window list ride the loose region as blocks.
+        #expect(try engine.evaluate("(loose-block-type? win 'window-diagram)") == .true)
+        #expect(try engine.evaluate("(loose-block-type? win 'window-list)") == .true)
+        // No panel cards at all — the three wrapper panels are gone.
+        #expect(try engine.evaluate("(= (count-categories win) 0)") == .true)
+        // Move-window key "d" still dispatches (lifted from the diagram block).
         #expect(try engine.evaluate("(command? (find-child win \"d\"))") == .true)
+        // The s/r action keys dispatch as loose rows ("s" binds a selector,
+        // "r" a command).
+        #expect(try engine.evaluate("(selector? (find-child win \"s\"))") == .true)
+        #expect(try engine.evaluate("(command? (find-child win \"r\"))") == .true)
     }
 
     /// At least one per-app tree (iTerm) migrated to panels: a panel-grid

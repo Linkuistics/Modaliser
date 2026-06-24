@@ -133,22 +133,35 @@ panels** — the top-level layout form. `scope`
 is a symbol (or string) like `'global`, `'com.apple.Safari`, or
 `'iterm-panes-focus`; symbols and strings are equivalent.
 
-The body is an **implicit grid**: each `(panel …)` is a grid cell, each
-`(open …)` a drill-in cell. **Loose top-level atoms** (a `(key …)` not
-wrapped in a panel) collect into one leading **"General"** panel — so a
-flat config still renders as a single tidy card.
+The body is an **implicit grid**: each `(panel …)` is a grid cell of
+masonry-packed cards. Everything **not** wrapped in a `(panel …)` is the
+**loose region** — it renders **bare** (header-less, no card) at the **top
+of the screen body, above the grid**, like a plain `(group …)` or the
+Settings overlay. The loose region holds, in declaration order:
+
+- **loose atoms** — a `(key …)` / `(keys …)` / plain `(group …)` not in a
+  panel → a bare row;
+- **folded top-level opens** — a top-level `(open …)` → a single **"→ Label"
+  drill row** (still navigable: its key drills into its sub-screen);
+- **loose blocks** — a `(window:layout-block …)` diagram or a
+  `(window:list-block …)` live-list placed directly in the body → rendered
+  **bare** on the body tint (no card).
+
+(An `(open …)` declared *inside* a panel is untouched — it renders as an
+accent group-row in that panel. There is **no** "General" panel; loose
+atoms are the screen's own inline rows.)
 
 ```scheme
 (screen 'global
-  (panel "General"
-    (key "," "Settings" (settings:actions))
-    (key "/" "Help"     (λ () (open-help))))
+  (key "," "Settings" (settings:actions))   ; loose row — renders bare
+  (key "/" "Help"     (λ () (open-help)))    ; loose row
 
-  (open "w" "Windows"           ; drill-down → its own grid of panels
-    (panel "Layout" (window:layout-block …))
-    (panel "Select" (window:list-block 'chips? #t)))
+  (open "w" "Windows"           ; folds into the loose region as "w → Windows";
+    (window:layout-block …)     ; its FLAT body: a bare diagram,
+    (key "s" "Select" …)        ; loose rows,
+    (window:list-block 'chips? #t))  ; and a bare live list
 
-  (panel "Applications"
+  (panel "Applications"         ; a real panel → a masonry card below the loose rows
     (key "b" "Browser"  (λ () (launch-app "Safari")))
     (key "t" "Terminal" (λ () (launch-app "iTerm")))))
 ```
@@ -220,24 +233,27 @@ It is an error to embed two list blocks in one panel.
 ### `(open KEY LABEL [keyword value]... . panels)`
 
 A **navigable drill-down** into a sub-screen. Pressing `KEY`
-descends into a fresh grid of `panels` (its own screen). `open` is the
+descends into a fresh screen body. `open` is the
 *only* navigable layout form; a `panel`, by contrast, is transparent and
-never changes key paths.
+never changes key paths. A **top-level** `(open …)` in a screen/open body
+folds into the parent's loose region as a single **"→ LABEL" drill row**
+(it is not its own card); pressing its key still drills in.
 
 ```scheme
 (open "w" "Windows"
-  (panel "Layout" (window:layout-block …))
-  (panel "Move"
-    (key "h" "Left"  (λ () (move-window 'left)))
-    (key "l" "Right" (λ () (move-window 'right)))))
+  (window:layout-block …)        ; a bare loose diagram
+  (key "h" "Left"  (λ () (move-window 'left)))   ; loose rows
+  (key "l" "Right" (λ () (move-window 'right)))
+  (panel "Presets"               ; a real panel → a card below the loose rows
+    (key "m" "Maximise" (λ () (maximise-window)))))
 ```
 
-Its body lowers the same way a `screen` body does (loose atoms → a
-"General" panel; nested `open`s drill further). Keywords: `'on-enter`,
-`'on-leave`, `'sticky`, `'exit-on-unknown`, `'cols`, `'layout` — **not**
-`'display-name` (a breadcrumb-root override a child group has no use
-for). An `open` lowers to a navigable `group` carrying
-`'renderer 'panel-grid`.
+Its body lowers the same way a `screen` body does: real panels become
+grid cards, and loose atoms / folded top-level opens / loose blocks render
+bare in the loose region. Keywords: `'on-enter`, `'on-leave`, `'sticky`,
+`'exit-on-unknown`, `'cols`, `'layout` — **not** `'display-name` (a
+breadcrumb-root override a child group has no use for). An `open` lowers
+to a navigable `group` carrying `'renderer 'panel-grid`.
 
 A nested `(open …)` declared *inside* a `(panel …)` renders as an accent
 drill-in `›` row in that panel; a top-level `(open …)` directly under a

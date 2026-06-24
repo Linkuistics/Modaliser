@@ -145,24 +145,58 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
     || document.querySelector('.overlay-custom-body[data-renderer="panel-grid"]');
   if (!root) return;
   while (root.firstChild) root.removeChild(root.firstChild);
-  var grid = document.createElement('div');
-  grid.className = 'panel-grid';
-  // Authored column count pins the track count; absent, base.css auto-fits.
-  if (typeof data.cols === 'number') {
-    grid.style.setProperty('--panel-grid-cols', String(data.cols));
+
+  // Loose region (bare-loose-rows-k23): a screen's loose top-level rows,
+  // folded top-level opens, and loose bare blocks render header-less directly
+  // on the body tint, ABOVE the panel grid — like the Settings overlay's
+  // Edit/Reload rows. Empty array → no .panel-loose block at all.
+  var loose = data.loose || [];
+  if (loose.length) {
+    root.appendChild(renderLoose(loose));
   }
-  // Authored packing mode; absent, base.css packs as masonry. Only
-  // data-layout="grid" has a CSS override, so 'masonry stays the default.
-  if (typeof data.layout === 'string') {
-    grid.setAttribute('data-layout', data.layout);
-  }
+
+  // The masonry grid of real panel cards. Empty array (a loose-only screen)
+  // → no .panel-grid, so nothing renders an empty box.
   var panels = data.panels || [];
-  for (var i = 0; i < panels.length; i++) {
-    grid.appendChild(renderPanel(panels[i]));
+  if (panels.length) {
+    var grid = document.createElement('div');
+    grid.className = 'panel-grid';
+    // Authored column count pins the track count; absent, base.css auto-fits.
+    if (typeof data.cols === 'number') {
+      grid.style.setProperty('--panel-grid-cols', String(data.cols));
+    }
+    // Authored packing mode; absent, base.css packs as masonry. Only
+    // data-layout="grid" has a CSS override, so 'masonry stays the default.
+    if (typeof data.layout === 'string') {
+      grid.setAttribute('data-layout', data.layout);
+    }
+    for (var i = 0; i < panels.length; i++) {
+      grid.appendChild(renderPanel(panels[i]));
+    }
+    root.appendChild(grid);
   }
-  root.appendChild(grid);
   notifyResize();
 };
+
+// renderLoose — the header-less loose region: a flex column of loose rows and
+// bare blocks, declaration order preserved. Each item is distinguished by
+// shape (matching loose-region-json in overlay.scm): a block carries `type`
+// and is drawn bare via the SAME renderPanelList path the panels use (CSS
+// strips the inset chrome inside .panel-loose); a row carries `key` and is
+// drawn with the canonical renderPanelRow.
+function renderLoose(items) {
+  var block = document.createElement('div');
+  block.className = 'panel-loose';
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    if (item && item.type) {
+      block.appendChild(renderPanelList(item));
+    } else {
+      block.appendChild(renderPanelRow(item));
+    }
+  }
+  return block;
+}
 
 // renderPanel — one banded card: header + key rows + optional live list.
 function renderPanel(panel) {

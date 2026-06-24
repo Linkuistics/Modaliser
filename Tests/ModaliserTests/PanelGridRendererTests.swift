@@ -142,7 +142,7 @@ struct PanelGridRendererTests {
         #expect(payload.contains("\"isGroup\":false"))
     }
 
-    @Test func looseKeysFormLeadingGeneralPanel() throws {
+    @Test func looseKeysRenderInLooseRegionNotGeneralPanel() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
           (screen 'pg-general
@@ -151,14 +151,43 @@ struct PanelGridRendererTests {
           (define p (panel-grid-payload-json (lookup-tree "pg-general")))
         """)
         let payload = try engine.evaluate("p").asString()
-        // A "General" panel exists, holding the loose key, and is placed FIRST.
-        #expect(payload.contains("\"label\":\"General\""))
+        // The loose key rides a "loose" array (a bare header-less row block) —
+        // NOT a "General" panel card.
+        #expect(payload.contains("\"loose\":["))
         #expect(payload.contains("\"label\":\"Loose Z\""))
-        guard let generalIdx = payload.range(of: "\"label\":\"General\""),
-              let windowsIdx = payload.range(of: "\"label\":\"Windows\"") else {
-            Issue.record("panels missing in payload: \(payload)"); return
-        }
-        #expect(generalIdx.lowerBound < windowsIdx.lowerBound)
+        #expect(!payload.contains("\"label\":\"General\""))
+        // The real panel still packs in the panel grid.
+        #expect(payload.contains("\"label\":\"Windows\""))
+    }
+
+    @Test func panelOnlyScreenHasEmptyLooseRegion() throws {
+        let engine = try loadPanelGrid()
+        // No loose atoms → the loose array is empty (the JS renders no
+        // .panel-loose block), and the panel still renders.
+        try engine.evaluate("""
+          (screen 'pg-panelonly
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
+          (define p (panel-grid-payload-json (lookup-tree "pg-panelonly")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"loose\":[]"))
+        #expect(payload.contains("\"label\":\"Windows\""))
+    }
+
+    @Test func looseOnlyScreenHasEmptyPanelsArray() throws {
+        let engine = try loadPanelGrid()
+        // Loose atoms with no real panels → the panels array is empty (the JS
+        // renders no .panel-grid), and the loose rows are present.
+        try engine.evaluate("""
+          (screen 'pg-looseonly
+            (key "a" "Alpha" (lambda () 'ok))
+            (key "b" "Beta"  (lambda () 'ok)))
+          (define p (panel-grid-payload-json (lookup-tree "pg-looseonly")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"panels\":[]"))
+        #expect(payload.contains("\"label\":\"Alpha\""))
+        #expect(payload.contains("\"label\":\"Beta\""))
     }
 
     // MARK: - embedded live list
@@ -249,6 +278,29 @@ struct PanelGridRendererTests {
         #expect(css.contains(".panel--bare"))
     }
 
+    // MARK: - loose region rendering (bare-loose-rows-k23)
+
+    @Test func overlayJsRendersLooseRegion() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let js = try String(contentsOfFile: joinPath(schemePath, "ui/overlay.js"), encoding: .utf8)
+        // The panel-grid renderer reads data.loose and draws a header-less
+        // .panel-loose block (rows + bare blocks) above the .panel-grid.
+        #expect(js.contains("data.loose"))
+        #expect(js.contains("panel-loose"))
+    }
+
+    @Test func baseCssDefinesLooseRegion() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let css = try String(contentsOfFile: joinPath(schemePath, "base.css"), encoding: .utf8)
+        #expect(css.contains(".panel-loose"))
+    }
+
     // MARK: - opens
 
     @Test func nestedOpenRendersAsGroupRowInsidePanel() throws {
@@ -268,7 +320,7 @@ struct PanelGridRendererTests {
         #expect(payload.contains("\"isGroup\":true"))
     }
 
-    @Test func topLevelOpenRendersAsSingleRowPanel() throws {
+    @Test func topLevelOpenFoldsIntoLooseRegionAsDrillRow() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
           (screen 'pg-toplevel-open
@@ -277,10 +329,65 @@ struct PanelGridRendererTests {
           (define p (panel-grid-payload-json (lookup-tree "pg-toplevel-open")))
         """)
         let payload = try engine.evaluate("p").asString()
-        // A top-level open becomes a panel (header = its label) with a single
-        // drill-in group row.
+        // A top-level open folds into the loose region as a single drill row
+        // (isGroup true → accent + arrow), NOT its own panel card. With no real
+        // panels, the panels array is empty.
+        #expect(payload.contains("\"loose\":["))
         #expect(payload.contains("\"label\":\"Splits\""))
         #expect(payload.contains("\"isGroup\":true"))
+        #expect(payload.contains("\"panels\":[]"))
+        // It stays navigable — dispatch is unchanged.
+        let root = "(lookup-tree \"pg-toplevel-open\")"
+        #expect(try engine.evaluate("(group? (find-child \(root) \"s\"))") == .true)
+    }
+
+    // MARK: - loose top-level blocks (bare-loose-rows-k23)
+
+    @Test func looseDiagramBlockRidesLooseRegionBare() throws {
+        let engine = try loadPanelGrid()
+        // A window-diagram placed LOOSE at the screen top level (not in a panel)
+        // serializes into the loose region through the SAME block-json path, and
+        // its hidden dispatch keys lift into the screen's children. With no
+        // real panels the grid is empty; the JS draws the block bare.
+        try engine.evaluate("""
+          (define (fake-diagram-block)
+            (list (cons 'type 'window-diagram)
+                  (cons 'panels '())
+                  (cons 'block-children
+                        (list (cons (cons 'hidden #t)
+                                    (key-range "x.." "Move" (list "x")
+                                      (lambda (k) k)))))))
+          (screen 'pg-loose-diagram
+            (key "s" "Select" (lambda () 'ok))
+            (fake-diagram-block))
+          (define p (panel-grid-payload-json (lookup-tree "pg-loose-diagram")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"loose\":["))
+        #expect(payload.contains("\"type\":\"window-diagram\""))
+        #expect(payload.contains("\"panels\":[]"))
+        let root = "(lookup-tree \"pg-loose-diagram\")"
+        #expect(try engine.evaluate("(range-command? (find-child \(root) \"x\"))") == .true)
+    }
+
+    @Test func looseListBlockMergesLiveRowsInLooseRegion() throws {
+        let engine = try loadPanelGrid()
+        // A live window-list placed loose at the top level runs its on-render-fn
+        // and merges the live rows, exactly as a panel-embedded list does — but
+        // rides the loose region, not a panel.
+        try engine.evaluate("""
+          (screen 'pg-loose-list
+            (fake-list-block))
+          (define p (panel-grid-payload-json (lookup-tree "pg-loose-list")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"loose\":["))
+        #expect(payload.contains("\"type\":\"window-list\""))
+        #expect(payload.contains("\"app\":\"Safari\""))
+        #expect(try engine.evaluate("(= render-fires 1)") == .true)
+        #expect(payload.contains("\"panels\":[]"))
+        // The lifted hidden 1.. range is NOT surfaced as a loose row.
+        #expect(!payload.contains("\"label\":\"Win <n>\""))
     }
 
     // MARK: - dispatch + JS wiring

@@ -21,6 +21,7 @@
           set-overlay-delay!)
   (import (scheme base)
           (scheme bitwise)
+          (modaliser util)
           (modaliser state-machine)
           (modaliser event-dispatch)
           (modaliser keyboard))
@@ -524,29 +525,74 @@
       (else
        (make-panel-node label span (expand-splices args))))))
 
-;; Lower a panel-grid body — the shared core of screen / open. Returns
-;; (grid-children . list-blocks): explicit panels (categories) and nested
-;; `open`s (panel-grid groups) pass through in declaration order, loose
-;; top-level atoms collect into one leading "General" panel — the
-;; presentation-first analogue of pack-node-runs' misc bucket. The returned
-;; list-blocks are the live-list blocks embedded in this level's DIRECT
-;; panels (used to compose on-enter/on-leave hooks, as screen / open do); blocks
-;; under a nested `open` are excluded — they compose onto that open's group.
+;; The non-block node-forms of a loose region, declaration order preserved.
+;; block-spec? distinguishes an embedded live-list / diagram block (carries
+;; 'type) from a node-form (carries 'kind).
+(define (loose-region-nodes loose)
+  (let loop ((rest loose) (acc '()))
+    (cond
+      ((null? rest) (reverse acc))
+      ((block-spec? (car rest)) (loop (cdr rest) acc))
+      (else (loop (cdr rest) (cons (car rest) acc))))))
+
+;; The block-specs of a loose region, declaration order preserved.
+(define (loose-region-blocks loose)
+  (let loop ((rest loose) (acc '()))
+    (cond
+      ((null? rest) (reverse acc))
+      ((block-spec? (car rest)) (loop (cdr rest) (cons (car rest) acc)))
+      (else (loop (cdr rest) acc)))))
+
+;; Flatten the hidden dispatch keys ('block-children) of each loose block into
+;; one list, so find-child resolves them at the screen/open root — the
+;; loose-block analogue of make-panel-node's lift for a panel-embedded block.
+(define (lift-loose-block-children blocks)
+  (let loop ((rest blocks) (acc '()))
+    (cond
+      ((null? rest) acc)
+      (else
+        (let* ((b (car rest))
+               (e (assoc 'block-children b)))
+          (loop (cdr rest) (append acc (if e (cdr e) '()))))))))
+
+;; Lower a panel-grid body — the shared core of screen / open. Returns a
+;; (children loose-region blocks) list:
+;;   • children      — the dispatch children of the screen/open group, in
+;;                     declaration order: loose atoms / folded top-level opens,
+;;                     the lifted hidden keys of loose blocks, then the real
+;;                     panels (categories). find-child / flatten-categories
+;;                     descend through all of them transparently.
+;;   • loose-region  — the ordered loose region the renderer draws BARE above
+;;                     the panel grid: each item is a loose node (a loose atom,
+;;                     or a folded top-level `open` → a drill row) or a loose
+;;                     block-spec (a diagram / live-list → a bare block).
+;;                     Declaration order is preserved so blocks and rows
+;;                     interleave as authored. No "General" panel is created.
+;;   • blocks        — the live-list blocks (loose + panel-embedded) whose
+;;                     on-enter-fn/on-leave-fn compose onto the screen/open
+;;                     group; blocks under a nested `open` are excluded — they
+;;                     compose onto that open's group.
+;; Real panels (categories) pass through to the grid; an `open` declared INSIDE
+;; a panel rides that panel's children (an accent group-row), untouched. Only
+;; loose top-level atoms, top-level opens, and loose top-level blocks land in
+;; the loose region.
 (define (lower-panel-grid-body body)
   (let loop ((rest (expand-splices body)) (panels '()) (loose '()))
     (cond
       ((null? rest)
-       (let* ((general (if (null? loose)
-                         '()
-                         (list (make-panel-node "General" #f (reverse loose)))))
-              (grid (append general (reverse panels)))
-              (blocks (collect-panel-list-blocks grid)))
-         (cons grid blocks)))
-      ((or (category? (car rest))
-           (and (group? (car rest))
-                (eq? (node-renderer (car rest)) 'panel-grid)))
+       (let* ((panels       (reverse panels))
+              (loose-region (reverse loose))
+              (loose-nodes  (loose-region-nodes loose-region))
+              (loose-blocks (loose-region-blocks loose-region))
+              (lifted       (lift-loose-block-children loose-blocks))
+              (children     (append loose-nodes lifted panels))
+              (blocks       (append loose-blocks (collect-panel-list-blocks panels))))
+         (list children loose-region blocks)))
+      ((category? (car rest))
        (loop (cdr rest) (cons (car rest) panels) loose))
       (else
+       ;; A loose atom, a top-level `open` (a panel-grid group), or a loose
+       ;; block-spec — all collect into the ordered loose region.
        (loop (cdr rest) panels (cons (car rest) loose))))))
 
 ;; The live-list blocks across a grid's direct panels (categories), read back
@@ -562,11 +608,14 @@
       (else (loop (cdr rest) acc)))))
 
 ;; Assemble the leading keyword/value head (composed lifecycle hooks +
-;; renderer marker + optional cols / layout) shared by screen and open. BLOCKS
-;; are the embedded list blocks whose on-enter-fn/on-leave-fn compose with the
-;; user thunks. LAYOUT ('masonry | 'grid | #f) rides as an opaque marker the
-;; renderer reads back; #f (the masonry default) carries none.
-(define (panel-grid-head blocks on-enter on-leave sticky display-name exit-unk cols layout)
+;; renderer marker + optional cols / layout / loose) shared by screen and open.
+;; BLOCKS are the embedded list blocks whose on-enter-fn/on-leave-fn compose
+;; with the user thunks. LAYOUT ('masonry | 'grid | #f) rides as an opaque
+;; marker the renderer reads back; #f (the masonry default) carries none. LOOSE
+;; is the ordered loose region (nodes + block-specs); it rides as an opaque
+;; 'loose marker the renderer reads back to draw the bare row block, and is
+;; omitted when empty (every child is a real panel).
+(define (panel-grid-head blocks on-enter on-leave sticky display-name exit-unk cols layout loose)
   (let* ((composed-on-enter (compose-hooks on-enter (filter-fns blocks 'on-enter-fn)))
          (composed-on-leave (compose-hooks on-leave (filter-fns blocks 'on-leave-fn))))
     (append
@@ -577,11 +626,13 @@
       (if exit-unk          (list 'exit-on-unknown exit-unk)   '())
       (if cols              (list 'cols cols)                  '())
       (if layout            (list 'layout layout)              '())
+      (if (null? loose)     '() (list 'loose loose))
       (list 'renderer 'panel-grid))))
 
 ;; (screen 'scope [keywords…] panel…) → registers a panel-grid tree under
-;; 'scope. Body is an implicit grid of panels; loose top-level atoms pack
-;; into a leading "General" panel. Keywords mirror register-tree! (on-enter /
+;; 'scope. Body is an implicit grid of panels; loose top-level atoms, folded
+;; top-level opens, and loose top-level blocks render BARE above the grid (the
+;; loose region — no "General" panel). Keywords mirror register-tree! (on-enter /
 ;; on-leave / sticky / display-name / exit-on-unknown) plus 'cols N — the
 ;; authored column count (default CSS-intrinsic auto-fit, resolved in the
 ;; renderer leaf) — and 'layout ('masonry | 'grid) — the panel-packing mode
@@ -608,12 +659,13 @@
               (error "screen: 'layout must be 'masonry or 'grid" v))
             (loop (cddr rest) on-enter on-leave sticky display-name exit-unk cols v)))))
       (else
-       (let* ((lowered (lower-panel-grid-body rest))
-              (grid    (car lowered))
-              (blocks  (cdr lowered))
-              (head    (panel-grid-head blocks on-enter on-leave sticky
-                                        display-name exit-unk cols layout)))
-         (apply register-tree! scope (append head grid)))))))
+       (let* ((lowered  (lower-panel-grid-body rest))
+              (children (car lowered))
+              (loose    (cadr lowered))
+              (blocks   (caddr lowered))
+              (head     (panel-grid-head blocks on-enter on-leave sticky
+                                         display-name exit-unk cols layout loose)))
+         (apply register-tree! scope (append head children)))))))
 
 ;; (open KEY LABEL [keywords…] panel…) → a navigable group drilling into a
 ;; sub-screen — the panel-native replacement for the old (key K L (overlay …))
@@ -640,12 +692,13 @@
               (error "open: 'layout must be 'masonry or 'grid" v))
             (loop (cddr rest) on-enter on-leave sticky exit-unk cols v)))))
       (else
-       (let* ((lowered (lower-panel-grid-body rest))
-              (grid    (car lowered))
-              (blocks  (cdr lowered))
-              (head    (panel-grid-head blocks on-enter on-leave sticky
-                                        #f exit-unk cols layout)))
-         (apply group key label (append head grid)))))))
+       (let* ((lowered  (lower-panel-grid-body rest))
+              (children (car lowered))
+              (loose    (cadr lowered))
+              (blocks   (caddr lowered))
+              (head     (panel-grid-head blocks on-enter on-leave sticky
+                                         #f exit-unk cols layout loose)))
+         (apply group key label (append head children)))))))
 
 ;; (set-theme! . args) → no-op stub for backward compatibility
 ;; Theming moves to CSS in Phase 3.

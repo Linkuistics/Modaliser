@@ -16,8 +16,20 @@
           string-hash
           ;; Local string helpers (no SRFI 13 in LispKit's bundle,
           ;; so we implement these on (scheme base) directly).
-          string-split string-trim string-contains?)
+          string-split string-trim string-contains?
+          ;; The R7RS (scheme cxr) accessor family — the 3- and 4-deep car/cdr
+          ;; compositions (caddr / cadddr / …). LispKit's (scheme base) provides
+          ;; only the 2-deep accessors (caar/cadr/cdar/cddr), so a (modaliser …)
+          ;; library that wants caddr must reach for (scheme cxr). We RE-EXPORT
+          ;; the standard bindings here so callers can get them from this one
+          ;; base library — and, because they are the very same (scheme cxr)
+          ;; bindings, a library that imports both this and (scheme cxr)
+          ;; directly sees no inconsistent-import conflict.
+          caaar caadr cadar caddr cdaar cdadr cddar cdddr
+          caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
+          cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr)
   (import (scheme base)
+          (scheme cxr)
           (scheme file)
           (scheme write)
           (scheme char)
@@ -117,4 +129,7 @@
               (let scan-right ((j (- len 1)))
                 (if (char-whitespace? (string-ref str j))
                   (scan-right (- j 1))
-                  (substring str i (+ j 1))))))))) ))
+                  (substring str i (+ j 1)))))))))
+    ;; The (scheme cxr) accessors are re-exported, not redefined — see the
+    ;; export list above; nothing to define here.
+    ))

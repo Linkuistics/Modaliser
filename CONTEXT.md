@@ -124,14 +124,22 @@ layout spec *lowers* to it, annotating nodes with presentation metadata
 (`panel`, `span`, `screen`). The dispatch engine (`state-machine.sld`) consumes
 it unchanged.
 
-**Screen** — one navigable level of the overlay: a **grid of panels**. A
-top-level screen is *registered* under a scope **symbol** (the tree-root name a
-leader or `enter-mode!` targets); a deeper level is declared **inline** by an
-`open`, which carries its own grid of panels rather than referencing a registered
-screen by name. On lowering, a screen's root becomes a tree-root group and an
-`open` becomes a navigable `group`, both carrying `'renderer 'panel-grid`. The
-overlay is a tree of screens, one shown at a time. _Avoid_: implying `open`
-resolves a named screen — drill-down sub-screens are anonymous and inline.
+**Screen** — one navigable level of the overlay: a **loose region** above a
+**grid of panels**. A top-level screen is *registered* under a scope **symbol**
+(the tree-root name a leader or `enter-mode!` targets); a deeper level is
+declared **inline** by an `open`, which carries its own body rather than
+referencing a registered screen by name. On lowering, a screen's root becomes a
+tree-root group and an `open` becomes a navigable `group`, both carrying
+`'renderer 'panel-grid`. The overlay is a tree of screens, one shown at a time.
+_Avoid_: implying `open` resolves a named screen — drill-down sub-screens are
+anonymous and inline.
+
+**Loose region** — everything in a screen/open body *not* wrapped in a
+`(panel …)`: loose command rows, folded top-level `open`s (each a drill row),
+and loose **live lists** / diagrams. Rendered **bare** (header-less, no card)
+**above** the panel grid, in declaration order — visual parity with a plain
+`(group …)` or the Settings overlay. _Avoid_: "General panel" — there is no
+auto-collecting card; the loose rows are the screen's own inline rows.
 
 **Panel** — a strongly-separated, banded card in a screen's grid; one declared
 visual grouping. Holds command rows and/or an embedded **live list**. Remains
@@ -145,10 +153,12 @@ old operational-first primitive; the authored unit is now a `panel`.
 explicit span is given.
 
 **Live list** — a dynamic-list block (`window-list`, `iterm-panes`,
-`iterm-tabs`) placed *inside* a panel. Supports a **selection cursor** (`↑↓` /
+`iterm-tabs`) placed inside a panel, or **loose** in a screen/open body (then it
+renders bare in the **loose region**). Supports a **selection cursor** (`↑↓` /
 `k j` move, `⏎` activate) alongside the immediate `1–9` digit-jump selectors.
-The first live-list panel in a screen owns the cursor (multi-list `Tab` cycling
-is a non-goal). Distinct from the **Chip** overlays it can paint.
+The first live list a screen renders owns the cursor — a loose list, serialized
+first, wins over a panel list (multi-list `Tab` cycling is a non-goal). Distinct
+from the **Chip** overlays it can paint.
 
 **Selection cursor** — the movable highlight over a live list's rows: `↑↓` / `k j`
 move it (clamped, no wrap), `⏎` activates the highlighted row. Its activation
@@ -159,9 +169,11 @@ screen renders; the focused row is marked `.is-focused` (accent bar + tint).
 Distinct from a **Selector** (the chooser-opening node) and from the digit
 **selectors** (immediate direct-jump keys).
 
-**Open** — the authored drill-down affordance: `(open KEY LABEL panel…)`. A row
-in a panel that navigates *into* a sub-screen (its own grid of panels). Lowers to
-a navigable `group` carrying `'renderer 'panel-grid`. The only navigable layout
+**Open** — the authored drill-down affordance: `(open KEY LABEL body…)`. A row
+that navigates *into* a sub-screen (its own body). A **top-level** open folds
+into the parent's **loose region** as a single "→ LABEL" drill row; an open
+declared *inside* a panel is an accent group-row in that panel. Lowers to a
+navigable `group` carrying `'renderer 'panel-grid`. The only navigable layout
 form (a `panel`, by contrast, is transparent — it never changes key paths).
 
 **Fragment** — a reusable, named chunk of layout (panels or command rows) spliced

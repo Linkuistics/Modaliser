@@ -48,85 +48,90 @@
 
 ;; ─── Global command tree (F18) ───────────────────────────────────
 ;;
-;; (screen 'scope panel…) registers a tree as a grid of panels (the
+;; (screen 'scope body…) registers a tree as a grid of panels (the
 ;; presentation-first replacement for (define-tree …)). Each (panel
 ;; "Label" child…) is a banded card; its children are dispatch atoms
 ;; (key / keys / open / a live-list block). A panel is TRANSPARENT for
 ;; dispatch — keys keep their paths — so this is purely a presentation
 ;; layer over the same operational tree the state machine reads. Loose
-;; top-level keys (outside any panel) collect into a leading "General"
-;; panel automatically; here they are declared explicitly.
+;; top-level atoms (outside any panel), folded top-level opens, and loose
+;; top-level blocks (a diagram / live-list placed directly in the body)
+;; render BARE in a header-less loose region above the grid — no "General"
+;; card.
 
 (screen 'global
 
-  (panel "General"
-    ;; `key`'s third arg is evaluated at config-load: if it returns a
-    ;; procedure, that's the action thunk; if it returns a pair (a node
-    ;; alist), the node is decorated with this key/label. For inline
-    ;; side-effecting calls like (launch-app "X"), wrap in (lambda () …)
-    ;; so the call fires on key press rather than at config-load.
+  ;; Loose top-level rows — declared outside any (panel …), they render BARE
+  ;; at the top of the screen body (no "General" card), above the panel grid —
+  ;; visual parity with a plain group / the Settings overlay.
+  ;;
+  ;; `key`'s third arg is evaluated at config-load: if it returns a procedure,
+  ;; that's the action thunk; if it returns a pair (a node alist), the node is
+  ;; decorated with this key/label. For inline side-effecting calls like
+  ;; (launch-app "X"), wrap in (lambda () …) so the call fires on key press
+  ;; rather than at config-load.
 
-    ;; Map 1..9 to switch spaces. `keys` is the multi-key sibling of `key`:
-    ;; one labelled row, action gets (key index keylist).
-    (keys '("1" ..) "Switch Space" (λ (k i ks) (send-keystroke '(ctrl) k)))
+  ;; Map 1..9 to switch spaces. `keys` is the multi-key sibling of `key`:
+  ;; one labelled row, action gets (key index keylist).
+  (keys '("1" ..) "Switch Space" (λ (k i ks) (send-keystroke '(ctrl) k)))
 
-    ;; Factory-returned nodes — call site decides the binding key/label.
-    (key "," "Settings"         (settings:actions))
+  ;; Factory-returned nodes — call site decides the binding key/label.
+  (key "," "Settings"         (settings:actions))
 
-    ;; Find the mouse cursor (F18 → space): a glowing ring converges on the
-    ;; pointer, and a 1px nudge reveals a cursor an app left idle-hidden.
-    ;; From the bundled (modaliser cursor) library. Every keyword arg is
-    ;; optional; bare (highlight-cursor) uses the defaults shown here:
-    ;;   'color     "#FFCC33"  ring + glow colour, hex string ("#RGB" or "#RRGGBB")
-    ;;   'size      240        starting ring diameter, px (it converges inward)
-    ;;   'thickness 6          ring stroke width, px
-    ;;   'glow      18         glow blur radius around the ring, px
-    ;;   'duration  0.45       animation length, seconds
-    ;;   'nudge     #t         #f to skip the reveal-hidden-cursor mouse nudge
-    (key " " "Highlight Cursor"
-         (λ () (highlight-cursor 'duration 1 'thickness 16)))
+  ;; Find the mouse cursor (F18 → space): a glowing ring converges on the
+  ;; pointer, and a 1px nudge reveals a cursor an app left idle-hidden.
+  ;; From the bundled (modaliser cursor) library. Every keyword arg is
+  ;; optional; bare (highlight-cursor) uses the defaults shown here:
+  ;;   'color     "#FFCC33"  ring + glow colour, hex string ("#RGB" or "#RRGGBB")
+  ;;   'size      240        starting ring diameter, px (it converges inward)
+  ;;   'thickness 6          ring stroke width, px
+  ;;   'glow      18         glow blur radius around the ring, px
+  ;;   'duration  0.45       animation length, seconds
+  ;;   'nudge     #t         #f to skip the reveal-hidden-cursor mouse nudge
+  (key " " "Highlight Cursor"
+       (λ () (highlight-cursor 'duration 1 'thickness 16)))
 
-    ;; Window manager drill-down ("w"). (open KEY LABEL panel…) is the
-    ;; navigable, panel-native replacement for the old (key K L (overlay …))
-    ;; idiom: pressing "w" descends into a sub-screen whose own grid holds
-    ;; the layout diagram, the select/restore actions, and the live windows
-    ;; list. Swap in different (window:layout-block …) matrices to change the
-    ;; layout; chip styling lives in the .chip CSS rule (base.css +
-    ;; ~/.config/modaliser/overlay.css — see docs/reference/theming.md).
-    (open "w" "Windows"
+  ;; Window manager drill-down ("w"). (open KEY LABEL body…) is the navigable,
+  ;; panel-native replacement for the old (key K L (overlay …)) idiom: pressing
+  ;; "w" folds in here as a "→ Windows" drill row among the loose rows, and
+  ;; descends into its sub-screen. That sub-screen is FLAT (no panel cards): the
+  ;; layout diagram and the live windows list are loose top-level blocks — they
+  ;; render BARE on the body tint — with s/r as loose rows between them. Swap in
+  ;; different (window:layout-block …) matrices to change the layout; chip
+  ;; styling lives in the .chip CSS rule (base.css +
+  ;; ~/.config/modaliser/overlay.css — see docs/reference/theming.md).
+  (open "w" "Windows"
 
-      ;; The layout diagram. Each form is a matrix of keys (with #f for
-      ;; empty cells), or (center K) for the inward-arrows centre panel. The
-      ;; diagram draws each cell's key, so it embeds as a (wide) panel: the
-      ;; matching move-window bindings ride hidden under it for dispatch.
-      (panel "Layout"
-        (window:layout-block
-         (("d" "f" "g"))                           ; full thirds
-         (("D" "F" "G")
-          ("C" "V" "B"))                           ; half thirds
-         (("e" "e" #f))                            ; left two-thirds
-         ((#f "t" "t"))                            ; right two-thirds
-         (("q" "w"))                               ; halves
-         (("Q" "W")                                ; quarters
-          ("A" "S"))
-         (("m"))                                   ; maximise (full cell)
-         (center "c")))                            ; centre (inward arrows)
+    ;; The layout diagram, loose at the top level → rendered bare: its
+    ;; transparent empty cells reveal the body tint, so window-size proportions
+    ;; read. Each form is a matrix of keys (with #f for empty cells), or
+    ;; (center K) for the inward-arrows centre panel. The diagram draws each
+    ;; cell's key; the matching move-window bindings ride hidden under it for
+    ;; dispatch.
+    (window:layout-block
+     (("d" "f" "g"))                           ; full thirds
+     (("D" "F" "G")
+      ("C" "V" "B"))                           ; half thirds
+     (("e" "e" #f))                            ; left two-thirds
+     ((#f "t" "t"))                            ; right two-thirds
+     (("q" "w"))                               ; halves
+     (("Q" "W")                                ; quarters
+      ("A" "S"))
+     (("m"))                                   ; maximise (full cell)
+     (center "c"))                             ; centre (inward arrows)
 
-      ;; Window actions that aren't geometry presets.
-      (panel "Select"
-        (key "s" "Select Window"
-             (selector 'prompt "Select window by name…"
-                       'source list-windows
-                       'on-select focus-window))
-        (key "r" "Restore" (λ () (restore-window))))
+    ;; Window actions that aren't geometry presets — loose rows.
+    (key "s" "Select Window"
+         (selector 'prompt "Select window by name…"
+                   'source list-windows
+                   'on-select focus-window))
+    (key "r" "Restore" (λ () (restore-window)))
 
-      ;; Labelled windows list. 'chips? #t enables the on-screen window
-      ;; chips. Chip appearance (colour, font, padding, …) is controlled by
-      ;; the .chip CSS rule and inherits the host-header colour automatically
-      ;; — no per-callsite plumbing required. A panel holding a live list
-      ;; auto-promotes to a wide (2-column) span.
-      (panel "Windows"
-        (window:list-block 'chips? #t))))
+    ;; Labelled windows list, loose at the top level → rendered bare. 'chips? #t
+    ;; enables the on-screen window chips. Chip appearance (colour, font,
+    ;; padding, …) is controlled by the .chip CSS rule and inherits the
+    ;; host-header colour automatically — no per-callsite plumbing required.
+    (window:list-block 'chips? #t))
 
   (panel "Applications"
     (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
@@ -214,7 +219,8 @@
 
 (screen 'com.googlecode.iterm2
 
-  ;; Loose top-level rows — they pack into a leading "General" panel.
+  ;; Loose top-level rows — they render bare at the top of the screen body
+  ;; (no "General" card), above the Focus / Panes panels.
   (key "c" "Copy Mode"   (λ () (send-keystroke '(cmd shift) "c")))
   (key "z" "Toggle Zoom" (λ () (send-keystroke '(cmd shift) "return")))
 

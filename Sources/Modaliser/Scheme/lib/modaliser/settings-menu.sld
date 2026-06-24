@@ -7,8 +7,7 @@
 ;; Quick start (prefix-style import — recommended):
 ;;   (import (prefix (modaliser settings-menu) settings:))
 ;;   (screen 'global
-;;     (panel "General"
-;;       (settings:actions))
+;;     (settings:actions)   ; a loose top-level row — renders bare, no card
 ;;     …)
 ;;
 ;; Options (all keyword-style, all optional):
