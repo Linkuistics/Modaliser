@@ -158,7 +158,19 @@ old operational-first primitive; the authored unit is now a `panel`.
 
 **Span** — a panel's width hint: `narrow` (1 column, default) | `wide` (2) |
 `full` (all). A panel holding a live list auto-promotes to `wide` unless an
-explicit span is given.
+explicit span is given. Spans are relative to the **balanced** column count
+(below): `wide` = 2 of the chosen columns, `full` = all of them.
+
+**Column balancing** — the renderer chooses the overlay body's column count by
+**aspect-ratio balance**, not by maximizing what fits: a JS pass measures the
+rendered content and picks the count whose grid shape is closest to a target
+width:height ratio (≈ 1.4). An authored `'cols N` hard-pins instead (the only
+override). The **loose region** and the **grid of panels** share one overlay
+**width** but pack into *different* counts — a bare key-row is narrower than a
+panel card, so loose rows columnize into more columns than the panels to fill the
+same width; loose **blocks** (diagram, live list) stay full-width. _Avoid_:
+"auto-fit columns" as the live behaviour — CSS auto-fit is only the no-JS
+fallback now; the default is the JS balance.
 
 **Row order** — a panel's row-ordering mode: `keys` (key-sorted, default) |
 `declared` (declaration order). Authored via the `'order` keyword on `panel`,
