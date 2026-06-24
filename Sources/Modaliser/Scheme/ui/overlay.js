@@ -150,11 +150,13 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
   // Loose region (bare-loose-rows-k23): a screen's loose top-level rows,
   // folded top-level opens, and loose bare blocks render header-less directly
   // on the body tint, ABOVE the panel grid — like the Settings overlay's
-  // Edit/Reload rows. Empty array → no .panel-loose block at all.
+  // Edit/Reload rows. Empty array → no .panel-loose block at all. The element
+  // is appended now (so loose blocks lay out and contribute to the overlay's
+  // max-content width) but its rows are columnized LAST, once the grid is
+  // balanced and the overlay width has settled (loose-row-columns-k33).
   var loose = data.loose || [];
-  if (loose.length) {
-    root.appendChild(renderLoose(loose));
-  }
+  var looseEl = loose.length ? renderLoose(loose) : null;
+  if (looseEl) root.appendChild(looseEl);
 
   // The masonry grid of real panel cards. Empty array (a loose-only screen)
   // → no .panel-grid, so nothing renders an empty box.
@@ -185,6 +187,13 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
       balancePanelGridColumns(grid, panels);
     }
   }
+
+  // Columnize the loose rows LAST — now the panel grid is balanced and any
+  // loose blocks are laid out, the width:max-content overlay has settled to its
+  // content width W = max(Wp, Wb). layoutLooseColumns reads that and fills it
+  // with each row-run's own column count (loose-row-columns-k33).
+  if (looseEl) layoutLooseColumns(looseEl);
+
   notifyResize();
 };
 
@@ -253,24 +262,90 @@ function balancePanelGridColumns(grid, panels) {
   }
 }
 
-// renderLoose — the header-less loose region: a flex column of loose rows and
-// bare blocks, declaration order preserved. Each item is distinguished by
-// shape (matching loose-region-json in overlay.scm): a block carries `type`
-// and is drawn bare via the SAME renderPanelList path the panels use (CSS
-// strips the inset chrome inside .panel-loose); a row carries `key` and is
-// drawn with the canonical renderPanelRow.
+// renderLoose — the header-less loose region: a flex column of bare blocks and
+// row-grid runs, declaration order preserved. Each item is distinguished by
+// shape (matching loose-region-json in overlay.scm): a block carries `type` and
+// is drawn full-width via the SAME renderPanelList path the panels use (CSS
+// strips the inset chrome inside .panel-loose); a row carries `key` and is drawn
+// with the canonical renderPanelRow.
+//
+// Consecutive rows are grouped into a .panel-loose-rows RUN (loose-row-columns-
+// k33) — a block closes the open run, so a row-run is exactly the rows between
+// two blocks (or the whole loose region when there are none). layoutLooseColumns
+// later columnizes each run to fill the established width; blocks stay full-width
+// siblings. Grouping by run (not the whole region) keeps declaration order: a
+// diagram / s,r / list screen renders block, then the s,r grid, then block.
 function renderLoose(items) {
   var block = document.createElement('div');
   block.className = 'panel-loose';
+  var run = null;   // the open row-run, or null between/around blocks
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
     if (item && item.type) {
+      run = null;   // a full-width block ends the current run
       block.appendChild(renderPanelList(item));
     } else {
-      block.appendChild(renderPanelRow(item));
+      if (!run) {
+        run = document.createElement('div');
+        run.className = 'panel-loose-rows';
+        block.appendChild(run);
+      }
+      run.appendChild(renderPanelRow(item));
     }
   }
   return block;
+}
+
+// Loose-row min track width — the natural width of one key-row (keycap + arrow +
+// label), narrower than a 184px panel card, so loose rows columnize into MORE
+// columns than the panels to fill the same width. A fixed JS/CSS policy paired
+// with --loose-row-min-width / --loose-row-col-gap in base.css (the CSS fallbacks
+// match these, so a theme can retune in one place). responsive-columns-k30.
+var LOOSE_ROW_MIN_WIDTH = 168;
+var LOOSE_ROW_COL_GAP = 16;
+
+// layoutLooseColumns — fill the loose region's row-runs with their own column
+// count. The overlay is width:max-content, so it has ALREADY resolved to the
+// content width W = max(Wp, Wb) — Wp the balanced panel grid, Wb the widest
+// loose block — by the time this runs (after the grid is balanced). We read that
+// settled width off the loose region (its runs are still single-column, so they
+// don't drive it), then give each run floor((W+gap)/(minW+gap)) columns, capped
+// by the run's own row count so a short run doesn't over-spread into 1-row
+// columns. Each run is pinned to W px so its multi-column grid can FILL W but
+// never inflate the overlay past the width the rest established (its 1fr tracks
+// fill W; they don't drive it). Mirrors balancePanelGridColumns' measure-then-set
+// + fonts.ready guard.
+function layoutLooseColumns(looseEl) {
+  var runs = looseEl.querySelectorAll(':scope > .panel-loose-rows');
+  if (!runs.length) return;   // blocks-only loose region — nothing to columnize
+
+  var cs = getComputedStyle(looseEl);
+  var padL = parseFloat(cs.paddingLeft) || 0;
+  var padR = parseFloat(cs.paddingRight) || 0;
+  var W = looseEl.clientWidth - padL - padR;   // forces sync layout
+  if (W <= 0) return;
+  var minW = parseFloat(cs.getPropertyValue('--loose-row-min-width')) || LOOSE_ROW_MIN_WIDTH;
+  var gap = parseFloat(cs.getPropertyValue('--loose-row-col-gap')) || LOOSE_ROW_COL_GAP;
+  var fit = Math.max(1, Math.floor((W + gap) / (minW + gap)));
+
+  for (var i = 0; i < runs.length; i++) {
+    var run = runs[i];
+    var n = Math.max(1, Math.min(run.childElementCount, fit));
+    run.style.width = W + 'px';
+    run.style.setProperty('--loose-row-cols', String(n));
+  }
+
+  // Font-swap guard, mirroring balancePanelGridColumns: the bundled IBM Plex
+  // faces load async and the panel grid re-balances on swap (its own guard), so
+  // W can change. Re-run once the faces settle so the runs keep filling the
+  // grid's final width. The grid's guard, registered first (balance runs before
+  // this), re-balances before this re-reads the updated width — fonts.ready's
+  // .then callbacks fire in registration order.
+  if (document.fonts && document.fonts.status !== 'loaded') {
+    document.fonts.ready.then(function() {
+      if (looseEl.isConnected) { layoutLooseColumns(looseEl); notifyResize(); }
+    });
+  }
 }
 
 // renderPanel — one banded card: header + key rows + optional live list.

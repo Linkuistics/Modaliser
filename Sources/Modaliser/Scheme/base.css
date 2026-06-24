@@ -445,16 +445,42 @@ body {
  * with the inset card stripped here so they float on the tint like .panel--bare.
  * Empty loose region → the JS draws no .panel-loose at all. */
 .panel-loose {
+  /* Loose-row columnization tokens (loose-row-columns-k33). Read by
+   * layoutLooseColumns (overlay.js) off this element and inherited by the
+   * .panel-loose-rows runs for their column-gap; the JS fallbacks match these
+   * so a theme can retune the loose-row track width / gutter in one place. */
+  --loose-row-min-width: 168px;
+  --loose-row-col-gap: 16px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   /* Separator before the panel grid below. On a loose-only screen (no grid)
    * the trailing margin is absorbed by the body padding — harmless. */
   margin-bottom: 10px;
-  padding: 0 8px;
+  /* No horizontal padding: the loose region fills the same body content box as
+   * the panel grid, so a columnized run's left/right edges line up with the
+   * card grid's (loose-row-columns-k33). */
+  padding: 0;
 }
 
-/* Loose rows — the same keycap / arrow / label mini-grid the panel rows use. */
+/* A run of consecutive loose key-rows, columnized to fill the width the panel
+ * grid / loose blocks established (loose-row-columns-k33). The column count and
+ * the run's pixel width are set inline by layoutLooseColumns once the overlay
+ * width settles; this single-column fallback holds for the pre-JS first paint.
+ * minmax(0, …) lets a track shrink below its content so long labels ellipsize
+ * rather than push the run past W. */
+.panel-loose-rows {
+  display: grid;
+  grid-template-columns: repeat(var(--loose-row-cols, 1), minmax(0, 1fr));
+  column-gap: var(--loose-row-col-gap, 16px);
+  row-gap: 2px;
+  align-items: start;
+}
+
+/* Loose rows — the same keycap / arrow / label mini-grid the panel rows use.
+ * In a tight multi-column run a label can exceed its share of W; the global
+ * .entry-label rule already ellipsizes (min-width:0 + overflow:hidden), so the
+ * 1fr label track shrinks rather than widening the run past W. */
 .panel-loose .wk-row {
   display: grid;
   grid-template-columns: max-content max-content 1fr;

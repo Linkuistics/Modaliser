@@ -301,6 +301,25 @@ struct PanelGridRendererTests {
         #expect(css.contains(".panel-loose"))
     }
 
+    @Test func overlayJsColumnizesLooseRows() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let js = try String(contentsOfFile: joinPath(schemePath, "ui/overlay.js"), encoding: .utf8)
+        let css = try String(contentsOfFile: joinPath(schemePath, "base.css"), encoding: .utf8)
+        // renderLoose groups consecutive rows into .panel-loose-rows runs, and
+        // layoutLooseColumns fills each run with its own column count to span the
+        // width the panel grid / loose blocks established (loose-row-columns-k33).
+        // Like the panel balance, the pure-JS measurement can't run in this suite
+        // (no browser layout engine) — these structural anchors assert the path
+        // exists; live verification is the behavioural gate.
+        #expect(js.contains("panel-loose-rows"))
+        #expect(js.contains("layoutLooseColumns"))
+        #expect(css.contains(".panel-loose-rows"))
+        #expect(css.contains("--loose-row-cols"))
+    }
+
     // MARK: - opens
 
     @Test func nestedOpenRendersAsGroupRowInsidePanel() throws {
