@@ -133,7 +133,8 @@ window.overlayBlockRenderers = window.overlayBlockRenderers || {};
 // span. By default base.css packs the cards as masonry (display: grid-lanes)
 // so a short panel tucks under a shorter neighbour; an authored `layout:"grid"`
 // sets data-layout="grid" to switch to deterministic aligned placement. The
-// column count is CSS-intrinsic (auto-fit) unless the payload carries `cols`.
+// column count is JS aspect-balanced (balancePanelGridColumns) by default; an
+// authored `cols` hard-pins it; base.css's auto-fit is the pre-JS fallback.
 //
 // Bootstrap passes the `.overlay-custom-body` div as `container` (chrome is
 // already baked into the initial HTML); push-updates pass none, so we refresh
@@ -161,12 +162,9 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
   if (panels.length) {
     var grid = document.createElement('div');
     grid.className = 'panel-grid';
-    // Authored column count pins the track count; absent, base.css auto-fits.
-    if (typeof data.cols === 'number') {
-      grid.style.setProperty('--panel-grid-cols', String(data.cols));
-    }
     // Authored packing mode; absent, base.css packs as masonry. Only
     // data-layout="grid" has a CSS override, so 'masonry stays the default.
+    // Set BEFORE balancing so the measured lane/aligned heights reflect it.
     if (typeof data.layout === 'string') {
       grid.setAttribute('data-layout', data.layout);
     }
@@ -174,9 +172,86 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
       grid.appendChild(renderPanel(panels[i]));
     }
     root.appendChild(grid);
+    // Column count: an authored `cols` hard-pins the track count and skips
+    // measurement (the only override). Absent, balance the grid in JS — pick
+    // the count whose rendered shape is closest to the target ratio, superseding
+    // base.css's auto-fit default (responsive-columns-k30). The grid must
+    // already be in the DOM (appended above) so the balance can measure it, and
+    // it runs before notifyResize → the native panel is sized/shown from the
+    // balanced layout, so there's no visible column-count flash.
+    if (typeof data.cols === 'number') {
+      grid.style.setProperty('--panel-grid-cols', String(data.cols));
+    } else {
+      balancePanelGridColumns(grid, panels);
+    }
   }
   notifyResize();
 };
+
+// Target overall width:height for the panel grid — a fixed JS policy constant
+// (the user declined exposing it; responsive-columns-k30). The balance picks
+// the column count whose shape lands closest to this.
+var PANEL_GRID_TARGET_RATIO = 1.4;
+
+// balancePanelGridColumns — choose --panel-grid-cols by aspect balance instead
+// of CSS auto-fit (which always maximizes the track count, so three short panels
+// render as three columns where two read better). Revives the spirit of the
+// deleted overlay aspect search, but measures the real layout per candidate
+// rather than predicting it: for each plausible column count we pin the tracks,
+// force a synchronous reflow, read the grid's rendered (width,height), and keep
+// the count minimizing |width/height − target|. Measuring (vs predicting lane
+// packing) lets the browser do the real masonry/aligned packing, span placement,
+// and content-height layout for us — so it's correct under both the masonry
+// default and layout:"grid", and honours wide/full spans for free.
+//
+// No visible flash: style writes don't paint until the JS task yields, and
+// reading offset* forces layout but not paint, so only the final count is ever
+// rendered — even on a live push-update while the overlay is already showing.
+function balancePanelGridColumns(grid, panels) {
+  var cs = getComputedStyle(grid);
+  // Fall back to base.css's inline defaults (these tokens aren't set in :root).
+  var minWidth = parseFloat(cs.getPropertyValue('--panel-min-width')) || 184;
+  var gap = parseFloat(cs.getPropertyValue('--panel-gap')) || 10;
+  var maxWidth = parseFloat(cs.getPropertyValue('--panel-grid-max-width')) || 760;
+  // Upper bound 1: how many min-width tracks fit under the grid's max-width cap.
+  var maxFit = Math.floor((maxWidth + gap) / (minWidth + gap));
+  // Upper bound 2: the panels' own column demand. A wide panel wants two tracks,
+  // a narrow one; a full panel spans the row at any count, so it adds none. More
+  // columns than this only ever creates empty tracks (which inflate width and so
+  // are never the argmin anyway, but bounding the loop keeps it honest).
+  var demand = 0;
+  for (var i = 0; i < panels.length; i++) {
+    var span = panels[i] && panels[i].span;
+    demand += (span === 'full') ? 0 : (span === 'wide') ? 2 : 1;
+  }
+  var maxCols = Math.max(1, Math.min(maxFit, demand || 1));
+  if (maxCols <= 1) {
+    grid.style.setProperty('--panel-grid-cols', '1');
+    return;
+  }
+  var bestCols = 1, bestDelta = Infinity;
+  for (var c = 1; c <= maxCols; c++) {
+    grid.style.setProperty('--panel-grid-cols', String(c));
+    var w = grid.offsetWidth, h = grid.offsetHeight;   // forces sync layout
+    if (h <= 0) continue;
+    var delta = Math.abs((w / h) - PANEL_GRID_TARGET_RATIO);
+    if (delta < bestDelta) { bestDelta = delta; bestCols = c; }
+  }
+  grid.style.setProperty('--panel-grid-cols', String(bestCols));
+
+  // Font-swap guard: the bundled IBM Plex faces load async, so a bootstrap
+  // balance can measure fallback-font metrics and lock a stale count. If the
+  // faces aren't ready yet, re-balance once they settle — the panels reflow on
+  // swap regardless, so the corrected count rides that same reflow rather than
+  // adding a separate flash. fonts.ready resolves immediately when already
+  // loaded; the recursion ends after one pass (status === 'loaded' then), and
+  // the isConnected guard skips a grid a later render has replaced.
+  if (document.fonts && document.fonts.status !== 'loaded') {
+    document.fonts.ready.then(function() {
+      if (grid.isConnected) { balancePanelGridColumns(grid, panels); notifyResize(); }
+    });
+  }
+}
 
 // renderLoose — the header-less loose region: a flex column of loose rows and
 // bare blocks, declaration order preserved. Each item is distinguished by

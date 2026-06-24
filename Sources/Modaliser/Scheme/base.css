@@ -347,11 +347,14 @@ body {
  * bodies stay on the white card. The card is edge-to-edge (.overlay has no
  * padding), so the body strip owns its own padding under the band above.
  *
- * Column count: CSS-intrinsic auto-fit by default — panels flow into as many
- * --panel-min-width tracks as fit, capped by --panel-grid-max-width so the
- * grid wraps inside the width:max-content .overlay rather than stretching to
- * one row. An authored `cols` (payload → --panel-grid-cols, set inline by
- * overlay.js) pins an explicit track count instead.
+ * Column count: --panel-grid-cols, set inline by overlay.js. By default the JS
+ * aspect-balances it (balancePanelGridColumns) — measuring the laid-out grid
+ * and picking the count whose shape is closest to a target ratio — and an
+ * authored `cols` pins an explicit count. The auto-fit fallback below applies
+ * only when --panel-grid-cols is unset (pre-JS first paint / no-JS edge case):
+ * panels flow into as many --panel-min-width tracks as fit, capped by
+ * --panel-grid-max-width so the grid wraps inside the width:max-content .overlay
+ * rather than stretching to one row.
  *
  * Packing: masonry by default (display: grid-lanes, Safari 26.4+) — each panel
  * drops into the shortest lane, so a short panel tucks up under a shorter

@@ -431,6 +431,22 @@ struct PanelGridRendererTests {
         #expect(js.contains("data-layout"))
     }
 
+    @Test func overlayJsBalancesPanelColumnsByDefault() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let js = try String(contentsOfFile: joinPath(schemePath, "ui/overlay.js"), encoding: .utf8)
+        // When the payload omits `cols`, the renderer measures the laid-out grid
+        // and picks the column count whose shape is closest to the target ratio
+        // (responsive-columns-k30 / panel-aspect-balance-k32). The pure-JS
+        // balance can't be exercised in this suite (no browser layout engine);
+        // these structural anchors assert the default path exists, and live
+        // verification is the behavioural gate. Authored `cols` still hard-pins.
+        #expect(js.contains("balancePanelGridColumns"))
+        #expect(js.contains("PANEL_GRID_TARGET_RATIO"))
+    }
+
     // MARK: - row order (manual-panel-order-k24)
 
     // Rows declared "z" then "a" discriminate the two orderings: declaration
