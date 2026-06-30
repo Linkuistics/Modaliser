@@ -4,6 +4,32 @@ import AppKit
 /// Requires Accessibility permissions to function.
 enum WindowManipulator {
 
+    /// One display's identity + AX-visible-frame geometry, used by
+    /// `(list-displays)` to power display-chip placement and the
+    /// proportional move-remap. `frame` is the visible frame (menu bar +
+    /// Dock excluded) in AX top-left coords — the same space `move-window`
+    /// and `hints-show` use. `id` is the stable CGDirectDisplayID.
+    struct DisplayInfo {
+        let id: CGDirectDisplayID
+        let frame: CGRect
+        let isPrimary: Bool
+    }
+
+    /// All displays, left-to-right by visible-frame x. `is-primary` flags
+    /// `NSScreen.screens[0]` (the menu-bar display) regardless of sort
+    /// position — a display to the left has a smaller x but isn't primary.
+    static func listDisplays() -> [DisplayInfo] {
+        let primary = NSScreen.screens.first
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        return NSScreen.screens.map { screen in
+            let id = (screen.deviceDescription[key] as? NSNumber)?.uint32Value ?? 0
+            return DisplayInfo(
+                id: id,
+                frame: axVisibleFrame(for: screen),
+                isPrimary: screen === primary)
+        }.sorted { $0.frame.origin.x < $1.frame.origin.x }
+    }
+
     /// Activate an app by PID — switches to its Space if on another Space.
     static func activateApp(ownerPID: pid_t) {
         guard let app = NSRunningApplication(processIdentifier: ownerPID) else { return }
@@ -106,7 +132,7 @@ enum WindowManipulator {
 
     /// Convert an NSScreen's visibleFrame from Cocoa coordinates (bottom-left origin)
     /// to screen coordinates (top-left origin) used by the Accessibility API.
-    private static func axVisibleFrame(for screen: NSScreen) -> CGRect {
+    static func axVisibleFrame(for screen: NSScreen) -> CGRect {
         let primaryHeight = NSScreen.screens[0].frame.height
         let cocoa = screen.visibleFrame
         return CGRect(

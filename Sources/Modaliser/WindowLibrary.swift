@@ -32,6 +32,7 @@ final class WindowLibrary: NativeLibrary {
         self.define(Procedure("window-visible-at?", windowVisibleAtFunction))
         self.define(Procedure("find-chip-position", findChipPositionFunction))
         self.define(Procedure("focused-window", focusedWindowFunction))
+        self.define(Procedure("list-displays", listDisplaysFunction))
     }
 
     // MARK: - Functions
@@ -325,6 +326,28 @@ final class WindowLibrary: NativeLibrary {
             ("w", .fixnum(Int64(f.frame.size.width))),
             ("h", .fixnum(Int64(f.frame.size.height))),
         ], symbols: self.context.symbols)
+    }
+
+    /// (list-displays) → list of alists, one per display, left-to-right by x.
+    /// Each: ((id . N) (x . X) (y . Y) (w . W) (h . H) (is-primary . BOOL)).
+    /// Coords are the display's AX-visible frame — the space move-window,
+    /// list-current-space-windows, and hints-show all use. Powers both
+    /// display-chip placement and the proportional move-remap.
+    private func listDisplaysFunction() -> Expr {
+        let displays = WindowManipulator.listDisplays()
+        var result: Expr = .null
+        for d in displays.reversed() {
+            let alist = SchemeAlistLookup.makeAlist([
+                ("id", .fixnum(Int64(d.id))),
+                ("x", .fixnum(Int64(d.frame.origin.x))),
+                ("y", .fixnum(Int64(d.frame.origin.y))),
+                ("w", .fixnum(Int64(d.frame.size.width))),
+                ("h", .fixnum(Int64(d.frame.size.height))),
+                ("is-primary", .makeBoolean(d.isPrimary)),
+            ], symbols: self.context.symbols)
+            result = .pair(alist, result)
+        }
+        return result
     }
 
     // MARK: - Helpers
