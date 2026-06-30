@@ -64,6 +64,19 @@ struct WindowLibraryTests {
         #expect(try engine.evaluate("(procedure? list-displays)") == .true)
     }
 
+    @Test func setFocusedWindowFrameIsProcedure() throws {
+        // Mutator — existence check only; calling it would move a real window.
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? set-focused-window-frame)") == .true)
+    }
+
+    @Test func focusDisplayIsProcedure() throws {
+        // Mutator — existence check only; calling it would warp the mouse /
+        // raise a real window in the user's live session.
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? focus-display)") == .true)
+    }
+
     @Test func listDisplaysReturnsWellFormedAlists() throws {
         // Read-only primitive — safe to call. Assert structural shape and
         // left-to-right (ascending x) ordering without asserting a concrete

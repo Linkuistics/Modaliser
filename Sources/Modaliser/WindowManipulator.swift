@@ -92,6 +92,73 @@ enum WindowManipulator {
         }
     }
 
+    /// Absolute placement of the focused window in AX coords — the absolute
+    /// sibling of fractional `moveFocusedWindow`. Resolves the window via the
+    /// same cold-AX-safe path, saves its frame first (so `restore-window`
+    /// still works), and wraps the writes in `withResizableApp` (the EUI flip).
+    static func setFocusedWindowFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+        guard let (window, frame) = focusedWindowAndFrame() else { return }
+        saveFrame(window, frame: frame)
+        withResizableApp(window) {
+            setWindowPosition(window, x: x, y: y)
+            setWindowSize(window, width: width, height: height)
+        }
+    }
+
+    /// Give keyboard focus to display `id` so macOS Space / Mission-Control
+    /// keyboard commands act on it. (1) Find the topmost regular window whose
+    /// bounds-centre lies on the display by walking CGWindowList front-to-back
+    /// (z-order); raise it (AXRaise + AXMain + AXFocused) and activate its app.
+    /// (2) Warp the mouse to the display centre. (3) If no window was found,
+    /// synthesize a desktop click so the display still becomes active.
+    static func focusDisplay(_ id: CGDirectDisplayID) {
+        let bounds = CGDisplayBounds(id)   // global display coords, top-left origin
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        var raised = false
+
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        if let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
+            for entry in list {
+                guard let pid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                      pid != myPID,
+                      let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue,
+                      layer == 0,   // 0 == normal app window layer; skip menus/overlays
+                      let b = entry[kCGWindowBounds as String] as? [String: Any],
+                      let bx = (b["X"] as? NSNumber)?.doubleValue,
+                      let by = (b["Y"] as? NSNumber)?.doubleValue,
+                      let bw = (b["Width"] as? NSNumber)?.doubleValue,
+                      let bh = (b["Height"] as? NSNumber)?.doubleValue
+                else { continue }
+                let windowCenter = CGPoint(x: bx + bw / 2, y: by + bh / 2)
+                if !bounds.contains(windowCenter) { continue }
+
+                // Best-effort: raise the AX window whose origin matches this
+                // CGWindowList entry, then activate the owning app.
+                let appElement = AXUIElementCreateApplication(pid)
+                if let windows = axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement] {
+                    for w in windows {
+                        if let pos = axPosition(w),
+                           abs(pos.x - bx) < 2, abs(pos.y - by) < 2 {
+                            AXUIElementSetAttributeValue(w, kAXMainAttribute as CFString, kCFBooleanTrue)
+                            AXUIElementSetAttributeValue(w, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+                            AXUIElementPerformAction(w, kAXRaiseAction as CFString)
+                            break
+                        }
+                    }
+                }
+                NSRunningApplication(processIdentifier: pid)?.activate()
+                raised = true
+                break
+            }
+        }
+
+        warpMouse(to: center)
+        if !raised {
+            synthesizeClick(at: center)
+        }
+    }
+
     /// Toggle fullscreen on the focused window.
     static func toggleFullscreen() {
         guard let (window, frame) = focusedWindowAndFrame() else { return }
@@ -273,5 +340,28 @@ enum WindowManipulator {
         var size = CGSize.zero
         AXValueGetValue(value as! AXValue, .cgSize, &size)
         return size
+    }
+
+    /// Warp the cursor to `p` and post a synthetic mouse-moved event so the
+    /// window server registers the cursor on the destination display.
+    private static func warpMouse(to p: CGPoint) {
+        CGWarpMouseCursorPosition(p)
+        if let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                              mouseCursorPosition: p, mouseButton: .left) {
+            move.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// Synthesize a left click at `p` — used only when no window was found on
+    /// the target display, so the desktop click still makes the display active.
+    private static func synthesizeClick(at p: CGPoint) {
+        let src = CGEventSource(stateID: .hidSystemState)
+        if let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown,
+                              mouseCursorPosition: p, mouseButton: .left),
+           let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp,
+                            mouseCursorPosition: p, mouseButton: .left) {
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+        }
     }
 }
