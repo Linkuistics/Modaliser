@@ -963,3 +963,13 @@ body {
 .chip.faded {
   background: #6f8baa;
 }
+
+/* Display-chip variant — round, top-right chips painted one per display in
+ * the Windows menu (sibling of the square, top-left window chips). The painter
+ * makes them round (corner-radius = size/2, computed in display-chip-for), so
+ * this rule only carries the distinct colour: teal, to read apart from the
+ * dodgerblue window chips. The 'display variant of (current-chip-theme)
+ * resolves these values through the boot-time probe. */
+.chip.display {
+  background: #2ca58d;
+}

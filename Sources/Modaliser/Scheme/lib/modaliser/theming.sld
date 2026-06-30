@@ -95,14 +95,29 @@
             (cons 'border-width 1)
             (cons 'border-color "#000000")))
 
+    ;; Display-chip seed — mirrors .chip + .chip.display in base.css. Distinct
+    ;; teal background so display chips read apart from the dodgerblue window
+    ;; chips even before the probe resolves the live CSS. The painter
+    ;; (display-chip-for) computes the round corner-radius itself, so the
+    ;; corner-radius value here is unused for display chips.
+    (define chip-theme-display
+      (list (cons 'color "#ffffff")
+            (cons 'background "#2ca58d")
+            (cons 'font-size 56)
+            (cons 'padding 16)
+            (cons 'corner-radius 8)
+            (cons 'border-width 1)
+            (cons 'border-color "#000000")))
+
     ;; (current-chip-theme [variant]) — variant is 'normal (default) or 'faded.
     (define (current-chip-theme . args)
       (let ((variant (if (null? args) 'normal (car args))))
         (cond
-          ((eq? variant 'normal) chip-theme-normal)
-          ((eq? variant 'faded)  chip-theme-faded)
+          ((eq? variant 'normal)  chip-theme-normal)
+          ((eq? variant 'faded)   chip-theme-faded)
+          ((eq? variant 'display) chip-theme-display)
           (else (error
-                  "current-chip-theme: variant must be 'normal or 'faded"
+                  "current-chip-theme: variant must be 'normal, 'faded or 'display"
                   variant)))))
 
     ;; The probe HTML. Two <div class="chip"> elements are added to the
@@ -147,8 +162,9 @@
         "}"
         "var normal=_probe(document.getElementById('probe-normal'));"
         "var faded=_probe(document.getElementById('probe-faded'));"
+        "var display=_probe(document.getElementById('probe-display'));"
         "window.webkit.messageHandlers.modaliser.postMessage({"
-        "type:'chip-theme',normal:normal,faded:faded"
+        "type:'chip-theme',normal:normal,faded:faded,display:display"
         "});"))
 
     ;; Build the full probe HTML. The CSS stack matches the overlay's
@@ -163,6 +179,7 @@
         ;; Probes are visually hidden (panel itself is offscreen).
         "<div class=\"chip\" id=\"probe-normal\">M</div>"
         "<div class=\"chip faded\" id=\"probe-faded\">M</div>"
+        "<div class=\"chip display\" id=\"probe-display\">M</div>"
         "<script>" probe-script "</script>"
         "</body></html>"))
 
@@ -198,15 +215,18 @@
     (define (handle-probe-message msg)
       (let ((type (alist-ref msg 'type "")))
         (when (equal? type "chip-theme")
-          (let ((normal (alist-ref msg 'normal '()))
-                (faded  (alist-ref msg 'faded '())))
-            ;; LispKit excludes set-cdr! (per
+          (let ((normal  (alist-ref msg 'normal '()))
+                (faded   (alist-ref msg 'faded '()))
+                (display (alist-ref msg 'display '())))
+            ;; The hashtable library excludes set-cdr! (per
             ;; feedback_lispkit_no_mutable_pairs) — assign fresh alists
             ;; with set! rather than mutating in place.
             (when (pair? normal)
               (set! chip-theme-normal (coerce-chip-alist normal)))
             (when (pair? faded)
               (set! chip-theme-faded  (coerce-chip-alist faded)))
+            (when (pair? display)
+              (set! chip-theme-display (coerce-chip-alist display)))
             (webview-close probe-panel-id)))))
 
     ;; Spawn the probe. Panel is 100×100 (just big enough that WKWebView
