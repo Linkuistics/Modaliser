@@ -114,3 +114,33 @@ leader bindings if the new config doesn't evaluate cleanly. Start the grove with
 grilling pass to settle the recovery UX (notify vs fall-back-to-default vs both) and
 where the error is surfaced.
 ```
+
+## Pixel-exact size restoration on cross-display window move
+
+`display:` move (`move-focused-window-to-display`) re-derives the window's frame as a
+fraction of the target display's visible area. That is correct and round-trips closely,
+but a round-trip is not pixel-exact: the fraction is rounded to integer pixels and apps
+with resize increments (terminals snap to whole character cells) land a few pixels off
+the original. The proportional remap is the right default for moving a window *to a
+fresh display*; the imprecision only matters when a window returns to a display it was
+just on.
+
+Goal: optional pixel-exact restoration. Remember, per window, the actual frame it last
+had on each display; when a move lands a window back on a display it has a remembered
+frame for, restore that frame verbatim instead of the proportional remap. Falls back to
+the proportional remap for displays with no remembered frame (first visit). Keep it keyed
+so a user-driven resize on a display updates that display's remembered frame.
+
+```
+Read Sources/Modaliser/Scheme/lib/modaliser/display-actions.sld
+(move-focused-window-to-display, remap-frame) and WindowManipulator.setFocusedWindowFrame.
+Add a per-(window, display) frame cache (Scheme-side state in display-actions, keyed by a
+stable window identity + display id). On a move: if the target display has a cached frame
+for this window, set that frame directly; else use remap-frame. Always update the SOURCE
+display's cache with the window's pre-move frame so the next return is exact. Decide window
+identity carefully (windowId is per-session; title is unstable) and how/when the cache is
+invalidated. The cross-display GROW re-apply in setFocusedWindowFrame
+(reapplyFrameUntilMatch) stays — restoration still goes through the same clamped native
+path. Note: this is the "size-per-display restoration" approach discussed during the
+display-window-commands live verification.
+```

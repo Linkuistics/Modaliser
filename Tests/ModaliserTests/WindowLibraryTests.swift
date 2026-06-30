@@ -59,6 +59,50 @@ struct WindowLibraryTests {
         #expect(try engine.evaluate("(procedure? focused-window)") == .true)
     }
 
+    @Test func listDisplaysIsProcedure() throws {
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? list-displays)") == .true)
+    }
+
+    @Test func setFocusedWindowFrameIsProcedure() throws {
+        // Mutator — existence check only; calling it would move a real window.
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? set-focused-window-frame)") == .true)
+    }
+
+    @Test func focusDisplayIsProcedure() throws {
+        // Mutator — existence check only; calling it would warp the mouse /
+        // raise a real window in the user's live session.
+        let engine = try SchemeEngine()
+        #expect(try engine.evaluate("(procedure? focus-display)") == .true)
+    }
+
+    @Test func listDisplaysReturnsWellFormedAlists() throws {
+        // Read-only primitive — safe to call. Assert structural shape and
+        // left-to-right (ascending x) ordering without asserting a concrete
+        // display count (CI may have 0 or 1 screen).
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser window))")
+        try engine.evaluate("(define ds (list-displays))")
+        #expect(try engine.evaluate("(list? ds)") == .true)
+        try engine.evaluate("""
+          (define well-formed?
+            (let loop ((xs ds))
+              (cond ((null? xs) #t)
+                    ((not (and (assoc 'id (car xs)) (assoc 'x (car xs))
+                               (assoc 'y (car xs)) (assoc 'w (car xs))
+                               (assoc 'h (car xs)) (assoc 'is-primary (car xs)))) #f)
+                    (else (loop (cdr xs))))))
+          (define ordered?
+            (let loop ((xs ds) (prev #f))
+              (cond ((null? xs) #t)
+                    ((and prev (< (cdr (assoc 'x (car xs))) prev)) #f)
+                    (else (loop (cdr xs) (cdr (assoc 'x (car xs))))))))
+        """)
+        #expect(try engine.evaluate("well-formed?") == .true)
+        #expect(try engine.evaluate("ordered?") == .true)
+    }
+
     @Test func focusedWindowReturnsAlistOrFalse() throws {
         // Smoke: with no deterministic frontmost window in CI, (focused-window)
         // returns #f (nothing focused / AX unavailable) or the full identity

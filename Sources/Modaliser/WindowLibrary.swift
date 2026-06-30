@@ -32,6 +32,9 @@ final class WindowLibrary: NativeLibrary {
         self.define(Procedure("window-visible-at?", windowVisibleAtFunction))
         self.define(Procedure("find-chip-position", findChipPositionFunction))
         self.define(Procedure("focused-window", focusedWindowFunction))
+        self.define(Procedure("list-displays", listDisplaysFunction))
+        self.define(Procedure("set-focused-window-frame", setFocusedWindowFrameFunction))
+        self.define(Procedure("focus-display", focusDisplayFunction))
     }
 
     // MARK: - Functions
@@ -325,6 +328,50 @@ final class WindowLibrary: NativeLibrary {
             ("w", .fixnum(Int64(f.frame.size.width))),
             ("h", .fixnum(Int64(f.frame.size.height))),
         ], symbols: self.context.symbols)
+    }
+
+    /// (list-displays) → list of alists, one per display, left-to-right by x.
+    /// Each: ((id . N) (x . X) (y . Y) (w . W) (h . H) (is-primary . BOOL)).
+    /// Coords are the display's AX-visible frame — the space move-window,
+    /// list-current-space-windows, and hints-show all use. Powers both
+    /// display-chip placement and the proportional move-remap.
+    private func listDisplaysFunction() -> Expr {
+        let displays = WindowManipulator.listDisplays()
+        var result: Expr = .null
+        for d in displays.reversed() {
+            let alist = SchemeAlistLookup.makeAlist([
+                ("id", .fixnum(Int64(d.id))),
+                ("x", .fixnum(Int64(d.frame.origin.x))),
+                ("y", .fixnum(Int64(d.frame.origin.y))),
+                ("w", .fixnum(Int64(d.frame.size.width))),
+                ("h", .fixnum(Int64(d.frame.size.height))),
+                ("is-primary", .makeBoolean(d.isPrimary)),
+            ], symbols: self.context.symbols)
+            result = .pair(alist, result)
+        }
+        return result
+    }
+
+    /// (set-focused-window-frame x y w h) → void
+    /// Absolute placement of the focused window in AX coords — the absolute
+    /// sibling of fractional move-window. Args are coerced to doubles.
+    private func setFocusedWindowFrameFunction(_ xExpr: Expr, _ yExpr: Expr,
+                                               _ wExpr: Expr, _ hExpr: Expr) throws -> Expr {
+        let x = try xExpr.asDouble(coerce: true)
+        let y = try yExpr.asDouble(coerce: true)
+        let w = try wExpr.asDouble(coerce: true)
+        let h = try hExpr.asDouble(coerce: true)
+        WindowManipulator.setFocusedWindowFrame(x: x, y: y, width: w, height: h)
+        return .void
+    }
+
+    /// (focus-display id) → void
+    /// Give keyboard focus to display `id` (a CGDirectDisplayID from
+    /// list-displays) so macOS Space / Mission-Control keys act on it.
+    private func focusDisplayFunction(_ idExpr: Expr) throws -> Expr {
+        let id = CGDirectDisplayID(try idExpr.asInt64())
+        WindowManipulator.focusDisplay(id)
+        return .void
     }
 
     // MARK: - Helpers

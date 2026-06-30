@@ -233,9 +233,43 @@ window-actions)` internally; user configs typically import for
 | `move-window` | `(move-window x y w h)` | Reposition the focused window to the given screen fraction. |
 | `center-window` | `(center-window)` | Centre the focused window. |
 | `restore-window` | `(restore-window)` | Restore the focused window's previous frame. |
+| `list-displays` | `(list-displays)` | List displays left-to-right as alists with `id`, `x`, `y`, `w`, `h` (AX-visible frame), `is-primary`. |
+| `set-focused-window-frame` | `(set-focused-window-frame x y w h)` | Place the focused window at an absolute AX-coord rect (the absolute sibling of `move-window`). |
+| `focus-display` | `(focus-display id)` | Focus a display by its `list-displays` id, so macOS Space/Mission-Control keys act on it. |
 
 (Native library — exact surface is implemented in Swift. See the source
 under `Sources/Modaliser/` for the canonical list.)
+
+---
+
+### `(modaliser display-actions)`
+
+Display-management block — the sibling of `(modaliser window-actions)`. Embed
+`(display:display-list-block …)` in a window sub-screen to paint round display
+chips (top-right) alongside the square window chips (top-left):
+
+```scheme
+(import (modaliser dsl)
+        (prefix (modaliser window-actions)  window:)
+        (prefix (modaliser display-actions) display:))
+
+(open "w" "Windows"
+  (window:list-block 'chips? #t)
+  (display:display-list-block 'chips? #t))
+```
+
+Per display label, two keys are bound: the **plain letter** moves the focused
+window to that display (preserving its size/position as a fraction of the
+display's visible frame — a ⅓-width window stays ⅓-width across displays of
+differing size/aspect), and the **Shift+letter** focuses that display. Default
+labels `h j k l n o` (left-to-right), overridable with `'labels`. The chip
+corner is `'corner` (default `'top-right`).
+
+| Export | Signature | Description |
+|---|---|---|
+| `display-list-block` | `(display-list-block 'chips? #t ['labels '(…)] ['corner 'top-right])` | Display-chip block with move/focus dispatch keys lifted. |
+| `move-focused-window-to-display` | `(move-focused-window-to-display id)` | Proportional move of the focused window to display `id`. |
+| `remap-frame` | `(remap-frame win src tgt)` | Pure: `(newX newY newW newH)` for the proportional remap (exported for tests). |
 
 ---
 
@@ -376,6 +410,13 @@ the lower-level form only when composing a custom block.
 | `window-list-current-labels` | The label sequence the last render painted (for custom dispatch handlers). |
 | `window-list-current-targets` | Alist of `label → window` from the last render. |
 
+### `(modaliser blocks display-list)`
+
+Block constructor behind `(display:display-list-block …)` from
+`(modaliser display-actions)`; reach for that wrapper rather than this directly.
+Paints one round display chip per display into the `'displays` hint group and
+renders one overlay row per display.
+
 ### `(modaliser blocks window-diagram)`
 
 Low-level window-diagram block. The high-level wrapper is
@@ -482,7 +523,7 @@ the same names).
 | `(modaliser http)` | HTTP requests used by web-search. |
 | `(modaliser lifecycle)` | `relaunch!`, `after-delay`. |
 | `(modaliser accessibility)` | AX tree introspection used by ax-hints. |
-| `(modaliser hints)` | On-screen hint chips: `hints-show`, `hints-hide`. |
+| `(modaliser hints)` | On-screen hint chips, keyed by group: `hints-show`, `hints-show-in`, `hints-hide`, `hints-hide-in`. |
 | `(modaliser fuzzy)` | Fuzzy matching engine used by the chooser. |
 | `(modaliser clipboard-history)` | Clipboard history accessor for the chooser. |
 | `(modaliser webview)` | WebView management for the overlay/chooser panels. |

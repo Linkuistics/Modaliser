@@ -46,6 +46,20 @@ struct ModaliserThemingLibraryTests {
     // those would arrive as .flonum without this coercion and silently
     // break chip painting downstream.
 
+    @Test func currentChipThemeDisplayReturnsSeedDefaults() throws {
+        // The 'display variant resolves .chip + .chip.display. Before the probe
+        // runs (never, in unit tests), it returns seed defaults mirroring those
+        // rules — a distinct background from the .chip (window-chip) default.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser theming))")
+        try engine.evaluate("(define t (current-chip-theme 'display))")
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'background t)) \"#2ca58d\")") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'color t)) \"#ffffff\")") == .true)
+        #expect(try engine.evaluate("(= (cdr (assoc 'font-size t)) 56)") == .true)
+        #expect(try engine.evaluate("(= (cdr (assoc 'padding t)) 16)") == .true)
+        #expect(try engine.evaluate("(= (cdr (assoc 'border-width t)) 1)") == .true)
+    }
+
     @Test func coerceChipAlistRoundsFontSize() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser theming))")

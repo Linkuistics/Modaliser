@@ -325,4 +325,65 @@ struct WindowListStageBPlacementTests {
         #expect(try engine.evaluate("(any-overlap? placed)") == .false)
         #expect(try engine.evaluate("(any-too-close? placed 12)") == .false)
     }
+
+    // ── Multi-display desktop bounding box (Bug A) ─────────────────────
+    // A window on a non-primary display must not have its chip clamped onto
+    // the primary. The paint pass runs Stage B over the union of every
+    // display's visible frame, shifting coords into box-relative space and back.
+
+    @Test func displaysBoundingBoxSingleDisplayIsThatDisplay() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks window-list))")
+        try engine.evaluate("""
+          (define bb (displays-bounding-box
+                       (list (list (cons 'x 0) (cons 'y 31) (cons 'w 5120) (cons 'h 2129)))))
+        """)
+        #expect(try engine.evaluate("(equal? bb '(0 31 5120 2129))") == .true)
+    }
+
+    @Test func displaysBoundingBoxUnionsAllDisplays() throws {
+        // Real two-display layout: primary 0,31,5120,2129 and a secondary to
+        // the right at 5120,112,3200,1800 → union x:0..8320, y:31..2160.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks window-list))")
+        try engine.evaluate("""
+          (define bb (displays-bounding-box
+                       (list (list (cons 'x 0)    (cons 'y 31)  (cons 'w 5120) (cons 'h 2129))
+                             (list (cons 'x 5120) (cons 'y 112) (cons 'w 3200) (cons 'h 1800)))))
+        """)
+        #expect(try engine.evaluate("(equal? bb '(0 31 8320 2129))") == .true)
+    }
+
+    @Test func displaysBoundingBoxEmptyIsZero() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks window-list))")
+        #expect(try engine.evaluate("(equal? (displays-bounding-box '()) '(0 0 0 0))") == .true)
+    }
+
+    @Test func shiftChipXyTranslatesOnlyPosition() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks window-list))")
+        try engine.evaluate("""
+          (define c (list (cons 'x 5200) (cons 'y 130) (cons 'w 88) (cons 'h 88) (cons 'text "k")))
+          (define s (shift-chip-xy c -5120 -31))
+        """)
+        #expect(try engine.evaluate("(= (cdr (assoc 'x s)) 80)") == .true)    // 5200-5120
+        #expect(try engine.evaluate("(= (cdr (assoc 'y s)) 99)") == .true)    // 130-31
+        #expect(try engine.evaluate("(= (cdr (assoc 'w s)) 88)") == .true)    // unchanged
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'text s)) \"k\")") == .true)
+    }
+
+    @Test func shiftThenUnshiftIsIdentity() throws {
+        // The paint pass shifts into box-relative space and back; the
+        // round-trip must restore the original AX coords exactly — this is
+        // what keeps a non-cascaded chip on its own display.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks window-list))")
+        try engine.evaluate("""
+          (define c (list (cons 'x 6000) (cons 'y 500) (cons 'w 88) (cons 'h 88)))
+          (define back (shift-chip-xy (shift-chip-xy c -5120 -31) 5120 31))
+        """)
+        #expect(try engine.evaluate("(= (cdr (assoc 'x back)) 6000)") == .true)
+        #expect(try engine.evaluate("(= (cdr (assoc 'y back)) 500)") == .true)
+    }
 }

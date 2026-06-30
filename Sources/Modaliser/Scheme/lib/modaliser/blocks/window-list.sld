@@ -27,7 +27,11 @@
           ;; Exported for unit testing the Stage-B placement invariant
           ;; (see SameAppChipCollisionTests / window-list tests).
           assign-chips
-          chips-overlap?)
+          chips-overlap?
+          ;; Exported for unit testing the multi-display bounding box that
+          ;; lets chips land on non-primary displays (see window-list tests).
+          displays-bounding-box
+          shift-chip-xy)
   (import (scheme base)
           (modaliser util)
           (modaliser window)
@@ -312,6 +316,66 @@
                     (pass1 (cdr items) committed results
                            (cons item deferred))))))))))
 
+    ;; ─── Multi-display chip placement (desktop bounding box) ───────
+    ;; The Stage-B lattice + clamp work in a single (0,0)-(w,h) rect.
+    ;; (primary-screen-size) is the PRIMARY display only, so on a
+    ;; multi-display desktop every chip got clamped onto the primary —
+    ;; a window on a second display had its chip pinned to the primary's
+    ;; edge. Instead we run Stage B in the DESKTOP BOUNDING BOX (the
+    ;; union of every display's AX-visible frame), translating chip /
+    ;; window coords into box-relative space (origin → 0,0) for the
+    ;; placement pass and back afterwards. A chip's natural position is
+    ;; always on a real display (inside the box), so it keeps that
+    ;; position; only genuine cascade overflow is clamped — now to the
+    ;; whole desktop, not the primary.
+
+    ;; Pure: bounding box (list ox oy w h) of a display alist list, each
+    ;; ((x . X) (y . Y) (w . W) (h . H) …). Empty → (0 0 0 0).
+    (define (displays-bounding-box ds)
+      (if (null? ds)
+        (list 0 0 0 0)
+        (let loop ((rest ds) (ox #f) (oy #f) (mx #f) (my #f))
+          (if (null? rest)
+            (list ox oy (- mx ox) (- my oy))
+            (let* ((d (car rest))
+                   (x (cdr (assoc 'x d))) (y (cdr (assoc 'y d)))
+                   (w (cdr (assoc 'w d))) (h (cdr (assoc 'h d))))
+              (loop (cdr rest)
+                    (if ox (min ox x) x)
+                    (if oy (min oy y) y)
+                    (if mx (max mx (+ x w)) (+ x w))
+                    (if my (max my (+ y h)) (+ y h))))))))
+
+    ;; Live desktop bounding box; falls back to the primary screen size
+    ;; when no displays are reported.
+    (define (desktop-bounds)
+      (let ((ds (list-displays)))
+        (if (pair? ds)
+          (displays-bounding-box ds)
+          (let ((s (primary-screen-size)))
+            (list 0 0 (cdr (assoc 'w s)) (cdr (assoc 'h s)))))))
+
+    ;; Translate a chip alist's x/y by (dx,dy); other entries untouched.
+    (define (shift-chip-xy c dx dy)
+      (map (lambda (e)
+             (cond ((eq? (car e) 'x) (cons 'x (+ (cdr e) dx)))
+                   ((eq? (car e) 'y) (cons 'y (+ (cdr e) dy)))
+                   (else e)))
+           c))
+
+    ;; Translate one annotated entry (visible? chip nat-x nat-y wx wy ww wh)
+    ;; into box-relative space by (dx,dy): chip alist, natural corner, and
+    ;; window origin shift; the window size does not.
+    (define (shift-annotated-entry entry dx dy)
+      (list (list-ref entry 0)
+            (shift-chip-xy (list-ref entry 1) dx dy)
+            (+ (list-ref entry 2) dx)
+            (+ (list-ref entry 3) dy)
+            (+ (list-ref entry 4) dx)
+            (+ (list-ref entry 5) dy)
+            (list-ref entry 6)
+            (list-ref entry 7)))
+
     ;; ─── on-render side-effect ─────────────────────────────────────
     ;; Reads chip styling from (current-chip-theme) at paint time so
     ;; users theme chips by editing CSS, not by passing options through
@@ -379,11 +443,15 @@
                               (cons 'title (cdr (assoc 'text win)))
                               (cons 'visible visible?))))
                     labelled annotated))
-             (screen (primary-screen-size))
-             (chips (assign-chips
-                      annotated
-                      (cdr (assoc 'w screen))
-                      (cdr (assoc 'h screen)))))
+             ;; Stage B over the whole desktop bounding box, not just the
+             ;; primary, so chips on non-primary displays aren't clamped home.
+             (bbox (desktop-bounds))
+             (ox (car bbox)) (oy (cadr bbox))
+             (bw (caddr bbox)) (bh (cadddr bbox))
+             (shifted (map (lambda (e) (shift-annotated-entry e (- 0 ox) (- 0 oy)))
+                           annotated))
+             (placed (assign-chips shifted bw bh))
+             (chips (map (lambda (c) (shift-chip-xy c ox oy)) placed)))
         (set! current-window-targets labelled)
         (set! current-windows-data windows-data)
         (hints-show chips)))

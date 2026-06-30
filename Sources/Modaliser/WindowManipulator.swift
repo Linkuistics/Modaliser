@@ -4,6 +4,32 @@ import AppKit
 /// Requires Accessibility permissions to function.
 enum WindowManipulator {
 
+    /// One display's identity + AX-visible-frame geometry, used by
+    /// `(list-displays)` to power display-chip placement and the
+    /// proportional move-remap. `frame` is the visible frame (menu bar +
+    /// Dock excluded) in AX top-left coords — the same space `move-window`
+    /// and `hints-show` use. `id` is the stable CGDirectDisplayID.
+    struct DisplayInfo {
+        let id: CGDirectDisplayID
+        let frame: CGRect
+        let isPrimary: Bool
+    }
+
+    /// All displays, left-to-right by visible-frame x. `is-primary` flags
+    /// `NSScreen.screens[0]` (the menu-bar display) regardless of sort
+    /// position — a display to the left has a smaller x but isn't primary.
+    static func listDisplays() -> [DisplayInfo] {
+        let primary = NSScreen.screens.first
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        return NSScreen.screens.map { screen in
+            let id = (screen.deviceDescription[key] as? NSNumber)?.uint32Value ?? 0
+            return DisplayInfo(
+                id: id,
+                frame: axVisibleFrame(for: screen),
+                isPrimary: screen === primary)
+        }.sorted { $0.frame.origin.x < $1.frame.origin.x }
+    }
+
     /// Activate an app by PID — switches to its Space if on another Space.
     static func activateApp(ownerPID: pid_t) {
         guard let app = NSRunningApplication(processIdentifier: ownerPID) else { return }
@@ -66,6 +92,114 @@ enum WindowManipulator {
         }
     }
 
+    /// Absolute placement of the focused window in AX coords — the absolute
+    /// sibling of fractional `moveFocusedWindow`. Resolves the window via the
+    /// same cold-AX-safe path, saves its frame first (so `restore-window`
+    /// still works), and wraps the writes in `withResizableApp` (the EUI flip).
+    static func setFocusedWindowFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+        guard let (window, frame) = focusedWindowAndFrame() else { return }
+        saveFrame(window, frame: frame)
+        applyFrame(window, x: x, y: y, width: width, height: height)
+        // Cross-display GROW fix: enlarging a window as it moves to another
+        // display gets the resize clamped to the SOURCE display's bounds — the
+        // window's screen association lags the position write, so macOS caps the
+        // new height at (sourceDisplayBottom − newTop) until it catches up a
+        // runloop turn or two later. Re-apply the frame on later turns, stopping
+        // once the actual size matches, so it lands on the TARGET unclamped.
+        reapplyFrameUntilMatch(window, x: x, y: y, width: width, height: height,
+                               attemptsLeft: 7, delay: 0.05)
+    }
+
+    /// One position-then-size write, wrapped in the EUI flip.
+    private static func applyFrame(_ window: AXUIElement,
+                                   x: CGFloat, y: CGFloat,
+                                   width: CGFloat, height: CGFloat) {
+        withResizableApp(window) {
+            setWindowPosition(window, x: x, y: y)
+            setWindowSize(window, width: width, height: height)
+        }
+    }
+
+    /// Re-apply `(x,y,width,height)` on successive runloop turns until the
+    /// window's actual size matches (within a terminal cell's tolerance) or
+    /// the attempt budget is spent. This defeats the cross-display GROW clamp:
+    /// the first synchronous apply may be capped by the stale source display,
+    /// but once the screen association catches up a re-apply lands the real
+    /// size. The match check makes the common (in-bounds / shrink) case a
+    /// single no-op poll — no needless re-resizes.
+    private static func reapplyFrameUntilMatch(_ window: AXUIElement,
+                                               x: CGFloat, y: CGFloat,
+                                               width: CGFloat, height: CGFloat,
+                                               attemptsLeft: Int, delay: TimeInterval) {
+        guard attemptsLeft > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            // Window gone (closed mid-retry) → axSize returns nil; stop polling
+            // rather than burn the remaining attempts re-applying to a dead element.
+            guard let cur = axSize(window) else { return }
+            // Tolerance absorbs terminal cell-snapping; the clamp we fix is
+            // hundreds of px, far larger than any single cell.
+            if abs(cur.width - width) > 20 || abs(cur.height - height) > 20 {
+                applyFrame(window, x: x, y: y, width: width, height: height)
+                reapplyFrameUntilMatch(window, x: x, y: y, width: width, height: height,
+                                       attemptsLeft: attemptsLeft - 1, delay: delay)
+            }
+        }
+    }
+
+    /// Give keyboard focus to display `id` so macOS Space / Mission-Control
+    /// keyboard commands act on it. (1) Find the topmost regular window whose
+    /// bounds-centre lies on the display by walking CGWindowList front-to-back
+    /// (z-order); raise it (AXRaise + AXMain + AXFocused) and activate its app.
+    /// (2) Warp the mouse to the display centre. (3) If no window was found,
+    /// synthesize a desktop click so the display still becomes active.
+    static func focusDisplay(_ id: CGDirectDisplayID) {
+        let bounds = CGDisplayBounds(id)   // global display coords, top-left origin
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        var raised = false
+
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        if let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
+            for entry in list {
+                guard let pid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                      pid != myPID,
+                      let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue,
+                      layer == 0,   // 0 == normal app window layer; skip menus/overlays
+                      let b = entry[kCGWindowBounds as String] as? [String: Any],
+                      let bx = (b["X"] as? NSNumber)?.doubleValue,
+                      let by = (b["Y"] as? NSNumber)?.doubleValue,
+                      let bw = (b["Width"] as? NSNumber)?.doubleValue,
+                      let bh = (b["Height"] as? NSNumber)?.doubleValue
+                else { continue }
+                let windowCenter = CGPoint(x: bx + bw / 2, y: by + bh / 2)
+                if !bounds.contains(windowCenter) { continue }
+
+                // Best-effort: raise the AX window whose origin matches this
+                // CGWindowList entry, then activate the owning app.
+                let appElement = AXUIElementCreateApplication(pid)
+                if let windows = axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement] {
+                    for w in windows {
+                        if let pos = axPosition(w),
+                           abs(pos.x - bx) < 2, abs(pos.y - by) < 2 {
+                            AXUIElementSetAttributeValue(w, kAXMainAttribute as CFString, kCFBooleanTrue)
+                            AXUIElementSetAttributeValue(w, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+                            AXUIElementPerformAction(w, kAXRaiseAction as CFString)
+                            break
+                        }
+                    }
+                }
+                NSRunningApplication(processIdentifier: pid)?.activate()
+                raised = true
+                break
+            }
+        }
+
+        warpMouse(to: center)
+        if !raised {
+            synthesizeClick(at: center)
+        }
+    }
+
     /// Toggle fullscreen on the focused window.
     static func toggleFullscreen() {
         guard let (window, frame) = focusedWindowAndFrame() else { return }
@@ -106,7 +240,7 @@ enum WindowManipulator {
 
     /// Convert an NSScreen's visibleFrame from Cocoa coordinates (bottom-left origin)
     /// to screen coordinates (top-left origin) used by the Accessibility API.
-    private static func axVisibleFrame(for screen: NSScreen) -> CGRect {
+    static func axVisibleFrame(for screen: NSScreen) -> CGRect {
         let primaryHeight = NSScreen.screens[0].frame.height
         let cocoa = screen.visibleFrame
         return CGRect(
@@ -247,5 +381,28 @@ enum WindowManipulator {
         var size = CGSize.zero
         AXValueGetValue(value as! AXValue, .cgSize, &size)
         return size
+    }
+
+    /// Warp the cursor to `p` and post a synthetic mouse-moved event so the
+    /// window server registers the cursor on the destination display.
+    private static func warpMouse(to p: CGPoint) {
+        CGWarpMouseCursorPosition(p)
+        if let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                              mouseCursorPosition: p, mouseButton: .left) {
+            move.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// Synthesize a left click at `p` — used only when no window was found on
+    /// the target display, so the desktop click still makes the display active.
+    private static func synthesizeClick(at p: CGPoint) {
+        let src = CGEventSource(stateID: .hidSystemState)
+        if let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown,
+                              mouseCursorPosition: p, mouseButton: .left),
+           let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp,
+                            mouseCursorPosition: p, mouseButton: .left) {
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+        }
     }
 }
