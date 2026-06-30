@@ -67,6 +67,18 @@ a top-level OS window vs. a pane inside a terminal. Triggered by
 `(window:list-block 'chips? #t)`. Source: `window-list.sld`.
 _Avoid_ bare "chip" when the window-vs-pane distinction matters.
 
+**Display** — a physical monitor (`NSScreen` / `CGDirectDisplayID`). _Never_
+called a "screen": `screen` is the overlay-DSL word for a navigable overlay
+level. Source: `list-displays` (`WindowLibrary.swift`).
+
+**Display chip** — the round, letter-labelled overlay chip painted at a
+display's top-right corner; the sibling of the square, digit-labelled **Window
+chip**. Plain letter = move the focused window here (preserving its fraction of
+the display); Shift+letter = focus this display. Painted in the `'displays`
+hint group so it coexists with window chips (the `default` group) without
+clobbering — the per-paint `hints-show`/`hints-show-in` only rebuild their own
+group. Source: `blocks/display-list.sld`, `display-actions.sld`.
+
 **Same-app overlap** — the failure this grove addresses: two or more
 windows of the *same* application whose on-screen frames overlap, so
 their window chips land on top of each other and become unreadable /
