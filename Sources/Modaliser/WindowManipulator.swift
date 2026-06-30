@@ -133,7 +133,9 @@ enum WindowManipulator {
                                                attemptsLeft: Int, delay: TimeInterval) {
         guard attemptsLeft > 0 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            let cur = axSize(window) ?? .zero
+            // Window gone (closed mid-retry) → axSize returns nil; stop polling
+            // rather than burn the remaining attempts re-applying to a dead element.
+            guard let cur = axSize(window) else { return }
             // Tolerance absorbs terminal cell-snapping; the clamp we fix is
             // hundreds of px, far larger than any single cell.
             if abs(cur.width - width) > 20 || abs(cur.height - height) > 20 {
