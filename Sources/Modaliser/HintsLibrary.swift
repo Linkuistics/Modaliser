@@ -12,8 +12,13 @@ import os
 /// Provides: hints-show, hints-hide
 final class HintsLibrary: NativeLibrary {
 
-    /// Live hint panels, kept alive until hints-hide is called.
-    private var panels: [NSPanel] = []
+    /// Live hint panels, keyed by group string so independent painters (window
+    /// chips, display chips, iTerm panes) coexist without clobbering each other.
+    /// hints-show owns the "default" group; hints-show-in names its own.
+    private var panels: [String: [NSPanel]] = [:]
+
+    /// The group hints-show / hints-hide operate on (backward-compatible API).
+    private static let defaultGroup = "default"
 
     /// Diagnostic channel for the final painted chip rects. NSLog never
     /// reaches `log show` from the .app bundle, so use os.Logger with a
@@ -36,47 +41,57 @@ final class HintsLibrary: NativeLibrary {
 
     public override func declarations() {
         self.define(Procedure("hints-show", hintsShowFunction))
+        self.define(Procedure("hints-show-in", hintsShowInFunction))
         self.define(Procedure("hints-hide", hintsHideFunction))
+        self.define(Procedure("hints-hide-in", hintsHideInFunction))
     }
 
     // MARK: - Procedures
 
-    /// (hints-show hint-list) → void
-    ///
-    /// hint-list is a list of alists. Each alist may contain:
-    ///   label       — required string, drawn centered in the panel
-    ///   x, y, w, h  — required ints, screen rectangle in AX coords (top-left origin)
-    ///   color       — optional CSS color: hex ("#ff3030") or named ("tomato"), default red
-    ///   background  — optional CSS color: hex or named, default semi-transparent dark
-    ///   font-size   — optional fixnum, default = min(w, h) * 0.5
-    ///
-    /// AppKit panel construction must happen on the main thread. In normal
-    /// app use Scheme already evaluates on the main thread, but tests (and
-    /// any future background renderers) may not — marshal to main so the
-    /// call is safe from anywhere.
+    /// (hints-show hint-list) → void — manages the "default" group.
+    /// hint-list shape is unchanged (see makeHintPanel for the per-entry keys).
     private func hintsShowFunction(_ hintsExpr: Expr) throws -> Expr {
-        runOnMain {
-            self.closeAllPanels()
-            var current = hintsExpr
-            var dumped: [(label: String, x: Int, y: Int, w: Int, h: Int)] = []
-            while case .pair(let entry, let tail) = current {
-                if let panel = self.makeHintPanel(from: entry) {
-                    self.panels.append(panel)
-                }
-                // Capture the final painted rect (AX coords) for the chip
-                // dump — the leaf-030 live-verification evidence channel.
-                if let label = SchemeAlistLookup.lookupString(entry, key: "label"),
-                   let x = SchemeAlistLookup.lookupFixnum(entry, key: "x"),
-                   let y = SchemeAlistLookup.lookupFixnum(entry, key: "y"),
-                   let w = SchemeAlistLookup.lookupFixnum(entry, key: "w"),
-                   let h = SchemeAlistLookup.lookupFixnum(entry, key: "h") {
-                    dumped.append((label, Int(x), Int(y), Int(w), Int(h)))
-                }
-                current = tail
-            }
-            Self.logChipRects(dumped)
-        }
+        runOnMain { self.rebuild(group: Self.defaultGroup, from: hintsExpr) }
         return .void
+    }
+
+    /// (hints-show-in group hint-list) → void — rebuild only `group`'s panels,
+    /// leaving other groups on screen. `group` is a symbol ('displays) or a
+    /// string. The visible chip set is the union of all groups.
+    private func hintsShowInFunction(_ groupExpr: Expr, _ hintsExpr: Expr) throws -> Expr {
+        let group = Self.groupName(groupExpr)
+        runOnMain { self.rebuild(group: group, from: hintsExpr) }
+        return .void
+    }
+
+    /// Rebuild one group's panels from a hint-list, running the per-group
+    /// overlap self-check on just that group's painted rects.
+    private func rebuild(group: String, from hintsExpr: Expr) {
+        self.closePanels(in: group)
+        var built: [NSPanel] = []
+        var dumped: [(label: String, x: Int, y: Int, w: Int, h: Int)] = []
+        var current = hintsExpr
+        while case .pair(let entry, let tail) = current {
+            if let panel = self.makeHintPanel(from: entry) {
+                built.append(panel)
+            }
+            if let label = SchemeAlistLookup.lookupString(entry, key: "label"),
+               let x = SchemeAlistLookup.lookupFixnum(entry, key: "x"),
+               let y = SchemeAlistLookup.lookupFixnum(entry, key: "y"),
+               let w = SchemeAlistLookup.lookupFixnum(entry, key: "w"),
+               let h = SchemeAlistLookup.lookupFixnum(entry, key: "h") {
+                dumped.append((label, Int(x), Int(y), Int(w), Int(h)))
+            }
+            current = tail
+        }
+        self.panels[group] = built
+        Self.logChipRects(dumped)
+    }
+
+    /// Coerce a Scheme group argument (symbol or string) to a group key.
+    private static func groupName(_ expr: Expr) -> String {
+        if case .symbol(let s) = expr { return s.identifier }
+        return (try? expr.asString()) ?? defaultGroup
     }
 
     /// Dump the final painted chip rects and self-check the strong
@@ -108,9 +123,16 @@ final class HintsLibrary: NativeLibrary {
         }
     }
 
-    /// (hints-hide) → void
+    /// (hints-hide) → void — clears ALL groups (whole overlay closing).
     private func hintsHideFunction() -> Expr {
         runOnMain { self.closeAllPanels() }
+        return .void
+    }
+
+    /// (hints-hide-in group) → void — clears one group.
+    private func hintsHideInFunction(_ groupExpr: Expr) -> Expr {
+        let group = Self.groupName(groupExpr)
+        runOnMain { self.closePanels(in: group) }
         return .void
     }
 
@@ -212,10 +234,23 @@ final class HintsLibrary: NativeLibrary {
         return panel
     }
 
-    private func closeAllPanels() {
-        for p in panels {
+    /// Close and forget one group's panels.
+    private func closePanels(in group: String) {
+        guard let ps = panels[group] else { return }
+        for p in ps {
             p.orderOut(nil)
             p.close()
+        }
+        panels[group] = nil
+    }
+
+    /// Close and forget every group's panels.
+    private func closeAllPanels() {
+        for (_, ps) in panels {
+            for p in ps {
+                p.orderOut(nil)
+                p.close()
+            }
         }
         panels.removeAll()
     }
