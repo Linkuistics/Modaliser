@@ -357,6 +357,21 @@
     (key "n" "New Tab"  (λ () (send-keystroke '(cmd) "t")))
     (key "f" "Find Tab" (λ () (send-keystroke '(cmd shift) "a")))
 
+    ;; Positional tab stepping, bound to Dia's own Tabs ▸ Next/Previous
+    ;; menu shortcuts (Cmd+Shift+] / Cmd+Shift+[). Dia stacks tabs in a
+    ;; *vertical* sidebar, so the hjkl mapping follows the sidebar's axis:
+    ;; j (down) → next tab, k (up) → previous tab.
+    ;;
+    ;; A sticky-set "act + latch": the j/k entry keys splice in here as
+    ;; top-level Dia cells, and the first press steps a tab *and* latches
+    ;; into the registered 'dia-tab-walk mode, so further j/k keep stepping.
+    ;; The mode is auto-tagged 'sticky #t / 'exit-on-unknown #t, so Esc or
+    ;; any unbound key exits. This is *positional* stepping — distinct from
+    ;; the MRU "Recent Tabs" walk on r below.
+    (sticky-set 'dia-tab-walk "Tabs"
+      (key "j" "Next Tab" (λ () (send-keystroke '(cmd shift) "]")))
+      (key "k" "Prev Tab" (λ () (send-keystroke '(cmd shift) "["))))
+
   ;; Sticky "Recent Tabs" walk. Enter holds control and steps once, so the
   ;; HUD opens on the most-recent (next) tab; j/k step forward/back through
   ;; the MRU stack.
