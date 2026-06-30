@@ -250,6 +250,7 @@ chips (top-right) alongside the square window chips (top-left):
 
 ```scheme
 (import (modaliser dsl)
+        (prefix (modaliser window-actions)  window:)
         (prefix (modaliser display-actions) display:))
 
 (open "w" "Windows"
