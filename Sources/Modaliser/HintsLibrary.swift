@@ -9,7 +9,7 @@ import os
 /// rectangle. Used for picking among visually-identifiable targets — iTerm
 /// panes today; macOS windows or browser tabs in the future.
 ///
-/// Provides: hints-show, hints-hide
+/// Provides: hints-show, hints-show-in, hints-hide, hints-hide-in
 final class HintsLibrary: NativeLibrary {
 
     /// Live hint panels, keyed by group string so independent painters (window

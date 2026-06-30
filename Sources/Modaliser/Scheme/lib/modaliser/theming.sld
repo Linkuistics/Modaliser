@@ -109,7 +109,7 @@
             (cons 'border-width 1)
             (cons 'border-color "#000000")))
 
-    ;; (current-chip-theme [variant]) — variant is 'normal (default) or 'faded.
+    ;; (current-chip-theme [variant]) — variant is 'normal (default), 'faded, or 'display.
     (define (current-chip-theme . args)
       (let ((variant (if (null? args) 'normal (car args))))
         (cond
