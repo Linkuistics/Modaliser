@@ -24,6 +24,7 @@
         (prefix (modaliser settings-menu)   settings:)
         (prefix (modaliser launchers)       launcher:)
         (prefix (modaliser window-actions)  window:)
+        (prefix (modaliser display-actions) display:)
         (modaliser window)                  ; list-windows, focus-window
         (prefix (modaliser web-search)      web-search:)
         (prefix (modaliser apps safari)     safari:)
@@ -131,7 +132,13 @@
     ;; enables the on-screen window chips. Chip appearance (colour, font,
     ;; padding, …) is controlled by the .chip CSS rule and inherits the
     ;; host-header colour automatically — no per-callsite plumbing required.
-    (window:list-block 'chips? #t))
+    (window:list-block 'chips? #t)
+
+    ;; Display chips (round, top-right): one per display. Plain letter moves the
+    ;; focused window to that display, preserving its size/position as a fraction
+    ;; of the display's visible area; Shift+letter focuses the display so macOS
+    ;; Space/Mission-Control keys act on it. Default labels h j k l n o.
+    (display:display-list-block 'chips? #t))
 
   (panel "Applications"
     (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))

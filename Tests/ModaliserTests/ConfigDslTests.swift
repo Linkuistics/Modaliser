@@ -314,6 +314,17 @@ struct ConfigDslTests {
         #expect(try engine.evaluate("(command? (find-child win \"r\"))") == .true)
     }
 
+    @Test func defaultConfigWiresDisplayListBlock() throws {
+        // The bundled default config must import the display-actions prefix and
+        // embed the display-list block in the Windows sub-screen. Assert the
+        // library + block are reachable the way the config uses them.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser dsl) (prefix (modaliser display-actions) display:))")
+        try engine.evaluate("(define b (display:display-list-block 'chips? #t))")
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type b)) 'display-list)") == .true)
+        #expect(try engine.evaluate("(pair? (assoc 'block-children b))") == .true)
+    }
+
     /// At least one per-app tree (iTerm) migrated to panels: a panel-grid
     /// screen whose grid carries the Focus / Panes panels, with the live pane
     /// list embedded, and whose commands keep their keys (transparent
