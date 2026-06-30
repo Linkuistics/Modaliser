@@ -99,9 +99,48 @@ enum WindowManipulator {
     static func setFocusedWindowFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
         guard let (window, frame) = focusedWindowAndFrame() else { return }
         saveFrame(window, frame: frame)
+        applyFrame(window, x: x, y: y, width: width, height: height)
+        // Cross-display GROW fix: enlarging a window as it moves to another
+        // display gets the resize clamped to the SOURCE display's bounds — the
+        // window's screen association lags the position write, so macOS caps the
+        // new height at (sourceDisplayBottom − newTop) until it catches up a
+        // runloop turn or two later. Re-apply the frame on later turns, stopping
+        // once the actual size matches, so it lands on the TARGET unclamped.
+        reapplyFrameUntilMatch(window, x: x, y: y, width: width, height: height,
+                               attemptsLeft: 7, delay: 0.05)
+    }
+
+    /// One position-then-size write, wrapped in the EUI flip.
+    private static func applyFrame(_ window: AXUIElement,
+                                   x: CGFloat, y: CGFloat,
+                                   width: CGFloat, height: CGFloat) {
         withResizableApp(window) {
             setWindowPosition(window, x: x, y: y)
             setWindowSize(window, width: width, height: height)
+        }
+    }
+
+    /// Re-apply `(x,y,width,height)` on successive runloop turns until the
+    /// window's actual size matches (within a terminal cell's tolerance) or
+    /// the attempt budget is spent. This defeats the cross-display GROW clamp:
+    /// the first synchronous apply may be capped by the stale source display,
+    /// but once the screen association catches up a re-apply lands the real
+    /// size. The match check makes the common (in-bounds / shrink) case a
+    /// single no-op poll — no needless re-resizes.
+    private static func reapplyFrameUntilMatch(_ window: AXUIElement,
+                                               x: CGFloat, y: CGFloat,
+                                               width: CGFloat, height: CGFloat,
+                                               attemptsLeft: Int, delay: TimeInterval) {
+        guard attemptsLeft > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            let cur = axSize(window) ?? .zero
+            // Tolerance absorbs terminal cell-snapping; the clamp we fix is
+            // hundreds of px, far larger than any single cell.
+            if abs(cur.width - width) > 20 || abs(cur.height - height) > 20 {
+                applyFrame(window, x: x, y: y, width: width, height: height)
+                reapplyFrameUntilMatch(window, x: x, y: y, width: width, height: height,
+                                       attemptsLeft: attemptsLeft - 1, delay: delay)
+            }
         }
     }
 
