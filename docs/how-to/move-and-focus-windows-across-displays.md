@@ -32,6 +32,19 @@ Override the chip letters or corner:
 (display:display-list-block 'chips? #t 'labels '("a" "s" "d" "f") 'corner 'top-right)
 ```
 
+> **If you organize the Windows sub-screen into panels** (`(panel "…" …)` cards)
+> rather than loose blocks, give the display list its **own** panel. A panel
+> embeds at most one live-list block, so putting `window:list-block` and
+> `display:display-list-block` in the *same* panel raises *"panel: at most one
+> embedded live-list block per panel"* at config load (the overlay then never
+> appears). Use a separate panel:
+>
+> ```scheme
+> (open "w" "Windows"
+>   (panel "Windows"  (window:list-block 'chips? #t))
+>   (panel "Displays" (display:display-list-block 'chips? #t)))
+> ```
+
 ## How the two chip families coexist
 
 `hints-show` is replace-all per group: the two painters write into separate
