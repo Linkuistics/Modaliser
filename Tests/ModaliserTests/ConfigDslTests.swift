@@ -272,44 +272,39 @@ struct ConfigDslTests {
         #expect(try engine.evaluate("(group? (find-child (lookup-tree \"global\") \"w\"))") == .true)
     }
 
-    /// The "w" Windows drill-down, migrated to the FLAT/loose form
-    /// (bare-loose-rows-k23): the diagram and the live window list ride the
-    /// open's loose region as bare blocks (no "Layout"/"Windows"/"Select"
-    /// panel cards, no headers), the diagram's move-window keys stay
-    /// dispatchable (lifted into the open's children, 'hidden so they don't
-    /// duplicate as text rows beside the diagram), and the s/r action keys are
-    /// loose rows.
-    @Test func defaultWindowsScreenFlattensDiagramAndListIntoLooseRegion() throws {
+    /// The "w" Windows drill-down renders as a panel grid: a headerless
+    /// diagram panel, a Select panel (select/restore), a Windows panel (the
+    /// live window list + chips), and a Displays panel (the display list +
+    /// chips). Panels are transparent for dispatch, so the diagram's
+    /// move-window keys and the Select panel's s/r keys keep their paths.
+    @Test func defaultWindowsScreenRendersAsPanelGrid() throws {
         let engine = try loadAllModules()
         guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
         try engine.evaluateFile(schemePath + "/default-config.scm")
 
         try engine.evaluate("""
           (define win (find-child (lookup-tree "global") "w"))
-          ;; Is there a loose-region block-spec of type T?
-          (define (loose-block-type? node t)
-            (let loop ((xs (node-renderer-payload node 'loose)))
-              (cond ((null? xs) #f)
-                    ((let ((e (assoc 'type (car xs)))) (and e (eq? (cdr e) t))) #t)
-                    (else (loop (cdr xs))))))
-          ;; How many direct PANEL (category) children does NODE have?
-          (define (count-categories node)
-            (let loop ((cs (node-children node)) (n 0))
-              (cond ((null? cs) n)
-                    ((category? (car cs)) (loop (cdr cs) (+ n 1)))
-                    (else (loop (cdr cs) n)))))
+          (define (grid-panel root lbl)
+            (let loop ((cs (node-children root)))
+              (cond ((null? cs) #f)
+                    ((and (category? (car cs)) (equal? (node-label (car cs)) lbl)) (car cs))
+                    (else (loop (cdr cs))))))
         """)
         #expect(try engine.evaluate("(eq? (node-renderer win) 'panel-grid)") == .true)
 
-        // The diagram and the live window list ride the loose region as blocks.
-        #expect(try engine.evaluate("(loose-block-type? win 'window-diagram)") == .true)
-        #expect(try engine.evaluate("(loose-block-type? win 'window-list)") == .true)
-        // No panel cards at all — the three wrapper panels are gone.
-        #expect(try engine.evaluate("(= (count-categories win) 0)") == .true)
-        // Move-window key "d" still dispatches (lifted from the diagram block).
+        // The Select / Windows / Displays panels are present…
+        #expect(try engine.evaluate("(category? (grid-panel win \"Select\"))") == .true)
+        #expect(try engine.evaluate("(category? (grid-panel win \"Windows\"))") == .true)
+        #expect(try engine.evaluate("(category? (grid-panel win \"Displays\"))") == .true)
+        // …with the live window list under Windows and the display list under Displays.
+        #expect(try engine.evaluate(
+            "(eq? (cdr (assoc 'type (node-renderer-payload (grid-panel win \"Windows\") 'list))) 'window-list)") == .true)
+        #expect(try engine.evaluate(
+            "(eq? (cdr (assoc 'type (node-renderer-payload (grid-panel win \"Displays\") 'list))) 'display-list)") == .true)
+
+        // Transparent dispatch preserved: move-window "d" (lifted from the
+        // headerless diagram panel) and the Select panel's s/r keep their paths.
         #expect(try engine.evaluate("(command? (find-child win \"d\"))") == .true)
-        // The s/r action keys dispatch as loose rows ("s" binds a selector,
-        // "r" a command).
         #expect(try engine.evaluate("(selector? (find-child win \"s\"))") == .true)
         #expect(try engine.evaluate("(command? (find-child win \"r\"))") == .true)
     }
@@ -326,7 +321,7 @@ struct ConfigDslTests {
     }
 
     /// At least one per-app tree (iTerm) migrated to panels: a panel-grid
-    /// screen whose grid carries the Focus / Panes panels, with the live pane
+    /// screen whose grid carries the Splits / Panes panels, with the live pane
     /// list embedded, and whose commands keep their keys (transparent
     /// dispatch). Asserted structurally so the test never depends on a live
     /// iTerm (the pane block's on-render-fn talks to the app).
@@ -344,7 +339,7 @@ struct ConfigDslTests {
           (define it (lookup-tree "com.googlecode.iterm2"))
         """)
         #expect(try engine.evaluate("(eq? (node-renderer it) 'panel-grid)") == .true)
-        #expect(try engine.evaluate("(category? (grid-panel it \"Focus\"))") == .true)
+        #expect(try engine.evaluate("(category? (grid-panel it \"Splits\"))") == .true)
         // Panes panel embeds the live pane list under 'list (no render here,
         // so the on-render-fn never fires — purely structural).
         #expect(try engine.evaluate(

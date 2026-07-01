@@ -84,12 +84,23 @@
           (write-char c out)
           (loop (read-char in)))))))
 
-;; Seed user config from the bundled default on first run.
+;; Seed user config from the bundled default on first run — the config file
+;; PLUS the app-trees/ directory it (include)s. The default config pulls its
+;; per-app (F17) trees in with (include "app-trees/<bundle-id>.scm"), resolved
+;; relative to ~/.config/modaliser/, so those files must be seeded alongside
+;; config.scm or the first-run include fails and the config won't load.
 (unless (file-exists? user-config-path)
   (run-shell (string-append "/bin/mkdir -p \"" user-config-dir "\""))
   (when (file-exists? default-config-path)
     (copy-file! default-config-path user-config-path)
-    (log "Modaliser: seeded default config at " user-config-path)))
+    (log "Modaliser: seeded default config at " user-config-path)
+    ;; Seed the app-trees/ the default (include)s, alongside config.scm. NOTE:
+    ;; (file-exists? …) reports #f for directories in LispKit, so we cannot
+    ;; guard on the source dir — cp -R silently no-ops (2>/dev/null) if it is
+    ;; somehow absent, and normally copies the bundled app-trees verbatim.
+    (run-shell (string-append "/bin/cp -R \"" *scheme-directory* "/app-trees\" \""
+                              user-config-dir "/app-trees\" 2>/dev/null"))
+    (log "Modaliser: seeded app-trees into " user-config-dir "/app-trees")))
 
 ;; ─── Status bar ───────────────────────────────────────────────────
 
