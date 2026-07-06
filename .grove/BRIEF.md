@@ -56,15 +56,18 @@ workspaces — then agents (status + jump-to-blocked) and worktrees as their own
   ops internally), `register!`, `backend`, context-suffix contribution, block helpers
   — mirroring `apps/iterm.sld`'s internal `rebuild-tree!`. Not dozens of named ops.
 
-## Load-bearing risks — VALIDATE FIRST (leaf 1, needs a live herdr-in-iTerm client)
+## Load-bearing risks — VALIDATED (herdr-backend-k2, live herdr-in-iTerm client)
 
-1. An iTerm pane running herdr reports tty foreground command `herdr` (the client) —
-   drives all detection. *Unverified at planning (no client was attached).*
-2. The herdr server's focused pane (`herdr pane current`) tracks the OS-focused iTerm
-   client — drives targeting.
-3. Does herdr's socket API scope **per client / tty / session**? If not, the
-   multi-herdr-client augment case is a **documented v1 non-goal** (common case = one
-   client, unambiguous); do not pretend it's merely deferred.
+1. **CONFIRMED.** An iTerm pane running the herdr *client* reports tty foreground
+   command `herdr` → the mux match-key `"herdr"` resolves it; detection approach holds.
+2. **CONFIRMED (single-client).** `herdr pane current` answers from the server's
+   *global* focus and reflects the sole client's focused pane (answers even with no
+   client attached).
+3. **RESOLVED.** The socket API scopes **per session (per socket)**, NOT per client /
+   tty — so **multi-herdr-client-on-one-session is a documented v1 non-goal** (common
+   case = one client, unambiguous). No tty correlation needed for herdr.
+   Detail + the "no universal focus-pane-by-id" follow-up (→ leaf 4) in the
+   `herdr-backend-k2` leaf Notes and the `muxes/herdr.sld` header.
 
 Corrections the adversarial review forced (details R1–R11 in the plan leaf):
 - **Classifier = current-tab session count via AppleScript**, NOT `ax-find-elements`
