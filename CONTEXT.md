@@ -49,6 +49,32 @@ cell-pixel dimensions must be derived rather than read).
 `set-local-context-suffix!`; returns a string like `/nvim` that
 selects a variant tree. See `docs/how-to/terminal-pane-aware-tree.md`.
 
+**herdr** — an "agent multiplexer that lives in the terminal" (herdr.dev):
+a client/server TUI run *inside* a host terminal (the user runs it in iTerm).
+A **mux** backend, like tmux/zellij, but with a richer surface (workspaces,
+tabs, panes, worktrees, agent status) and a JSON socket-API CLI as its control
+surface (`herdr pane|tab|workspace|worktree|agent …`) rather than keystrokes.
+
+**Workspace (herdr)** — herdr's top-level grouping, one level *above* tabs; a
+set of tabs (each holding panes) for a body of work. Modaliser's own overlay
+_screen_ and OS _window_ are unrelated senses — qualify as "herdr workspace"
+when ambiguous.
+
+**Worktree (herdr)** — a git worktree that herdr can create/switch/manage; herdr
+ties a workspace to a worktree for agent work. Distinct from Modaliser's grove
+`.grove-worktrees/` (unrelated).
+
+**Agent status** — herdr's per-pane state for an AI coding agent running in that
+pane: `idle` / `working` / `blocked` / `unknown`. Surfaced by `herdr pane list`.
+The thing "jump to a blocked agent" acts on.
+
+**Replace tree / Augment tree** — the two herdr variant trees selected by the
+suffix hook when the frontmost iTerm pane runs herdr. **Replace** (`/herdr`):
+herdr is the *sole* iTerm split, so the tree is herdr-only (no iTerm controls).
+**Augment**: the iTerm window has *other* splits too, so the tree is the herdr
+tree *plus* an iTerm-splits drill. Distinguished by iTerm split count in the
+focused window. herdr owns the top-level `hjkl` (pane focus) in both.
+
 ## Window-switching domain
 
 **Focused window** — the frontmost OS window: the top-level window macOS routes
