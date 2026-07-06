@@ -1,0 +1,51 @@
+/* herdr-list.css — herdr live-list block (panes / tabs / workspaces).
+   Mirrors iterm-tabs.css; the .current row marks the herdr-focused entry,
+   and panes carry a dimmed cwd detail after the title. */
+
+.block-herdr-list {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-separator);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Four columns: key · arrow · title (1fr, ellipsis) · detail (its own track,
+ * right-aligned, capped). Tabs/workspaces omit the detail span, leaving col4
+ * empty. */
+.block-herdr-list .hl-row {
+  display: grid;
+  grid-template-columns: 3ch auto 1fr auto;
+  column-gap: 4px;
+  align-items: baseline;
+}
+
+.block-herdr-list .hl-row .entry-key { color: var(--color-key); font-weight: 600; }
+.block-herdr-list .hl-row .entry-arrow { color: var(--color-arrow); }
+.block-herdr-list .hl-row .entry-label {
+  color: var(--color-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Dimmed secondary text (pane cwd), right-aligned in its own column and
+ * capped so a deep path ellipsizes rather than crowding the title. */
+.block-herdr-list .hl-row .hl-detail {
+  justify-self: end;
+  max-width: 45%;
+  color: var(--color-arrow);
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 8px;
+}
+
+/* The herdr-focused entry: bolder label and a leading marker on the key. */
+.block-herdr-list .hl-row.current .entry-label { font-weight: 700; }
+.block-herdr-list .hl-row.current .entry-key::after {
+  content: " ●";
+  color: var(--color-key);
+}

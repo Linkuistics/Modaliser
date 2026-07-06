@@ -255,4 +255,91 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate("(register-backend! (stub-iterm \"zsh\"))")
         #expect(try resolvesTo("com.googlecode.iterm2"))
     }
+
+    // MARK: - herdr control surface (leaf herdr-controls-k9)
+
+    /// `build-herdr-tree` now returns the full herdr surface, not the hjkl
+    /// skeleton: a Focus panel, the x Split / m Move groups, z/d pane keys,
+    /// the t Tabs / w Workspaces drills, and the Panes list panel — eight
+    /// top-level nodes. It must build without touching herdr (all shell-outs
+    /// live in on-render thunks / key actions, never at construction time).
+    @Test func buildHerdrTreeIsFullSurface() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(8))
+    }
+
+    /// (register!) wires the sticky top-level focus mode the herdr tree's
+    /// Focus panel latches into ('sticky-target 'herdr-panes-focus), so a
+    /// first hjkl focuses AND keeps moving without another leader press.
+    @Test func registerInstallsStickyFocusMode() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("(register!)")
+        #expect(try engine.evaluate("(lookup-tree \"herdr-panes-focus\")") != .false)
+    }
+
+    /// The pure JSON→(targets . rows) extractor over a real `herdr pane list`
+    /// fixture. Panes carry no `label`, so the row title falls back to the
+    /// agent name (else the pane id); the digit targets map label→pane_id in
+    /// list order; the `focused` flag rides through. No live herdr needed —
+    /// this is the "JSON-fed list rendering" contract.
+    @Test func herdrListExtractParsesPanes() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"cwd\":\"/w/one\",\"focused\":true,\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\"},{\"cwd\":\"/w/two\",\"focused\":false,\"pane_id\":\"w9:p2\",\"tab_id\":\"w9:t2\"}]}}"))
+          (define R (herdr-list-extract 'panes (list "1" "2" "3") J))
+          (define TARGETS (car R))
+          (define ROWS (cdr R))
+        """#)
+        // Two entries → two targets, label→pane_id in order.
+        #expect(try engine.evaluate("(length TARGETS)") == .fixnum(2))
+        #expect(try engine.evaluate("(cdr (assoc \"1\" TARGETS))") == .string("w9:p1"))
+        #expect(try engine.evaluate("(cdr (assoc \"2\" TARGETS))") == .string("w9:p2"))
+        // Row 1: agent name as title, cwd as detail, focused #t.
+        #expect(try engine.evaluate("(cdr (assoc 'title (car ROWS)))") == .string("claude"))
+        #expect(try engine.evaluate("(cdr (assoc 'detail (car ROWS)))") == .string("/w/one"))
+        #expect(try engine.evaluate("(cdr (assoc 'focused (car ROWS)))") == .true)
+        // Row 2: no agent → title falls back to the pane id; not focused.
+        #expect(try engine.evaluate("(cdr (assoc 'title (cadr ROWS)))") == .string("w9:p2"))
+        #expect(try engine.evaluate("(cdr (assoc 'focused (cadr ROWS)))") == .false)
+    }
+
+    /// Tabs and workspaces carry a `label`, so the row title is the label and
+    /// the target id is the tab_id / workspace_id. Guards the per-kind spec
+    /// (array key + id key + title key) the shared block dispatches on.
+    @Test func herdrListExtractParsesTabsAndWorkspaces() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        // Tabs.
+        try engine.evaluate(#"""
+          (define JT (json-parse "{\"result\":{\"tabs\":[{\"focused\":true,\"label\":\"1 claude\",\"tab_id\":\"w9:t1\"},{\"focused\":false,\"label\":\"2 hunk\",\"tab_id\":\"w9:t2\"}]}}"))
+          (define RT (herdr-list-extract 'tabs (list "1" "2") JT))
+        """#)
+        #expect(try engine.evaluate("(cdr (assoc \"2\" (car RT)))") == .string("w9:t2"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (car (cdr RT))))") == .string("1 claude"))
+        // Workspaces.
+        try engine.evaluate(#"""
+          (define JW (json-parse "{\"result\":{\"workspaces\":[{\"focused\":true,\"label\":\"TestAnyware\",\"workspace_id\":\"w9\"}]}}"))
+          (define RW (herdr-list-extract 'workspaces (list "1") JW))
+        """#)
+        #expect(try engine.evaluate("(cdr (assoc \"1\" (car RW)))") == .string("w9"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (car (cdr RW))))") == .string("TestAnyware"))
+    }
+
+    /// A malformed / empty list (herdr not running → parsed #f) extracts to
+    /// empty targets and rows rather than raising — the contract the block's
+    /// on-render-fn relies on so a render never breaks a leader press.
+    @Test func herdrListExtractDegradesToEmpty() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list))")
+        try engine.evaluate("(define R (herdr-list-extract 'panes (list \"1\" \"2\") #f))")
+        #expect(try engine.evaluate("(null? (car R))") == .true)
+        #expect(try engine.evaluate("(null? (cdr R))") == .true)
+    }
 }

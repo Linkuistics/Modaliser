@@ -179,15 +179,16 @@
     ;; herdr pane, this drill exposes them — bound to the iTerm-DIRECT ops
     ;; above (focus-pane-*, split-pane-*, move-pane-*), because in augment
     ;; mode the (modaliser terminal) façade resolves to herdr and its shims
-    ;; would drive the wrong layer. Content is intentionally the core focus
-    ;; / split / move surface; richer iTerm content (pane chips, digit-jump)
-    ;; is grown alongside the herdr tree content.
+    ;; would drive the wrong layer. Content is the core focus / split / move
+    ;; / zoom surface; richer iTerm content (pane chips, digit-jump) is grown
+    ;; alongside the herdr tree content.
     (define (build-iterm-splits-drill)
       (group "i" "iTerm Splits"
         (key "h" "Focus Left"  focus-pane-left)
         (key "j" "Focus Down"  focus-pane-down)
         (key "k" "Focus Up"    focus-pane-up)
         (key "l" "Focus Right" focus-pane-right)
+        (key "z" "Toggle Zoom" toggle-pane-zoom)
         (group "n" "New Split"
           (key "h" "Left"  split-pane-left)
           (key "j" "Down"  split-pane-down)

@@ -75,6 +75,12 @@
           (modaliser util)
           (modaliser shell)
           (modaliser json)
+          ;; The three herdr live-list blocks (panes / tabs / workspaces)
+          ;; share one kind-parameterised constructor; build-herdr-tree wraps
+          ;; each with a hidden digit key-range whose focus action lives here
+          ;; (agent focus / tab focus / workspace focus). Mirrors apps/iterm
+          ;; importing (modaliser blocks iterm-panes) / iterm-tabs.
+          (modaliser blocks herdr-list)
           ;; The façade exports the 14 op names plus the predicates; this
           ;; module defines its own focus-pane-left etc. as record fields,
           ;; so import only the machinery we need. herdr's global-focus
@@ -126,12 +132,19 @@
     ;; shell pane reports "zsh", which matches no mux and leaves herdr the
     ;; leaf backend.
 
-    (define (focused-pane-id)
+    ;; One `pane current` read, one field out of the focused pane record.
+    ;; `pane current` carries the pane's own id plus its enclosing tab_id /
+    ;; workspace_id, so the close/rename ops below get their target ids from
+    ;; the same query without a second shell-out.
+    (define (focused-pane-field field)
       (let ((j (herdr-json "pane current")))
         (and j
-             (let ((pid (json-ref (json-ref (json-ref j "result") "pane")
-                                  "pane_id")))
-               (and (string? pid) pid)))))
+             (let ((v (json-ref (json-ref (json-ref j "result") "pane") field)))
+               (and (string? v) v)))))
+
+    (define (focused-pane-id)      (focused-pane-field "pane_id"))
+    (define (focused-tab-id)       (focused-pane-field "tab_id"))
+    (define (focused-workspace-id) (focused-pane-field "workspace_id"))
 
     (define (detect-fg-command)
       (let ((j (herdr-json "pane process-info --current")))
@@ -177,14 +190,27 @@
     ;; Zoom: herdr's `--toggle` is a stateless flip (ADR-0007 semantics).
     (define (toggle-pane-zoom) (herdr-cmd "pane zoom --current --toggle"))
 
-    ;; ─── Digit-jump (basic; chips deferred to leaf 4) ───────────────
+    ;; Close the focused pane. `pane close` needs an explicit id (no
+    ;; --current form), so resolve the focused pane first. Bound to `d` at
+    ;; the herdr tree top level.
+    (define (close-pane)
+      (let ((pid (focused-pane-id)))
+        (when pid (herdr-cmd (string-append "pane close " pid)))))
+
+    ;; ─── Digit-jump (façade slot; chip overlay is a later leaf) ─────
     ;;
     ;; Snapshot the pane ids at mode-enter (labels 1..0 in list order),
-    ;; then focus pane N via `herdr agent focus <pane_id>`. No chip
-    ;; overlay yet — leaf 4 adds rect derivation from `pane layout` and a
-    ;; universal (agent-independent) focus. Focus is a no-op on a bare
-    ;; shell pane (agent_not_found), which is acceptable for v1: herdr
-    ;; panes are typically agents.
+    ;; then focus pane N via `herdr agent focus <pane_id>`.
+    ;;
+    ;; `agent focus <pane_id>` is a UNIVERSAL pane focus: it focuses ANY
+    ;; pane by id — verified live cross-tab against p1/p2/p3. On a
+    ;; non-agent (bare shell) pane it *also* emits an `agent_not_found`
+    ;; error, but the focus side-effect fires first, so the pane still
+    ;; lands focused (2>/dev/null in herdr-cmd swallows the cosmetic
+    ;; error). This corrects the leaf-2 assumption that it no-ops on
+    ;; shell panes — it does not. No `pane neighbor` geometric walk is
+    ;; needed. The chip *overlay* (rects from `pane layout`) is the only
+    ;; deferred piece (see herdr-pane-chips leaf).
 
     (define (list-pane-ids)
       (let ((j (herdr-json "pane list")))
@@ -257,20 +283,159 @@
     (define (classify-herdr-variant current-tab-split-count)
       (if (> current-tab-split-count 1) "/herdr+split" "/herdr"))
 
-    ;; The herdr variant tree (skeleton). herdr owns the top-level hjkl pane
-    ;; focus — bound to the herdr-DIRECT ops above, never the façade, so it
-    ;; drives herdr regardless of what active-backend resolves to. The full
-    ;; surface (splits / move / zoom / digit-jump, tabs, workspaces) grows
-    ;; here alongside the herdr block helpers. Returns a list of nodes the
-    ;; config splices into (screen 'com.googlecode.iterm2/herdr …) and, with
-    ;; the iTerm drill appended, (screen 'com.googlecode.iterm2/herdr+split …).
+    ;; ─── Tab & workspace ops ────────────────────────────────────────
+    ;;
+    ;; `create --focus` makes and switches to the new tab/workspace;
+    ;; close/rename need the focused id, read from `pane current` (one
+    ;; query yields pane_id + tab_id + workspace_id).
+
+    (define (new-tab)       (herdr-cmd "tab create --focus"))
+    (define (new-workspace) (herdr-cmd "workspace create --focus"))
+
+    (define (close-focused-tab)
+      (let ((id (focused-tab-id)))
+        (when id (herdr-cmd (string-append "tab close " id)))))
+    (define (close-focused-workspace)
+      (let ((id (focused-workspace-id)))
+        (when id (herdr-cmd (string-append "workspace close " id)))))
+
+    ;; Rewrite each ' to the POSIX '\'' idiom so a user-typed label is safe
+    ;; to interpolate inside a single-quoted zsh word (same idiom as
+    ;; apps/iterm.sld's shell-sq-escape).
+    (define (sq-escape s)
+      (let loop ((cs (string->list s)) (acc '()))
+        (if (null? cs)
+            (list->string (reverse acc))
+            (loop (cdr cs)
+                  (if (char=? (car cs) #\')
+                      (cons #\' (cons #\' (cons #\\ (cons #\' acc))))
+                      (cons (car cs) acc))))))
+
+    ;; Native text prompt via AppleScript `display dialog … default answer`
+    ;; — herdr's rename takes the new label as a CLI arg (unlike iTerm's
+    ;; menu-driven inline editor), and Modaliser has no in-overlay free-text
+    ;; input, so a one-shot dialog is the cheapest complete path. Returns the
+    ;; typed text, or #f when cancelled (osascript errors → empty stdout).
+    ;; TITLE is a constant with no quotes, so it inlines safely.
+    (define (prompt-text title)
+      (let ((out (string-trim
+                   (run-shell
+                     (string-append
+                       "osascript -e 'text returned of "
+                       "(display dialog \"" title "\" default answer \"\" "
+                       "buttons {\"Cancel\", \"OK\"} default button \"OK\")' "
+                       "2>/dev/null")))))
+        (if (string=? out "") #f out)))
+
+    (define (rename-focused-tab!)
+      (let ((id (focused-tab-id)))
+        (when id
+          (let ((name (prompt-text "Rename herdr tab:")))
+            (when (and name (not (string=? name "")))
+              (herdr-cmd (string-append "tab rename " id " '" (sq-escape name) "'")))))))
+    (define (rename-focused-workspace!)
+      (let ((id (focused-workspace-id)))
+        (when id
+          (let ((name (prompt-text "Rename herdr workspace:")))
+            (when (and name (not (string=? name "")))
+              (herdr-cmd
+                (string-append "workspace rename " id " '" (sq-escape name) "'")))))))
+
+    ;; ─── Live-list blocks (panes / tabs / workspaces) ───────────────
+    ;;
+    ;; Each wraps the shared (modaliser blocks herdr-list) constructor and
+    ;; bundles a hidden 1.. digit key-range whose action focuses the matching
+    ;; id — panes via the universal `agent focus`, tabs/workspaces via their
+    ;; clean `focus` verbs. cursor-*-fn wire the selection cursor to the
+    ;; block's live targets / focused row (mirrors iterm:pane-list-block). A
+    ;; digit pressed before the on-render snapshot ran re-snapshots on demand.
+    (define (list-digit-range kind focus-fn)
+      (cons (cons 'hidden #t)
+            (key-range "1.." "Item <n>"
+              digit-labels
+              (lambda (k)
+                (let ((entry (or (assoc k (herdr-list-current-targets))
+                                 (begin
+                                   (herdr-list-refresh! kind)
+                                   (assoc k (herdr-list-current-targets))))))
+                  (when entry (focus-fn (cdr entry))))))))
+
+    (define (herdr-list-block kind focus-fn)
+      (append (make-herdr-list-block 'kind kind)
+              (list (cons 'cursor-targets-fn herdr-list-current-targets)
+                    (cons 'cursor-initial-index-fn herdr-list-focused-index)
+                    (cons 'block-children
+                          (list (list-digit-range kind focus-fn))))))
+
+    (define (pane-list-block)
+      (herdr-list-block 'panes
+        (lambda (id) (herdr-cmd (string-append "agent focus " id)))))
+    (define (tab-list-block)
+      (herdr-list-block 'tabs
+        (lambda (id) (herdr-cmd (string-append "tab focus " id)))))
+    (define (workspace-list-block)
+      (herdr-list-block 'workspaces
+        (lambda (id) (herdr-cmd (string-append "workspace focus " id)))))
+
+    ;; Sticky top-level focus mode. The Focus panel's hjkl each carry a
+    ;; 'sticky-target here (build-herdr-tree), so the first hjkl focuses AND
+    ;; latches into this mode — subsequent hjkl keep moving focus without
+    ;; another leader press (herdr owns the top-level hjkl, root BRIEF).
+    (define (focus-mode-register!)
+      (register-tree! 'herdr-panes-focus
+        'sticky #t
+        'exit-on-unknown #t
+        'display-name "Focus"
+        (key "h" "Left"  focus-pane-left)
+        (key "j" "Down"  focus-pane-down)
+        (key "k" "Up"    focus-pane-up)
+        (key "l" "Right" focus-pane-right)))
+
+    ;; The herdr variant tree. herdr owns the top-level hjkl pane focus —
+    ;; bound to the herdr-DIRECT ops above, never the façade, so it drives
+    ;; herdr regardless of what active-backend resolves to. Returns a list of
+    ;; nodes the config splices into (screen 'com.googlecode.iterm2/herdr …)
+    ;; and, with the iTerm `i`-drill appended, (screen …/herdr+split …).
+    ;;
+    ;;   Focus panel  hjkl → focus (sticky-latch into 'herdr-panes-focus)
+    ;;   x Split      hjkl → new split that direction (left/up = split+swap)
+    ;;   m Move Pane  sticky hjkl → swap focused pane with its neighbour
+    ;;   z / d        toggle zoom / close pane
+    ;;   t Tabs       n/r/d + the tabs list (digit → switch)
+    ;;   w Workspaces n/r/d + the workspaces list (digit → switch)
+    ;;   Panes panel  the panes list (digit → focus by id)
     (define (build-herdr-tree)
       (list
         (panel "Focus"
-          (key "h" "Left"  focus-pane-left)
-          (key "j" "Down"  focus-pane-down)
-          (key "k" "Up"    focus-pane-up)
-          (key "l" "Right" focus-pane-right))))
+          (key "h" "Left"  focus-pane-left  'sticky-target 'herdr-panes-focus)
+          (key "j" "Down"  focus-pane-down  'sticky-target 'herdr-panes-focus)
+          (key "k" "Up"    focus-pane-up    'sticky-target 'herdr-panes-focus)
+          (key "l" "Right" focus-pane-right 'sticky-target 'herdr-panes-focus))
+        (group "x" "Split"
+          (key "h" "Left"  split-pane-left)
+          (key "j" "Down"  split-pane-down)
+          (key "k" "Up"    split-pane-up)
+          (key "l" "Right" split-pane-right))
+        (group "m" "Move Pane"
+          'sticky #t
+          'exit-on-unknown #t
+          (key "h" "Left"  move-pane-left)
+          (key "j" "Down"  move-pane-down)
+          (key "k" "Up"    move-pane-up)
+          (key "l" "Right" move-pane-right))
+        (key "z" "Toggle Zoom" toggle-pane-zoom)
+        (key "d" "Close Pane"  close-pane)
+        (open "t" "Tabs"
+          (key "n" "New"    new-tab)
+          (key "r" "Rename" rename-focused-tab!)
+          (key "d" "Close"  close-focused-tab)
+          (panel "Tabs" (tab-list-block)))
+        (open "w" "Workspaces"
+          (key "n" "New"    new-workspace)
+          (key "r" "Rename" rename-focused-workspace!)
+          (key "d" "Close"  close-focused-workspace)
+          (panel "Workspaces" (workspace-list-block)))
+        (panel "Panes" (pane-list-block))))
 
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
@@ -292,9 +457,11 @@
         toggle-pane-zoom
         configured?))
 
-    ;; Register the backend + the digit-jump mode. Safe to call more than
-    ;; once: register-backend! is last-write-wins on backend symbol;
-    ;; register-tree! replaces any prior tree of the same id.
+    ;; Register the backend + the digit-jump mode + the sticky top-level
+    ;; focus mode the herdr tree latches into. Safe to call more than once:
+    ;; register-backend! is last-write-wins on backend symbol; register-tree!
+    ;; replaces any prior tree of the same id.
     (define (register!)
       (register-backend! backend)
-      (pane-digit-register!))))
+      (pane-digit-register!)
+      (focus-mode-register!))))
