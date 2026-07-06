@@ -342,4 +342,58 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(null? (car R))") == .true)
         #expect(try engine.evaluate("(null? (cdr R))") == .true)
     }
+
+    // MARK: - Pane chips (leaf herdr-pane-chips-k10)
+
+    /// The pure chip-rect synthesis over a real `herdr pane layout` fixture.
+    /// Given the label→pane_id targets (from `pane list`), the parsed layout
+    /// (per-pane cell rects + the sidebar-offset area), and the focused iTerm
+    /// AXScrollArea pixel frame, `herdr-chip-entries` places each chip at the
+    /// pane's top-left in host pixels. The AREA-RELATIVE offset is the crux:
+    /// area.x = 26 (herdr's left sidebar), yet the leftmost pane's chip x must
+    /// equal host.x, NOT host.x + 26·cell_w — the synthesis subtracts area.x/y
+    /// before scaling. A target whose pane_id is absent from the current-tab
+    /// layout (a cross-tab pane) yields NO chip: chips are a subset of rows.
+    @Test func herdrChipEntriesSynthesisesAreaRelativeRects() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        // area 100×50 cells offset by the x=26 sidebar; host 1000×500 px at
+        // (200,100) → cell_w = cell_h = 10. Two side-by-side panes; a third
+        // target (w9:p9) is off-tab and not in this layout.
+        try engine.evaluate(#"""
+          (define LAYOUT (json-parse "{\"result\":{\"layout\":{\"area\":{\"x\":26,\"y\":0,\"width\":100,\"height\":50},\"focused_pane_id\":\"w9:p1\",\"zoomed\":false,\"panes\":[{\"pane_id\":\"w9:p1\",\"focused\":true,\"rect\":{\"x\":26,\"y\":0,\"width\":50,\"height\":50}},{\"pane_id\":\"w9:p2\",\"focused\":false,\"rect\":{\"x\":76,\"y\":0,\"width\":50,\"height\":50}}]}}}"))
+          (define TARGETS (list (cons "1" "w9:p1") (cons "2" "w9:p2") (cons "3" "w9:p9")))
+          (define HOST (list (cons 'x 200) (cons 'y 100) (cons 'w 1000) (cons 'h 500)))
+          (define ENTRIES (herdr-chip-entries TARGETS LAYOUT HOST))
+          (define (chip lab key) (cdr (assoc key (cdr (assoc lab ENTRIES)))))
+        """#)
+        // Only the two on-screen panes get chips (p9 is off-tab → dropped).
+        #expect(try engine.evaluate("(length ENTRIES)") == .fixnum(2))
+        // Pane 1: leftmost. Area-relative → chip.x = host.x (200), NOT 200+260.
+        #expect(try engine.evaluate("(chip \"1\" 'x)") == .fixnum(200))
+        #expect(try engine.evaluate("(chip \"1\" 'y)") == .fixnum(100))
+        #expect(try engine.evaluate("(chip \"1\" 'w)") == .fixnum(500))
+        #expect(try engine.evaluate("(chip \"1\" 'h)") == .fixnum(500))
+        // Pane 2: right half. (76-26)=50 cells · 10 px = 500 → x = 200+500.
+        #expect(try engine.evaluate("(chip \"2\" 'x)") == .fixnum(700))
+        #expect(try engine.evaluate("(chip \"2\" 'y)") == .fixnum(100))
+        #expect(try engine.evaluate("(chip \"2\" 'w)") == .fixnum(500))
+    }
+
+    /// Defensive: no host frame (iTerm AX query returned nothing) or a
+    /// malformed/#f layout (herdr not running) yields no chips rather than
+    /// raising — the on-render paint path must never break a leader press.
+    @Test func herdrChipEntriesDegradesToEmpty() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define LAYOUT (json-parse "{\"result\":{\"layout\":{\"area\":{\"x\":26,\"y\":0,\"width\":100,\"height\":50},\"panes\":[{\"pane_id\":\"w9:p1\",\"rect\":{\"x\":26,\"y\":0,\"width\":100,\"height\":50}}]}}}"))
+          (define HOST (list (cons 'x 0) (cons 'y 0) (cons 'w 800) (cons 'h 600)))
+          (define TS (list (cons "1" "w9:p1")))
+        """#)
+        // No host → empty.
+        #expect(try engine.evaluate("(null? (herdr-chip-entries TS LAYOUT #f))") == .true)
+        // No layout → empty.
+        #expect(try engine.evaluate("(null? (herdr-chip-entries TS #f HOST))") == .true)
+    }
 }

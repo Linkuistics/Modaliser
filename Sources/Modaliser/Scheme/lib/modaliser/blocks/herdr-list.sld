@@ -25,8 +25,26 @@
 ;; blocks use a module-state cell per list; herdr collapses to one because
 ;; the three never co-render.)
 ;;
-;; No chips here — herdr-list renders a row list only. Pane chips (rects from
-;; `herdr pane layout`, tmux-style) are the separate herdr-pane-chips leaf.
+;; ── Pane chips (panes kind, 'chips? #t) ──
+;; With 'chips? #t the panes block also paints digit chips over the on-screen
+;; herdr panes (mirroring iterm-panes' paint-and-snapshot! / hints-hide). Rects
+;; come from `herdr pane layout` — per-pane cell rects scaled by the focused
+;; iTerm AXScrollArea pixel frame, tmux-style. Two subtleties:
+;;   • AREA-RELATIVE. herdr paints a left sidebar, so layout.area.x ≥ 26; we
+;;     subtract area.x/area.y before scaling so the sidebar offset doesn't
+;;     shift every chip right.
+;;   • SUBSET of rows. `pane layout` covers only the CURRENT tab's splits,
+;;     while `pane list` (the row source) spans all tabs. So chips are keyed to
+;;     the row labels by pane_id: a row whose pane is off-tab simply gets no
+;;     chip. Digit-jump still focuses it by id (via `agent focus`); only the
+;;     visible chip is absent.
+;;   • REPLACE MODE ONLY is correct. host-frame takes the FIRST iTerm
+;;     AXScrollArea; in replace mode herdr owns the sole one, so the frame is
+;;     right. In augment mode (herdr + other iTerm splits) that first area may
+;;     be the wrong split, so chips can land on the wrong pixels — a documented
+;;     v1 limitation (docs/reference/terminal-detection.md). hjkl focus and
+;;     digit-jump are unaffected; the proper fix (a focused-iTerm-session-frame
+;;     primitive) is the optional deferred leaf.
 
 (define-library (modaliser blocks herdr-list)
   (export make-herdr-list-block
@@ -37,6 +55,9 @@
           ;; Pure JSON → (targets . rows) extractor, exported for unit tests
           ;; (fed a parsed `herdr <x> list` fixture, no live herdr needed).
           herdr-list-extract
+          ;; Pure chip-rect synthesis (targets + parsed `pane layout` + host
+          ;; frame → labelled chip entries), exported for unit tests.
+          herdr-chip-entries
           default-herdr-labels)
   (import (scheme base)
           (modaliser dsl)
@@ -44,6 +65,14 @@
           (modaliser shell)
           (modaliser json)
           (only (modaliser terminal) modaliser-tool-path)
+          ;; Chip overlay: AX host frame + hint painting + resolved chip theme.
+          ;; Same set the iTerm panes block leans on; all (modaliser …)
+          ;; libraries, so the portable-surface contract holds (nothing from
+          ;; the host LispKit tree crosses into lib/modaliser).
+          (modaliser accessibility)
+          (modaliser hints)
+          (modaliser ax-hints)
+          (modaliser theming)
           (modaliser overlay-assets))
   (begin
 
@@ -172,18 +201,137 @@
       (snapshot! kind default-herdr-labels)
       current-targets)
 
+    ;; ─── Pane chips ─────────────────────────────────────────────────
+    ;;
+    ;; Rects come from `herdr pane layout`; see the module header for the
+    ;; area-relative / subset-of-rows / replace-mode-only notes. The pure
+    ;; synthesis (herdr-chip-entries) is exported so a fixture-fed test needs
+    ;; no live herdr or AX.
+
+    ;; (result.layout.area) → (x y width height), or #f. width/height must be
+    ;; positive (they divide) or the layout is unusable.
+    (define (herdr-layout-area layout)
+      (let ((a (json-ref (json-ref (json-ref layout "result") "layout") "area")))
+        (and a
+             (let ((x (json-ref a "x")) (y (json-ref a "y"))
+                   (w (json-ref a "width")) (h (json-ref a "height")))
+               (and (number? x) (number? y) (number? w) (number? h)
+                    (> w 0) (> h 0)
+                    (list x y w h))))))
+
+    ;; (result.layout.panes) → ((pane_id . (x y width height)) …). Panes
+    ;; without a well-formed rect are dropped rather than raising.
+    (define (herdr-layout-rects layout)
+      (let ((panes (json-ref (json-ref (json-ref layout "result") "layout") "panes")))
+        (if (vector? panes)
+            (let loop ((k 0) (acc '()))
+              (if (>= k (vector-length panes))
+                  (reverse acc)
+                  (let* ((p   (vector-ref panes k))
+                         (pid (json-ref p "pane_id"))
+                         (r   (json-ref p "rect"))
+                         (rx  (and r (json-ref r "x")))
+                         (ry  (and r (json-ref r "y")))
+                         (rw  (and r (json-ref r "width")))
+                         (rh  (and r (json-ref r "height"))))
+                    (loop (+ k 1)
+                          (if (and (string? pid)
+                                   (number? rx) (number? ry)
+                                   (number? rw) (number? rh))
+                              (cons (cons pid (list rx ry rw rh)) acc)
+                              acc)))))
+            '())))
+
+    ;; (herdr-chip-entries targets layout host) → labelled chip entries ready
+    ;; for ax-target-hints. targets = ((label . pane_id) …) from the row
+    ;; snapshot; layout = parsed `pane layout`; host = the iTerm AXScrollArea
+    ;; frame alist ((x)(y)(w)(h)). Each entry is (label . ((handle . #f)
+    ;; (x)(y)(w)(h))) — same shape ax-find-elements rows have, so
+    ;; ax-target-hints consumes it unchanged (it places the chip inset from the
+    ;; entry's top-left and sizes it from the theme; w/h ride along for parity).
+    ;; Cell→pixel scale is area-relative: subtract area.x/area.y before scaling
+    ;; so herdr's left sidebar doesn't shift chips. quotient (multiply-then-
+    ;; divide) keeps integer precision, exactly as tmux's chip-entries does.
+    ;; A target whose pane is absent from this (current-tab) layout is skipped.
+    (define (herdr-chip-entries targets layout host)
+      (let ((area (and layout (herdr-layout-area layout))))
+        (if (not (and area host))
+            '()
+            (let ((ax (list-ref area 0)) (ay (list-ref area 1))
+                  (aw (list-ref area 2)) (ah (list-ref area 3))
+                  (hx (cdr (assoc 'x host))) (hy (cdr (assoc 'y host)))
+                  (hw (cdr (assoc 'w host))) (hh (cdr (assoc 'h host)))
+                  (rects (herdr-layout-rects layout)))
+              (let loop ((ts targets) (acc '()))
+                (cond
+                  ((null? ts) (reverse acc))
+                  (else
+                   (let* ((label (car (car ts)))
+                          (pid   (cdr (car ts)))
+                          (p     (assoc pid rects))
+                          (r     (and p (cdr p))))
+                     (if r
+                         (let* ((rx (list-ref r 0)) (ry (list-ref r 1))
+                                (rw (list-ref r 2)) (rh (list-ref r 3))
+                                (x (+ hx (quotient (* (- rx ax) hw) aw)))
+                                (y (+ hy (quotient (* (- ry ay) hh) ah)))
+                                (w (quotient (* rw hw) aw))
+                                (h (quotient (* rh hh) ah)))
+                           (loop (cdr ts)
+                                 (cons (cons label
+                                             (list (cons 'handle #f)
+                                                   (cons 'x x) (cons 'y y)
+                                                   (cons 'w w) (cons 'h h)))
+                                       acc)))
+                         (loop (cdr ts) acc))))))))))
+
+    ;; Focused iTerm AXScrollArea pixel frame — the tmux host-frame source.
+    ;; Replace mode: herdr owns the sole scroll area, so the first match is
+    ;; correct. Augment mode: the first may be the wrong split (documented
+    ;; limitation). #f when iTerm isn't reachable.
+    (define (herdr-host-frame)
+      (let ((areas (ax-find-elements-named
+                     "com.googlecode.iterm2" "AXScrollArea" "AXStaticText")))
+        (and (pair? areas) (car areas))))
+
+    ;; on-render side-effect for the chips path: read the current-tab layout
+    ;; and host frame, synthesise chips for the just-snapshotted pane targets,
+    ;; and surface them via hints-show. Skips hints-show when there is nothing
+    ;; to paint (no host, no layout, no on-tab pane) so the overlay isn't shown
+    ;; empty — digit dispatch still works off current-targets. Assumes
+    ;; snapshot! has already run this render pass (so current-targets is set).
+    (define (paint-pane-chips!)
+      (let* ((layout  (herdr-list-json "pane layout"))
+             (host    (herdr-host-frame))
+             (entries (herdr-chip-entries current-targets layout host)))
+        (when (pair? entries)
+          (hints-show (ax-target-hints entries (current-chip-theme 'normal))))))
+
     ;; Constructor. on-render-fn snapshots the live list and merges the rows
-    ;; into the block JSON so the rendered rows match the just-captured
-    ;; state. No on-leave-fn: with no chips there is nothing to tear down.
+    ;; into the block JSON so the rendered rows match the just-captured state.
+    ;; With 'chips? #t on a panes block it also paints pane chips and installs
+    ;; an on-leave-fn that hides them (mirrors iterm-panes). Chips are
+    ;; panes-only — tabs/workspaces have no on-screen rects, so 'chips? is
+    ;; ignored for those kinds.
     (define (make-herdr-list-block . opts)
       (let* ((alist  (apply props->alist opts))
              (kind   (alist-ref alist 'kind 'panes))
-             (labels (alist-ref alist 'labels default-herdr-labels)))
-        (list (cons 'type 'herdr-list)
-              (cons 'on-render-fn
-                (lambda ()
-                  (snapshot! kind labels)
-                  (list (cons 'rows current-data)))))))
+             (labels (alist-ref alist 'labels default-herdr-labels))
+             (chips? (and (alist-ref alist 'chips? #f) (eq? kind 'panes))))
+        (if chips?
+            (list (cons 'type 'herdr-list)
+                  (cons 'on-render-fn
+                    (lambda ()
+                      (snapshot! kind labels)
+                      (paint-pane-chips!)
+                      (list (cons 'rows current-data))))
+                  (cons 'on-leave-fn
+                    (lambda () (hints-hide))))
+            (list (cons 'type 'herdr-list)
+                  (cons 'on-render-fn
+                    (lambda ()
+                      (snapshot! kind labels)
+                      (list (cons 'rows current-data))))))))
 
     (add-overlay-asset-file! 'css "lib/modaliser/blocks/herdr-list.css")
     (add-overlay-asset-file! 'js  "lib/modaliser/blocks/herdr-list.js")))

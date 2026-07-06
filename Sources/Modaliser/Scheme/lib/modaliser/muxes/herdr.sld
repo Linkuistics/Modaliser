@@ -48,15 +48,17 @@
 ;;            requested side — no split/swap focus race (R7).
 ;;   zoom   → `pane zoom   --current --toggle`
 ;;
-;; ── Digit-jump focus, and its v1 limit ──
-;; herdr has NO universal "focus pane <id>" CLI: pane focus is directional
-;; only, and `herdr agent focus <target>` resolves a target only when an
-;; agent is reported in that pane (verified: a bare shell pane returns
-;; agent_not_found). Since herdr is agent-centric, digit-jump focuses via
-;; `agent focus <pane_id>` — correct for agent panes (herdr's core case);
-;; on a bare shell pane it is a harmless no-op. Chip rects and a universal
-;; rect/directional pane-focus are completed in leaf 4 alongside the
-;; layout work, so this leaf ships a basic (no-chip) list/focus mode.
+;; ── Digit-jump focus ──
+;; herdr has no dedicated "focus pane <id>" verb, but `herdr agent focus
+;; <pane_id>` is a UNIVERSAL pane focus: it focuses ANY pane by id (verified
+;; live cross-tab). On a bare shell pane it also emits a cosmetic
+;; agent_not_found, but the focus side-effect fires first so the pane still
+;; lands focused (2>/dev/null swallows the error). Digit-jump therefore
+;; focuses via `agent focus <pane_id>` for every pane. The panes list block
+;; (build-herdr-tree's Panes panel) paints digit CHIPS over the on-screen
+;; herdr panes in replace mode — see (modaliser blocks herdr-list). The
+;; backend's own focus-pane-by-digit slot below (the generic-capability-tree
+;; entry point, not on the shipping herdr variant path) stays chip-less.
 
 (define-library (modaliser muxes herdr)
   (export register!
@@ -197,7 +199,7 @@
       (let ((pid (focused-pane-id)))
         (when pid (herdr-cmd (string-append "pane close " pid)))))
 
-    ;; ─── Digit-jump (façade slot; chip overlay is a later leaf) ─────
+    ;; ─── Digit-jump (façade slot; chip-less) ───────────────────────
     ;;
     ;; Snapshot the pane ids at mode-enter (labels 1..0 in list order),
     ;; then focus pane N via `herdr agent focus <pane_id>`.
@@ -209,8 +211,10 @@
     ;; lands focused (2>/dev/null in herdr-cmd swallows the cosmetic
     ;; error). This corrects the leaf-2 assumption that it no-ops on
     ;; shell panes — it does not. No `pane neighbor` geometric walk is
-    ;; needed. The chip *overlay* (rects from `pane layout`) is the only
-    ;; deferred piece (see herdr-pane-chips leaf).
+    ;; needed. This façade slot (the generic-capability-tree entry point)
+    ;; is chip-less; the shipping herdr variant tree instead uses the
+    ;; panes list block, whose Panes panel paints digit chips over the
+    ;; on-screen herdr panes (see (modaliser blocks herdr-list)).
 
     (define (list-pane-ids)
       (let ((j (herdr-json "pane list")))
@@ -360,22 +364,28 @@
                                    (assoc k (herdr-list-current-targets))))))
                   (when entry (focus-fn (cdr entry))))))))
 
-    (define (herdr-list-block kind focus-fn)
-      (append (make-herdr-list-block 'kind kind)
+    (define (herdr-list-block kind focus-fn chips?)
+      (append (make-herdr-list-block 'kind kind 'chips? chips?)
               (list (cons 'cursor-targets-fn herdr-list-current-targets)
                     (cons 'cursor-initial-index-fn herdr-list-focused-index)
                     (cons 'block-children
                           (list (list-digit-range kind focus-fn))))))
 
-    (define (pane-list-block)
-      (herdr-list-block 'panes
-        (lambda (id) (herdr-cmd (string-append "agent focus " id)))))
+    ;; The panes block takes an optional 'chips? — when #t it paints digit
+    ;; chips over the on-screen herdr panes (rects from `herdr pane layout`;
+    ;; correct in replace mode, best-effort in augment — see the block header).
+    ;; tabs/workspaces have no on-screen rects, so they never chip.
+    (define (pane-list-block . opts)
+      (let ((chips? (alist-ref (apply props->alist opts) 'chips? #f)))
+        (herdr-list-block 'panes
+          (lambda (id) (herdr-cmd (string-append "agent focus " id)))
+          chips?)))
     (define (tab-list-block)
       (herdr-list-block 'tabs
-        (lambda (id) (herdr-cmd (string-append "tab focus " id)))))
+        (lambda (id) (herdr-cmd (string-append "tab focus " id))) #f))
     (define (workspace-list-block)
       (herdr-list-block 'workspaces
-        (lambda (id) (herdr-cmd (string-append "workspace focus " id)))))
+        (lambda (id) (herdr-cmd (string-append "workspace focus " id))) #f))
 
     ;; Sticky top-level focus mode. The Focus panel's hjkl each carry a
     ;; 'sticky-target here (build-herdr-tree), so the first hjkl focuses AND
@@ -403,7 +413,7 @@
     ;;   z / d        toggle zoom / close pane
     ;;   t Tabs       n/r/d + the tabs list (digit → switch)
     ;;   w Workspaces n/r/d + the workspaces list (digit → switch)
-    ;;   Panes panel  the panes list (digit → focus by id)
+    ;;   Panes panel  the panes list + chips (digit → focus by id)
     (define (build-herdr-tree)
       (list
         (panel "Focus"
@@ -435,7 +445,7 @@
           (key "r" "Rename" rename-focused-workspace!)
           (key "d" "Close"  close-focused-workspace)
           (panel "Workspaces" (workspace-list-block)))
-        (panel "Panes" (pane-list-block))))
+        (panel "Panes" (pane-list-block 'chips? #t))))
 
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;

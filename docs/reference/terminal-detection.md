@@ -376,6 +376,25 @@ nvim is always resolvable via the RPC route regardless of host
 terminal or multiplexer, as long as the `FocusGained`/`FocusLost`
 autocmds are in place.
 
+### herdr pane chips: replace mode only
+
+The herdr panes list block paints digit chips over the on-screen
+herdr panes. Rects are synthesised tmux-style: `herdr pane layout`
+gives each pane's cell rect and the canvas `area` (offset by
+herdr's left sidebar, so the synthesis is **area-relative** —
+`area.x`/`area.y` are subtracted before scaling), and the focused
+iTerm `AXScrollArea` frame supplies the pixel canvas.
+
+This is correct in **replace** mode, where herdr owns the sole
+iTerm scroll area. In **augment** mode (herdr shares its iTerm tab
+with other iTerm splits) the host-frame heuristic takes the *first*
+`AXScrollArea`, which may be the wrong split — so chips can land on
+the wrong pixels. `hjkl` focus and digit-jump are unaffected
+(digit-jump focuses by `pane_id` via `herdr agent focus`, not by
+chip position); only the chip *overlay* may be misplaced. The
+proper fix — a focused-iTerm-session-frame primitive that returns
+the herdr split's frame directly — is a deferred follow-up.
+
 ## See also
 
 - [terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md)
