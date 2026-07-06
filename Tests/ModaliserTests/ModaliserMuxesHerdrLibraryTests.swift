@@ -148,4 +148,111 @@ struct ModaliserMuxesHerdrLibraryTests {
         """)
         #expect(inChain == .false)
     }
+
+    // MARK: - herdr-in-iTerm variant wiring (leaf 3, ADR-0013)
+
+    /// The replace/augment classifier (R1). Keyed on the CURRENT-TAB iTerm
+    /// split count: the sole split → replace ("/herdr"); any others →
+    /// augment ("/herdr+split"). A 0 count (an AppleScript hiccup while
+    /// herdr is confirmed focused) degrades to replace — the safe default.
+    @Test func classifierMapsCurrentTabSplitCount() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        func suffix(_ n: Int) throws -> String {
+            let v = try engine.evaluate("(classify-herdr-variant \(n))")
+            if case .string(let s) = v { return s as String }
+            Issue.record("expected string, got \(v)")
+            return ""
+        }
+        #expect(try suffix(1) == "/herdr")           // sole split → replace
+        #expect(try suffix(2) == "/herdr+split")     // + other splits → augment
+        #expect(try suffix(5) == "/herdr+split")
+        #expect(try suffix(0) == "/herdr")           // defensive → replace
+    }
+
+    /// The tree-builders are shape-correct and the iTerm exports the config
+    /// composes with are reachable. `iterm-list-session-ids` is the
+    /// tab-scoped classifier count source (`sessions of current tab of
+    /// current window`) — the fix for the multi-tab trap (R1) — asserted
+    /// exported but NOT called (it would auto-launch iTerm via AppleScript;
+    /// the config wires it as the count source, gated on herdr being
+    /// focused, i.e. iTerm already frontmost). `build-iterm-splits-drill` is
+    /// pure (builds a node), so it is exercised here.
+    @Test func treeBuildersAndItermExportsAreShapeCorrect() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser muxes herdr)
+                  (only (modaliser apps iterm)
+                        iterm-list-session-ids build-iterm-splits-drill))
+        """)
+        #expect(try engine.evaluate("(procedure? iterm-list-session-ids)") == .true)
+        // Skeleton herdr tree: a non-empty list of nodes (herdr owns hjkl).
+        #expect(try engine.evaluate("(pair? (build-herdr-tree))") == .true)
+        // The augment iTerm-splits drill builds a node (pure, no AppleScript).
+        #expect(try engine.evaluate("(pair? (build-iterm-splits-drill))") == .true)
+    }
+
+    /// R4 — the context-suffix variant path of `resolve-app-tree` was
+    /// implemented but NEVER exercised in production (no /nvim or /zellij
+    /// screen ships in the bundled config); herdr is its first real user.
+    /// This asserts the variant actually RESOLVES rather than silently
+    /// falling back to the plain tree. Registers the base + both variant
+    /// screens + the herdr backend + a stub iTerm host whose focused pane
+    /// runs herdr, installs the composed suffix hook (current-tab count
+    /// injected so no live iTerm is touched), and checks all three outcomes.
+    @Test func variantTreeResolvesReplaceAugmentAndFallback() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine)
+                  (modaliser muxes herdr) (modaliser terminal)
+                  (only (modaliser event-dispatch)
+                        set-local-context-suffix! resolve-app-tree))
+        """)
+        // Base tree + both variant screens (skeletons).
+        try engine.evaluate("""
+          (screen 'com.googlecode.iterm2 (panel "Base" (key "x" "X" (lambda () #f))))
+          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
+          (apply screen 'com.googlecode.iterm2/herdr+split (build-herdr-tree))
+        """)
+        // herdr backend + a stub iTerm host whose focused pane runs herdr.
+        try engine.evaluate("(register!)")
+        try engine.evaluate("""
+          (define (stub-iterm fg)
+            (make-terminal-backend
+              'iterm "iTerm" 'host "com.googlecode.iterm2"
+              (lambda () fg) (lambda () "sess-1")
+              (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+              (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+              (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+              (lambda () 'x) (lambda () 'x)
+              (lambda () #t)))
+          (register-backend! (stub-iterm "herdr"))
+        """)
+        // Composed hook: herdr focused → classify by the injected current-tab
+        // split count; otherwise #f (fall back to the plain tree).
+        try engine.evaluate("""
+          (define *ct-count* 1)
+          (set-local-context-suffix!
+            (lambda (bundle-id)
+              (and (equal? bundle-id "com.googlecode.iterm2")
+                   (in-chain? 'herdr)
+                   (classify-herdr-variant *ct-count*))))
+        """)
+        func resolvesTo(_ variant: String) throws -> Bool {
+            try engine.evaluate("""
+              (parameterize ((current-frontmost-bundle-id
+                               (lambda () "com.googlecode.iterm2")))
+                (eq? (resolve-app-tree "com.googlecode.iterm2")
+                     (lookup-tree "\(variant)")))
+            """) == .true
+        }
+        // Replace: sole current-tab split → the /herdr variant resolves.
+        #expect(try resolvesTo("com.googlecode.iterm2/herdr"))
+        // Augment: >1 current-tab split → the /herdr+split variant resolves.
+        try engine.evaluate("(set! *ct-count* 2)")
+        #expect(try resolvesTo("com.googlecode.iterm2/herdr+split"))
+        // Fall-through: herdr NOT focused → the plain tree, no variant.
+        try engine.evaluate("(register-backend! (stub-iterm \"zsh\"))")
+        #expect(try resolvesTo("com.googlecode.iterm2"))
+    }
 }

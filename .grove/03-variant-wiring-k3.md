@@ -48,3 +48,51 @@ or `/zellij` screen ships) — herdr is its first real user, so test that
 - `swift test` + `check-portable-surface.sh` green.
 
 ## Notes
+
+### Deliverables
+
+- `apps/iterm.sld` — export `iterm-list-session-ids` (tab-scoped classifier
+  count source) + new `build-iterm-splits-drill` (the augment `i` drill bound
+  to iTerm-DIRECT ops, R2).
+- `muxes/herdr.sld` — `classify-herdr-variant` (the R1 count→suffix
+  replace/augment decision, host-agnostic pure) + `build-herdr-tree` (skeleton
+  herdr variant tree: herdr owns top-level hjkl, herdr-direct). Kept
+  host-agnostic; the iTerm glue lives in the config composition.
+- `app-trees/com.googlecode.iterm2.scm` (bundled + user `~/.config`) —
+  `(iterm:register! 'install-tree? #f 'install-context-suffix? #f)`,
+  `(herdr:register!)`, the two variant screens, and the composed
+  `set-local-context-suffix!` (herdr branch gated on `(terminal:in-chain?
+  'herdr)` + tab-scoped count; else delegates to `iterm:context-suffix-handler
+  … 'rebuild? #f`). `default-config.scm` + user `config.scm` gain the
+  `(modaliser muxes herdr)` + `(modaliser event-dispatch)` imports.
+- `docs/adr/0013-herdr-replace-vs-augment-tree.md`.
+- Tests: `ModaliserMuxesHerdrLibraryTests` gains `classifierMapsCurrentTabSplitCount`,
+  `treeBuildersAndItermExportsAreShapeCorrect`, and
+  `variantTreeResolvesReplaceAugmentAndFallback` (R4 — asserts the variant
+  RESOLVES, not falls back). `swift test` = 728 pass / 75 suites (with the
+  pre-existing `ModaliserAppsItermLibraryTests` + `HttpLibraryTests` skips,
+  [[project_iterm_tests_crash]]); `check-portable-surface.sh` green.
+
+### Live verification (observed against the user's real iTerm + herdr client)
+
+Ran the exact probes the classifier consumes against the running environment
+(iTerm2 up, herdr client on `ttys010`, `herdr pane current` = `w9:p1`):
+
+- **Replace path — OBSERVED.** The herdr iTerm tab (`ttys010`, fg `herdr`) holds
+  exactly **1** session → classifier inputs `(herdr-focused #t, current-tab-count
+  1)` → `/herdr`. The pure `classify-herdr-variant` maps `1 → "/herdr"` (unit
+  tested).
+- **Multi-tab trap — OBSERVED avoided.** iTerm had 10 tabs / 28 total sessions;
+  the tab-scoped `id of every session of current tab` returned **1** for the
+  herdr tab. An all-tabs AX count would have overcounted → wrong "augment". R1
+  fix confirmed against the real layout.
+- **Fall-through — OBSERVED.** iTerm's *current* window ran `grove do …` (3
+  splits, no herdr) → classifier falls through to the plain tree. Correct.
+- **Augment path** (`count > 1 → /herdr+split`): not present in the current
+  layout (herdr is alone in its tab), so unit-tested only, not observed live.
+- **Not done here:** the full F17→overlay→variant-tree *visual* confirmation in
+  the installed app (needs `./scripts/install.sh` + the user's herdr iTerm
+  window frontmost + a manual F17 press). Deferred to leaf 4, where the herdr
+  tree gains real content and the same install+confirm applies — installing a
+  hjkl-only skeleton mid-session onto the actively-working daily driver earns
+  nothing. The switching *logic* is verified above; only the pixels aren't.

@@ -8,10 +8,19 @@
 ;; (terminal:focus-pane-*) / (terminal:split-pane-*) / (terminal:move-
 ;; pane-*) calls below route to iTerm. 'install-tree? #f skips the
 ;; library's own rebuild-tree! — the inline (screen 'com.googlecode.iterm2
-;; …) below is the tree we want, not the library's stock one. The backend
-;; record + sticky focus mode + digit-pick mode + context-suffix handler
-;; still install.
-(iterm:register! 'install-tree? #f)
+;; …) below is the tree we want, not the library's stock one.
+;;
+;; 'install-context-suffix? #f: we compose our OWN suffix hook at the
+;; bottom of this file (herdr replace/augment + the iTerm nvim/zellij
+;; branch). A single global suffix slot is last-write-wins, so herdr must
+;; compose, not install a second hook — see ADR-0013 and the
+;; set-local-context-suffix! call below.
+(iterm:register! 'install-tree? #f 'install-context-suffix? #f)
+
+;; Register the herdr mux backend so (terminal:in-chain? 'herdr) resolves
+;; when the focused iTerm pane runs the herdr client. This is what the
+;; composed suffix hook (bottom of file) gates the herdr variant trees on.
+(herdr:register!)
 
 ;; Tab rename — clicks iTerm's Window > Tab > Edit Tab Title menu via
 ;; System Events. iTerm opens its inline tab-bar editor; the user types
@@ -153,3 +162,43 @@
   ;; self-contained). Live list → wide panel.
   (panel "Panes"
     (iterm:pane-list-block 'chips? #t)))
+
+;; ── herdr variant trees (ADR-0013) ──────────────────────────────────
+;;
+;; When the focused iTerm pane runs the herdr client, the composed suffix
+;; hook below swaps in a herdr variant tree. herdr owns the top-level hjkl
+;; pane focus in both (identical muscle memory); the augment tree is the
+;; replace tree PLUS the iTerm `i`-splits drill for the other iTerm splits.
+;; Both are skeletons here — the full herdr surface (splits / move / zoom /
+;; digit-jump, tabs, workspaces) is grown alongside the herdr block helpers.
+
+;; Replace: herdr is the sole current-tab iTerm split, so it owns the whole
+;; window — a herdr-only tree, zero iTerm controls.
+(apply screen 'com.googlecode.iterm2/herdr (herdr:build-herdr-tree))
+
+;; Augment: the iTerm window carries other splits too, so the herdr tree
+;; gains an `i` drill for the iTerm splits. The drill binds iterm-DIRECT
+;; ops — in augment mode the (modaliser terminal) façade resolves to herdr,
+;; so its shims would drive the wrong layer.
+(apply screen 'com.googlecode.iterm2/herdr+split
+  (append (herdr:build-herdr-tree)
+          (list (iterm:build-iterm-splits-drill))))
+
+;; The composed context-suffix hook. One global slot, last-write-wins, so
+;; this single handler does both jobs (ADR-0013):
+;;   1. herdr focused in iTerm → classify replace vs augment by the
+;;      CURRENT-TAB split count (tab-scoped iterm-list-session-ids, NOT an
+;;      all-tabs AX count — avoids the multi-tab miscount, R1). The
+;;      (terminal:in-chain? 'herdr) gate short-circuits the AppleScript
+;;      count query when herdr is not focused.
+;;   2. Otherwise delegate to (iterm:context-suffix-handler …) for the
+;;      existing nvim / zellij branches. 'rebuild? #f keeps it from
+;;      clobbering the inline (screen 'com.googlecode.iterm2 …) tree above
+;;      (it still refreshes the pane snapshot the pane-list block reads).
+(set-local-context-suffix!
+ (lambda (bundle-id)
+   (or (and (equal? bundle-id "com.googlecode.iterm2")
+            (terminal:in-chain? 'herdr)
+            (herdr:classify-herdr-variant
+             (length (iterm:iterm-list-session-ids))))
+       (iterm:context-suffix-handler bundle-id 'rebuild? #f))))

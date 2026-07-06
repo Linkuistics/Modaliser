@@ -29,7 +29,9 @@
         (prefix (modaliser web-search)      web-search:)
         (prefix (modaliser apps safari)     safari:)
         (prefix (modaliser apps iterm)      iterm:)
-        (prefix (modaliser terminal)        terminal:))
+        (prefix (modaliser muxes herdr)     herdr:)  ; herdr mux backend + variant wiring
+        (prefix (modaliser terminal)        terminal:)
+        (modaliser event-dispatch))         ; set-local-context-suffix! (composed hook)
 
 ;; ─── Leader keys ─────────────────────────────────────────────────
 ;; F18 global, F17 local. arm-when-frontmost suppresses leader arming

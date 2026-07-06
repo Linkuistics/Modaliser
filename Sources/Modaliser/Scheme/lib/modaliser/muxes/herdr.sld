@@ -60,7 +60,15 @@
 
 (define-library (modaliser muxes herdr)
   (export register!
-          backend)
+          backend
+          ;; herdr-in-iTerm variant wiring (ADR-0013). The replace/augment
+          ;; classifier + the herdr variant tree-builder. The context-suffix
+          ;; COMPOSITION lives in the user config (a single global suffix slot
+          ;; is last-write-wins, so herdr composes rather than installs): the
+          ;; config gates on (terminal:in-chain? 'herdr) + the tab-scoped iTerm
+          ;; split count, then calls classify-herdr-variant.
+          classify-herdr-variant
+          build-herdr-tree)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -227,6 +235,42 @@
 
     (define (focus-pane-by-digit)
       (enter-mode! 'herdr-pane-digit))
+
+    ;; ─── herdr-in-iTerm variant wiring (ADR-0013) ───────────────────
+    ;;
+    ;; On each local-leader press the iTerm context-suffix hook picks a
+    ;; variant tree by the herdr situation in the frontmost iTerm window.
+    ;; herdr owns the top-level hjkl pane focus in BOTH variant trees
+    ;; (identical muscle memory); the augment tree = this tree + the iTerm
+    ;; `i`-splits drill (spliced in by the config from
+    ;; (modaliser apps iterm) build-iterm-splits-drill).
+
+    ;; The replace/augment classifier (R1). Keyed on the CURRENT-TAB iTerm
+    ;; split count — the config sources it from the tab-scoped
+    ;; (iterm:iterm-list-session-ids), NOT an all-tabs AX scroll-area count
+    ;; that would misfire on a herdr window carrying a second tab. herdr the
+    ;; sole current-tab split → "/herdr" (replace: herdr owns the whole
+    ;; window, zero iTerm controls); herdr plus other current-tab splits →
+    ;; "/herdr+split" (augment). A 0 count (AppleScript hiccup while herdr is
+    ;; confirmed focused) degrades to replace — the safe default, since the
+    ;; augment tree binds iTerm ops that would be wrong with no iTerm splits.
+    (define (classify-herdr-variant current-tab-split-count)
+      (if (> current-tab-split-count 1) "/herdr+split" "/herdr"))
+
+    ;; The herdr variant tree (skeleton). herdr owns the top-level hjkl pane
+    ;; focus — bound to the herdr-DIRECT ops above, never the façade, so it
+    ;; drives herdr regardless of what active-backend resolves to. The full
+    ;; surface (splits / move / zoom / digit-jump, tabs, workspaces) grows
+    ;; here alongside the herdr block helpers. Returns a list of nodes the
+    ;; config splices into (screen 'com.googlecode.iterm2/herdr …) and, with
+    ;; the iTerm drill appended, (screen 'com.googlecode.iterm2/herdr+split …).
+    (define (build-herdr-tree)
+      (list
+        (panel "Focus"
+          (key "h" "Left"  focus-pane-left)
+          (key "j" "Down"  focus-pane-down)
+          (key "k" "Up"    focus-pane-up)
+          (key "l" "Right" focus-pane-right))))
 
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
