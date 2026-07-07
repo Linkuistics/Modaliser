@@ -108,6 +108,22 @@ brief chain is this root only). Full detail lives in the `muxes/herdr.sld` /
 - **Chips are replace-mode-correct only.** Augment-mode chips may target the wrong
   split (first-`AXScrollArea` soft spot); documented, deferred to a focused-iTerm-
   session-frame primitive. hjkl focus + digit-jump work in both modes.
+- **Worktrees surface (k6, done) — settled shape + v1 boundaries** (for the docs
+  k7 / live-verify k11 siblings). Top-level `open "g" "Worktrees"` drill (g = git
+  worktree; w is Workspaces): digit → **smart-switch** (open worktree → `workspace
+  focus <open_workspace_id>`; dormant → `worktree open --branch <b> --focus`); `n`
+  New (prompt branch → `worktree create --branch <b> --focus`); `d` Remove the
+  **focused** worktree behind an OK/Cancel confirm (default Cancel). All three
+  **source-pinned** via `--workspace <focused-ws-id>` (from `pane current`).
+  `worktree list` → `result.worktrees[]` (`branch`, `label`, `path`,
+  `open_workspace_id` **only when open**) + `result.source.source_workspace_id`
+  (the current row's key). **Deliberate v1 exclusions:** removing a *dormant*
+  worktree (herdr keys remove on `--workspace`, so only open worktrees are
+  removable via CLI); `--force` removal (no destroying uncommitted work by a
+  keystroke); a base-ref / branch fuzzy picker for New; worktree **chips**
+  (worktrees have no on-screen rect — the list *is* the visualization, like
+  agents). Detail in the `muxes/herdr.sld` / `blocks/herdr-list.sld` headers and
+  the retired `06-worktrees-surface-k6/BRIEF.md`.
 
 ## Done when
 
