@@ -5,16 +5,18 @@
 ;; 1. The legacy detection primitives (focused-iterm-tty, tty-foreground-command,
 ;;    nvim socket discovery, etc.) — unchanged from Phase 1.
 ;;
-;; 2. The terminal-backends façade (Phase 2 / PRD `docs/prd/terminal-backends.md`):
+;; 2. The terminal-backends façade (see docs/reference/terminal-detection.md):
 ;;    a backend record, a registry, active-backend resolution, the focused-
 ;;    terminal-path walk, the 14 op shims, and 5 capability predicates. Per-
 ;;    backend modules ((modaliser apps iterm), (modaliser muxes tmux), …)
 ;;    register populated `<terminal-backend>` records; user configs call the
 ;;    façade ops by direction-word name through this module's prefix.
 ;;
-;; ADRs: 0002 (direction-word names), 0003 (façade-only public surface),
-;; 0004 (capability predicates), 0006 (multi-session tty correlation),
-;; 0008 (focused-terminal path shape).
+;; Design notes: the direction-word op names, the façade-only public
+;; surface, the capability predicates, multi-session tty correlation, and
+;; the focused-terminal path shape are documented in
+;; docs/reference/terminal-detection.md and
+;; docs/how-to/terminal-pane-aware-tree.md.
 
 (define-library (modaliser terminal)
   (export ;; Legacy detection (unchanged).
@@ -51,7 +53,7 @@
           supports-zoom?
           supports?
 
-          ;; Multi-session-local tty correlation (ADR-0006). Mux backends
+          ;; Multi-session-local tty correlation. Mux backends
           ;; pass their own host-tty source + pgrep pattern.
           correlate-mux-client-to-host-tty)
   (import (scheme base)
@@ -103,12 +105,12 @@
     ;; host-by-bundle-id (`focused-app-bundle-id`) and mux-by-fg-command
     ;; (e.g. "tmux", "zellij"), discriminated by the record's `kind`.
     ;; Each backend's `symbol` (e.g. 'iterm, 'zellij) is what appears in
-    ;; the focused-terminal-path alist (ADR-0008).
+    ;; the focused-terminal-path alist.
     ;;
     ;; Op fields are thunks of zero args or #f when unsupported. Capability
     ;; predicates AND the field's presence with `configured?` so bindings
     ;; gated by `(supports-move-pane?)` etc. flip on only after configure-
-    ;; entry has done its provisioning (ADR-0004).
+    ;; entry has done its provisioning.
     (define-record-type <terminal-backend>
       (make-terminal-backend symbol name kind match-key
                              detect-foreground-command
@@ -191,10 +193,9 @@
     ;; with the host frame first and the innermost mux last. Empty if no
     ;; host backend is registered for the frontmost app.
     ;;
-    ;; ADR-0008 constraint: each backend symbol appears at most once. We
-    ;; track `seen` so a future case like tmux-inside-tmux can't loop —
-    ;; the second occurrence is silently dropped, which is exactly what
-    ;; ADR-0008 says.
+    ;; Invariant: each backend symbol appears at most once. We track
+    ;; `seen` so a future case like tmux-inside-tmux can't loop — the
+    ;; second occurrence is silently dropped.
     ;;
     ;; Not cached. Future work: memoise per leader press once the leader
     ;; layer exposes a "press epoch" hook.
@@ -287,7 +288,7 @@
     (define (toggle-pane-zoom)
       (dispatch "toggle-pane-zoom" terminal-backend-toggle-pane-zoom))
 
-    ;; ─── Capability predicates (ADR-0004) ───────────────────────────
+    ;; ─── Capability predicates ──────────────────────────────────────
     ;;
     ;; Trees built via `set-local-context-suffix!`-style rebuild see
     ;; per-press capabilities. The AND with `configured?` is the
@@ -360,7 +361,7 @@
                 (else                  #f))))
         (and b accessor (op-configured? b accessor) #t)))
 
-    ;; ─── Multi-session tty correlation (ADR-0006) ───────────────────
+    ;; ─── Multi-session tty correlation ──────────────────────────────
     ;;
     ;; Mux backends call this to find *their* CLI client whose controlling
     ;; tty matches the focused host pane's tty. Caller passes:

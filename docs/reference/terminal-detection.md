@@ -48,10 +48,9 @@ varies between hosts.
   representing the chain from the host terminal down through any
   multiplexer to the innermost foreground command. Each backend
   symbol appears at most once. Returns `'()` when no registered
-  backend is frontmost. See
-  [ADR-0008](../adr/0008-terminal-backends-focused-terminal-path.md)
-  for the wire format and the rationale for an alist rather than
-  an ordered list.
+  backend is frontmost. It is an alist keyed by backend symbol
+  (rather than an ordered list) so callers can look up a segment
+  by symbol directly.
 
 `(in-chain? backend-sym)`
 : `#t` when `backend-sym` appears in the current path. The
@@ -281,8 +280,7 @@ from outside the process (`focus-next-pane`, `new-pane
 implement the splitting ops for the zellij backend. The library
 also resolves the right session in multi-session setups by
 correlating each zellij client's tty with the focused host pane's
-tty — see
-[ADR-0006](../adr/0006-terminal-backends-multi-session-and-ssh.md).
+tty.
 
 For *detection* — the focused zellij pane's foreground command —
 the CLI has no equivalent to tmux's `pane_current_command`. The

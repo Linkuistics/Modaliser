@@ -24,14 +24,14 @@
 ;; resize, `split-pane --move-pane-id` moves into a *new* split), not
 ;; in default keybinds (`RotatePanes` is global Clockwise / CCW only),
 ;; and not in the Lua pane API. A `configure-entry` was originally
-;; planned (ADR-0005) but the re-probe at implementation time found no
+;; planned but the re-probe at implementation time found no
 ;; Lua action the keybind could call, so move-pane is honestly absent.
 ;; (terminal:supports-move-pane?) returns #f on WezTerm; trees that
 ;; need move-pane bindings gate on the predicate.
 ;;
 ;; The re-probe also found `wezterm cli zoom-pane --toggle` (added
 ;; post the recovery notes), so toggle-pane-zoom is CLI-native instead
-;; of the keystroke-proxy ADR-0007 originally specified.
+;; of the keystroke-proxy originally specified.
 ;;
 ;; ─── Chip rendering ────────────────────────────────────────────────
 ;;
@@ -222,7 +222,7 @@
     (define (split-pane-down)  (wezterm-cli "split-pane --bottom"))
 
     ;; toggle-pane-zoom: `wezterm cli zoom-pane --toggle` is a stateless
-    ;; toggle — ADR-0007's required semantics. Added to the WezTerm CLI
+    ;; toggle — the required semantics. Added to the WezTerm CLI
     ;; some time after the 22-month-stale recovery notes, so it
     ;; supersedes the original keystroke-proxy plan.
     (define (toggle-pane-zoom) (wezterm-cli "zoom-pane --toggle"))

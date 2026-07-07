@@ -23,7 +23,7 @@
 ;; (terminal:supports-splits?), (terminal:supports-move-pane?),
 ;; (terminal:supports-digit-jump?) and (terminal:supports-zoom?) all
 ;; return #f when Alacritty alone is the active backend — exactly the
-;; "detection-only" capability story ADR-0004 was sized for. With a
+;; "detection-only" capability story this backend was sized for. With a
 ;; mux inside, the façade resolves the mux as active-backend and
 ;; those predicates reflect the mux's capabilities instead.
 ;;
@@ -31,8 +31,7 @@
 ;;
 ;; (focused-pane-id) is constant #f — Alacritty has no pane concept.
 ;; The vector frame produced by the façade walk is therefore
-;; `#(pane #f fg <cmd>)`; ADR-0008 makes this explicit as the
-;; detection-only shape.
+;; `#(pane #f fg <cmd>)` — the detection-only shape.
 ;;
 ;; (detect-fg-command) walks the local process tree:
 ;;
@@ -75,8 +74,8 @@
 ;;
 ;; It is visible only when /Applications/Alacritty.app exists *and*
 ;; carries the quarantine xattr. Removing the xattr is non-
-;; destructive — Alacritty's binary itself is unchanged. ADR-0005
-;; classifies this as the optional companion to the recommended
+;; destructive — Alacritty's binary itself is unchanged. This is
+;; the optional companion to the recommended
 ;; install path (direct GitHub-releases DMG), which never sets
 ;; quarantine in the first place.
 
@@ -105,8 +104,8 @@
 
     ;; ─── Detection ──────────────────────────────────────────────────
 
-    ;; Detection-only backend: pane-id is structurally #f. ADR-0008
-    ;; explicitly admits `#(pane #f fg <cmd>)` as the host-no-pane
+    ;; Detection-only backend: pane-id is structurally #f, so the
+    ;; façade walk emits `#(pane #f fg <cmd>)` as the host-no-pane
     ;; frame shape.
     (define (focused-pane-id) #f)
 

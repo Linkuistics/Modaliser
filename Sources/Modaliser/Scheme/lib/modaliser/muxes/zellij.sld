@@ -13,7 +13,7 @@
 ;; command is "zellij", `(terminal:focus-pane-left)` resolves to this
 ;; backend's `zellij action move-focus left`.
 ;;
-;; Multi-session resolution (ADR-0006). zellij's own `list-clients`
+;; Multi-session resolution. zellij's own `list-clients`
 ;; doesn't expose client ttys, so we use the façade's
 ;; `correlate-mux-client-to-host-tty` helper (pgrep + lsof) to find the
 ;; zellij client process whose controlling tty matches the focused host
@@ -31,7 +31,7 @@
 ;; zellij's per-pane (pane_x, pane_y, pane_columns, pane_rows) — no
 ;; font query, no host-specific cell-dim helper needed. For v1 this
 ;; assumes iTerm-as-host (matching tmux); the cross-cutting host
-;; cell-dim helper called out in the PRD will lift this when a non-
+;; cell-dim helper will lift this when a non-
 ;; iTerm per-host leaf lands.
 
 (define-library (modaliser muxes zellij)
@@ -68,7 +68,7 @@
     ;; zellij's `list-clients` doesn't expose per-client ttys, so we
     ;; lean on the façade's `correlate-mux-client-to-host-tty` which
     ;; pgreps zellij client processes and matches each one's fd 0 tty
-    ;; against the focused host pane's tty (ADR-0006). That gives us a
+    ;; against the focused host pane's tty. That gives us a
     ;; pid; we then read its argv to recover the session name.
     ;;
     ;; Argv shapes zellij clients take in practice:
@@ -422,7 +422,7 @@
     ;; configured? is constant #t — zellij has no provisioning step (no
     ;; config-file edits, no keybinding install). The `action` CLI just
     ;; works out of the box, which is the property that earned zellij
-    ;; its full 14/14 surface in the PRD.
+    ;; its full 14/14 op surface.
 
     (define (configured?) #t)
 

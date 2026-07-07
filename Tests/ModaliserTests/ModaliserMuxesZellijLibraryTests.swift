@@ -16,8 +16,8 @@ struct ModaliserMuxesZellijLibraryTests {
     @Test func importsAndExposesProcedures() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser muxes zellij))")
-        // The only public exports are register! and backend; per ADR-0003
-        // the ops live on the façade. Both must bind without error.
+        // The only public exports are register! and backend; the ops
+        // live on the façade, not here. Both must bind without error.
         _ = try engine.evaluate("register!")
         _ = try engine.evaluate("backend")
     }

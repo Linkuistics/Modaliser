@@ -18,7 +18,7 @@
 ;;   - move-pane-{left,right,up,down}   → action move_window {left,right,up,down}
 ;;   - focus-pane-by-digit              → ls + focus-window --match=id:N
 ;;
-;; Unsupported (#f, by design — ADR-0007):
+;; Unsupported (#f, by design):
 ;;   - toggle-pane-zoom (Kitty has no native single-pane zoom)
 ;;
 ;; ─── Remote-control prerequisites ──────────────────────────────────
@@ -35,7 +35,7 @@
 ;;      backend agree without parameter plumbing.
 ;;   3. `enabled_layouts splits,…` — without `splits` listed, kitty's
 ;;      `launch --location=vsplit` silently falls back to the active
-;;      layout's behaviour. The PRD's directional split surface
+;;      layout's behaviour. The directional split surface
 ;;      requires the splits layout.
 ;;
 ;; configure-entry provisions all three idempotently, backing up the
@@ -688,7 +688,7 @@
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
     ;; toggle-pane-zoom field is #f — Kitty has no native single-pane
-    ;; zoom (ADR-0007). `(supports-zoom?)` reports #f accordingly.
+    ;; zoom. `(supports-zoom?)` reports #f accordingly.
 
     (define backend
       (make-terminal-backend
@@ -699,7 +699,7 @@
         split-pane-left  split-pane-right  split-pane-up    split-pane-down
         move-pane-left   move-pane-right   move-pane-up     move-pane-down
         focus-pane-by-digit
-        ;; toggle-pane-zoom: #f. ADR-0007 — Kitty has no native single-
+        ;; toggle-pane-zoom: #f — Kitty has no native single-
         ;; pane zoom; (supports-zoom?) is the only capability predicate
         ;; that flips to #f for a splitting backend in v1.
         #f

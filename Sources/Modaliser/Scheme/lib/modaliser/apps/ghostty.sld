@@ -183,8 +183,8 @@
     (define (split-pane-down)  (split-direction "down"))
 
     ;; toggle_split_zoom is Ghostty's keybind action for the same UX
-    ;; the user gets via cmd+enter (default). Stateless toggle per
-    ;; ADR-0007. `perform action` is the supported entry point.
+    ;; the user gets via cmd+enter (default). Stateless toggle;
+    ;; `perform action` is the supported entry point.
     (define (toggle-pane-zoom) (perform-action "toggle_split_zoom"))
 
     ;; ─── Digit-jump chip rendering ──────────────────────────────────
@@ -315,7 +315,7 @@
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
     ;; configured? is constant #t — Ghostty has no provisioning step
-    ;; in v1 (ADR-0005). All 13 ops work out of the box once Ghostty
+    ;; in v1. All 13 ops work out of the box once Ghostty
     ;; itself is installed; the move-pane gap is honest (no action to
     ;; provision against), not configurable.
 

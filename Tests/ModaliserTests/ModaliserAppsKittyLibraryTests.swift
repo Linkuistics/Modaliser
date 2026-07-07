@@ -18,7 +18,7 @@ struct ModaliserAppsKittyLibraryTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser apps kitty))")
         // Public surface mirrors wezterm plus configure-entry / probe.
-        // ADR-0003: ops live on the façade; this module just exports
+        // Ops live on the façade; this module just exports
         // the registration and configure plumbing.
         _ = try engine.evaluate("register!")
         _ = try engine.evaluate("backend")
@@ -67,15 +67,15 @@ struct ModaliserAppsKittyLibraryTests {
         #expect(try engine.evaluate("(lookup-tree \"kitty-pane-digit\")") != .false)
     }
 
-    /// Capability matrix: Kitty is 13/14 — zoom is the gap (ADR-0007,
-    /// Kitty has no native single-pane zoom). (supports-zoom?) returns
+    /// Capability matrix: Kitty is 13/14 — zoom is the gap (Kitty
+    /// has no native single-pane zoom). (supports-zoom?) returns
     /// #f; the other three predicates all return #t once configure-
     /// entry has run.
     ///
     /// In this test no kitty.conf exists (or none with the marker), so
     /// `kitty-configured?` is #f and *all* capability predicates short-
     /// circuit on the configured? AND. That's the provisioning-gate
-    /// behaviour (ADR-0004). To exercise the matrix shape we register
+    /// behaviour. To exercise the matrix shape we register
     /// a stub-host backend with the same kind/match-key whose
     /// configured? is constant #t and re-run.
     @Test func backendCapabilityMatrix() throws {
@@ -132,9 +132,8 @@ struct ModaliserAppsKittyLibraryTests {
             """) == .true, "expected \(predicate) ⇒ #t with stub backend")
         }
 
-        // zoom: the explicit Kitty gap. ADR-0007 documents why this is
-        // the only splitting-backend capability predicate that's #f
-        // in v1.
+        // zoom: the explicit Kitty gap — the only splitting-backend
+        // capability predicate that's #f in v1.
         #expect(try engine.evaluate("""
           (parameterize ((current-frontmost-bundle-id
                            (lambda () "net.kovidgoyal.kitty")))

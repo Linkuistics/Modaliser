@@ -13,12 +13,12 @@
 ;; command is "tmux", `(terminal:focus-pane-left)` resolves to this
 ;; backend's `tmux select-pane … -L`.
 ;;
-;; Multi-session resolution (ADR-0006). When several iTerm panes each
+;; Multi-session resolution. When several iTerm panes each
 ;; attach to a different tmux session, every CLI command targets the
 ;; session whose client is bound to the focused iTerm pane's tty. The
 ;; mapping comes from `tmux list-clients -F '#{client_tty} #{session_name}'`
-;; — simpler and more direct than the pgrep+lsof recipe ADR-0006
-;; sketches, which the façade still exports as
+;; — simpler and more direct than the pgrep+lsof recipe the façade
+;; still exports as
 ;; `correlate-mux-client-to-host-tty` for backends without an equivalent
 ;; native query (zellij).
 ;;
@@ -28,8 +28,8 @@
 ;; tmux's per-pane cell coords, and divides — no font query, no
 ;; host-specific cell-dim helper needed. For v1 this assumes a single
 ;; iTerm split (or the first one if multiple); multi-split iTerm + tmux
-;; chip rendering is a known soft spot that the cross-cutting helper
-;; called out in the PRD will fix when a per-host leaf lands.
+;; chip rendering is a known soft spot that a cross-cutting host
+;; cell-dim helper will fix when a per-host leaf lands.
 
 (define-library (modaliser muxes tmux)
   (export register!
@@ -72,7 +72,7 @@
     ;; default-active session, which is the right behaviour for the
     ;; single-session common case.
     ;;
-    ;; This is the tmux-native equivalent of ADR-0006's pgrep+lsof
+    ;; This is the tmux-native equivalent of the façade's pgrep+lsof
     ;; recipe; both produce the same answer, but tmux already knows
     ;; the (tty, session) pairing so there's no need to walk procfs.
     (define (session-for-host-tty)
@@ -193,8 +193,8 @@
     (define (move-pane-up)    (swap-with "{up-of}"))
     (define (move-pane-down)  (swap-with "{down-of}"))
 
-    ;; Zoom. tmux's `resize-pane -Z` is a stateless toggle (ADR-0007's
-    ;; required semantics). `window_zoomed_flag` exposes the current
+    ;; Zoom. tmux's `resize-pane -Z` is a stateless toggle — the
+    ;; required semantics. `window_zoomed_flag` exposes the current
     ;; state but we don't need it — the toggle is idempotent in shape.
     (define (toggle-pane-zoom)
       (tmux-cmd "resize-pane -Z"))
@@ -218,7 +218,7 @@
     ;; v1 simplification: when iTerm has multiple AXScrollAreas (split
     ;; iTerm host) we take the first match. Multi-iTerm-split + tmux is
     ;; uncommon enough to defer until the cross-cutting host cell-dim
-    ;; helper lands (PRD § "Chip rendering").
+    ;; helper lands.
 
     ;; tmux gives ROWS like "%0 0 0 40 24" — pane_id then four ints.
     ;; Returns a list of (pane-id left top width height) lists; empty
@@ -380,7 +380,7 @@
     ;; configured? is constant #t — tmux has no provisioning step (no
     ;; config-file edits, no keybinding install). The CLI just works
     ;; out of the box, which is the property that earned tmux its full
-    ;; 14/14 surface in the PRD.
+    ;; 14/14 op surface.
 
     (define (configured?) #t)
 

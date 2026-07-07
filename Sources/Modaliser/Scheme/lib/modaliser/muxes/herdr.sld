@@ -27,7 +27,7 @@
 ;;      Two herdr clients attached to one session therefore share one
 ;;      global focus and cannot be disambiguated — a documented v1
 ;;      non-goal; the common single-client case is unambiguous. No tty
-;;      correlation (cf. tmux/zellij ADR-0006) is required.
+;;      correlation (cf. tmux/zellij) is required.
 ;;
 ;; ── JSON ──
 ;; herdr emits compact single-line nested JSON
@@ -198,7 +198,7 @@
     (define (move-pane-up)     (herdr-cmd "pane swap --direction up --current"))
     (define (move-pane-down)   (herdr-cmd "pane swap --direction down --current"))
 
-    ;; Zoom: herdr's `--toggle` is a stateless flip (ADR-0007 semantics).
+    ;; Zoom: herdr's `--toggle` is a stateless flip.
     (define (toggle-pane-zoom) (herdr-cmd "pane zoom --current --toggle"))
 
     ;; Close the focused pane. `pane close` needs an explicit id (no
