@@ -70,7 +70,11 @@
           ;; config gates on (terminal:in-chain? 'herdr) + the tab-scoped iTerm
           ;; split count, then calls classify-herdr-variant.
           classify-herdr-variant
-          build-herdr-tree)
+          build-herdr-tree
+          ;; Pure round-robin ring helper (parsed `agent list` + focused
+          ;; pane_id → next blocked pane_id | #f), exported for unit tests —
+          ;; the jump-to-blocked op (`b`) is a thin shell around it.
+          next-blocked-pane-id)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -386,6 +390,80 @@
     (define (workspace-list-block)
       (herdr-list-block 'workspaces
         (lambda (id) (herdr-cmd (string-append "workspace focus " id))) #f))
+    ;; Agents list (D1/D7): the 'agents kind reorders status-priority
+    ;; (blocked-first) and paints a status badge; digit → focus the agent's
+    ;; pane by id via the universal `agent focus`. No chips (D6) — the list is
+    ;; the visualization, and agents can live cross-workspace (off-screen).
+    (define (agent-list-block)
+      (herdr-list-block 'agents
+        (lambda (id) (herdr-cmd (string-append "agent focus " id))) #f))
+
+    ;; ─── Jump to next blocked agent (top-level `b`, D4/D5) ──────────
+    ;;
+    ;; Round-robin over blocked agents, keyed on CURRENT FOCUS with no stored
+    ;; cursor (stateless, non-sticky — D4). `next-blocked-pane-id` is pure
+    ;; (parsed `agent list` + focused pane_id → next blocked pane_id | #f) and
+    ;; exported for fixture tests; the op below is a thin shell that reads the
+    ;; live list + focus, then focuses the target or — zero blocked — pops a
+    ;; herdr toast with no focus change (D5).
+
+    ;; Smallest string in STRS by string<?, or #f when empty. Picks the ring's
+    ;; next element without a full sort — LispKit ships no stable list-sort
+    ;; (see (modaliser blocks herdr-list)).
+    (define (min-string strs)
+      (if (null? strs)
+          #f
+          (let loop ((rest (cdr strs)) (m (car strs)))
+            (if (null? rest)
+                m
+                (loop (cdr rest)
+                      (if (string<? (car rest) m) (car rest) m))))))
+
+    ;; Blocked pane_ids from a parsed `agent list` (agent_status == "blocked"),
+    ;; in JSON order. #f / malformed parse → '() (the notification path).
+    (define (blocked-pane-ids parsed)
+      (let ((arr (and parsed
+                      (json-ref (json-ref parsed "result") "agents"))))
+        (if (not (vector? arr))
+            '()
+            (let loop ((k 0) (acc '()))
+              (if (>= k (vector-length arr))
+                  (reverse acc)
+                  (let* ((item (vector-ref arr k))
+                         (st   (json-ref item "agent_status"))
+                         (pid  (json-ref item "pane_id")))
+                    (loop (+ k 1)
+                          (if (and (equal? st "blocked") (string? pid))
+                              (cons pid acc)
+                              acc))))))))
+
+    ;; The ring: the smallest blocked pane_id sorting strictly AFTER
+    ;; FOCUSED-PANE-ID (round-robin's next), wrapping to the smallest overall
+    ;; when focus is at/after the last blocked pane (or unknown / #f). #f when
+    ;; nothing is blocked. pane_id compare is lexical ("p10" < "p2") —
+    ;; acceptable for v1 while ids share a width; numeric-aware ordering
+    ;; deferred (noted so a later id widening doesn't surprise).
+    (define (next-blocked-pane-id parsed focused-pane-id)
+      (let ((blocked (blocked-pane-ids parsed)))
+        (if (null? blocked)
+            #f
+            (let ((after (if (string? focused-pane-id)
+                             (filter (lambda (p) (string<? focused-pane-id p))
+                                     blocked)
+                             '())))
+              (if (pair? after)
+                  (min-string after)
+                  (min-string blocked))))))
+
+    ;; The op bound to `b`: focus the next blocked agent (server-wide, D2), or
+    ;; toast when none. A plain key (not a sticky mode) so the overlay dismisses
+    ;; and the user interacts with the agent immediately (D4).
+    (define (jump-to-next-blocked)
+      (let ((target (next-blocked-pane-id (herdr-json "agent list")
+                                          (focused-pane-id))))
+        (if target
+            (herdr-cmd (string-append "agent focus " target))
+            (herdr-cmd "notification show 'No blocked agents'"))))
 
     ;; Sticky top-level focus mode. The Focus panel's hjkl each carry a
     ;; 'sticky-target here (build-herdr-tree), so the first hjkl focuses AND
@@ -413,6 +491,8 @@
     ;;   z / d        toggle zoom / close pane
     ;;   t Tabs       n/r/d + the tabs list (digit → switch)
     ;;   w Workspaces n/r/d + the workspaces list (digit → switch)
+    ;;   b Jump       focus the next blocked agent (round-robin; toast if none)
+    ;;   a Agents     the agents list (status-badged, blocked-first; digit → focus)
     ;;   Panes panel  the panes list + chips (digit → focus by id)
     (define (build-herdr-tree)
       (list
@@ -445,6 +525,13 @@
           (key "r" "Rename" rename-focused-workspace!)
           (key "d" "Close"  close-focused-workspace)
           (panel "Workspaces" (workspace-list-block)))
+        ;; Agents surface (k5). `b` jumps to the next blocked agent in one
+        ;; keystroke (the differentiator); `a` drills into the Agents live-list
+        ;; (status-badged, blocked-first, digit → focus by id). v1 focus-only
+        ;; (D8) — no send/read/explain, so the drill is just the list panel.
+        (key "b" "Jump to Blocked" jump-to-next-blocked)
+        (open "a" "Agents"
+          (panel "Agents" (agent-list-block)))
         (panel "Panes" (pane-list-block 'chips? #t))))
 
     ;; ─── Backend record ─────────────────────────────────────────────

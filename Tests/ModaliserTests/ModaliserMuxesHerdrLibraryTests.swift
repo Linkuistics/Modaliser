@@ -258,17 +258,18 @@ struct ModaliserMuxesHerdrLibraryTests {
 
     // MARK: - herdr control surface (leaf herdr-controls-k9)
 
-    /// `build-herdr-tree` now returns the full herdr surface, not the hjkl
+    /// `build-herdr-tree` returns the full herdr surface, not the hjkl
     /// skeleton: a Focus panel, the x Split / m Move groups, z/d pane keys,
-    /// the t Tabs / w Workspaces drills, and the Panes list panel — eight
-    /// top-level nodes. It must build without touching herdr (all shell-outs
-    /// live in on-render thunks / key actions, never at construction time).
+    /// the t Tabs / w Workspaces drills, the b Jump-to-Blocked key + a Agents
+    /// drill (agents surface, k13), and the Panes list panel — ten top-level
+    /// nodes. It must build without touching herdr (all shell-outs live in
+    /// on-render thunks / key actions, never at construction time).
     @Test func buildHerdrTreeIsFullSurface() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
         """)
-        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(8))
+        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(10))
     }
 
     /// (register!) wires the sticky top-level focus mode the herdr tree's
@@ -453,5 +454,94 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(null? (herdr-chip-entries TS LAYOUT #f))") == .true)
         // No layout → empty.
         #expect(try engine.evaluate("(null? (herdr-chip-entries TS #f HOST))") == .true)
+    }
+
+    // MARK: - Agents tree wiring (leaf agents-tree-wiring-k13)
+
+    /// The pure jump-to-blocked ring helper. From a parsed `agent list`, the
+    /// blocked agents (agent_status == "blocked") are ordered by pane_id and
+    /// `next-blocked-pane-id` returns the first blocked pane_id sorting strictly
+    /// AFTER the currently-focused pane, wrapping to the first blocked pane when
+    /// focus is at/after the last (round-robin, non-sticky — D4). Fixture-fed,
+    /// no live herdr. (pane_id compare is lexical for v1: fine while ids share a
+    /// width; noted in the source.)
+    @Test func nextBlockedPaneIdRoundRobin() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        // Two blocked agents (p2, p5) interleaved with idle/working, JSON order
+        // deliberately not status-sorted. p1 idle, p2 blocked, p3 working, p5
+        // blocked.
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"agents\":[{\"agent\":\"a1\",\"agent_status\":\"idle\",\"pane_id\":\"w9:p1\"},{\"agent\":\"a2\",\"agent_status\":\"blocked\",\"pane_id\":\"w9:p2\"},{\"agent\":\"a3\",\"agent_status\":\"working\",\"pane_id\":\"w9:p3\"},{\"agent\":\"a4\",\"agent_status\":\"blocked\",\"pane_id\":\"w9:p5\"}]}}"))
+        """#)
+        // Focus before both blocked → first blocked (p2).
+        #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p1\")") == .string("w9:p2"))
+        // Focus ON the first blocked → advance to the next (p5).
+        #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p2\")") == .string("w9:p5"))
+        // Focus ON the last blocked → wrap to the first (p2).
+        #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p5\")") == .string("w9:p2"))
+        // Focus on a NON-blocked agent mid-ring (working p3) → next blocked (p5).
+        #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p3\")") == .string("w9:p5"))
+        // Focus on an ABSENT/higher id → wrap to the first blocked (p2).
+        #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p9\")") == .string("w9:p2"))
+        // No focus id at all (pane current unreadable) → first blocked (p2).
+        #expect(try engine.evaluate("(next-blocked-pane-id J #f)") == .string("w9:p2"))
+    }
+
+    /// No blocked agent anywhere → #f, which drives the op's `notification show`
+    /// path (D5) rather than a focus change. A malformed / #f parse (herdr not
+    /// running) is likewise #f, never raising.
+    @Test func nextBlockedPaneIdNoneBlocked() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"agents\":[{\"agent\":\"a1\",\"agent_status\":\"idle\",\"pane_id\":\"w9:p1\"},{\"agent\":\"a2\",\"agent_status\":\"working\",\"pane_id\":\"w9:p2\"}]}}"))
+        """#)
+        #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p1\")") == .false)
+        // #f parse (herdr down) → #f, no raise.
+        #expect(try engine.evaluate("(next-blocked-pane-id #f \"w9:p1\")") == .false)
+    }
+
+    /// One blocked agent → returned regardless of where focus sits (before,
+    /// on it, or after) — the single-element ring always resolves to it.
+    @Test func nextBlockedPaneIdSingle() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"agents\":[{\"agent\":\"a1\",\"agent_status\":\"idle\",\"pane_id\":\"w9:p1\"},{\"agent\":\"a2\",\"agent_status\":\"blocked\",\"pane_id\":\"w9:p3\"}]}}"))
+        """#)
+        #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p1\")") == .string("w9:p3"))
+        #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p3\")") == .string("w9:p3"))
+        #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p9\")") == .string("w9:p3"))
+    }
+
+    /// The agents surface is wired into `build-herdr-tree`: a top-level `b`
+    /// (Jump to Blocked, one keystroke) and an `a` Agents drill (open), both
+    /// riding into the replace AND augment variant screens for free (the config
+    /// already splices build-herdr-tree into both). Tree-shape assertion, no
+    /// live herdr.
+    @Test func buildHerdrTreeWiresJumpAndAgents() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("""
+          (define TREE (build-herdr-tree))
+          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
+          (define (node-with-key k lst)
+            (cond ((null? lst) #f)
+                  ((equal? (node-key (car lst)) k) (car lst))
+                  (else (node-with-key k (cdr lst)))))
+        """)
+        // Top-level `b` present and is a plain command key (non-sticky jump).
+        #expect(try engine.evaluate("(if (node-with-key \"b\" TREE) #t #f)") == .true)
+        #expect(try engine.evaluate("""
+          (eq? 'command (cdr (assoc 'kind (node-with-key "b" TREE))))
+        """) == .true)
+        // Top-level `a` present and is a drill group (the Agents open).
+        #expect(try engine.evaluate("(if (node-with-key \"a\" TREE) #t #f)") == .true)
+        #expect(try engine.evaluate("""
+          (eq? 'group (cdr (assoc 'kind (node-with-key "a" TREE))))
+        """) == .true)
     }
 }
