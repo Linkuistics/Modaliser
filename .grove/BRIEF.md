@@ -85,6 +85,30 @@ Corrections the adversarial review forced (details R1–R11 in the plan leaf):
   panes)` soft spot) — documented v1 limitation until a focused-session-frame
   primitive lands.
 
+## Validated live (promoted from the retired herdr-tree-content-k4 node)
+
+Findings from k9/k10, kept here for the agents / worktrees / docs siblings (their
+brief chain is this root only). Full detail lives in the `muxes/herdr.sld` /
+`blocks/herdr-list.sld` headers and the retired `04-herdr-tree-content-k4/BRIEF.md`.
+
+- **`herdr agent focus <pane_id>` is a UNIVERSAL cross-tab pane focus** (not agent-
+  only): it focuses ANY pane by id; on a bare shell pane it also emits a cosmetic
+  `agent_not_found`, but the focus fires first. So jump-to-blocked (k5) and digit-
+  jump both focus by id — no `pane neighbor` geometric walk needed. `tab focus <id>`
+  / `workspace focus <id>` are clean (no cosmetic error).
+- **JSON shapes (compact single-line; parse with `(modaliser json)`).** `pane list`
+  → `result.panes[]` (`pane_id`, `focused`, `agent` opt, `agent_status`
+  idle/working/blocked/unknown, `cwd`, `tab_id`, `workspace_id`); `tab list` /
+  `workspace list` similar with a `label`; `pane layout` → `result.layout` (`area`
+  `{x,y,width,height}` with `x≥26` sidebar offset, `panes[].rect`, `focused_pane_id`,
+  `zoomed`). `agent_status` (k5's core datum) rides on each `pane list` row.
+- **Pane vs tab model.** A tab holds ≥1 pane; `pane layout` shows only the *current
+  tab's* splits, while `pane list` spans all tabs — so anything keyed to on-screen
+  panes (chips) is a subset of the full pane list, matched by `pane_id`.
+- **Chips are replace-mode-correct only.** Augment-mode chips may target the wrong
+  split (first-`AXScrollArea` soft spot); documented, deferred to a focused-iTerm-
+  session-frame primitive. hjkl focus + digit-jump work in both modes.
+
 ## Done when
 
 herdr controls are usable from Modaliser: backend + detection validated, variant trees
@@ -101,6 +125,9 @@ stays green — no `(lispkit …)` in `lib/modaliser`), docs/glossary/ADR update
 5. Worktrees surface (planning+work) — worktree UX.
 6. Docs + reference (+ PRD if earned).
 7. Prune dangling terminal-backends ADR/PRD refs (pre-existing debt).
+8. herdr-live-verify (k11) — one consolidated installed-app visual pass over the
+   whole path (variant switch + controls + chips); added on the k4 retire because
+   the on-screen check was deferred through leaves 3 / k9 / k10.
 
 ## Pointers
 
