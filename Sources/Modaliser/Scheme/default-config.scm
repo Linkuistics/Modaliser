@@ -88,7 +88,7 @@
   ;;   'duration  0.45       animation length, seconds
   ;;   'nudge     #t         #f to skip the reveal-hidden-cursor mouse nudge
   (key " " "Highlight Cursor"
-       (λ () (highlight-cursor 'duration 1 'thickness 16)))
+      (λ () (highlight-cursor 'color "#FF0000" 'duration 1 'thickness 16)))
 
   ;; Window manager drill-down ("w"). (open KEY LABEL panel…) is the
   ;; navigable, panel-native replacement for the old (key K L (overlay …))
