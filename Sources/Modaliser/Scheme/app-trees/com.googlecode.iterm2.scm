@@ -172,9 +172,43 @@
 ;; Both are skeletons here — the full herdr surface (splits / move / zoom /
 ;; digit-jump, tabs, workspaces) is grown alongside the herdr block helpers.
 
+;; herdr per-pane scrollback, reachable at the herdr tree top level in BOTH
+;; variants (herdr-copy-mode-k16). The replace tree ships zero iTerm controls by
+;; design, so without this there is no way to reach scrollback/copy when herdr
+;; owns the whole window — the gap the user hit.
+;;
+;; iTerm's own Copy Mode (Cmd+Shift+C) is WRONG here: iTerm sees herdr as a
+;; SINGLE session and paints selection across the entire herdr canvas, ignoring
+;; herdr's per-pane layout. herdr's native per-pane scrollback (edit_scrollback,
+;; default `prefix e` = `ctrl+b e`) is layout-aware — it acts on herdr's focused
+;; pane. herdr's CLI/socket API cannot trigger it (edit_scrollback is a
+;; client-side UI binding; `pane send-keys` targets the shell PTY, not herdr's
+;; input layer), so we send the `ctrl+b e` keystroke sequence into the focused
+;; iTerm session where the herdr client is listening: prefix (ctrl+b) then e.
+;; Each send-keystroke is self-contained (ctrl is bracketed on `b` only), so the
+;; trailing `e` carries no stray modifier.
+;;
+;; It is a HOST-delivered keystroke, hence host-specific, so it lives HERE at
+;; the config composition layer, not in the portable host-agnostic
+;; (muxes herdr) build-herdr-tree. In replace mode herdr owns the sole iTerm
+;; session so the sequence lands on it; in augment mode it lands on the focused
+;; (herdr) split (the herdr trees only show when herdr is focused). `c` is free
+;; in build-herdr-tree (top-level keys: x m z d t w g b a).
+;;
+;; v1 assumption: the user runs herdr on the DEFAULT prefix (ctrl+b). herdr
+;; exposes no CLI to query the resolved prefix; if the user rebinds herdr's
+;; prefix, update the ctrl+b below to match.
+(define herdr-copy-mode-key
+  (key "c" "Scrollback"
+       (λ ()
+         (send-keystroke '(ctrl) "b")   ; herdr prefix
+         (send-keystroke "e"))))        ; edit_scrollback (per-pane)
+
 ;; Replace: herdr is the sole current-tab iTerm split, so it owns the whole
-;; window — a herdr-only tree, zero iTerm controls.
-(apply screen 'com.googlecode.iterm2/herdr (herdr:build-herdr-tree))
+;; window — a herdr-only tree, zero iTerm controls (plus the shared Scrollback).
+(apply screen 'com.googlecode.iterm2/herdr
+  (append (herdr:build-herdr-tree)
+          (list herdr-copy-mode-key)))
 
 ;; Augment: the iTerm window carries other splits too, so the herdr tree
 ;; gains an `i` drill for the iTerm splits. The drill binds iterm-DIRECT
@@ -182,7 +216,8 @@
 ;; so its shims would drive the wrong layer.
 (apply screen 'com.googlecode.iterm2/herdr+split
   (append (herdr:build-herdr-tree)
-          (list (iterm:build-iterm-splits-drill))))
+          (list herdr-copy-mode-key
+                (iterm:build-iterm-splits-drill))))
 
 ;; The composed context-suffix hook. One global slot, last-write-wins, so
 ;; this single handler does both jobs (ADR-0013):

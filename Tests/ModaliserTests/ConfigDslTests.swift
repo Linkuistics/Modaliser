@@ -350,6 +350,29 @@ struct ConfigDslTests {
         #expect(try engine.evaluate("(group? (find-child it \"t\"))") == .true)
     }
 
+    /// herdr-copy-mode-k16 — the replace tree ships zero iTerm controls by
+    /// design, so scrollback is unreachable there without an explicit binding.
+    /// The config composition layer appends a top-level `c` "Scrollback" (herdr's
+    /// native per-pane edit_scrollback, sent as the `ctrl+b e` host keystroke
+    /// sequence) to BOTH variant screens so replace and augment have identical
+    /// muscle memory. iTerm's own copy mode is unsuitable — it selects across the
+    /// whole herdr canvas, ignoring per-pane layout. Loads the real bundled
+    /// config and asserts both variants expose the binding, guarding against a
+    /// future refactor dropping it. (The keystroke sequence is host-specific, so
+    /// it lives in the config, not in the portable build-herdr-tree — asserted
+    /// structurally, no live iTerm.)
+    @Test func herdrVariantScreensExposeTopLevelScrollback() throws {
+        let engine = try loadAllModules()
+        guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
+        try engine.evaluateFile(schemePath + "/default-config.scm")
+
+        for variant in ["com.googlecode.iterm2/herdr", "com.googlecode.iterm2/herdr+split"] {
+            try engine.evaluate("(define v (lookup-tree \"\(variant)\"))")
+            #expect(try engine.evaluate("(command? (find-child v \"c\"))") == .true)
+            #expect(try engine.evaluate("(equal? (node-label (find-child v \"c\")) \"Scrollback\")") == .true)
+        }
+    }
+
     // MARK: - Config-like pattern
 
     @Test func fullConfigPatternLoads() throws {
