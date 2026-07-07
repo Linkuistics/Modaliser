@@ -301,6 +301,19 @@
     ;; `create --focus` makes and switches to the new tab/workspace;
     ;; close/rename need the focused id, read from `pane current` (one
     ;; query yields pane_id + tab_id + workspace_id).
+    ;;
+    ;; NO tab-reorder op (k17, reconfirmed against herdr 0.7.1). The `tab`
+    ;; CLI exposes only list · create · get · focus · rename · close, and
+    ;; `tab list`/`tab get` carry a read-only `number` (display order) with
+    ;; no verb to set it — `tab rename` mutates the label only. herdr *can*
+    ;; reorder tabs, but only by MOUSE-DRAG in the TUI (persisted to
+    ;; session.json); that primitive is deliberately NOT exposed on the
+    ;; socket API / CLI (upstream ogulcancelik/herdr#770 "Add tab.reorder to
+    ;; socket API + CLI", CLOSED not-planned). Driving reorder would mean
+    ;; injecting mouse/keystrokes — barred by the socket-API-only charter —
+    ;; so tab reorder is a v1 exclusion blocked on upstream herdr, NOT a
+    ;; Move-Tab affordance in the `t` drill below (contrast `m` Move Pane,
+    ;; which `pane swap` backs). Revisit if herdr exposes a tab-order verb.
 
     (define (new-tab)       (herdr-cmd "tab create --focus"))
     (define (new-workspace) (herdr-cmd "workspace create --focus"))
@@ -640,7 +653,9 @@
     ;;   x Split      hjkl → new split that direction (left/up = split+swap)
     ;;   m Move Pane  sticky hjkl → swap focused pane with its neighbour
     ;;   z / d        toggle zoom / close pane
-    ;;   t Tabs       n/r/d + the tabs list (digit → switch)
+    ;;   t Tabs       n/r/d + the tabs list (digit → switch); no Move Tab —
+    ;;                 herdr exposes no socket/CLI tab-reorder verb (see
+    ;;                 Tab ops above)
     ;;   w Workspaces n/r/d + the workspaces list (digit → switch)
     ;;   g Worktrees  n/d + the worktrees list (digit → smart-switch)
     ;;   b Jump       focus the next blocked agent (round-robin; toast if none)

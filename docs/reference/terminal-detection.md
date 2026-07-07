@@ -450,6 +450,26 @@ chip position); only the chip *overlay* may be misplaced. The
 proper fix — a focused-iTerm-session-frame primitive that returns
 the herdr split's frame directly — is a deferred follow-up.
 
+### herdr tab reorder: not exposed (upstream gap)
+
+The herdr `t` Tabs drill offers New / Rename / Close plus digit-jump
+focus, but **no Move Tab** affordance — deliberately, not by
+oversight. herdr 0.7.1's `tab` socket-API CLI exposes only `list ·
+create · get · focus · rename · close`; `tab list` / `tab get` report
+a **read-only** `number` (display order) with no verb to set it, and
+`tab rename` mutates only the label. herdr *can* reorder tabs, but
+only by **mouse-drag in the TUI** (persisted to `session.json`) — that
+primitive is not exposed over the socket API or CLI
+([ogulcancelik/herdr#770](https://github.com/ogulcancelik/herdr/issues/770),
+"Add tab.reorder to socket API + CLI", **closed not-planned**).
+
+Because Modaliser drives herdr **only** through its socket-API CLI
+(never injected keystrokes/mouse — the same charter that governs every
+herdr op), tab reorder is a **v1 exclusion blocked on upstream herdr**,
+not a Modaliser limitation to fix locally. Contrast the `m` Move Pane
+drill, which `herdr pane swap` backs. Revisit if herdr exposes a
+`tab.reorder` / `tab.move` verb over the socket API.
+
 ## See also
 
 - [terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md)
