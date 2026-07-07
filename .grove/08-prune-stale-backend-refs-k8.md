@@ -37,3 +37,15 @@ reintroduce it while editing comments.
   shouldn't affect it, but confirm).
 
 ## Notes
+
+- **Backends op-list "new home" decision (from docs-reference-k7).** The deleted
+  `docs/prd/terminal-backends.md` was the "authoritative op list" home. No new
+  dedicated backends-reference doc is warranted — the 14-op façade surface + the 5
+  capability predicates are already documented in
+  `docs/how-to/terminal-pane-aware-tree.md` § "One tree across every backend:
+  capability predicates", and the per-backend support table lives in
+  `docs/reference/terminal-detection.md`. So **repoint** any dangling "op list" /
+  "PRD" citation at the how-to's capability-predicates section (or the detection
+  table) rather than recreating a PRD. The `CONTEXT.md` "Splitting backend" glossary
+  entry still says "See the PRD `docs/prd/terminal-backends.md` for the authoritative
+  op list" — that is one such ref to repoint.

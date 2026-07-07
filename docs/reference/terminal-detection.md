@@ -58,7 +58,11 @@ varies between hosts.
   predicate users reach for when writing suffix hooks
   (`(in-chain? 'tmux)`, `(in-chain? 'iterm)`). Registered
   backend symbols today: `'iterm`, `'wezterm`, `'kitty`,
-  `'ghostty`, `'alacritty`, `'tmux`, `'zellij`.
+  `'ghostty`, `'alacritty`, `'tmux`, `'zellij`, and `'herdr`
+  (the last registered by the config's `(herdr:register!)`, not
+  the library default set — it is the gate the herdr
+  replace/augment classifier keys on, `(in-chain? 'herdr)`; see
+  [herdr](#herdr) below).
 
 `(list-nvim-sockets)`
 : Returns a list of Unix-socket paths bound by all running nvim
@@ -290,6 +294,58 @@ not directly queryable from outside the process.
 For a focused nvim *inside* a zellij pane, use the nvim RPC route
 below — it bypasses the multiplexer entirely.
 
+### herdr
+
+[herdr](https://herdr.dev) is an "agent multiplexer that lives in
+the terminal" — a client/server TUI the user runs *inside* a host
+terminal (in practice, iTerm). Library-backed via `(modaliser
+muxes herdr)`, registered by the config's `(herdr:register!)`. Its
+control surface is a JSON socket-API CLI (`herdr
+pane|tab|workspace|worktree|agent …`), not keystrokes.
+
+Detection is two layers — the generic tty probe resolves *that*
+herdr is running, and herdr's socket API resolves focus *inside* it:
+
+- **Container (fg-command `herdr`).** An iTerm pane running the
+  herdr *client* reports tty foreground command `herdr` — the
+  generic step-2 `ps` probe resolves it and the mux match-key
+  `"herdr"` matches, exactly like any mux. So `(in-chain? 'herdr)`
+  is `#t` whenever the focused iTerm split runs herdr; that
+  predicate is the gate the replace/augment classifier keys on.
+- **Focused pane (global focus, per socket).** herdr's socket API
+  scopes **per session** (one default session = one socket) with a
+  single **global** focus — *not* per client / tty. `herdr pane
+  current` answers from server state and reflects the sole client's
+  focused pane (it answers even with no client attached), so the
+  backend reads focus directly from the socket with **no tty
+  correlation** (contrast the zellij multi-session tty-matching
+  above). herdr emits compact single-line JSON, parsed with the
+  portable `(modaliser json)` reader — the multiline `awk` parsers
+  used for tmux/zellij do not transfer.
+
+```
+herdr pane current       # focused pane_id + its tab_id / workspace_id (JSON)
+herdr pane process-info --current   # innermost foreground command of that pane
+```
+
+**Single-client v1 assumption.** Because focus is global per
+session, two herdr clients attached to one session share one focus
+and cannot be disambiguated — a documented v1 non-goal (the common
+single-client case is unambiguous). No per-client tty correlation
+like zellij's multi-session route (§ zellij above) is needed.
+
+**Descent (herdr → nvim).** `herdr pane process-info --current`
+reports the focused pane's innermost foreground command, so the
+façade descends one level further (herdr → nvim) exactly as it does
+through tmux/zellij; a plain shell pane reports `zsh`, which matches
+no mux and leaves herdr the leaf backend.
+
+For wiring herdr's replace/augment variant trees into the iTerm
+tree, see the [worked example](../how-to/terminal-pane-aware-tree.md#worked-example-herdr-replaceaugment-variant-trees)
+and [ADR-0013](../adr/0013-herdr-replace-vs-augment-tree.md). For the
+pane-chip caveat, see [herdr pane chips](#herdr-pane-chips-replace-mode-only)
+below.
+
 ### The nvim RPC route
 
 `focused-nvim-socket` bypasses both native splits and
@@ -361,6 +417,7 @@ shows the capability-predicate pattern).
 |-------------|-----------------|-----------------------------------------------------------------------------|-----------------------------------------------------------|
 | tmux        | `muxes/tmux`    | Yes — `tmux display-message -p '#{pane_current_command}'` / `#{pane_tty}` | Finest granularity; host-terminal-independent              |
 | zellij      | `muxes/zellij`  | `zellij action` drives ops; no `#{pane_current_command}` equivalent       | Ops work; mid-pane command detection needs the nvim RPC route |
+| herdr       | `muxes/herdr`   | Yes — `herdr pane current` (JSON socket-API, global focus per session)    | Agent multiplexer; single-client v1; registered by config `(herdr:register!)`; drives iTerm replace/augment variant trees |
 
 ## Limits
 

@@ -147,6 +147,103 @@ For example, branch on its filetype:
 This requires the nvim-side `FocusGained`/`FocusLost` autocmds — see
 [The nvim side](../reference/terminal-detection.md#the-nvim-side).
 
+## Worked example: herdr replace/augment variant trees
+
+[herdr](https://herdr.dev) — an "agent multiplexer" run *inside* an
+iTerm split — is the first production user of variant trees, and a
+complete worked example of composing the suffix hook (the
+[One hook total](#notes) note below). When the focused iTerm pane
+runs herdr, F17 shows one of two herdr **variant trees** instead of
+the plain iTerm tree:
+
+- **Replace** (`/herdr`) — herdr is the *sole* iTerm split in the
+  current tab, so it owns the whole window: a herdr-only tree, no
+  iTerm controls.
+- **Augment** (`/herdr+split`) — the current tab holds *other* iTerm
+  splits too, so the herdr tree gains an `i` drill for those iTerm
+  splits.
+
+herdr owns the top-level `hjkl` (pane focus) in both, so muscle
+memory is identical; augment is literally the replace tree plus the
+iTerm-splits drill. See
+[ADR-0013](../adr/0013-herdr-replace-vs-augment-tree.md) for why the
+three choices below bind the way they do.
+
+`(herdr:build-herdr-tree)` returns the whole herdr control surface —
+what the overlay shows on `/herdr`:
+
+- **`hjkl`** — focus the pane in that direction (first press latches a
+  sticky focus mode, so subsequent `hjkl` keep moving focus).
+- **`x`** then `hjkl` — split a new pane that direction (left/up split
+  the opposite native way then swap back).
+- **`m`** then `hjkl` — sticky *move*: swap the focused pane with its
+  neighbour.
+- **`z`** / **`d`** — toggle zoom / close the focused pane.
+- **`t` Tabs**, **`w` Workspaces** — each a drill with `n`/`r`/`d`
+  (new / rename / close) plus a live list whose digits switch.
+- **`g` Worktrees** — `n` new (prompt a branch), `d` remove the
+  focused worktree (behind a confirm), plus a live list whose digits
+  *smart-switch* (focus a live workspace, or open a dormant worktree).
+- **`b` Jump to Blocked** — focus the next blocked agent in one press
+  (round-robin; a toast when none are blocked).
+- **`a` Agents** — the agents live list, status-badged and
+  blocked-first; a digit focuses that agent's pane.
+- **Panes panel** — the panes live list plus digit **chips** over the
+  on-screen panes (replace-mode-correct; see below).
+
+Augment (`/herdr+split`) adds one more: an **`i`** drill for the other
+iTerm splits.
+
+```scheme
+(import (modaliser dsl)
+        (modaliser event-dispatch)                   ; set-local-context-suffix!
+        (prefix (modaliser terminal)    terminal:)   ; in-chain?
+        (prefix (modaliser apps iterm)  iterm:)
+        (prefix (modaliser muxes herdr) herdr:))
+
+;; 1. Register both backends. iterm:register! installs the iTerm
+;;    backend record but NOT its tree/suffix (we compose our own);
+;;    herdr:register! makes (terminal:in-chain? 'herdr) resolve when
+;;    the focused iTerm split runs the herdr client.
+(iterm:register! 'install-tree? #f 'install-context-suffix? #f)
+(herdr:register!)
+
+;; 2. Register the two variant screens. build-herdr-tree returns the
+;;    node list; the augment screen appends the iTerm-splits drill,
+;;    which binds iterm-DIRECT ops — in augment mode the (modaliser
+;;    terminal) façade resolves to herdr, so its shims would drive the
+;;    wrong layer.
+(apply screen 'com.googlecode.iterm2/herdr (herdr:build-herdr-tree))
+(apply screen 'com.googlecode.iterm2/herdr+split
+  (append (herdr:build-herdr-tree)
+          (list (iterm:build-iterm-splits-drill))))
+
+;; 3. One composed suffix hook (the global slot is last-write-wins,
+;;    so herdr must compose, not install a second hook). herdr focused
+;;    → classify replace vs augment by the CURRENT-TAB split count; the
+;;    (in-chain? 'herdr) gate short-circuits the AppleScript count query
+;;    when herdr is absent. Otherwise delegate to iTerm's own
+;;    nvim/zellij handler.
+(set-local-context-suffix!
+ (lambda (bundle-id)
+   (or (and (equal? bundle-id "com.googlecode.iterm2")
+            (terminal:in-chain? 'herdr)
+            (herdr:classify-herdr-variant
+             (length (iterm:iterm-list-session-ids))))
+       (iterm:context-suffix-handler bundle-id 'rebuild? #f))))
+```
+
+`classify-herdr-variant` keys on the **current-tab** split count
+(`iterm-list-session-ids` = `sessions of current tab`), *not* an
+all-tabs `AXScrollArea` count — a herdr window with a second
+background tab would otherwise miscount and wrongly pick augment.
+
+**Pane chips are replace-mode-correct only.** The herdr tree's Panes
+panel paints digit chips over the on-screen herdr panes; in augment
+mode the host-frame heuristic can target the wrong split, so chips may
+be misplaced (`hjkl` focus and digit-jump by pane id are unaffected).
+See [herdr pane chips](../reference/terminal-detection.md#herdr-pane-chips-replace-mode-only).
+
 ## One tree across every backend: capability predicates
 
 The 14-op surface on `(modaliser terminal)` lets a single tree
@@ -263,3 +360,6 @@ In-place reload is not supported — relaunch is the reload.
   RPC route.
 - [`add-a-per-app-tree.md`](add-a-per-app-tree.md) — registering
   per-app trees without pane-awareness.
+- [ADR-0013](../adr/0013-herdr-replace-vs-augment-tree.md) — why the
+  herdr replace/augment trees bind backend-direct ops and compose the
+  suffix hook.

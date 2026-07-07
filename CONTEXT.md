@@ -73,10 +73,12 @@ The thing "jump to a blocked agent" acts on.
 
 **Replace tree / Augment tree** — the two herdr variant trees selected by the
 suffix hook when the frontmost iTerm pane runs herdr. **Replace** (`/herdr`):
-herdr is the *sole* iTerm split, so the tree is herdr-only (no iTerm controls).
-**Augment**: the iTerm window has *other* splits too, so the tree is the herdr
-tree *plus* an iTerm-splits drill. Distinguished by iTerm split count in the
-focused window. herdr owns the top-level `hjkl` (pane focus) in both.
+herdr is the *sole* iTerm split in the current tab, so the tree is herdr-only
+(no iTerm controls). **Augment** (`/herdr+split`): the current tab has *other*
+iTerm splits too, so the tree is the herdr tree *plus* an iTerm-splits drill.
+Distinguished by the iTerm split count in the **current tab** — not the whole
+window; a second background tab must not miscount (ADR-0013). herdr owns the
+top-level `hjkl` (pane focus) in both.
 
 ## Window-switching domain
 
