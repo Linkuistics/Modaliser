@@ -1,36 +1,47 @@
-;; (modaliser blocks herdr-list) — one block constructor for herdr's four
-;; live lists (panes / tabs / workspaces / agents). herdr's socket-API CLI
-;; hands us the id, focused flag and label of every pane/tab/workspace/agent
-;; directly as JSON, so — unlike the iTerm blocks — there is NO AX walk, no
-;; UUID correlation and no empty-title fallback. The lists differ only in
-;; which `herdr <x> list` to run and how to read each row, so a single
-;; `kind`-parameterised block covers all four.
+;; (modaliser blocks herdr-list) — one block constructor for herdr's five
+;; live lists (panes / tabs / workspaces / agents / worktrees). herdr's
+;; socket-API CLI hands us the id, focused flag and label of every
+;; pane/tab/workspace/agent directly as JSON, so — unlike the iTerm blocks —
+;; there is NO AX walk, no UUID correlation and no empty-title fallback. The
+;; lists differ mostly in which `herdr <x> list` to run and how to read each
+;; row, so a single `kind`-parameterised block covers all five.
 ;;
 ;; The agents kind is the odd one out: its rows carry a `status` (from each
 ;; agent's `agent_status`) that the JS renders as a color-coded badge, and it
 ;; reorders status-priority (blocked → working → idle → unknown) BEFORE
 ;; assigning digit labels, so digit "1" always focuses the first blocked agent
-;; (the differentiator). The other three kinds keep JSON order and no status.
+;; (the differentiator). Panes / tabs / workspaces keep JSON order, no status.
 ;;
-;; (make-herdr-list-block 'kind 'panes|'tabs|'workspaces|'agents . opts)
+;; The worktrees kind is the other special case: its rows read NEITHER a plain
+;; id field NOR a `focused` bool. The digit switch target is COMPUTED — a
+;; tagged string ("ws:<open_workspace_id>" when the worktree is open, else
+;; "br:<branch>" to open a dormant one) that (modaliser muxes herdr) parses at
+;; key-press — and the CURRENT row is computed cross-field (a row is current
+;; when its open_workspace_id equals result.source.source_workspace_id, both
+;; riding in the same `worktree list` payload). Both are pure over the JSON, so
+;; no re-query. No status badge; the open/dormant state is folded into the
+;; dimmed detail text (● open / ○ dormant), reusing the renderer unchanged.
+;;
+;; (make-herdr-list-block 'kind 'panes|'tabs|'workspaces|'agents|'worktrees . opts)
 ;;   → block-spec
 ;;
-;; The block exposes (herdr-list-current-targets) → ((label . id) …) so the
+;; The block exposes (herdr-list-current-targets) → ((label . id) …) — for the
+;; worktrees kind the cdr is the computed tagged target, not a bare id — so the
 ;; parent group can build a hidden (key-range "1.." …) that dispatches each
-;; digit to the matching id. The focus ACTION lives in (modaliser muxes
-;; herdr) — `agent focus <pane_id>` / `tab focus <id>` / `workspace focus
-;; <id>` — not here, keeping this module UI-only (it never shells a mutating
-;; op).
+;; digit to the matching target. The focus/switch ACTION lives in (modaliser
+;; muxes herdr) — `agent focus <pane_id>` / `tab focus <id>` / `workspace focus
+;; <id>` / the worktree smart-switch — not here, keeping this module UI-only
+;; (it never shells a mutating op).
 ;;
 ;; ── Single-render invariant ──
 ;; State (current-targets / current-data) is module-level, one cell shared by
-;; all three kinds. That is safe because the herdr variant tree renders at
-;; most ONE herdr list per overlay frame: panes at the top level, tabs under
-;; `open "t"`, workspaces under `open "w"` — never two at once. Each render
-;; overwrites the cell with the visible list, and the digit key-range reads
-;; it at key-press time, so it always sees the list on screen. (The iTerm
-;; blocks use a module-state cell per list; herdr collapses to one because
-;; the three never co-render.)
+;; all kinds. That is safe because the herdr variant tree renders at most ONE
+;; herdr list per overlay frame: panes at the top level, tabs under `open
+;; "t"`, workspaces under `open "w"`, agents under `open "a"`, worktrees under
+;; `open "g"` — never two at once. Each render overwrites the cell with the
+;; visible list, and the digit key-range reads it at key-press time, so it
+;; always sees the list on screen. (The iTerm blocks use a module-state cell
+;; per list; herdr collapses to one because these never co-render.)
 ;;
 ;; ── Pane chips (panes kind, 'chips? #t) ──
 ;; With 'chips? #t the panes block also paints digit chips over the on-screen
@@ -129,6 +140,9 @@
     ;; human label. Panes and agents have no `label`, so their title falls
     ;; back to the agent name then the id. Agents key their digit target on
     ;; `pane_id` — `agent focus <pane_id>` is the universal cross-tab focus.
+    ;; The worktrees kind leaves id-key / title-key #f: it computes both its
+    ;; target and its title from several fields (see the worktree helpers), so
+    ;; the extractor bypasses the plain-field path for it.
     (define (kind-spec kind)
       (cond
         ((eq? kind 'panes)
@@ -139,12 +153,82 @@
          (list "workspace list" "workspaces" "workspace_id" "label"))
         ((eq? kind 'agents)
          (list "agent list" "agents" "pane_id" #f))
+        ((eq? kind 'worktrees)
+         (list "worktree list" "worktrees" #f #f))
         (else (error "herdr-list: unknown kind" kind))))
 
-    ;; Title for one row. Tabs/workspaces carry a `label`; panes don't, so a
-    ;; pane reads its agent name (e.g. "claude"), falling back to the pane id.
+    ;; ─── Worktree computed fields ───────────────────────────────────
+    ;; The worktrees kind reads no plain id / focused field: its digit target
+    ;; and its current row are both computed over the parsed `worktree list`
+    ;; payload. Kept pure (JSON → value) so the extractor tests feed fixtures.
+
+    ;; Last non-empty "/"-separated segment of a path, e.g.
+    ;; "/a/b/c" → "c", "/a/b/" → "b", "" → "". A worktree with no branch and
+    ;; no label falls back to this so the row still shows something legible.
+    (define (path-basename path)
+      (let loop ((parts (string-split path "/")) (last ""))
+        (cond
+          ((null? parts) last)
+          ((string=? (car parts) "") (loop (cdr parts) last))
+          (else (loop (cdr parts) (car parts))))))
+
+    ;; The digit switch target for one worktree row: the tagged string that
+    ;; (modaliser muxes herdr)'s focus-fn parses at key-press, so no re-query.
+    ;;   open   → "ws:<open_workspace_id>"  (jump to the live workspace)
+    ;;   dormant→ "br:<branch>"             (open a fresh workspace on the branch)
+    ;; A detached, dormant worktree has neither a live workspace nor a branch →
+    ;; #f: it still renders as a row but carries no digit (nothing to switch to
+    ;; through herdr's --workspace / --branch ops). Git branch names cannot
+    ;; contain ':', so the "ws:" / "br:" prefix split is unambiguous.
+    (define (worktree-target item)
+      (let ((ws (json-ref item "open_workspace_id")))
+        (if (string? ws)
+            (string-append "ws:" ws)
+            (let ((br (json-ref item "branch")))
+              (and (string? br) (not (string=? br ""))
+                   (string-append "br:" br))))))
+
+    ;; #t when this worktree is the CURRENT one — the worktree open in the
+    ;; source repo's focused workspace. Both values ride in the same payload
+    ;; (the row's open_workspace_id vs result.source.source_workspace_id), so
+    ;; the test is pure over the JSON. Guarded on BOTH being strings: json-ref
+    ;; returns #f for a missing key, and a bare (equal? #f #f) would wrongly
+    ;; mark every dormant worktree current when there is no source id.
+    (define (worktree-current? item source-ws-id)
+      (let ((ws (json-ref item "open_workspace_id")))
+        (and (string? source-ws-id)
+             (string? ws)
+             (string=? ws source-ws-id))))
+
+    ;; Worktree title: the branch, else — a detached worktree has none — the
+    ;; herdr label, else the path's basename. A worktree always has a path, so
+    ;; this yields "" only for a truly empty row.
+    (define (worktree-title item)
+      (let ((br (json-ref item "branch")))
+        (if (and (string? br) (not (string=? br "")))
+            br
+            (let ((lab (json-ref item "label")))
+              (if (and (string? lab) (not (string=? lab "")))
+                  lab
+                  (let ((path (json-ref item "path")))
+                    (if (string? path) (path-basename path) "")))))))
+
+    ;; Worktree detail: the path, with the open/dormant state folded in as a
+    ;; leading marker (● open — has a live workspace; ○ dormant — on disk only)
+    ;; so the state shows without a new badge or JS/CSS change. Leading (not
+    ;; trailing) so it survives truncation of a long path.
+    (define (worktree-detail item)
+      (let ((path (json-ref item "path"))
+            (open? (string? (json-ref item "open_workspace_id"))))
+        (string-append (if open? "● " "○ ")
+                       (if (string? path) path ""))))
+
+    ;; Title for one row. Worktrees compute their own (branch → label → path
+    ;; basename). Tabs/workspaces carry a `label`; panes don't, so a pane reads
+    ;; its agent name (e.g. "claude"), falling back to the pane id.
     (define (row-title kind item id title-key)
       (cond
+        ((eq? kind 'worktrees) (worktree-title item))
         (title-key
          (let ((v (json-ref item title-key)))
            (if (string? v) v id)))
@@ -154,8 +238,9 @@
 
     ;; Secondary dimmed text. Panes show their cwd; agents show where they
     ;; live (D2 cross-scope annotation) — `tab_id` encodes both workspace and
-    ;; tab (e.g. "w9:t1"), falling back to `workspace_id`; tabs/workspaces show
-    ;; nothing (the label already identifies them).
+    ;; tab (e.g. "w9:t1"), falling back to `workspace_id`; worktrees show their
+    ;; path with a folded-in open/dormant marker; tabs/workspaces show nothing
+    ;; (the label already identifies them).
     (define (row-detail kind item)
       (cond
         ((eq? kind 'panes)
@@ -166,6 +251,7 @@
            (cond ((string? tab) tab)
                  ((string? ws) ws)
                  (else ""))))
+        ((eq? kind 'worktrees) (worktree-detail item))
         (else "")))
 
     ;; Status-priority rank for the agents list: blocked (most urgent) first,
@@ -196,39 +282,63 @@
     ;; label supply still renders (blank key, no dispatch). Exported so a
     ;; fixture-fed test needs no live herdr.
     ;;
+    ;; The worktrees kind computes its digit target (a tagged
+    ;; open-workspace-id-or-branch) and its current row (open_workspace_id ==
+    ;; result.source.source_workspace_id) in phase 1 rather than reading a plain
+    ;; id / `focused` field; it too carries no status and skips the reorder.
+    ;;
     ;; Three phases, so the agents kind can reorder BEFORE labels are assigned:
     ;;  1. gather   — one raw entry per item, in JSON order.
     ;;  2. reorder  — agents only: status-priority (blocked-first), stable band.
     ;;  3. label    — walk the (possibly reordered) entries, assigning digit
     ;;                labels and building targets so digit "1" = first row.
-    ;; The panes/tabs/workspaces kinds skip phase 2 and carry no status, so
-    ;; their output is identical to the single-loop original.
+    ;; The non-agents kinds skip phase 2 and carry no status.
     (define (herdr-list-extract kind labels parsed)
-      (let* ((spec      (kind-spec kind))
-             (array-key (list-ref spec 1))
-             (id-key    (list-ref spec 2))
-             (title-key (list-ref spec 3))
-             (agents?   (eq? kind 'agents))
+      (let* ((spec       (kind-spec kind))
+             (array-key  (list-ref spec 1))
+             (id-key     (list-ref spec 2))
+             (title-key  (list-ref spec 3))
+             (agents?    (eq? kind 'agents))
+             (worktrees? (eq? kind 'worktrees))
              (arr (and parsed
                        (json-ref (json-ref parsed "result") array-key)))
              (items (if (vector? arr) arr #()))
-             ;; Phase 1 — raw entries in JSON order. `has-id` records whether
-             ;; the id was a real string (only those become digit targets);
-             ;; `status` is the agent_status string for agents, else #f.
+             ;; The current-worktree datum rides ONCE in the payload
+             ;; (result.source.source_workspace_id); every worktree row compares
+             ;; its open_workspace_id against it, so compute it once here and
+             ;; thread it in. json-ref is #f-safe, so a #f parse degrades to #f.
+             (source-ws-id (and worktrees?
+                                (json-ref (json-ref (json-ref parsed "result")
+                                                    "source")
+                                          "source_workspace_id")))
+             ;; Phase 1 — raw entries in JSON order. `has-id` records whether a
+             ;; real target was built (only those become digit targets); for
+             ;; worktrees the target is the computed tagged string; `status` is
+             ;; the agent_status string for agents, else #f.
              (raw
               (let loop ((k 0) (acc '()))
                 (if (>= k (vector-length items))
                     (reverse acc)
                     (let* ((item    (vector-ref items k))
-                           (id      (json-ref item id-key))
-                           (idstr   (if (string? id) id ""))
+                           ;; Digit target: worktrees compute a tagged string
+                           ;; (or #f when unswitchable); other kinds read the
+                           ;; plain id field.
+                           (target  (if worktrees?
+                                        (worktree-target item)
+                                        (json-ref item id-key)))
+                           (idstr   (if (string? target) target ""))
+                           ;; `focused`: worktrees compute the current row
+                           ;; cross-field; other kinds read herdr's `focused`.
+                           (focused (if worktrees?
+                                        (worktree-current? item source-ws-id)
+                                        (eq? (json-ref item "focused") #t)))
                            (status  (and agents?
                                          (let ((s (json-ref item "agent_status")))
                                            (if (string? s) s "unknown")))))
                       (loop (+ k 1)
                             (cons (list (cons 'id idstr)
-                                        (cons 'has-id (string? id))
-                                        (cons 'focused (eq? (json-ref item "focused") #t))
+                                        (cons 'has-id (string? target))
+                                        (cons 'focused focused)
                                         (cons 'title (row-title kind item idstr title-key))
                                         (cons 'detail (row-detail kind item))
                                         (cons 'status status))

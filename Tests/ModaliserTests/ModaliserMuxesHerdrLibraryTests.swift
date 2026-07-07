@@ -402,6 +402,96 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(if (assoc 'status (car ROWS)) #t #f)") == .false)
     }
 
+    // MARK: - Worktrees list (leaf worktrees-list-block-k14)
+
+    /// The `'worktrees` kind: rows come from `worktree list`, but — unlike the
+    /// four field-reading kinds — both the digit target and the current row are
+    /// COMPUTED over the parsed payload. The target is a tagged string:
+    /// "ws:<open_workspace_id>" for an OPEN worktree (jump to the live
+    /// workspace), "br:<branch>" for a DORMANT one (open a fresh workspace on
+    /// the branch). The CURRENT row (cursor seed) is the worktree whose
+    /// open_workspace_id equals result.source.source_workspace_id — both ride
+    /// in the one payload. Title = branch, falling back to label then path
+    /// basename for a DETACHED worktree with no branch; detail = the path with
+    /// a folded-in ● open / ○ dormant marker (no status badge). Fixture-fed —
+    /// no live herdr.
+    @Test func herdrListExtractParsesWorktrees() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        // Four worktrees: main (open, current — its ws == source w9), feature-x
+        // (open elsewhere, ws w12 ≠ w9), ocr-accuracy (dormant, has a branch),
+        // and a detached worktree (no branch → label fallback, dormant → no
+        // digit target).
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"source\":{\"source_workspace_id\":\"w9\"},\"worktrees\":[{\"branch\":\"main\",\"label\":\"main\",\"path\":\"/repo\",\"open_workspace_id\":\"w9\",\"is_detached\":false},{\"branch\":\"feature-x\",\"label\":\"feature-x\",\"path\":\"/repo/.grove-worktrees/feature-x\",\"open_workspace_id\":\"w12\",\"is_detached\":false},{\"branch\":\"ocr-accuracy\",\"label\":\"ocr\",\"path\":\"/repo/.grove-worktrees/ocr-accuracy\",\"is_detached\":false},{\"label\":\"detached-wt\",\"path\":\"/repo/.grove-worktrees/detached-dir\",\"is_detached\":true}]}}"))
+          (define R (herdr-list-extract 'worktrees (list "1" "2" "3" "4") J))
+          (define TARGETS (car R))
+          (define ROWS (cdr R))
+          (define (row i) (list-ref ROWS i))
+          (define (rf i k) (cdr (assoc k (row i))))
+        """#)
+        // Three targets: the detached-dormant worktree (row 3) is unswitchable
+        // (no live workspace, no branch) so it carries NO digit target — but it
+        // still consumed label "4" and renders as a row.
+        #expect(try engine.evaluate("(length TARGETS)") == .fixnum(3))
+        // Tagged targets: open → "ws:<id>"; dormant → "br:<branch>".
+        #expect(try engine.evaluate("(cdr (assoc \"1\" TARGETS))") == .string("ws:w9"))
+        #expect(try engine.evaluate("(cdr (assoc \"2\" TARGETS))") == .string("ws:w12"))
+        #expect(try engine.evaluate("(cdr (assoc \"3\" TARGETS))") == .string("br:ocr-accuracy"))
+        #expect(try engine.evaluate("(if (assoc \"4\" TARGETS) #t #f)") == .false)
+        // Current row: only main (open_workspace_id w9 == source w9). The other
+        // open worktree (w12) is NOT current, and dormant rows never are.
+        #expect(try engine.evaluate("(rf 0 'focused)") == .true)
+        #expect(try engine.evaluate("(rf 1 'focused)") == .false)
+        #expect(try engine.evaluate("(rf 2 'focused)") == .false)
+        #expect(try engine.evaluate("(rf 3 'focused)") == .false)
+        // Titles: branch normally; the detached row falls back to its label.
+        #expect(try engine.evaluate("(rf 0 'title)") == .string("main"))
+        #expect(try engine.evaluate("(rf 2 'title)") == .string("ocr-accuracy"))
+        #expect(try engine.evaluate("(rf 3 'title)") == .string("detached-wt"))
+        // Detail: path with the folded-in open/dormant marker.
+        #expect(try engine.evaluate("(rf 0 'detail)") == .string("● /repo"))
+        #expect(try engine.evaluate("(rf 2 'detail)")
+                == .string("○ /repo/.grove-worktrees/ocr-accuracy"))
+        // The unswitchable detached row still displays label "4", no dispatch.
+        #expect(try engine.evaluate("(rf 3 'label)") == .string("4"))
+        // Worktree rows carry NO status (no badge) — like panes/tabs/workspaces.
+        #expect(try engine.evaluate("(if (assoc 'status (row 0)) #t #f)") == .false)
+    }
+
+    /// The detached worktree's title falls all the way back to the path
+    /// basename when it has neither a branch NOR a label — the last-resort leg
+    /// of branch → label → path-basename.
+    @Test func herdrListExtractWorktreeTitleFallsBackToPathBasename() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"source\":{\"source_workspace_id\":\"w9\"},\"worktrees\":[{\"path\":\"/repo/.grove-worktrees/loose-dir\",\"is_detached\":true}]}}"))
+          (define ROWS (cdr (herdr-list-extract 'worktrees (list "1") J)))
+        """#)
+        #expect(try engine.evaluate("(cdr (assoc 'title (car ROWS)))") == .string("loose-dir"))
+        // Dormant + no branch → no target, and ○ dormant marker in the detail.
+        #expect(try engine.evaluate("(cdr (assoc 'detail (car ROWS)))")
+                == .string("○ /repo/.grove-worktrees/loose-dir"))
+    }
+
+    /// The current-row guard: with NO source (source_workspace_id absent) NO
+    /// row may be marked current — not even a dormant one. Guards the json-ref
+    /// #f-vs-#f trap (a bare (equal? open_workspace_id source_workspace_id)
+    /// would fire #f == #f and wrongly mark every dormant worktree current).
+    @Test func herdrListExtractWorktreesNoSourceMeansNoCurrent() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"worktrees\":[{\"branch\":\"a\",\"path\":\"/x\",\"open_workspace_id\":\"w1\"},{\"branch\":\"b\",\"path\":\"/y\"}]}}"))
+          (define ROWS (cdr (herdr-list-extract 'worktrees (list "1" "2") J)))
+        """#)
+        // Open row: target still built, but not current (no source to match).
+        #expect(try engine.evaluate("(cdr (assoc 'focused (car ROWS)))") == .false)
+        // Dormant row: the #f-vs-#f trap would mark this current — it must not.
+        #expect(try engine.evaluate("(cdr (assoc 'focused (cadr ROWS)))") == .false)
+    }
+
     // MARK: - Pane chips (leaf herdr-pane-chips-k10)
 
     /// The pure chip-rect synthesis over a real `herdr pane layout` fixture.
