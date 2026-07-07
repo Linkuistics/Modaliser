@@ -74,7 +74,12 @@
           ;; Pure round-robin ring helper (parsed `agent list` + focused
           ;; pane_id → next blocked pane_id | #f), exported for unit tests —
           ;; the jump-to-blocked op (`b`) is a thin shell around it.
-          next-blocked-pane-id)
+          next-blocked-pane-id
+          ;; Pure worktree switch-target parser (k14's tagged "ws:<id>" /
+          ;; "br:<branch>" target + focused source workspace id → herdr command
+          ;; args | #f), exported for unit tests — the smart-switch focus-fn
+          ;; behind the `g` Worktrees digit range is a thin shell around it.
+          worktree-switch-command)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -335,6 +340,48 @@
                        "2>/dev/null")))))
         (if (string=? out "") #f out)))
 
+    ;; ─── Confirm dialog (for the destructive `worktree remove`) ──────
+    ;;
+    ;; The remove prompt interpolates a branch name read from `worktree
+    ;; list`, so — unlike prompt-text's constant title — it needs BOTH escape
+    ;; layers: as-escape guards the AppleScript double-quoted string literal (`
+    ;; " and \), and osascript-run sq-escapes the WHOLE program before it lands
+    ;; inside the shell's `-e '…'` single quotes (a branch may contain ' or ",
+    ;; both legal in git refs). Missing either layer is a shell/AppleScript
+    ;; injection or parse break.
+
+    ;; Escape a string for an AppleScript double-quoted literal: backslash and
+    ;; double-quote. (Single quotes are handled by the shell layer below.)
+    (define (as-escape s)
+      (let loop ((cs (string->list s)) (acc '()))
+        (if (null? cs)
+            (list->string (reverse acc))
+            (let ((c (car cs)))
+              (loop (cdr cs)
+                    (cond ((char=? c #\\) (cons #\\ (cons #\\ acc)))
+                          ((char=? c #\") (cons #\" (cons #\\ acc)))
+                          (else (cons c acc))))))))
+
+    ;; Run an AppleScript PROGRAM string via `osascript -e`, single-quoting the
+    ;; whole program for the shell (sq-escape handles any ' the program carries).
+    ;; Returns the trimmed stdout, or "" on a raised AppleScript error (e.g. the
+    ;; user clicking a button literally named "Cancel" → error -128 → empty).
+    (define (osascript-run program)
+      (string-trim
+        (run-shell
+          (string-append "osascript -e '" (sq-escape program) "' 2>/dev/null"))))
+
+    ;; A modal OK/Cancel confirm. `default button "Cancel"` so a stray Return
+    ;; does NOT confirm a destructive op; clicking OK returns "OK", clicking
+    ;; Cancel raises (→ empty stdout). #t only on an explicit OK.
+    (define (confirm-dialog message)
+      (string=?
+        (osascript-run
+          (string-append
+            "button returned of (display dialog \"" (as-escape message) "\" "
+            "buttons {\"Cancel\", \"OK\"} default button \"Cancel\")"))
+        "OK"))
+
     (define (rename-focused-tab!)
       (let ((id (focused-tab-id)))
         (when id
@@ -348,6 +395,103 @@
             (when (and name (not (string=? name "")))
               (herdr-cmd
                 (string-append "workspace rename " id " '" (sq-escape name) "'")))))))
+
+    ;; ─── Worktree ops (the `g` Worktrees drill, W1–W4) ──────────────
+    ;;
+    ;; All three verbs are source-repo pinned via `--workspace
+    ;; <focused-workspace-id>` (read from `pane current`) rather than herdr's
+    ;; implicit focused-workspace resolution — deterministic, and matches the
+    ;; sibling tab/workspace ops. herdr's `worktree` CLI (0.7.1):
+    ;;   worktree list   [--workspace ID] [--json]
+    ;;   worktree create [--workspace ID] [--branch NAME] [--base REF] [--focus]
+    ;;   worktree open   [--workspace ID] (--path P | --branch NAME) [--focus]
+    ;;   worktree remove  --workspace ID [--force]
+
+    ;; Smart-switch target parser (W4). k14 encodes each worktree row's switch
+    ;; target as a tagged string it computes purely over the `worktree list`
+    ;; payload (git refs cannot contain ':', so the tag split is unambiguous):
+    ;;   "ws:<id>"     open worktree     → `workspace focus <id>` (clean verb)
+    ;;   "br:<branch>" dormant worktree  → `worktree open --branch <branch>
+    ;;                                      --focus` (opens a fresh workspace)
+    ;; Returns the herdr command-args string, or #f for a malformed / empty
+    ;; target (a detached-dormant worktree carries no target → never dispatched).
+    ;; Pure (target + source ws-id → string | #f) so it is fixture-testable with
+    ;; no live herdr; the `--workspace` pin is folded in only when SOURCE-WS-ID
+    ;; is a real string (degrades to herdr's implicit resolution otherwise).
+    (define (worktree-switch-command target source-ws-id)
+      (and (string? target)
+           (>= (string-length target) 3)
+           (let ((tag  (substring target 0 3))
+                 (rest (substring target 3 (string-length target))))
+             (and (not (string=? rest ""))
+                  (cond
+                    ((string=? tag "ws:")
+                     (string-append "workspace focus " rest))
+                    ((string=? tag "br:")
+                     (string-append
+                       "worktree open"
+                       (if (and (string? source-ws-id)
+                                (not (string=? source-ws-id "")))
+                           (string-append " --workspace " source-ws-id)
+                           "")
+                       " --branch '" (sq-escape rest) "' --focus"))
+                    (else #f))))))
+
+    ;; The digit focus-fn behind the worktrees list: parse k14's tagged target
+    ;; against the live focused workspace, then fire — a thin shell over the
+    ;; pure parser (mirrors `agent focus` / `tab focus` for the other kinds).
+    (define (switch-worktree target)
+      (let ((cmd (worktree-switch-command target (focused-workspace-id))))
+        (when cmd (herdr-cmd cmd))))
+
+    ;; New (`n`, W1). Prompt a branch name, then create a fresh branch+worktree
+    ;; and open a workspace on it (base = herdr default HEAD; no base picker in
+    ;; v1). Guard on the focused workspace id first — a #f means herdr is
+    ;; unreachable, so no-op rather than pop a dialog that could not complete.
+    ;; Empty / cancelled prompt → no-op.
+    (define (new-worktree!)
+      (let ((wsid (focused-workspace-id)))
+        (when wsid
+          (let ((name (prompt-text "New worktree branch:")))
+            (when (and name (not (string=? name "")))
+              (herdr-cmd
+                (string-append "worktree create --workspace " wsid
+                               " --branch '" (sq-escape name) "' --focus")))))))
+
+    ;; The current worktree's branch, for the Remove confirm prompt: from a
+    ;; parsed `worktree list`, the row whose open_workspace_id equals
+    ;; result.source.source_workspace_id (the same cross-field "current" rule
+    ;; k14 uses). #f when unreadable or the current worktree is detached (no
+    ;; branch) — the caller falls back to the ws-id. Pure over the JSON.
+    (define (current-worktree-branch parsed)
+      (let* ((result (and parsed (json-ref parsed "result")))
+             (source (and result (json-ref result "source")))
+             (src-ws (and source (json-ref source "source_workspace_id")))
+             (arr    (and result (json-ref result "worktrees"))))
+        (and (string? src-ws) (vector? arr)
+             (let loop ((k 0))
+               (if (>= k (vector-length arr))
+                   #f
+                   (let* ((item (vector-ref arr k))
+                          (ws   (json-ref item "open_workspace_id")))
+                     (if (and (string? ws) (string=? ws src-ws))
+                         (let ((br (json-ref item "branch")))
+                           (and (string? br) (not (string=? br "")) br))
+                         (loop (+ k 1)))))))))
+
+    ;; Remove (`d`, W2). Acts on the FOCUSED worktree — always a valid,
+    ;; unambiguous target (the focused workspace's worktree), mirroring
+    ;; close-pane/tab/workspace. NO `--force`: a dirty worktree or the main
+    ;; checkout makes herdr/git refuse, 2>/dev/null swallows the refusal, no
+    ;; data loss. Guarded by an OK/Cancel confirm (default Cancel) naming the
+    ;; branch when readable, else the ws-id. Cancel / #f ws-id → no-op.
+    (define (remove-focused-worktree!)
+      (let ((wsid (focused-workspace-id)))
+        (when wsid
+          (let* ((branch (current-worktree-branch (herdr-json "worktree list")))
+                 (name   (or branch wsid)))
+            (when (confirm-dialog (string-append "Remove worktree " name "?"))
+              (herdr-cmd (string-append "worktree remove --workspace " wsid)))))))
 
     ;; ─── Live-list blocks (panes / tabs / workspaces) ───────────────
     ;;
@@ -397,6 +541,13 @@
     (define (agent-list-block)
       (herdr-list-block 'agents
         (lambda (id) (herdr-cmd (string-append "agent focus " id))) #f))
+    ;; Worktrees list (W3/W4): the 'worktrees kind whose digit target is a
+    ;; COMPUTED tagged string (open → "ws:<id>", dormant → "br:<branch>"), so the
+    ;; focus-fn is the smart-switch parser, not a bare `<x> focus`. Branch title +
+    ;; ●/○ path detail; no chips (worktrees have no on-screen rect — the list is
+    ;; the visualization, like agents).
+    (define (worktree-list-block)
+      (herdr-list-block 'worktrees switch-worktree #f))
 
     ;; ─── Jump to next blocked agent (top-level `b`, D4/D5) ──────────
     ;;
@@ -491,6 +642,7 @@
     ;;   z / d        toggle zoom / close pane
     ;;   t Tabs       n/r/d + the tabs list (digit → switch)
     ;;   w Workspaces n/r/d + the workspaces list (digit → switch)
+    ;;   g Worktrees  n/d + the worktrees list (digit → smart-switch)
     ;;   b Jump       focus the next blocked agent (round-robin; toast if none)
     ;;   a Agents     the agents list (status-badged, blocked-first; digit → focus)
     ;;   Panes panel  the panes list + chips (digit → focus by id)
@@ -525,6 +677,15 @@
           (key "r" "Rename" rename-focused-workspace!)
           (key "d" "Close"  close-focused-workspace)
           (panel "Workspaces" (workspace-list-block)))
+        ;; Worktrees surface (k6). `g` (= git worktree; `w` is Workspaces) drills
+        ;; a live worktree list: digit → smart-switch (focus the live workspace
+        ;; when open, else open the dormant worktree); `n` prompts a branch and
+        ;; creates one; `d` removes the focused worktree behind a confirm (no
+        ;; --force). All source-pinned via the focused workspace id.
+        (open "g" "Worktrees"
+          (key "n" "New"    new-worktree!)
+          (key "d" "Remove" remove-focused-worktree!)
+          (panel "Worktrees" (worktree-list-block)))
         ;; Agents surface (k5). `b` jumps to the next blocked agent in one
         ;; keystroke (the differentiator); `a` drills into the Agents live-list
         ;; (status-badged, blocked-first, digit → focus by id). v1 focus-only

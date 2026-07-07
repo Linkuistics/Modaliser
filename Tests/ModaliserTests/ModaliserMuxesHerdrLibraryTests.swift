@@ -260,16 +260,17 @@ struct ModaliserMuxesHerdrLibraryTests {
 
     /// `build-herdr-tree` returns the full herdr surface, not the hjkl
     /// skeleton: a Focus panel, the x Split / m Move groups, z/d pane keys,
-    /// the t Tabs / w Workspaces drills, the b Jump-to-Blocked key + a Agents
-    /// drill (agents surface, k13), and the Panes list panel — ten top-level
-    /// nodes. It must build without touching herdr (all shell-outs live in
-    /// on-render thunks / key actions, never at construction time).
+    /// the t Tabs / w Workspaces / g Worktrees drills, the b Jump-to-Blocked
+    /// key + a Agents drill (agents surface, k13), and the Panes list panel —
+    /// eleven top-level nodes. It must build without touching herdr (all
+    /// shell-outs live in on-render thunks / key actions, never at construction
+    /// time).
     @Test func buildHerdrTreeIsFullSurface() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
         """)
-        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(10))
+        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(11))
     }
 
     /// (register!) wires the sticky top-level focus mode the herdr tree's
@@ -633,5 +634,70 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("""
           (eq? 'group (cdr (assoc 'kind (node-with-key "a" TREE))))
         """) == .true)
+    }
+
+    // MARK: - Worktrees tree wiring (leaf worktrees-tree-wiring-k15)
+
+    /// The pure smart-switch target parser (W4). k14 hands each worktree row a
+    /// tagged switch target computed over the `worktree list` payload; this
+    /// turns it back into a herdr command. An OPEN worktree ("ws:<id>") maps to
+    /// the clean `workspace focus <id>`; a DORMANT one ("br:<branch>") maps to
+    /// `worktree open --branch <branch> --focus`, source-pinned via --workspace
+    /// when the focused ws-id is known and sq-escaped so an apostrophe in the
+    /// branch is shell-safe. Malformed / empty / non-string targets → #f (never
+    /// dispatched). Fixture-fed — no live herdr.
+    @Test func worktreeSwitchCommandParsesTarget() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        // Open worktree → focus its live workspace (no --workspace pin needed).
+        #expect(try engine.evaluate(#"(worktree-switch-command "ws:w12" "w9")"#)
+                == .string("workspace focus w12"))
+        // Dormant worktree → open a fresh workspace on the branch, source-pinned.
+        #expect(try engine.evaluate(#"(worktree-switch-command "br:feature-x" "w9")"#)
+                == .string("worktree open --workspace w9 --branch 'feature-x' --focus"))
+        // No focused ws-id → degrade to herdr's implicit resolution (no pin).
+        #expect(try engine.evaluate(#"(worktree-switch-command "br:feature-x" #f)"#)
+                == .string("worktree open --branch 'feature-x' --focus"))
+        // A branch with an apostrophe is sq-escaped ('\'' idiom) → shell-safe.
+        #expect(try engine.evaluate(#"(worktree-switch-command "br:it's" "w9")"#)
+                == .string(#"worktree open --workspace w9 --branch 'it'\''s' --focus"#))
+        // Malformed tag, empty payload, and non-string all → #f (no dispatch).
+        #expect(try engine.evaluate(#"(worktree-switch-command "xx:foo" "w9")"#) == .false)
+        #expect(try engine.evaluate(#"(worktree-switch-command "ws:" "w9")"#) == .false)
+        #expect(try engine.evaluate(#"(worktree-switch-command "br:" "w9")"#) == .false)
+        #expect(try engine.evaluate(#"(worktree-switch-command "" "w9")"#) == .false)
+        #expect(try engine.evaluate("(worktree-switch-command #f \"w9\")") == .false)
+    }
+
+    /// The worktrees surface is wired into `build-herdr-tree`: a top-level `g`
+    /// Worktrees drill (open), riding into the replace AND augment variant
+    /// screens for free (the config already splices build-herdr-tree into both).
+    /// Its inner `n` New and `d` Remove keys are present. Tree-shape assertion,
+    /// no live herdr.
+    @Test func buildHerdrTreeWiresWorktrees() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("""
+          (define TREE (build-herdr-tree))
+          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
+          (define (node-with-key k lst)
+            (cond ((null? lst) #f)
+                  ((equal? (node-key (car lst)) k) (car lst))
+                  (else (node-with-key k (cdr lst)))))
+        """)
+        // Top-level `g` present and is a drill group (the Worktrees open).
+        #expect(try engine.evaluate("(if (node-with-key \"g\" TREE) #t #f)") == .true)
+        #expect(try engine.evaluate("""
+          (eq? 'group (cdr (assoc 'kind (node-with-key "g" TREE))))
+        """) == .true)
+        // The drill holds `n` (New) and `d` (Remove) among its children.
+        try engine.evaluate("""
+          (define G (node-with-key "g" TREE))
+          (define KIDS (cdr (assoc 'children G)))
+        """)
+        #expect(try engine.evaluate("(if (node-with-key \"n\" KIDS) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (node-with-key \"d\" KIDS) #t #f)") == .true)
     }
 }
