@@ -1,7 +1,10 @@
 /* herdr-list.js — block renderer for herdr's labelled live lists (panes /
-   tabs / workspaces). One row per entry: a digit keycap, the entry title,
-   and — for panes — a dimmed cwd detail. The focused entry gets .current;
-   the selection cursor (when this list owns it) gets .is-focused. */
+   tabs / workspaces / agents). One row per entry: a digit keycap, the entry
+   title, and — for panes/agents — a dimmed detail (cwd / workspace·tab). An
+   agents row additionally carries a color-coded status badge between the
+   arrow and the title (its presence is what `r.status` signals; the row gets
+   .hl-agent so the grid opens a badge column). The focused entry gets
+   .current; the selection cursor (when this list owns it) gets .is-focused. */
 
 (function() {
   function el(tag, attrs, ...kids) {
@@ -31,10 +34,15 @@
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       let cls = r.focused ? 'hl-row current' : 'hl-row';
+      // Only agent rows carry r.status → a badge column; the modifier class
+      // widens the grid so the badge sits between the arrow and the title,
+      // leaving the panes/tabs/workspaces four-column layout untouched.
+      if (r.status) cls += ' hl-agent';
       if (i === selected) cls += ' is-focused';
       const row = el('div', { class: cls },
         el('span', { class: 'entry-key', text: r.label }),
         el('span', { class: 'entry-arrow', text: '→' }),
+        r.status ? el('span', { class: 'hl-badge hl-badge-' + r.status, text: r.status }) : null,
         el('span', { class: 'entry-label', text: r.title || 'Item' }),
         r.detail ? el('span', { class: 'hl-detail', text: r.detail }) : null
       );

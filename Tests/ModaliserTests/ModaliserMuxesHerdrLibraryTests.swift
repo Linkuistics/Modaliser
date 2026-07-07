@@ -343,6 +343,64 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(null? (cdr R))") == .true)
     }
 
+    // MARK: - Agents list (leaf agents-list-block-k12)
+
+    /// The `'agents` kind: rows come from `agent list`, each carries a `status`
+    /// from `agent_status`, and the list is reordered status-priority (blocked →
+    /// working → idle → unknown) BEFORE labels are assigned — so digit "1"
+    /// focuses the first blocked agent (D7). Within a status band the input
+    /// (pane_id) order is preserved (stable). Titles fall back to the agent name
+    /// (agent rows carry no `label`); the detail annotates the agent's location
+    /// (tab_id, D2). Fixture-fed — no live herdr.
+    @Test func herdrListExtractAgentsOrdersBlockedFirst() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        // Input order deliberately NOT status-sorted: idle, blocked, working,
+        // blocked, unknown. Two blocked agents (p2 before p4) exercise the
+        // stable within-band order.
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"agents\":[{\"agent\":\"idle-a\",\"agent_status\":\"idle\",\"focused\":false,\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"},{\"agent\":\"blk-a\",\"agent_status\":\"blocked\",\"focused\":false,\"pane_id\":\"w9:p2\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"},{\"agent\":\"wrk-a\",\"agent_status\":\"working\",\"focused\":true,\"pane_id\":\"w9:p3\",\"tab_id\":\"w9:t2\",\"workspace_id\":\"w9\"},{\"agent\":\"blk-b\",\"agent_status\":\"blocked\",\"focused\":false,\"pane_id\":\"w9:p4\",\"tab_id\":\"w9:t2\",\"workspace_id\":\"w9\"},{\"agent\":\"unk-a\",\"agent_status\":\"unknown\",\"focused\":false,\"pane_id\":\"w9:p5\",\"tab_id\":\"w9:t3\",\"workspace_id\":\"w9\"}]}}"))
+          (define R (herdr-list-extract 'agents (list "1" "2" "3" "4" "5") J))
+          (define TARGETS (car R))
+          (define ROWS (cdr R))
+          (define (row i) (list-ref ROWS i))
+          (define (rf i k) (cdr (assoc k (row i))))
+        """#)
+        // Five agents → five targets, reordered blocked-first before labeling.
+        #expect(try engine.evaluate("(length TARGETS)") == .fixnum(5))
+        // Digit 1 / 2 → the two blocked agents, stable pane_id order (p2, p4).
+        #expect(try engine.evaluate("(cdr (assoc \"1\" TARGETS))") == .string("w9:p2"))
+        #expect(try engine.evaluate("(cdr (assoc \"2\" TARGETS))") == .string("w9:p4"))
+        // Digit 3 → working; 4 → idle; 5 → unknown.
+        #expect(try engine.evaluate("(cdr (assoc \"3\" TARGETS))") == .string("w9:p3"))
+        #expect(try engine.evaluate("(cdr (assoc \"4\" TARGETS))") == .string("w9:p1"))
+        #expect(try engine.evaluate("(cdr (assoc \"5\" TARGETS))") == .string("w9:p5"))
+        // Rows follow the same reordered sequence: row 0 = first blocked agent,
+        // carrying its status, the agent name as title, and tab_id as detail.
+        #expect(try engine.evaluate("(rf 0 'title)") == .string("blk-a"))
+        #expect(try engine.evaluate("(rf 0 'status)") == .string("blocked"))
+        #expect(try engine.evaluate("(rf 0 'detail)") == .string("w9:t1"))
+        #expect(try engine.evaluate("(rf 1 'status)") == .string("blocked"))
+        #expect(try engine.evaluate("(rf 2 'status)") == .string("working"))
+        #expect(try engine.evaluate("(rf 2 'focused)") == .true)
+        #expect(try engine.evaluate("(rf 3 'status)") == .string("idle"))
+        #expect(try engine.evaluate("(rf 4 'status)") == .string("unknown"))
+    }
+
+    /// Scope guard: the `status` field is populated ONLY for the `'agents`
+    /// kind. A panes row must NOT carry `status` even when its JSON has an
+    /// `agent_status`, so the panes/tabs/workspaces lists render exactly as
+    /// before (no badge). Guards the "populate only for 'agents" contract.
+    @Test func herdrListExtractNonAgentsCarryNoStatus() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"agent_status\":\"idle\",\"cwd\":\"/w/one\",\"focused\":true,\"pane_id\":\"w9:p1\"}]}}"))
+          (define ROWS (cdr (herdr-list-extract 'panes (list "1") J)))
+        """#)
+        #expect(try engine.evaluate("(if (assoc 'status (car ROWS)) #t #f)") == .false)
+    }
+
     // MARK: - Pane chips (leaf herdr-pane-chips-k10)
 
     /// The pure chip-rect synthesis over a real `herdr pane layout` fixture.

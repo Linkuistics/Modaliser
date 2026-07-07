@@ -49,3 +49,37 @@
   content: " ●";
   color: var(--color-key);
 }
+
+/* ─── Agents kind — status badge ────────────────────────────────
+ * An agents row inserts a status badge between the arrow and the title, so
+ * it needs a fifth (badge) grid track. panes/tabs/workspaces keep the
+ * four-column layout above, unchanged. */
+.block-herdr-list .hl-row.hl-agent {
+  grid-template-columns: 3ch auto auto 1fr auto;
+}
+
+/* The badge — a small uppercase pill, color-coded by agent status so the
+ * blocked agents (the ones worth jumping to) read at a glance. Soft tint
+ * backgrounds with a darkened same-hue text keep the delicate light overlay
+ * aesthetic and stay legible: the overlay's amber (--color-group), live-green
+ * (--live) and muted-grey (--color-header) tokens are too saturated/light to
+ * sit under text, so each status carries an explicit tint/ink pair. blocked
+ * has no theme token at all — it earns a net-new attention red. */
+.block-herdr-list .hl-badge {
+  justify-self: start;
+  align-self: center;
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: #5b6472;            /* default ink (also unknown) */
+  background: #eef0f3;       /* default tint */
+}
+.block-herdr-list .hl-badge-blocked { color: #c0261f; background: #fbe4e2; } /* attention red */
+.block-herdr-list .hl-badge-working { color: #9a5a0c; background: #f8eede; } /* amber, ~--color-group */
+.block-herdr-list .hl-badge-idle    { color: #157a3f; background: #e4f6ec; } /* calm green, ~--live */
+.block-herdr-list .hl-badge-unknown { color: #5b6472; background: #eef0f3; } /* muted grey, ~--color-header */

@@ -1,12 +1,19 @@
-;; (modaliser blocks herdr-list) — one block constructor for herdr's three
-;; live lists (panes / tabs / workspaces). herdr's socket-API CLI hands us
-;; the id, focused flag and label of every pane/tab/workspace directly as
-;; JSON, so — unlike the iTerm blocks — there is NO AX walk, no UUID
-;; correlation and no empty-title fallback. The three lists differ only in
+;; (modaliser blocks herdr-list) — one block constructor for herdr's four
+;; live lists (panes / tabs / workspaces / agents). herdr's socket-API CLI
+;; hands us the id, focused flag and label of every pane/tab/workspace/agent
+;; directly as JSON, so — unlike the iTerm blocks — there is NO AX walk, no
+;; UUID correlation and no empty-title fallback. The lists differ only in
 ;; which `herdr <x> list` to run and how to read each row, so a single
-;; `kind`-parameterised block covers all three.
+;; `kind`-parameterised block covers all four.
 ;;
-;; (make-herdr-list-block 'kind 'panes|'tabs|'workspaces . opts) → block-spec
+;; The agents kind is the odd one out: its rows carry a `status` (from each
+;; agent's `agent_status`) that the JS renders as a color-coded badge, and it
+;; reorders status-priority (blocked → working → idle → unknown) BEFORE
+;; assigning digit labels, so digit "1" always focuses the first blocked agent
+;; (the differentiator). The other three kinds keep JSON order and no status.
+;;
+;; (make-herdr-list-block 'kind 'panes|'tabs|'workspaces|'agents . opts)
+;;   → block-spec
 ;;
 ;; The block exposes (herdr-list-current-targets) → ((label . id) …) so the
 ;; parent group can build a hidden (key-range "1.." …) that dispatches each
@@ -119,8 +126,9 @@
     ;; Per-kind spec: (cli-subcommand result-array-key id-key title-key).
     ;; The result envelope is {"result":{"<array-key>":[ … ]}} for every
     ;; list command; each element carries an id, a `focused` bool and a
-    ;; human label. Panes have no `label`, so their title falls back to the
-    ;; agent name then the pane id.
+    ;; human label. Panes and agents have no `label`, so their title falls
+    ;; back to the agent name then the id. Agents key their digit target on
+    ;; `pane_id` — `agent focus <pane_id>` is the universal cross-tab focus.
     (define (kind-spec kind)
       (cond
         ((eq? kind 'panes)
@@ -129,6 +137,8 @@
          (list "tab list" "tabs" "tab_id" "label"))
         ((eq? kind 'workspaces)
          (list "workspace list" "workspaces" "workspace_id" "label"))
+        ((eq? kind 'agents)
+         (list "agent list" "agents" "pane_id" #f))
         (else (error "herdr-list: unknown kind" kind))))
 
     ;; Title for one row. Tabs/workspaces carry a `label`; panes don't, so a
@@ -142,47 +152,116 @@
          (let ((agent (json-ref item "agent")))
            (if (string? agent) agent id)))))
 
-    ;; Secondary dimmed text. Panes show their cwd; tabs/workspaces show
+    ;; Secondary dimmed text. Panes show their cwd; agents show where they
+    ;; live (D2 cross-scope annotation) — `tab_id` encodes both workspace and
+    ;; tab (e.g. "w9:t1"), falling back to `workspace_id`; tabs/workspaces show
     ;; nothing (the label already identifies them).
     (define (row-detail kind item)
-      (if (eq? kind 'panes)
-          (let ((cwd (json-ref item "cwd"))) (if (string? cwd) cwd ""))
-          ""))
+      (cond
+        ((eq? kind 'panes)
+         (let ((cwd (json-ref item "cwd"))) (if (string? cwd) cwd "")))
+        ((eq? kind 'agents)
+         (let ((tab (json-ref item "tab_id"))
+               (ws  (json-ref item "workspace_id")))
+           (cond ((string? tab) tab)
+                 ((string? ws) ws)
+                 (else ""))))
+        (else "")))
+
+    ;; Status-priority rank for the agents list: blocked (most urgent) first,
+    ;; then working, idle, and unknown / anything unrecognised last (D7). Drives
+    ;; the pre-label reorder so digit "1" always hits the first blocked agent.
+    (define (agent-status-rank status)
+      (cond ((equal? status "blocked") 0)
+            ((equal? status "working") 1)
+            ((equal? status "idle")    2)
+            (else                      3)))
+
+    ;; Reorder raw agent entries status-priority, STABLE within each band (so a
+    ;; band keeps its input pane_id order). Appending four filtered bands is
+    ;; inherently stable and needs no sort primitive or mutable pairs — LispKit
+    ;; ships neither a stable list-sort nor set-cdr!. `raw` entries carry their
+    ;; status at the 'status key.
+    (define (order-agents-by-status raw)
+      (let ((band (lambda (rank)
+                    (filter (lambda (e)
+                              (= rank (agent-status-rank (cdr (assoc 'status e)))))
+                            raw))))
+        (append (band 0) (band 1) (band 2) (band 3))))
 
     ;; Pure extractor: parsed `herdr <x> list` JSON + kind + labels →
     ;; (targets . rows). targets = ((label . id) …) for the first (length
-    ;; labels) entries; rows = every entry as ((label title detail focused)).
-    ;; An entry past the label supply still renders (blank key, no dispatch).
-    ;; Exported so a fixture-fed test needs no live herdr.
+    ;; labels) entries; rows = every entry as an alist ((label title detail
+    ;; focused) plus, for the agents kind only, status). An entry past the
+    ;; label supply still renders (blank key, no dispatch). Exported so a
+    ;; fixture-fed test needs no live herdr.
+    ;;
+    ;; Three phases, so the agents kind can reorder BEFORE labels are assigned:
+    ;;  1. gather   — one raw entry per item, in JSON order.
+    ;;  2. reorder  — agents only: status-priority (blocked-first), stable band.
+    ;;  3. label    — walk the (possibly reordered) entries, assigning digit
+    ;;                labels and building targets so digit "1" = first row.
+    ;; The panes/tabs/workspaces kinds skip phase 2 and carry no status, so
+    ;; their output is identical to the single-loop original.
     (define (herdr-list-extract kind labels parsed)
       (let* ((spec      (kind-spec kind))
              (array-key (list-ref spec 1))
              (id-key    (list-ref spec 2))
              (title-key (list-ref spec 3))
+             (agents?   (eq? kind 'agents))
              (arr (and parsed
                        (json-ref (json-ref parsed "result") array-key)))
-             (items (if (vector? arr) arr #())))
-        (let loop ((k 0) (labs labels) (targets '()) (rows '()))
+             (items (if (vector? arr) arr #()))
+             ;; Phase 1 — raw entries in JSON order. `has-id` records whether
+             ;; the id was a real string (only those become digit targets);
+             ;; `status` is the agent_status string for agents, else #f.
+             (raw
+              (let loop ((k 0) (acc '()))
+                (if (>= k (vector-length items))
+                    (reverse acc)
+                    (let* ((item    (vector-ref items k))
+                           (id      (json-ref item id-key))
+                           (idstr   (if (string? id) id ""))
+                           (status  (and agents?
+                                         (let ((s (json-ref item "agent_status")))
+                                           (if (string? s) s "unknown")))))
+                      (loop (+ k 1)
+                            (cons (list (cons 'id idstr)
+                                        (cons 'has-id (string? id))
+                                        (cons 'focused (eq? (json-ref item "focused") #t))
+                                        (cons 'title (row-title kind item idstr title-key))
+                                        (cons 'detail (row-detail kind item))
+                                        (cons 'status status))
+                                  acc))))))
+             ;; Phase 2 — agents reorder status-priority; other kinds untouched.
+             (entries (if agents? (order-agents-by-status raw) raw)))
+        ;; Phase 3 — assign labels over the final sequence.
+        (let loop ((es entries) (labs labels) (targets '()) (rows '()))
           (cond
-            ((>= k (vector-length items))
+            ((null? es)
              (cons (reverse targets) (reverse rows)))
             (else
-             (let* ((item     (vector-ref items k))
-                    (id       (json-ref item id-key))
-                    (focused  (eq? (json-ref item "focused") #t))
-                    (title    (row-title kind item (if (string? id) id "") title-key))
-                    (detail   (row-detail kind item))
-                    (has-lab  (pair? labs))
-                    (label    (if has-lab (car labs) "")))
-               (loop (+ k 1)
+             (let* ((e       (car es))
+                    (idstr   (cdr (assoc 'id e)))
+                    (has-id  (cdr (assoc 'has-id e)))
+                    (status  (cdr (assoc 'status e)))
+                    (has-lab (pair? labs))
+                    (label   (if has-lab (car labs) "")))
+               (loop (cdr es)
                      (if has-lab (cdr labs) labs)
-                     (if (and has-lab (string? id))
-                         (cons (cons label id) targets)
+                     (if (and has-lab has-id)
+                         (cons (cons label idstr) targets)
                          targets)
-                     (cons (list (cons 'label label)
-                                 (cons 'title title)
-                                 (cons 'detail detail)
-                                 (cons 'focused focused))
+                     ;; status rides on the row ONLY for agents — the JS badge
+                     ;; renderer keys on its presence, so panes/tabs/workspaces
+                     ;; rows stay visually unchanged.
+                     (cons (let ((base (list (cons 'label label)
+                                             (cons 'title (cdr (assoc 'title e)))
+                                             (cons 'detail (cdr (assoc 'detail e)))
+                                             (cons 'focused (cdr (assoc 'focused e))))))
+                             (if status
+                                 (append base (list (cons 'status status)))
+                                 base))
                            rows))))))))
 
     ;; Query herdr, extract, store into the shared cell. Returns targets.
