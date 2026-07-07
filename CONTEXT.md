@@ -62,7 +62,10 @@ when ambiguous.
 
 **Worktree (herdr)** — a git worktree that herdr can create/switch/manage; herdr
 ties a workspace to a worktree for agent work. Distinct from Modaliser's grove
-`.grove-worktrees/` (unrelated).
+`.grove-worktrees/` (unrelated). A worktree is **open** when a herdr workspace is
+currently live on it (`herdr worktree list` reports its `open_workspace_id`),
+else **dormant**; "switch to a worktree" means focus its open workspace, or open
+one if dormant.
 
 **Agent status** — herdr's per-pane state for an AI coding agent running in that
 pane: `idle` / `working` / `blocked` / `unknown`. Surfaced by `herdr pane list`.
