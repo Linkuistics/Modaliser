@@ -24,9 +24,14 @@ command.
 
 ## Decomposition
 
-- 02 `herdr-dialogs-async-k2` — build `(modaliser dialogs)` + convert the four
+- 02 `capture-release-signal-k4` — surfaced mid-session while executing k2:
+  whether a command can statically signal "I release modal capture" (a new
+  DSL/tree node kind, modelled on `selector?`) instead of a dialog-raising
+  action releasing capture imperatively from inside its own body. Blocks
+  k2's final shape; sequenced ahead of it.
+- 03 `herdr-dialogs-async-k2` — build `(modaliser dialogs)` + convert the four
   herdr dialog commands + live verify.
-- 03 `error-dialogs-async-k3` — convert the three backend error-dialog sites.
+- 04 `error-dialogs-async-k3` — convert the three backend error-dialog sites.
 
 ## Pointers
 
