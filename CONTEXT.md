@@ -82,6 +82,15 @@ Distinguished by the iTerm split count in the **current tab** — not the whole
 window; a second background tab must not miscount (ADR-0013). herdr owns the
 top-level `hjkl` (pane focus) in both.
 
+## Modal-dispatch domain
+
+**Dialog command** — a command leaf whose action needs the user's keyboard
+*outside* Modaliser: it raises a native prompt/confirm/info dialog (herdr
+renames, the new-worktree prompt, the worktree-remove confirm, backend error
+dialogs). A dialog command must release the modal key capture before its
+dialog shows and must not block Scheme evaluation while the dialog is up
+(ADR-0014). _Avoid_: "trigger" — ambiguous with the key that fires an action.
+
 ## Window-switching domain
 
 **Focused window** — the frontmost OS window: the top-level window macOS routes
