@@ -62,7 +62,7 @@
     "close (current tab of current window)' "
     "2>/dev/null")))
 
-;; ── Tab + Split sticky navigation sets ──────────────────────────────
+;; ── Tab + Split Walk navigation sets ─────────────────────────────────
 ;; Shared 0-arg tab action thunks. The tab list is vertical, so
 ;; "previous" = up/left and "next" = down/right.
 (define (tab-focus-prev) (send-keystroke '(cmd shift) "["))      ; ⌘⇧[
@@ -70,13 +70,14 @@
 (define (tab-move-prev)  (send-keystroke '(alt shift cmd) "["))  ; ⌥⇧⌘[
 (define (tab-move-next)  (send-keystroke '(alt shift cmd) "]"))  ; ⌥⇧⌘]
 
-;; (sticky-set …) defines each "act + latch" set ONCE: it registers the
-;; sticky mode tree (the latch target, where hjkl/HJKL keep firing) AND
-;; yields a splice node we drop into the Tabs/Splits sub-screens below — so
-;; the key list isn't duplicated between the mode and the entry points.
-;; The operation is in each label, so no panel grouping is needed.
+;; (walk …) defines each "act + latch" set ONCE: it registers the mode
+;; tree (the latch target, where hjkl/HJKL keep firing, each cycling via
+;; 'next 'self) AND yields a splice node we drop into the Tabs/Splits
+;; sub-screens below — so the key list isn't duplicated between the mode
+;; and the entry points. The operation is in each label, so no panel
+;; grouping is needed.
 (define tab-nav
-  (sticky-set 'iterm-tab-walk "Tabs" 'order 'declared
+  (walk 'iterm-tab-walk "Tabs" 'order 'declared
     (key "h" "Focus Prev" tab-focus-prev)
     (key "j" "Focus Next" tab-focus-next)
     (key "k" "Focus Prev" tab-focus-prev)
@@ -89,7 +90,7 @@
 ;; Panes (iTerm "splits") are 2-D, so each of hjkl is a distinct
 ;; direction; terminal:{focus,move}-pane-* come from (modaliser terminal).
 (define split-nav
-  (sticky-set 'iterm-split-walk "Splits" 'order 'declared
+  (walk 'iterm-split-walk "Splits" 'order 'declared
     (key "h" "Focus Left"  terminal:focus-pane-left)
     (key "j" "Focus Down"  terminal:focus-pane-down)
     (key "k" "Focus Up"    terminal:focus-pane-up)
@@ -121,8 +122,8 @@
 
   ;; Splits panel — one-shot pane focus (h/j/k/l: fire-and-exit, no latching)
   ;; plus the full split toolkit behind s, in one panel. Pressing s drills
-  ;; into the Splits sub-screen: split-nav splices the sticky Focus (hjkl) /
-  ;; Move (HJKL) walk (each latching into 'iterm-split-walk); n → hjkl makes a
+  ;; into the Splits sub-screen: split-nav splices the Focus (hjkl) /
+  ;; Move (HJKL) Walk (each crossing into 'iterm-split-walk); n → hjkl makes a
   ;; new split in that direction; the pane-list block paints chips and
   ;; dispatches digits 1..0 to focus a pane by number. terminal:{focus,split}-
   ;; pane-* are the (modaliser apps iterm) factory's 0-arg procedures
@@ -146,7 +147,7 @@
   ;; Tabs sub-screen (t). The tab-list block lifts its hidden 1.. range onto
   ;; the open's group, so pressing t shows every tab (the focused one marked)
   ;; and a digit switches to it. r/n/d act on tabs; tab-nav splices in the
-  ;; Focus (hjkl) / Move (HJKL) entry keys, which latch into the sticky
+  ;; Focus (hjkl) / Move (HJKL) entry keys, which cross into the
   ;; 'iterm-tab-walk mode. The vertical tab list makes h/k = Prev and j/l = Next.
   (open "t" "Tabs"
     (key "r" "Rename" rename-iterm-tab!)

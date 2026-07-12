@@ -318,7 +318,7 @@ Same shape as `(modaliser apps safari)`. Registers under
 
 ### `(modaliser apps iterm)`
 
-iTerm dynamic-pane tree, sticky focus mode, and context-suffix handler.
+iTerm dynamic-pane tree, Walk focus mode, and context-suffix handler.
 More involved than safari/chrome because the tree is rebuilt on every
 leader press to track the live pane layout.
 
@@ -332,10 +332,10 @@ leader press to track the live pane layout.
 
 | Export | Description |
 |---|---|
-| `register!` | One-stop convenience — rebuilds the iTerm tree, registers the sticky focus mode, installs the context-suffix handler. Pass `'install-context-suffix? #f` if you compose your own handler. |
+| `register!` | One-stop convenience — rebuilds the iTerm tree, registers the Walk focus mode, installs the context-suffix handler. Pass `'install-context-suffix? #f` if you compose your own handler. |
 | `rebuild-tree!` | Rebuild and re-register the `'com.googlecode.iterm2` tree from the current pane layout. Called per leader press by the context-suffix handler. |
-| `focus-mode-register!` | Register the sticky `'iterm-panes-focus` mode. |
-| `focus-mode-tree` | The bindings inside the sticky mode (hjkl Cmd+Alt focus moves). Splice into your own custom mode if you need a different sticky-id. |
+| `focus-mode-register!` | Register the `'iterm-panes-focus` Walk. |
+| `focus-mode-tree` | The bindings inside the Walk (hjkl Cmd+Alt focus moves, each cycling via `'next 'self`). Splice into your own custom mode if you need a different focus-mode-id. |
 | `context-suffix-handler` | The bundle-id → variant suffix function (`"/nvim"`, `"/zellij"`, `"/zellij+nvim"`). Install via `(set-local-context-suffix! …)` from `(modaliser event-dispatch)`. |
 | `default-pane-labels` | `("1" "2" … "9" "0")` — default pane-label list. |
 | `configure-entry` | A `(key …)` node for the one-shot **Configure iTerm** action (`Ctrl+Shift+I`). Splice into your iTerm tree; it auto-hides once iTerm is configured. |
@@ -347,7 +347,7 @@ leader press to track the live pane layout.
 |---|---|---|
 | `'pane-labels` | `("1"…"9" "0")` | Labels assigned to panes in walk order. |
 | `'pane-range-label` | `"Focus Pane <n>"` | Label for the auto-generated digit range. |
-| `'sticky-mode-id` | `'iterm-panes-focus` | The mode-id of the sticky focus tree. |
+| `'focus-mode-id` | `'iterm-panes-focus` | The mode-id of the focus Walk. |
 | `'install-context-suffix?` | `#t` | (`register!` only) Whether to install the context-suffix handler. |
 
 Pane-chip styling is no longer threaded through the registration. The
@@ -361,13 +361,13 @@ edit `~/.config/modaliser/theme.css` to customise.
 The transient iTerm tree is a `(screen 'com.googlecode.iterm2 …)` whose
 panels hold `c` (Copy Mode), `z` (Toggle Zoom), a `(panel "Focus" …)`
 wrapping the four hjkl focus moves (each carries
-`'sticky-target 'iterm-panes-focus` so the first press lands the user in
-the sticky mode), and an `x` split subgroup. The panel is rendered as a
+`'next 'iterm-panes-focus` — a cross edge — so the first press lands the
+user in the Walk), and an `x` split subgroup. The panel is rendered as a
 banded card but stays transparent for dispatch, so the keys still fire as
-direct children of the tree. The sticky focus mode (`'iterm-panes-focus`)
-holds only the four hjkl Cmd+Alt focus moves and uses
-`'exit-on-unknown #t` so typing any non-binding key returns control to
-iTerm.
+direct children of the tree. The focus Walk (`'iterm-panes-focus`) holds
+only the four hjkl Cmd+Alt focus moves, each carrying `'next 'self` (a
+cyclic edge back to itself), and uses `'exit-on-unknown #t` so typing any
+non-binding key returns control to iTerm.
 
 **Configure iTerm.** The split, swap, copy-mode and zoom keys fire
 iTerm keyboard shortcuts that are not all iTerm defaults. The

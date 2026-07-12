@@ -137,7 +137,7 @@ You now have the loop: edit `config.scm`, relaunch, try the binding.
   through the launcher and modal patterns by building a `w` drill-down
   from a one-key stub up to something close to `default-config.scm`.
 - **How-to guides** — task-oriented recipes for adding bindings,
-  per-app trees, sticky modes, fuzzy-finders, theming, and debugging.
+  per-app trees, Walks, fuzzy-finders, theming, and debugging.
   → [how-to/index.md](../how-to/index.md)
 - **The DSL** — the layout forms (`screen`, `panel`, `open`,
   `fragment`) you author the overlay with, plus the dispatch atoms they
@@ -149,7 +149,7 @@ You now have the loop: edit `config.scm`, relaunch, try the binding.
   `(modaliser apps iterm)` for per-app trees, `(modaliser window-actions)`
   for window management.
   → [reference/libraries.md](../reference/libraries.md)
-- **State machine** — transient vs. sticky modes, `'sticky-target`,
+- **State machine** — Terminal nodes vs. Walks, the `'next` edge,
   `'exit-on-unknown`, `on-enter` / `on-leave` hooks.
   → [reference/state-machine.md](../reference/state-machine.md)
 - **Theming** — edit `~/.config/modaliser/theme.css` to override any

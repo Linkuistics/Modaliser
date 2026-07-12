@@ -8,12 +8,11 @@
   (key "n" "New Message" (λ () (send-keystroke '(cmd) "n")))
   (key "f" "Find"        (λ () (send-keystroke '(cmd) "f")))
 
-  ;; Sticky conversation walk: j/k step through the conversation list and
-  ;; stay armed; any other key exits.
+  ;; Conversation Walk: j/k step through the conversation list and
+  ;; stay armed (each carries 'next 'self); any other key exits.
   ;; ⚠️ next/prev-conversation shortcuts are unverified — confirm in
   ;; Messages (Window menu) and adjust the two "verify" lines if needed.
   (group "c" "Conversations"
-    'sticky #t
     'exit-on-unknown #t
-    (key "j" "Next" (λ () (send-keystroke '(cmd shift) "]")))    ; verify
-    (key "k" "Prev" (λ () (send-keystroke '(cmd shift) "[")))))  ; verify
+    (key "j" "Next" (λ () (send-keystroke '(cmd shift) "]")) 'next 'self)    ; verify
+    (key "k" "Prev" (λ () (send-keystroke '(cmd shift) "[")) 'next 'self)))  ; verify

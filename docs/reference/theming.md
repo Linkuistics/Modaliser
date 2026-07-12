@@ -59,7 +59,7 @@ CSS load order (last wins on equal specificity):
 | Variable | Default | Used for |
 |---|---|---|
 | `--accent` | `#4f46e5` (indigo) | Keys in lists, focus, selection, panel-header text, list-row focus bar. |
-| `--color-group` | `#c2700f` (amber) | Group-opens (`›` drill-in rows), sticky-target markers (fallback). |
+| `--color-group` | `#c2700f` (amber) | Group-opens (`›` drill-in rows), `'next` markers (fallback). |
 | `--live` | `#23c161` (green) | The live-list "live" dot. |
 
 ### Panels
@@ -167,7 +167,7 @@ is computed in Scheme.
 
 | Variable | Default | Used for |
 |---|---|---|
-| `--color-host-bg` | unset | Overlay/chooser header band background, sticky-mode border, sticky-target marker, **chip background**. |
+| `--color-host-bg` | unset | Overlay/chooser header band background, Walk border, `'next` marker, **chip background**. |
 | `--color-host-fg` | unset | Overlay/chooser header text, chip foreground. |
 | `--color-host-sep` | unset | Breadcrumb separator colour. Falls back to `--color-host-fg` then `--color-arrow`. |
 
@@ -182,7 +182,7 @@ adopt a host theme:
 ```
 
 A single colour pair recolours the overlay header band, the chooser
-header, the sticky-mode border accent, sticky-target markers, and every
+header, the Walk border accent, `'next` markers, and every
 chip on screen — every visual that consumes `var(--color-host-*)`.
 
 ### Chooser (also in `base.css`)
@@ -242,7 +242,7 @@ unlike the host header.
 | Class | Where |
 |---|---|
 | `.overlay` | Outer card. |
-| `.overlay.sticky` | Modifier on `.overlay` when navigation is inside a sticky tree/subgroup. |
+| `.overlay.walk` | Modifier on `.overlay` when navigation is inside a Walk (the current node or an ancestor on the path is a Walk). |
 | `.overlay-header` | Breadcrumb / app-context band at the card top. |
 | `.overlay-header .breadcrumb-sep` | `›` separator between breadcrumb segments. |
 | `.overlay-custom-body` | Container for a custom-renderer body. `data-renderer` attribute = `"panel-grid"` or `"blocks"`. The `panel-grid` variant carries the tinted `--overlay-body-bg`. |
@@ -275,7 +275,7 @@ unlike the host header.
 | `.entry-arrow` | Key → label arrow glyph. |
 | `.entry-label` | Label cell (never wraps; truncates with ellipsis). |
 | `.entry-label.group-label` | Modifier for rows that *open* a sub-screen / chooser (amber). |
-| `.entry-sticky-marker` | `↻` marker on `'sticky-target` cells. |
+| `.entry-next-marker` | `↻` marker on cells carrying `'next` (cyclic, cross, or dynamic). |
 
 ### Embedded live list — shared list-row vocabulary
 
@@ -337,8 +337,8 @@ inside the section; those are skinned alongside the `.list-*` names, and
 }
 ```
 
-The overlay header band, the chooser header, the sticky-mode border,
-`'sticky-target` cell markers, **and the chips on every window-list /
+The overlay header band, the chooser header, the Walk border,
+`'next` cell markers, **and the chips on every window-list /
 iTerm hint overlay** all inherit the colour through
 `var(--color-host-*)` references in `base.css`. One declaration,
 overlay-wide effect.

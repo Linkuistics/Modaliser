@@ -1,4 +1,4 @@
-;; (modaliser apps iterm) — iTerm dynamic-pane builder and sticky focus mode.
+;; (modaliser apps iterm) — iTerm dynamic-pane builder and Walk focus mode.
 ;;
 ;; The dynamic iTerm tree is rebuilt on every leader press (via
 ;; set-local-context-suffix!) so pane bindings track the current pane
@@ -17,11 +17,11 @@
 ;;
 ;; Defaults mirror the bundled seed: digit pane labels 1..0, transient
 ;; tree with "c Copy Mode"; "h/j/k/l Focus <dir>" (each fires the
-;; corresponding Cmd+Alt+arrow keystroke AND transitions into the
-;; sticky 'iterm-panes-focus mode, so subsequent hjkl presses keep
-;; moving without another leader press); "z Toggle Zoom"; and a "x
-;; Split" group. The sticky 'iterm-panes-focus tree contains only the
-;; Cmd+Alt+arrow hjkl focus moves.
+;; corresponding Cmd+Alt+arrow keystroke AND crosses into the Walk
+;; 'iterm-panes-focus mode, so subsequent hjkl presses keep moving
+;; without another leader press); "z Toggle Zoom"; and a "x Split"
+;; group. The 'iterm-panes-focus tree contains only the Cmd+Alt+arrow
+;; hjkl focus moves, each cycling back to itself.
 ;;
 ;; If you've already installed your own (set-local-context-suffix! …),
 ;; pass 'install-context-suffix? #f and call context-suffix-handler
@@ -195,12 +195,11 @@
           (key "k" "Up"    split-pane-up)
           (key "l" "Right" split-pane-right))
         (group "m" "Move Pane"
-          'sticky #t
           'exit-on-unknown #t
-          (key "h" "Left"  move-pane-left)
-          (key "j" "Down"  move-pane-down)
-          (key "k" "Up"    move-pane-up)
-          (key "l" "Right" move-pane-right))))
+          (key "h" "Left"  move-pane-left  'next 'self)
+          (key "j" "Down"  move-pane-down  'next 'self)
+          (key "k" "Up"    move-pane-up    'next 'self)
+          (key "l" "Right" move-pane-right 'next 'self))))
 
     ;; UUID of the focused iTerm session. AppleScript's `is running`
     ;; guard prevents probe-time Launch Services auto-launch — see
@@ -517,7 +516,7 @@
             "rebuild-tree!: 'hint-options removed — edit .chip in ~/.config/modaliser/theme.css instead"))
         (let* ((labels       (alist-ref alist 'pane-labels default-pane-labels))
                (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
-               (sticky-id    (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
+               (focus-mode-id (alist-ref alist 'focus-mode-id 'iterm-panes-focus))
                (raw-panes    (ax-find-elements-named
                                "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
                (panes        (label-pairs labels raw-panes))
@@ -532,18 +531,18 @@
             (list
               (key "c" "Copy Mode" (keystroke '(cmd shift) "c"))
               (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
-              ;; hjkl: focus-move AND transition into the sticky focus
-              ;; mode in a single press. First leader → h moves left and
-              ;; lands the user in 'iterm-panes-focus, so subsequent hjkl
-              ;; keys keep moving without another leader. The overlay
-              ;; paints a ↻ marker on each (via 'sticky-target). Grouped
-              ;; into a "Focus" panel so the cluster reads as one
-              ;; semantic unit at the top of the overlay.
+              ;; hjkl: focus-move AND cross into the Walk focus mode in a
+              ;; single press. First leader → h moves left and lands the
+              ;; user in 'iterm-panes-focus, so subsequent hjkl keys keep
+              ;; moving without another leader. The overlay paints a ↻
+              ;; marker on each (via 'next). Grouped into a "Focus" panel
+              ;; so the cluster reads as one semantic unit at the top of
+              ;; the overlay.
               (panel "Focus"
-                (key "h" "Left"  focus-pane-left  'sticky-target sticky-id)
-                (key "j" "Down"  focus-pane-down  'sticky-target sticky-id)
-                (key "k" "Up"    focus-pane-up    'sticky-target sticky-id)
-                (key "l" "Right" focus-pane-right 'sticky-target sticky-id))
+                (key "h" "Left"  focus-pane-left  'next focus-mode-id)
+                (key "j" "Down"  focus-pane-down  'next focus-mode-id)
+                (key "k" "Up"    focus-pane-up    'next focus-mode-id)
+                (key "l" "Right" focus-pane-right 'next focus-mode-id))
               ;; Right/down split directly; left/up split-then-swap.
               ;; All four refocus the new pane by UUID — see
               ;; split-pane-* for the iTerm bindings the swap step
@@ -553,36 +552,35 @@
                 (key "j" "Down"  split-pane-down)
                 (key "k" "Up"    split-pane-up)
                 (key "l" "Right" split-pane-right))
-              ;; Move Pane modal — m enters a sticky group whose hjkl
-              ;; keys swap the focused pane with its neighbour in that
-              ;; direction. Each press swaps and stays in the group
-              ;; (per 'sticky #t); any other key exits (per
-              ;; 'exit-on-unknown #t). Depends on the same iTerm
+              ;; Move Pane modal — m enters a group whose hjkl keys swap
+              ;; the focused pane with its neighbour in that direction.
+              ;; Each press swaps and stays in the group (each key
+              ;; carries 'next 'self, a cyclic edge); any other key exits
+              ;; (per 'exit-on-unknown #t). Depends on the same iTerm
               ;; bindings as split-pane-left/up.
               (group "m" "Move Pane"
-                'sticky #t
                 'exit-on-unknown #t
-                (key "h" "Left"  move-pane-left)
-                (key "j" "Down"  move-pane-down)
-                (key "k" "Up"    move-pane-up)
-                (key "l" "Right" move-pane-right))))))))
+                (key "h" "Left"  move-pane-left  'next 'self)
+                (key "j" "Down"  move-pane-down  'next 'self)
+                (key "k" "Up"    move-pane-up    'next 'self)
+                (key "l" "Right" move-pane-right 'next 'self))))))))
 
-    ;; Sticky focus-mode children. Pure hjkl focus moves, entered from
-    ;; the transient tree via any of its hjkl keys (each carries a
-    ;; 'sticky-target → here) or via (enter-mode! 'iterm-panes-focus).
+    ;; Walk focus-mode children. Pure hjkl focus moves, entered from the
+    ;; transient tree via any of its hjkl keys (each carries 'next → here,
+    ;; a cross edge) or via (enter-mode! 'iterm-panes-focus). Each key
+    ;; here carries 'next 'self so it cycles back to itself.
     (define (focus-mode-tree)
       (list
-        (key "h" "Left"  focus-pane-left)
-        (key "j" "Down"  focus-pane-down)
-        (key "k" "Up"    focus-pane-up)
-        (key "l" "Right" focus-pane-right)))
+        (key "h" "Left"  focus-pane-left  'next 'self)
+        (key "j" "Down"  focus-pane-down  'next 'self)
+        (key "k" "Up"    focus-pane-up    'next 'self)
+        (key "l" "Right" focus-pane-right 'next 'self)))
 
     (define (focus-mode-register! . opts)
       (let* ((alist     (apply props->alist opts))
-             (id        (alist-ref alist 'sticky-mode-id 'iterm-panes-focus))
+             (id        (alist-ref alist 'focus-mode-id 'iterm-panes-focus))
              (disp-name (alist-ref alist 'display-name "Focus")))
         (apply register-tree! id
-          'sticky #t
           'exit-on-unknown #t
           'display-name disp-name
           (focus-mode-tree))))
@@ -602,7 +600,7 @@
     ;; render time.
     ;;
     ;; Accepts the same trailing opts as rebuild-tree! ('pane-labels,
-    ;; 'pane-range-label, 'sticky-mode-id). They are forwarded to the
+    ;; 'pane-range-label, 'focus-mode-id). They are forwarded to the
     ;; rebuild call so per-press registrations honour the user's
     ;; customisation rather than reverting to the library's neutral
     ;; defaults. register! captures opts in a closure for this reason;
@@ -641,7 +639,7 @@
     ;; snapshots the pane layout (so iterm-panes-current-targets is
     ;; populated for focus-by-digit's lookup) and paints chips; on-leave
     ;; hides them. The single hidden key-range dispatches by digit and
-    ;; exits the mode automatically (non-sticky default).
+    ;; exits the mode automatically (Terminal — no 'next — by default).
     (define (pane-digit-register!)
       (register-tree! 'iterm-pane-digit
         'on-enter
@@ -677,7 +675,7 @@
         toggle-pane-zoom
         iterm-configured?))
 
-    ;; One-stop convenience: register the dynamic iTerm tree, the sticky
+    ;; One-stop convenience: register the dynamic iTerm tree, the Walk
     ;; focus mode, the digit-pick mode, the <terminal-backend> record
     ;; with the façade, and install the context-suffix handler.
     ;;

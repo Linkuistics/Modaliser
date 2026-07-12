@@ -20,13 +20,14 @@ evaluated — to the **operational node-tree**, the `(kind . group)` /
 `(kind . command)` alist the modal state machine dispatches. The
 operational tree is now an **intermediate representation (IR)**, a
 compile target, not a thing you write by hand. The dispatch engine
-(sticky modes, transparent grouping, digit-jump, selectors) reads that
-IR exactly as before; the **panel-grid renderer** reads the presentation
-metadata (`panel`, `span`, `screen`) the lowering annotates onto it.
+(Walks, the `'next` edge, transparent grouping, digit-jump, selectors)
+reads that IR exactly as before; the **panel-grid renderer** reads the
+presentation metadata (`panel`, `span`, `screen`) the lowering annotates
+onto it.
 
 The practical consequence: the four **layout forms** (`screen`, `panel`,
 `open`, `fragment`) shape *presentation*, and the **dispatch atoms**
-(`key`, `keys`, `key-range`, `group`, `selector`, `sticky-set`) shape
+(`key`, `keys`, `key-range`, `group`, `selector`, `walk`) shape
 *behaviour* — and because the atoms *are* the IR, they are unchanged. A
 panel is a transparent visual card: it groups rows without changing the
 keys beneath it.
@@ -41,7 +42,7 @@ The common case is one import:
 
 That surfaces the layout forms `screen`, `panel`, `open`, `fragment`;
 the dispatch atoms `key`, `keys`, `key-range`, `group`, `selector`,
-`action`, `sticky-set`; the helper `λ`; and the configuration setters
+`action`, `walk`; the helper `λ`; and the configuration setters
 `set-leader!`, `set-overlay-delay!`, `set-theme!`,
 `modifier-symbols->mask`. The bundled seed config also pulls
 in `(modaliser leader)` (for `set-leaders!`) and a handful of native
@@ -175,7 +176,6 @@ Optional leading keywords:
 | `'order` | `'keys` \| `'declared` | Grid-wide row-ordering default. `'keys` (the ultimate default) key-sorts each panel's rows alphabetically; `'declared` renders them in declaration order. A panel inherits this unless it sets its own `'order`. |
 | `'on-enter` | thunk | Runs when the modal navigates into this screen. Composed with any embedded live-list hooks. |
 | `'on-leave` | thunk | Runs when the modal navigates out. |
-| `'sticky` | boolean | If `#t`, firing a command leaf resets to this screen's root instead of exiting. |
 | `'exit-on-unknown` | boolean | If `#t`, unrecognised keys exit the modal instead of being swallowed. Inherited by descendants. |
 | `'display-name` | string | Overrides the breadcrumb scope segment. Useful for mode-id scopes (e.g. `'iterm-panes`) where the auto-resolved app name doesn't make sense. |
 
@@ -201,7 +201,7 @@ its own.
 
 `children` are dispatch atoms (`key`/`keys`/`group`/`selector`/…) plus
 **at most one** embedded live-list block. Splices (`fragment` /
-`sticky-set`) hoist in place.
+`walk`) hoist in place.
 
 ```scheme
 (panel "Search"
@@ -280,7 +280,7 @@ folds into the parent's loose region as a single **"→ LABEL" drill row**
 
 Its body lowers the same way a `screen` body does: real panels become
 grid cards, and loose atoms / folded top-level opens / loose blocks render
-bare in the loose region. Keywords: `'on-enter`, `'on-leave`, `'sticky`,
+bare in the loose region. Keywords: `'on-enter`, `'on-leave`,
 `'exit-on-unknown`, `'cols`, `'layout`, `'order` (the grid-wide row-ordering
 default for this open's panels — see `panel`) — **not** `'display-name` (a
 breadcrumb-root override a child group has no use for). An `open` lowers
@@ -312,12 +312,12 @@ A `fragment` is **fully transparent**: the container forms (`screen` /
 time via `expand-splices`,
 so the lowered tree is identical to writing the children inline —
 nothing downstream ever sees the fragment. Nested fragments and
-`sticky-set`s compose for free, since `expand-splices` recurses through
+`walk`s compose for free, since `expand-splices` recurses through
 splice children.
 
-`fragment` is `sticky-set`'s second half on its own: a transparent
-splice node with **no** mode registration and **no** `'sticky-target`
-decoration — pure structural reuse. Reach for `sticky-set` when you want
+`fragment` is `walk`'s second half on its own: a transparent
+splice node with **no** mode registration and **no** `'next`
+decoration — pure structural reuse. Reach for `walk` when you want
 the act-and-latch behaviour, `fragment` when you only want to share
 layout.
 
@@ -389,10 +389,10 @@ Optional trailing keyword:
 
 | Keyword | Type | Description |
 |---|---|---|
-| `'sticky-target` | symbol | After running the action, transition modal navigation into the tree registered under this mode-id (declarative `(enter-mode! …)`). Overrides the surrounding tree's transient/sticky cleanup; the overlay paints a `↻` marker on the cell. |
+| `'next` | symbol \| `'self` \| procedure | Declares this leaf's post-action transition (ADR-0015). A registered tree's id is a **cross edge** (`(enter-mode! id)` — push the caller, switch into it); the literal `'self` is a **cyclic edge** (re-arm the containing collection in place, no push); a 0-arg procedure is a **dynamic edge**, resolved at fire time to a symbol or `#f`. Declaring `'next` makes the leaf non-Terminal — capture stays live through the action instead of being released before it — and the overlay paints a `↻` marker on the cell. Omitting `'next` makes the leaf **Terminal**: capture releases *before* the action runs, so the action can safely hand the keyboard elsewhere (a dialog, an external prompt). See [state-machine.md](state-machine.md#the-next-edge-and-terminal-nodes). |
 
 ```scheme
-(key "p" "Pane Mode" (λ () (if #f #f)) 'sticky-target 'iterm-panes-focus)
+(key "p" "Pane Mode" (λ () (if #f #f)) 'next 'iterm-panes-focus)
 ```
 
 ### `(keys KEYLIST LABEL ACTION-FN [keyword value]...)`
@@ -451,14 +451,19 @@ A plain nested submenu — typing `K` from the parent descends into a tree
 of `children`. Unlike `open`, a `group` renders through the **default
 list renderer** (a single multi-column list, not a grid of panels), so
 reach for it for a quick flat drill-down where a full sub-screen would be
-overkill — directional split/move clusters, sticky walks. Keywords:
+overkill — directional split/move clusters, Walks. Keywords:
 
 | Keyword | Type | Description |
 |---|---|---|
 | `'on-enter` | thunk | Fires when modal navigates *into* this group (only if the overlay is open). |
 | `'on-leave` | thunk | Fires when modal navigates *out*. |
-| `'sticky` | boolean | If `#t`, firing a command leaf at or below this group returns navigation here instead of exiting. Composes with sticky ancestors: deepest sticky group wins. |
 | `'exit-on-unknown` | boolean | Unknown keys exit the modal. Inherited by descendants. |
+
+A group carries no latching flag of its own — a command leaf at or
+below it cycles only if it individually declares `'next 'self` (see
+`key` below); a group is a **Walk** when it has one or more such
+members, but that's derived from the leaves, never declared on the
+group itself.
 
 Unknown keyword/value pairs pass through as opaque alist entries on the
 group — this is the pass-through that the layout DSL rides
@@ -519,46 +524,51 @@ Extra action for a selector's Tab panel. Used in a selector's
               'run (lambda (path) (reveal-in-finder path)))))
 ```
 
-### `(sticky-set MODE-ID DISPLAY-NAME ['order 'keys|'declared] key…)`
+### `(walk MODE-ID DISPLAY-NAME ['order 'keys|'declared] key…)`
 
 Define a reusable **"act + latch"** navigation set once and splice it
-into many parents (DRY). It does two things at evaluation time:
+into many parents (DRY) — the DSL-level packaging of a **Walk**
+(CONTEXT.md): a registered collection whose members cycle via `'next
+'self`. It does two things at evaluation time:
 
-1. **Registers a sticky mode tree** under `MODE-ID` (with `'sticky #t`,
-   `'exit-on-unknown #t`, and `'display-name DISPLAY-NAME`) holding the
-   bare keys — this is the latch target the walk repeats in.
-2. **Returns a splice node** carrying the same keys, each decorated with
-   `'sticky-target MODE-ID`.
+1. **Registers a mode tree** under `MODE-ID` (with `'exit-on-unknown
+   #t` and `'display-name DISPLAY-NAME`) holding the SAME keys, each
+   decorated `'next 'self` — a cyclic edge, so firing one re-arms the
+   collection in place. This is the latch target the walk repeats in.
+2. **Returns a splice node** carrying the same keys again, each
+   decorated `'next MODE-ID` — a cross edge.
 
 A splice node is **fully transparent**: the container forms (`screen`,
 `panel`, `open`, `group`) hoist its children into their own child list at
 construction time, so the result is identical to writing those entry keys
 inline —
 and nothing downstream ever sees the splice. So one key list supplies
-both the registered mode *and* every entry point, with no duplication.
+both the registered mode *and* every entry point, each copy decorated for
+its own edge (cyclic for the registered members, cross for the entry
+splice), with no duplication of the key list itself.
 
 Use individual `(key …)` forms — not `(keys …)` / `(key-range …)` —
-because `'sticky-target` is a `(key …)`-only keyword.
+because `'next` is a `(key …)`-only keyword.
 
-**Row ordering of the latched walk.** An optional leading `'order` keyword
+**Row ordering of the walk.** An optional leading `'order` keyword
 (`'keys` | `'declared`, mirroring `panel` / `screen`) tunes how the
-**registered mode tree** — the list you see *after* a key latches — orders its
-rows. `'keys` (the default) key-sorts them; `'declared`
+**registered mode tree** — the list you see *after* a key crosses in —
+orders its rows. `'keys` (the default) key-sorts them; `'declared`
 shows them in declaration order, so a paired set reads grouped (e.g. Focus
 `h j k l` then Move `H J K L`) rather than interleaved (`h H j J k K l L`). The
 keyword is forwarded only to the registered mode; it never enters the splice,
 because the spliced **entry keys** land in their parent's **loose region**,
 which is already declaration-ordered. Reach for `'order 'declared` when you want
-the latched walk to match that grouped entry-point order.
+the walk to match that grouped entry-point order.
 
 ```scheme
 (define split-nav
-  (sticky-set 'iterm-split-walk "Splits"
+  (walk 'iterm-split-walk "Splits"
     (key "h" "Focus Left"  terminal:focus-pane-left)
     (key "H" "Move Left"   terminal:move-pane-left)
     …))
 
-;; Pressing s then h focuses-left AND latches into 'iterm-split-walk,
+;; Pressing s then h focuses-left AND crosses into 'iterm-split-walk,
 ;; where hjkl/HJKL keep working. The same split-nav can be spliced into
 ;; several parents (e.g. a top-level panel and an open sub-screen).
 (screen 'com.googlecode.iterm2
@@ -567,8 +577,8 @@ the latched walk to match that grouped entry-point order.
     (panel "New"  (group "n" "New Split" …))))
 ```
 
-Latched walks keep the caller's breadcrumb context: entering a mode from
-an active modal appends `DISPLAY-NAME` to the caller's root segments, so
+A Walk keeps the caller's breadcrumb context: entering one from an
+active modal appends `DISPLAY-NAME` to the caller's root segments, so
 the title reads e.g. `iTerm ▸ Splits` rather than collapsing to `Splits`.
 
 ---
@@ -596,8 +606,8 @@ lists via their `'modifiers` keyword.
 
 - [libraries.md](libraries.md) — bundled `(modaliser …)` libraries and
   their exports.
-- [state-machine.md](state-machine.md) — modal lifecycle, sticky
-  semantics, navigation hooks.
+- [state-machine.md](state-machine.md) — modal lifecycle, the `'next`
+  edge, Terminal/Walk semantics, navigation hooks.
 - [renderer-protocol.md](renderer-protocol.md) — the panel-grid payload,
   the two-tier renderer registry, and how to write custom blocks.
 - [theming.md](theming.md) — CSS variables and class names consumed by

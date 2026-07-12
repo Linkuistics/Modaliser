@@ -32,7 +32,7 @@ reaching for recipes, start with the tutorial:
 
 ## Modal navigation
 
-- [Set up a sticky mode](sticky-mode.md) — a focus-movement mode where
+- [Set up a Walk](walk-mode.md) — a focus-movement mode where
   `hjkl` keep moving without re-pressing the leader.
 
 ## Selectors and search

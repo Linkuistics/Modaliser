@@ -60,28 +60,28 @@ read.
 You probably added `'exit-on-unknown #t` somewhere on the path. That
 keyword inherits down — once any ancestor (or the current group) has
 it set, *any* unknown key exits the modal. The likely accident is a
-new binding you *intended* to put inside the sticky group, but
+new binding you *intended* to put inside the Walk group, but
 parentheses landed it as a sibling instead:
 
 ```scheme
 ;; BROKEN — "h" closes early on Pane "h" because it lives
-;; outside the sticky group; the group has only j/k/l, so
+;; outside the group; the group has only j/k/l, so
 ;; entering Pane and pressing h is "unknown" → exit.
-(group "p" "Pane" 'sticky #t 'exit-on-unknown #t
-  (key "j" "Down"  (λ () …))
-  (key "k" "Up"    (λ () …))
-  (key "l" "Right" (λ () …)))
+(group "p" "Pane" 'exit-on-unknown #t
+  (key "j" "Down"  (λ () …) 'next 'self)
+  (key "k" "Up"    (λ () …) 'next 'self)
+  (key "l" "Right" (λ () …) 'next 'self))
 (key "h" "Left" (λ () …))     ; <-- intended to be inside, isn't
 ```
 
 ```scheme
-;; FIXED — "h" is a child of the sticky group, so it dispatches
+;; FIXED — "h" is a child of the Walk group, so it dispatches
 ;; normally and the modal stays inside the group.
-(group "p" "Pane" 'sticky #t 'exit-on-unknown #t
-  (key "h" "Left"  (λ () …))
-  (key "j" "Down"  (λ () …))
-  (key "k" "Up"    (λ () …))
-  (key "l" "Right" (λ () …)))
+(group "p" "Pane" 'exit-on-unknown #t
+  (key "h" "Left"  (λ () …) 'next 'self)
+  (key "j" "Down"  (λ () …) 'next 'self)
+  (key "k" "Up"    (λ () …) 'next 'self)
+  (key "l" "Right" (λ () …) 'next 'self))
 ```
 
 Count closing parens. Editors with paren-matching highlights make

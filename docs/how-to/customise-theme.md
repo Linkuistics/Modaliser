@@ -21,7 +21,7 @@ body, banded headers, soft mono keycaps, an indigo accent, IBM Plex type.
 
 2. **Set the host theme — the single biggest-effect change.** One
    colour pair recolours the overlay header band, the chooser header,
-   the sticky-mode border accent, sticky-target markers, and every chip
+   the Walk border accent, `'next` markers, and every chip
    on screen (window-list chips, iTerm pane chips). All those visuals
    `var(--color-host-*)` through to these declarations:
 

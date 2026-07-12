@@ -11,7 +11,7 @@
 
 (define-library (modaliser dsl)
   (export key key-range keys group selector action
-          sticky-set fragment
+          walk fragment
           screen panel open
           λ
           set-theme!
@@ -33,14 +33,20 @@
 ;; (key k label action [keyword value]...) → command alist
 ;;
 ;; Optional trailing keyword/value pairs:
-;;   'sticky-target MODE-ID — after running `action`, transition modal
-;;                            navigation into the sticky tree registered
-;;                            under MODE-ID (a symbol). Equivalent to
-;;                            having the action end with
-;;                            (enter-mode! MODE-ID), but declarative so
-;;                            the overlay renders a marker on the cell.
-;;                            Composes with sticky ancestors (overrides
-;;                            transient/sticky cleanup on this command).
+;;   'next TARGET — the leaf's post-action transition (ADR-0015). TARGET
+;;                  is a registered tree's id (a symbol — a cross edge:
+;;                  push the caller, switch into it), the literal 'self
+;;                  (a cyclic edge — re-arm in place, no push; use inside
+;;                  a `walk`'s own registered members), or a 0-arg
+;;                  procedure resolved at fire time (a dynamic edge,
+;;                  e.g. "whichever backend is frontmost"). Declaring
+;;                  'next also makes the leaf non-Terminal, so dispatch
+;;                  keeps modal capture through the action instead of
+;;                  releasing it first — and the overlay renders a ↻
+;;                  marker on the cell. Omitting 'next makes the leaf
+;;                  Terminal: capture is released BEFORE the action
+;;                  runs, so the action may freely hand the keyboard
+;;                  elsewhere (a dialog, an external prompt).
 ;; `key` is a macro that dispatches on the shape AND runtime value of
 ;; the third arg:
 ;;
@@ -92,7 +98,7 @@
 
 ;; The runtime helper invoked by the `key` macro for command shapes.
 ;; Keep the alist-building logic here so the macro stays purely
-;; syntactic. `opts` is the optional trailing 'sticky-target tail.
+;; syntactic. `opts` is the optional trailing 'next tail.
 (define (key-cmd k label action . opts)
   (let loop ((rest opts) (acc (list (cons 'kind 'command)
                                     (cons 'key k)
@@ -102,8 +108,8 @@
       ((null? rest) acc)
       ((or (null? (cdr rest)) (not (symbol? (car rest))))
        (error "key: expected trailing keyword/value pairs" rest))
-      ((eq? (car rest) 'sticky-target)
-       (loop (cddr rest) (cons (cons 'sticky-target (cadr rest)) acc)))
+      ((eq? (car rest) 'next)
+       (loop (cddr rest) (cons (cons 'next (cadr rest)) acc)))
       (else
        (error "key: unknown keyword" (car rest))))))
 
@@ -275,17 +281,16 @@
 ;; Optional leading keyword/value pairs. Recognized keywords:
 ;;   'on-enter THUNK        — called when modal navigates into this group
 ;;   'on-leave THUNK        — called when modal navigates out of this group
-;;   'sticky          BOOL  — firing a command leaf at or below this group
-;;                            returns navigation to this group instead of
-;;                            exiting the modal. Composes with sticky
-;;                            ancestors: the deepest sticky group on the
-;;                            current path wins. See register-tree!'s
-;;                            'sticky doc for full semantics.
 ;;   'exit-on-unknown BOOL  — unrecognised keys at or below this group
 ;;                            dismiss the modal instead of being swallowed.
-;;                            Useful for sticky focus-movement modes where
-;;                            typing a non-binding key should hand control
-;;                            back to the underlying app.
+;;                            Useful for cyclic focus-movement modes (a
+;;                            Walk) where typing a non-binding key should
+;;                            hand control back to the underlying app.
+;;
+;; A group has no latching flag of its own (ADR-0015) — a command leaf
+;; at or below it cycles only if it individually declares 'next 'self
+;; (see `key`); stickiness is derived from the leaves' edges, never
+;; declared on the group.
 ;;
 ;; Args after the keyword pairs are children. Disambiguation: a child node
 ;; is always a pair whose first element is a pair (alist starting with
@@ -294,7 +299,7 @@
 (define (group k label . rest)
   (let loop ((args rest)
              (on-enter #f) (on-leave #f)
-             (sticky #f) (exit-unk #f)
+             (exit-unk #f)
              (extras '())            ; reverse-accumulated alist of unknown kw/val pairs
              (children '()))
     (cond
@@ -304,44 +309,46 @@
                           (cons 'label label)
                           (cons 'children (expand-splices (reverse children)))))
                (acc (if exit-unk    (cons (cons 'exit-on-unknown exit-unk) acc) acc))
-               (acc (if sticky      (cons (cons 'sticky sticky)            acc) acc))
                (acc (if on-leave    (cons (cons 'on-leave on-leave)        acc) acc))
                (acc (if on-enter    (cons (cons 'on-enter on-enter)        acc) acc))
                (acc (append (reverse extras) acc)))   ; extras carried through as-is
           acc))
       ((and (symbol? (car args)) (not (null? (cdr args))))
        (case (car args)
-         ((on-enter)        (loop (cddr args) (cadr args) on-leave sticky exit-unk extras children))
-         ((on-leave)        (loop (cddr args) on-enter (cadr args) sticky exit-unk extras children))
-         ((sticky)          (loop (cddr args) on-enter on-leave (cadr args) exit-unk extras children))
-         ((exit-on-unknown) (loop (cddr args) on-enter on-leave sticky (cadr args) extras children))
+         ((on-enter)        (loop (cddr args) (cadr args) on-leave exit-unk extras children))
+         ((on-leave)        (loop (cddr args) on-enter (cadr args) exit-unk extras children))
+         ((exit-on-unknown) (loop (cddr args) on-enter on-leave (cadr args) extras children))
          (else
            ;; Unknown keyword — accumulate as opaque alist entry.
            ;; Used by renderer extensions like 'renderer 'blocks 'blocks (...).
-           (loop (cddr args) on-enter on-leave sticky exit-unk
+           (loop (cddr args) on-enter on-leave exit-unk
                  (cons (cons (car args) (cadr args)) extras)
                  children))))
       (else
        ;; Positional child node.
-       (loop (cdr args) on-enter on-leave sticky exit-unk extras
+       (loop (cdr args) on-enter on-leave exit-unk extras
              (cons (car args) children))))))
 
-;; (sticky-set MODE-ID DISPLAY-NAME ['order 'keys|'declared] key …) → splice node
+;; (walk MODE-ID DISPLAY-NAME ['order 'keys|'declared] key …) → splice node
 ;;
 ;; Define a reusable "act + latch" navigation set ONCE, then splice it
 ;; into any number of parents (DRY). It does two things:
 ;;
-;;   1. Registers a sticky mode tree under MODE-ID (sticky + exit-on-
-;;      unknown + DISPLAY-NAME breadcrumb) holding the bare keys — this is
-;;      the latch target the walk repeats in.
-;;   2. Returns a SPLICE node carrying the SAME keys, each decorated with
-;;      'sticky-target MODE-ID. Placing it in a parent (screen / panel /
-;;      open / group) hoists those entry keys in place, so
-;;      pressing one fires its action AND latches into the mode.
+;;   1. Registers a mode tree under MODE-ID (exit-on-unknown +
+;;      DISPLAY-NAME breadcrumb) holding the SAME keys, each decorated
+;;      'next 'self — a cyclic edge, so firing one re-arms in place
+;;      (CONTEXT.md "Walk"). This is the latch target the walk repeats in.
+;;   2. Returns a SPLICE node carrying the SAME keys again, each decorated
+;;      'next MODE-ID — a cross edge. Placing it in a parent (screen /
+;;      panel / open / group) hoists those entry keys in place, so
+;;      pressing one fires its action AND crosses into the mode.
 ;;
 ;; The key list is thus written once and supplies both the mode and every
-;; entry point. Use individual (key …) forms — not (keys …)/(key-range …)
-;; — since 'sticky-target is a (key …)-only keyword.
+;; entry point, each copy decorated for its own edge (cyclic for the
+;; registered members, cross for the entry splice) — the two `map`s below
+;; build non-destructive copies from the same `keys`, so neither decoration
+;; leaks into the other. Use individual (key …) forms — not
+;; (keys …)/(key-range …) — since 'next is a (key …)-only keyword.
 ;;
 ;; An optional leading 'order keyword ('keys | 'declared, mirroring panel /
 ;; screen) tunes the row ordering of the REGISTERED mode tree — the latched
@@ -351,39 +358,39 @@
 ;; is already declaration-ordered (iterm-nav-declared-order-k38).
 ;;
 ;;   (define split-nav
-;;     (sticky-set 'iterm-split-walk "Splits" 'order 'declared
+;;     (walk 'iterm-split-walk "Splits" 'order 'declared
 ;;       (key "h" "Focus Left" focus-left)
 ;;       (key "H" "Move Left"  move-left) …))
 ;;   (open "s" "Splits" split-nav (group "n" "New Split" …))
-(define (sticky-set mode-id display-name . rest)
+(define (walk mode-id display-name . rest)
   ;; Parse the optional leading 'order <mode> off the front; the remaining
   ;; args are the (key …) forms. Keeping 'order out of `keys` is what stops
-  ;; it leaking into the splice the map below builds.
+  ;; it leaking into either decorated copy the maps below build.
   (let* ((has-order (and (pair? rest) (eq? (car rest) 'order) (pair? (cdr rest))))
          (order     (and has-order (cadr rest)))
-         (keys      (if has-order (cddr rest) rest)))
+         (keys      (if has-order (cddr rest) rest))
+         (registered-keys (map (lambda (k) (cons (cons 'next 'self) k)) keys)))
     (apply register-tree! mode-id
-           'sticky #t
            'exit-on-unknown #t
            'display-name display-name
-           (if order (cons 'order (cons order keys)) keys))
+           (if order (cons 'order (cons order registered-keys)) registered-keys))
     (list (cons 'kind 'splice)
           (cons 'children
-                (map (lambda (k) (cons (cons 'sticky-target mode-id) k))
+                (map (lambda (k) (cons (cons 'next mode-id) k))
                      keys)))))
 
 ;; (fragment child …) → splice node
 ;;
 ;; A reusable, NAMED chunk of layout — panels (for screen-level reuse) or
 ;; command rows (for panel-level reuse) — bound once to a Scheme variable and
-;; spliced into any number of screens/panels for DRY. It is sticky-set's
+;; spliced into any number of screens/panels for DRY. It is `walk`'s
 ;; second half on its own: a 'kind 'splice node, with NO mode registration
-;; and NO 'sticky-target decoration — pure structural reuse.
+;; and NO 'next decoration — pure structural reuse.
 ;;
 ;; expand-splices (run by the screen / panel / open / group constructors)
 ;; hoists the children in place, so nothing downstream ever sees the
 ;; fragment — the lowered tree is identical
-;; to writing the children inline. Nested fragments / sticky-sets compose for
+;; to writing the children inline. Nested fragments / walks compose for
 ;; free, since expand-splices recurses through splice children.
 ;;
 ;;   (define window-ops
@@ -448,7 +455,7 @@
 ;;   (open   KEY LABEL [keywords…] panel…)→ navigable 'group  'renderer 'panel-grid
 ;;
 ;; The dispatch atoms (key / keys / key-range / selector / group /
-;; sticky-set) are kept verbatim — they ARE the operational IR. Panels are
+;; walk) are kept verbatim — they ARE the operational IR. Panels are
 ;; categories, which stay transparent for dispatch, so flatten-categories /
 ;; find-child descend through them untouched. See ADR-0012. (The legacy
 ;; define-tree / category / overlay forms these replaced were removed in the
@@ -524,7 +531,7 @@
 ;; embedded and no explicit 'span is given. 'order ('keys | 'declared) opts the
 ;; panel's rows out of (or back into) key-sorting; omitted, the panel inherits
 ;; the enclosing screen/open default (manual-panel-order-k24). Children are
-;; dispatch atoms plus at most one live-list block; splices (sticky-set /
+;; dispatch atoms plus at most one live-list block; splices (walk /
 ;; fragment) hoist via expand-splices. A leading bare symbol is a keyword
 ;; ('span / 'order); the first non-symbol begins the children.
 (define (panel label . rest)
@@ -623,13 +630,12 @@
 ;; ORDER ('keys | 'declared | #f) is the screen/open-wide default row-ordering
 ;; mode each panel inherits unless it sets its own 'order; #f (no marker) leaves
 ;; the renderer's ultimate 'keys default (manual-panel-order-k24).
-(define (panel-grid-head blocks on-enter on-leave sticky display-name exit-unk cols layout order loose)
+(define (panel-grid-head blocks on-enter on-leave display-name exit-unk cols layout order loose)
   (let* ((composed-on-enter (compose-hooks on-enter (filter-fns blocks 'on-enter-fn)))
          (composed-on-leave (compose-hooks on-leave (filter-fns blocks 'on-leave-fn))))
     (append
       (if composed-on-enter (list 'on-enter composed-on-enter) '())
       (if composed-on-leave (list 'on-leave composed-on-leave) '())
-      (if sticky            (list 'sticky sticky)              '())
       (if display-name      (list 'display-name display-name)  '())
       (if exit-unk          (list 'exit-on-unknown exit-unk)   '())
       (if cols              (list 'cols cols)                  '())
@@ -642,7 +648,7 @@
 ;; 'scope. Body is an implicit grid of panels; loose top-level atoms, folded
 ;; top-level opens, and loose top-level blocks render BARE above the grid (the
 ;; loose region — no "General" panel). Keywords mirror register-tree! (on-enter /
-;; on-leave / sticky / display-name / exit-on-unknown) plus 'cols N — the
+;; on-leave / display-name / exit-on-unknown) plus 'cols N — the
 ;; authored column count (default CSS-intrinsic auto-fit, resolved in the
 ;; renderer leaf) — and 'layout ('masonry | 'grid) — the panel-packing mode
 ;; (default 'masonry: shortest-lane packing; 'grid: aligned deterministic
@@ -650,72 +656,70 @@
 ;; 'layout) for the panel-grid renderer.
 (define (screen scope . args)
   (let loop ((rest args)
-             (on-enter #f) (on-leave #f) (sticky #f)
+             (on-enter #f) (on-leave #f)
              (display-name #f) (exit-unk #f) (cols #f) (layout #f) (order #f))
     (cond
       ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave sticky display-name exit-on-unknown cols layout order)))
+            (memq (car rest) '(on-enter on-leave display-name exit-on-unknown cols layout order)))
        (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky display-name exit-unk cols layout order))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky display-name exit-unk cols layout order))
-         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) display-name exit-unk cols layout order))
-         ((display-name)    (loop (cddr rest) on-enter on-leave sticky (cadr rest) exit-unk cols layout order))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky display-name (cadr rest) cols layout order))
-         ((cols)            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk (cadr rest) layout order))
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave display-name exit-unk cols layout order))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) display-name exit-unk cols layout order))
+         ((display-name)    (loop (cddr rest) on-enter on-leave (cadr rest) exit-unk cols layout order))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave display-name (cadr rest) cols layout order))
+         ((cols)            (loop (cddr rest) on-enter on-leave display-name exit-unk (cadr rest) layout order))
          ((layout)
           (let ((v (cadr rest)))
             (unless (valid-layout? v)
               (error "screen: 'layout must be 'masonry or 'grid" v))
-            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk cols v order)))
+            (loop (cddr rest) on-enter on-leave display-name exit-unk cols v order)))
          ((order)
           (let ((v (cadr rest)))
             (unless (valid-order? v)
               (error "screen: 'order must be 'keys or 'declared" v))
-            (loop (cddr rest) on-enter on-leave sticky display-name exit-unk cols layout v)))))
+            (loop (cddr rest) on-enter on-leave display-name exit-unk cols layout v)))))
       (else
        (let* ((lowered  (lower-panel-grid-body rest))
               (children (car lowered))
               (loose    (cadr lowered))
               (blocks   (caddr lowered))
-              (head     (panel-grid-head blocks on-enter on-leave sticky
+              (head     (panel-grid-head blocks on-enter on-leave
                                          display-name exit-unk cols layout order loose)))
          (apply register-tree! scope (append head children)))))))
 
 ;; (open KEY LABEL [keywords…] panel…) → a navigable group drilling into a
 ;; sub-screen — the panel-native replacement for the old (key K L (overlay …))
 ;; idiom. Its children are the lowered sub-grid; it carries 'renderer
-;; 'panel-grid (+ 'cols / 'layout). Keywords: on-enter / on-leave / sticky /
+;; 'panel-grid (+ 'cols / 'layout). Keywords: on-enter / on-leave /
 ;; exit-on-unknown / cols / layout — not 'display-name, which is a
 ;; breadcrumb-root override that a child group (vs. a registered tree root) has
 ;; no use for.
 (define (open key label . args)
   (let loop ((rest args)
-             (on-enter #f) (on-leave #f) (sticky #f) (exit-unk #f) (cols #f) (layout #f) (order #f))
+             (on-enter #f) (on-leave #f) (exit-unk #f) (cols #f) (layout #f) (order #f))
     (cond
       ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave sticky exit-on-unknown cols layout order)))
+            (memq (car rest) '(on-enter on-leave exit-on-unknown cols layout order)))
        (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave sticky exit-unk cols layout order))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) sticky exit-unk cols layout order))
-         ((sticky)          (loop (cddr rest) on-enter on-leave (cadr rest) exit-unk cols layout order))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave sticky (cadr rest) cols layout order))
-         ((cols)            (loop (cddr rest) on-enter on-leave sticky exit-unk (cadr rest) layout order))
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave exit-unk cols layout order))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) exit-unk cols layout order))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave (cadr rest) cols layout order))
+         ((cols)            (loop (cddr rest) on-enter on-leave exit-unk (cadr rest) layout order))
          ((layout)
           (let ((v (cadr rest)))
             (unless (valid-layout? v)
               (error "open: 'layout must be 'masonry or 'grid" v))
-            (loop (cddr rest) on-enter on-leave sticky exit-unk cols v order)))
+            (loop (cddr rest) on-enter on-leave exit-unk cols v order)))
          ((order)
           (let ((v (cadr rest)))
             (unless (valid-order? v)
               (error "open: 'order must be 'keys or 'declared" v))
-            (loop (cddr rest) on-enter on-leave sticky exit-unk cols layout v)))))
+            (loop (cddr rest) on-enter on-leave exit-unk cols layout v)))))
       (else
        (let* ((lowered  (lower-panel-grid-body rest))
               (children (car lowered))
               (loose    (cadr lowered))
               (blocks   (caddr lowered))
-              (head     (panel-grid-head blocks on-enter on-leave sticky
+              (head     (panel-grid-head blocks on-enter on-leave
                                          #f exit-unk cols layout order loose)))
          (apply group key label (append head children)))))))
 

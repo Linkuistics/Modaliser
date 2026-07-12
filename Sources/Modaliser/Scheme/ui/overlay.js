@@ -34,23 +34,23 @@ function escapeHtml(str) {
 window.overlayRenderers = window.overlayRenderers || {};
 
 // Built-in list renderer — handles the default {rootSegments, path,
-// entries, sticky, footer, cols, keyCh} payload.
+// entries, walk, footer, cols, keyCh} payload.
 //
 // data: { rootSegments: ["my-server","Global"], path: ["Windows"], entries: [...] }
 // path entries are group labels resolved from the navigation key chars,
 // not the raw keys — so the breadcrumb reads "Global » Windows" not
 // "Global » w".
 window.overlayRenderers.list = function(data) {
-  // Toggle the .sticky class on the root .overlay element so users can
+  // Toggle the .walk class on the root .overlay element so users can
   // theme the persistent mode indicator distinctly. The flag is sent by
   // push-overlay-update on every change so descending into / popping out
-  // of a sticky subgroup updates the styling live.
+  // of a Walk updates the styling live.
   var root = document.querySelector('.overlay');
   if (root) {
-    if (data.sticky) {
-      root.classList.add('sticky');
+    if (data.walk) {
+      root.classList.add('walk');
     } else {
-      root.classList.remove('sticky');
+      root.classList.remove('walk');
     }
   }
 
@@ -101,12 +101,12 @@ window.overlayRenderers.list = function(data) {
       var displayKey = e.key === ' ' ? '\u2423' : e.key;
       var labelClass = e.isGroup ? 'entry-label group-label' : 'entry-label';
       var displayLabel = e.isGroup ? escapeHtml(e.label) + ' \u2026' : escapeHtml(e.label);
-      // Sticky-target leaves get a \u21bb marker BEFORE the label (kept in
-      // sync with render-entry in overlay.scm). Leading position keeps the
-      // markers in a consistent column across rows; trailing position would
-      // drift with label width.
-      if (e.isSticky) {
-        displayLabel = '<span class="entry-sticky-marker">\u21bb</span>' + displayLabel;
+      // A leaf declaring 'next gets a \u21bb marker BEFORE the label (kept
+      // in sync with render-entry in overlay.scm). Leading position keeps
+      // the markers in a consistent column across rows; trailing position
+      // would drift with label width.
+      if (e.isNext) {
+        displayLabel = '<span class="entry-next-marker">\u21bb</span>' + displayLabel;
       }
       html += '<li class="overlay-entry">';
       html += '<span class="entry-key">' + displayKey + '</span>';
@@ -138,7 +138,7 @@ window.overlayBlockRenderers = window.overlayBlockRenderers || {};
 //
 // Bootstrap passes the `.overlay-custom-body` div as `container` (chrome is
 // already baked into the initial HTML); push-updates pass none, so we refresh
-// the breadcrumb/sticky/footer chrome ourselves — same contract as the blocks
+// the breadcrumb/walk/footer chrome ourselves — same contract as the blocks
 // renderer above.
 window.overlayRenderers['panel-grid'] = function(data, container) {
   if (!container) updateOverlayChrome(data);
@@ -402,9 +402,9 @@ function renderPanelRow(row) {
   var labelText = row.isGroup ? (row.label + ' …') : row.label;
   var labelNode = document.createElement('span');
   labelNode.className = labelClass;
-  if (row.isSticky) {
+  if (row.isNext) {
     var marker = document.createElement('span');
-    marker.className = 'entry-sticky-marker';
+    marker.className = 'entry-next-marker';
     marker.textContent = '↻';
     labelNode.appendChild(marker);
     labelNode.appendChild(document.createTextNode(labelText));
@@ -445,14 +445,14 @@ function renderPanelList(block) {
   return section;
 }
 
-// Shared chrome update — breadcrumb, sticky flag, footer. Used by the list,
+// Shared chrome update — breadcrumb, walk flag, footer. Used by the list,
 // blocks, and panel-grid renderers so navigation depth changes look
 // consistent regardless of which renderer is showing the body.
 function updateOverlayChrome(data) {
   var root = document.querySelector('.overlay');
   if (root) {
-    if (data.sticky) root.classList.add('sticky');
-    else root.classList.remove('sticky');
+    if (data.walk) root.classList.add('walk');
+    else root.classList.remove('walk');
   }
   var header = document.querySelector('.overlay-header');
   if (header && Array.isArray(data.rootSegments)) {

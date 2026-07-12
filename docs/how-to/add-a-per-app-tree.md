@@ -115,5 +115,5 @@ walkthrough of pane-aware variant trees, see
   keyword set.
 - [reference/libraries.md](../reference/libraries.md) — `(modaliser
   apps safari | chrome | iterm)` factory APIs.
-- [sticky-mode.md](sticky-mode.md) — for app-modes where one binding
+- [walk-mode.md](walk-mode.md) — for app-modes where one binding
   should keep firing (e.g. iTerm pane focus).

@@ -565,7 +565,7 @@
     ;; ─── Jump to next blocked agent (top-level `b`, D4/D5) ──────────
     ;;
     ;; Round-robin over blocked agents, keyed on CURRENT FOCUS with no stored
-    ;; cursor (stateless, non-sticky — D4). `next-blocked-pane-id` is pure
+    ;; cursor (stateless, not a Walk — D4). `next-blocked-pane-id` is pure
     ;; (parsed `agent list` + focused pane_id → next blocked pane_id | #f) and
     ;; exported for fixture tests; the op below is a thin shell that reads the
     ;; live list + focus, then focuses the target or — zero blocked — pops a
@@ -620,8 +620,8 @@
                   (min-string blocked))))))
 
     ;; The op bound to `b`: focus the next blocked agent (server-wide, D2), or
-    ;; toast when none. A plain key (not a sticky mode) so the overlay dismisses
-    ;; and the user interacts with the agent immediately (D4).
+    ;; toast when none. A plain key (Terminal, not a Walk) so the overlay
+    ;; dismisses and the user interacts with the agent immediately (D4).
     (define (jump-to-next-blocked)
       (let ((target (next-blocked-pane-id (herdr-json "agent list")
                                           (focused-pane-id))))
@@ -629,19 +629,20 @@
             (herdr-cmd (string-append "agent focus " target))
             (herdr-cmd "notification show 'No blocked agents'"))))
 
-    ;; Sticky top-level focus mode. The Focus panel's hjkl each carry a
-    ;; 'sticky-target here (build-herdr-tree), so the first hjkl focuses AND
-    ;; latches into this mode — subsequent hjkl keep moving focus without
-    ;; another leader press (herdr owns the top-level hjkl, root BRIEF).
+    ;; The Walk top-level focus mode. The Focus panel's hjkl each carry
+    ;; 'next 'herdr-panes-focus (build-herdr-tree, a cross edge), so the
+    ;; first hjkl focuses AND crosses into this mode; each member here
+    ;; carries 'next 'self (a cyclic edge back to itself), so subsequent
+    ;; hjkl keep moving focus without another leader press (herdr owns the
+    ;; top-level hjkl, root BRIEF).
     (define (focus-mode-register!)
       (register-tree! 'herdr-panes-focus
-        'sticky #t
         'exit-on-unknown #t
         'display-name "Focus"
-        (key "h" "Left"  focus-pane-left)
-        (key "j" "Down"  focus-pane-down)
-        (key "k" "Up"    focus-pane-up)
-        (key "l" "Right" focus-pane-right)))
+        (key "h" "Left"  focus-pane-left  'next 'self)
+        (key "j" "Down"  focus-pane-down  'next 'self)
+        (key "k" "Up"    focus-pane-up    'next 'self)
+        (key "l" "Right" focus-pane-right 'next 'self)))
 
     ;; The herdr variant tree. herdr owns the top-level hjkl pane focus —
     ;; bound to the herdr-DIRECT ops above, never the façade, so it drives
@@ -649,9 +650,9 @@
     ;; nodes the config splices into (screen 'com.googlecode.iterm2/herdr …)
     ;; and, with the iTerm `i`-drill appended, (screen …/herdr+split …).
     ;;
-    ;;   Focus panel  hjkl → focus (sticky-latch into 'herdr-panes-focus)
+    ;;   Focus panel  hjkl → focus (crosses into the 'herdr-panes-focus Walk)
     ;;   x Split      hjkl → new split that direction (left/up = split+swap)
-    ;;   m Move Pane  sticky hjkl → swap focused pane with its neighbour
+    ;;   m Move Pane  Walk hjkl → swap focused pane with its neighbour
     ;;   z / d        toggle zoom / close pane
     ;;   t Tabs       n/r/d + the tabs list (digit → switch); no Move Tab —
     ;;                 herdr exposes no socket/CLI tab-reorder verb (see
@@ -664,22 +665,21 @@
     (define (build-herdr-tree)
       (list
         (panel "Focus"
-          (key "h" "Left"  focus-pane-left  'sticky-target 'herdr-panes-focus)
-          (key "j" "Down"  focus-pane-down  'sticky-target 'herdr-panes-focus)
-          (key "k" "Up"    focus-pane-up    'sticky-target 'herdr-panes-focus)
-          (key "l" "Right" focus-pane-right 'sticky-target 'herdr-panes-focus))
+          (key "h" "Left"  focus-pane-left  'next 'herdr-panes-focus)
+          (key "j" "Down"  focus-pane-down  'next 'herdr-panes-focus)
+          (key "k" "Up"    focus-pane-up    'next 'herdr-panes-focus)
+          (key "l" "Right" focus-pane-right 'next 'herdr-panes-focus))
         (group "x" "Split"
           (key "h" "Left"  split-pane-left)
           (key "j" "Down"  split-pane-down)
           (key "k" "Up"    split-pane-up)
           (key "l" "Right" split-pane-right))
         (group "m" "Move Pane"
-          'sticky #t
           'exit-on-unknown #t
-          (key "h" "Left"  move-pane-left)
-          (key "j" "Down"  move-pane-down)
-          (key "k" "Up"    move-pane-up)
-          (key "l" "Right" move-pane-right))
+          (key "h" "Left"  move-pane-left  'next 'self)
+          (key "j" "Down"  move-pane-down  'next 'self)
+          (key "k" "Up"    move-pane-up    'next 'self)
+          (key "l" "Right" move-pane-right 'next 'self))
         (key "z" "Toggle Zoom" toggle-pane-zoom)
         (key "d" "Close Pane"  close-pane)
         (open "t" "Tabs"
@@ -730,8 +730,8 @@
         toggle-pane-zoom
         configured?))
 
-    ;; Register the backend + the digit-jump mode + the sticky top-level
-    ;; focus mode the herdr tree latches into. Safe to call more than once:
+    ;; Register the backend + the digit-jump mode + the Walk top-level
+    ;; focus mode the herdr tree crosses into. Safe to call more than once:
     ;; register-backend! is last-write-wins on backend symbol; register-tree!
     ;; replaces any prior tree of the same id.
     (define (register!)

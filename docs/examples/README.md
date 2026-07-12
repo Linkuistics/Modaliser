@@ -10,9 +10,9 @@ A working user config (snapshot 2026-06-20). Notable patterns:
 - **Inlined per-app trees** (iTerm, Dia) alongside the global tree, rather than
   via the `register!` factories — easier to tweak in place.
 - **Dia browser tree** (`company.thebrowser.dia`): a `t` Tabs group (new tab +
-  an AppleScript-backed fuzzy tab chooser) and an `r` **Recent Tabs** sticky
-  modal that drives Dia's ctrl-tab MRU switcher — holding control across the
-  modal and committing on Return / cancelling on Escape via the `on-leave`
+  an AppleScript-backed fuzzy tab chooser) and an `r` **Recent Tabs** Walk
+  that drives Dia's ctrl-tab MRU switcher — holding control across the
+  Walk and committing on Return / cancelling on Escape via the `on-leave`
   exit reason. See
   [`../specs/2026-06-19-keystroke-modifier-release-and-down-up.md`](../specs/2026-06-19-keystroke-modifier-release-and-down-up.md)
   for the mechanics.

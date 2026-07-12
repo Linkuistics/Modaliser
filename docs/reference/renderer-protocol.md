@@ -74,7 +74,7 @@ layout DSL lowering emits:
   An empty array means the JS draws no `.panel-loose`. An empty `"panels"` array
   (a loose-only screen) means it draws no `.panel-grid`.
 - **`<row>`** is the shared entry-row shape (`entry->row-json`):
-  `{ "key": "…", "label": "…", "isGroup": bool, "isSticky": bool }`.
+  `{ "key": "…", "label": "…", "isGroup": bool, "isNext": bool }`.
   `key` is ready key-display HTML (modifier glyphs pre-wrapped). Hidden
   entries and nested-category entries are filtered out — including the
   lifted, hidden digit range of an embedded list, which the list section
@@ -196,7 +196,7 @@ all hooks fire only when the overlay actually becomes visible.
 ## Chrome envelope on push-updates
 
 The initial overlay render is HTML, built from `render-overlay-body`.
-Subsequent navigation (descend / step-back / sticky-reset) sends an
+Subsequent navigation (descend / step-back / cyclic re-arm) sends an
 *incremental update* to JS via `webview-eval("updateOverlay(...)")`.
 
 For panel-grid bodies, the update payload is the renderer body augmented
@@ -206,8 +206,8 @@ with chrome fields:
 |---|---|
 | `rootSegments` | Breadcrumb root + path-labels — the current breadcrumb. |
 | `path` | The key path from root, e.g. `["w", "p"]`. |
-| `sticky` | Boolean — whether any sticky ancestor is on the path. |
-| `footer` | Pre-rendered HTML for the footer (back-hint, sticky pip, and the `↑↓ move · ⏎ select · 1–9 jump` cursor hints when a live list owns the cursor). |
+| `walk` | Boolean — whether the current node or any ancestor on the path is a Walk (`node-walk?`). |
+| `footer` | Pre-rendered HTML for the footer (back-hint, Walk pip, and the `↑↓ move · ⏎ select · 1–9 jump` cursor hints when a live list owns the cursor). |
 
 Without these fields, navigating from a flat root into a custom-renderer
 group would leave the previous depth's chrome on screen (notably the

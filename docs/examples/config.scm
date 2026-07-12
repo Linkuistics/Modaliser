@@ -147,7 +147,7 @@
 ;; pane-*) calls below route to iTerm. 'install-tree? #f skips the
 ;; library's own rebuild-tree! — the inline (screen 'com.googlecode.iterm2 …)
 ;; below is the tree we want, not the library's stock one. The backend
-;; record + sticky focus mode + digit-pick mode + context-suffix handler
+;; record + focus Walk + digit-pick mode + context-suffix handler
 ;; still install.
 (iterm:register! 'install-tree? #f)
 
@@ -224,15 +224,15 @@
     (key "k" "Up"    terminal:split-pane-up)
     (key "l" "Right" terminal:split-pane-right))
 
-  ;; Move Pane sticky modal — m enters the group, hjkl swap the focused
-  ;; pane in that direction and stay; any other key exits.
+  ;; Move Pane Walk — m enters the group, hjkl swap the focused
+  ;; pane in that direction and stay (each carries 'next 'self); any
+  ;; other key exits.
   (group "m" "Move"
-    'sticky #t
     'exit-on-unknown #t
-    (key "h" "Left"  terminal:move-pane-left)
-    (key "j" "Down"  terminal:move-pane-down)
-    (key "k" "Up"    terminal:move-pane-up)
-    (key "l" "Right" terminal:move-pane-right))
+    (key "h" "Left"  terminal:move-pane-left  'next 'self)
+    (key "j" "Down"  terminal:move-pane-down  'next 'self)
+    (key "k" "Up"    terminal:move-pane-up    'next 'self)
+    (key "l" "Right" terminal:move-pane-right 'next 'self))
 
   ;; Tab sub-screen. (open …) drills into its own grid of panels and lifts
   ;; the tab-list block's hidden 1.. range onto the group, so pressing t
@@ -326,7 +326,7 @@
 ;; ── Recent-tab MRU walk (Dia's ctrl-tab switcher, driven from a modal) ──
 ;;
 ;; Dia's recent-tab switcher opens on ctrl+tab and commits when control is
-;; *released*. We hold control across the whole sticky modal (via
+;; *released*. We hold control across the whole Walk (via
 ;; send-key-down) and release it on exit (send-key-up). The input library
 ;; tracks held modifiers, so a plain (send-keystroke '() "tab") posted while
 ;; control is held is automatically seen as ctrl+tab — no need to restate the
@@ -349,7 +349,7 @@
                    'remember  "dia-tabs"
                    'on-select dia-focus-tab!)))
 
-  ;; Sticky "Recent Tabs" walk. Enter holds control and steps once, so the
+  ;; "Recent Tabs" Walk. Enter holds control and steps once, so the
   ;; HUD opens on the most-recent (next) tab; j/k step forward/back through
   ;; the MRU stack.
   ;;
@@ -365,7 +365,6 @@
   ;; balanced — a held control always gets its matching release. The leading
   ;; (send-key-up "ctrl") self-heals any control left held by an aborted walk.
   (group "r" "Recent Tabs"
-    'sticky #t
     'exit-on-unknown #t
     'on-enter (λ () (send-key-up   "ctrl")   ; clear any stale hold
                     (send-key-down "ctrl")   ; hold control (auto-asserts)
@@ -374,5 +373,5 @@
                 (unless (eq? reason 'confirm)
                   (send-keystroke "escape"))  ; cancel Dia's HUD
                 (send-key-up "ctrl"))         ; release (commit if confirmed)
-    (key "j" "Next" (λ () (dia-tab-step)))
-    (key "k" "Prev" (λ () (dia-tab-step-back)))))
+    (key "j" "Next" (λ () (dia-tab-step)) 'next 'self)
+    (key "k" "Prev" (λ () (dia-tab-step-back)) 'next 'self)))

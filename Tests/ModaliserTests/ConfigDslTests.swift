@@ -481,16 +481,16 @@ struct ConfigDslTests {
         }
     }
 
-    @Test func keyStoresStickyTargetOption() throws {
+    @Test func keyStoresNextOption() throws {
         let engine = try loadDsl()
-        try engine.evaluate("(define k (key \"h\" \"Left\" (lambda () 'ok) 'sticky-target 'iterm-panes-focus))")
-        #expect(try engine.evaluate("(eq? (node-sticky-target k) 'iterm-panes-focus)") == .true)
+        try engine.evaluate("(define k (key \"h\" \"Left\" (lambda () 'ok) 'next 'iterm-panes-focus))")
+        #expect(try engine.evaluate("(eq? (node-next k) 'iterm-panes-focus)") == .true)
     }
 
-    @Test func keyWithoutStickyTargetReturnsFalse() throws {
+    @Test func keyWithoutNextReturnsFalse() throws {
         let engine = try loadDsl()
         try engine.evaluate("(define k (key \"h\" \"Left\" (lambda () 'ok)))")
-        #expect(try engine.evaluate("(node-sticky-target k)") == .false)
+        #expect(try engine.evaluate("(node-next k)") == .false)
     }
 
     @Test func keyRejectsUnknownTrailingKeyword() throws {
@@ -500,28 +500,27 @@ struct ConfigDslTests {
         }
     }
 
-    @Test func stickyTargetKeyTransitionsModalIntoNamedMode() throws {
-        // After firing a sticky-target key's action, modal-handle-key
-        // should leave the modal active and reset its root to the named
-        // sticky mode tree — so subsequent presses act inside that mode
-        // without another leader.
+    @Test func crossEdgeKeyTransitionsModalIntoNamedMode() throws {
+        // After firing a leaf whose 'next names a different registered
+        // tree (a cross edge), modal-handle-key should leave the modal
+        // active and switch its root to that tree — so subsequent
+        // presses act inside that mode without another leader.
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define fired '())
             (register-tree! 'iterm-focus-test
-              'sticky #t
               'display-name "Focus"
-              (key "h" "Left" (lambda () (set! fired (cons 'left fired)))))
+              (key "h" "Left" (lambda () (set! fired (cons 'left fired))) 'next 'self))
             (register-tree! 'transient-test
               (key "h" "Focus Left"
                 (lambda () (set! fired (cons 'transient-left fired)))
-                'sticky-target 'iterm-focus-test))
+                'next 'iterm-focus-test))
             """)
         try engine.evaluate("(modal-enter (lookup-tree \"transient-test\") F18)")
         try engine.evaluate("(modal-handle-key \"h\")")
         // The transient action fired
         #expect(try engine.evaluate("(equal? (car fired) 'transient-left)") == .true)
-        // Modal is still active, now rooted at the sticky tree
+        // Modal is still active, now rooted at the crossed-into tree
         #expect(try engine.evaluate("modal-active?") == .true)
         #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"iterm-focus-test\"))") == .true)
     }

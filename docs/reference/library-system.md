@@ -105,7 +105,7 @@ The foundational set is always available. From a user `.sld` or
 ```scheme
 (import (modaliser dsl))            ; key, keys, key-range, group, selector,
                                     ; action, screen, panel, open, fragment,
-                                    ; sticky-set, λ, set-leader!, set-theme!,
+                                    ; walk, λ, set-leader!, set-theme!,
                                     ; set-overlay-delay!, modifier-symbols->mask
 (import (modaliser state-machine))  ; lookup-tree, modal-* introspection
 (import (modaliser event-dispatch)) ; set-local-context-suffix!

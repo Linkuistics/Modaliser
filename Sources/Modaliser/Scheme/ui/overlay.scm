@@ -93,16 +93,16 @@
                       (html-escape (car segs)))))))))))
 
 ;; Render an entry for a single child node. Cells whose binding carries
-;; 'sticky-target (declarative "after this action, enter that mode") get
-;; an inline ↻ marker BEFORE the label so the markers align vertically
-;; across rows (trailing position varies with label width). Same marker
-;; is painted via overlay.js on dynamic updates — see push-overlay-update
-;; and the JS side.
+;; 'next (a declared post-action transition — ADR-0015) get an inline ↻
+;; marker BEFORE the label so the markers align vertically across rows
+;; (trailing position varies with label width). Same marker is painted
+;; via overlay.js on dynamic updates — see push-overlay-update and the
+;; JS side.
 (define (render-entry child)
   (let* ((k (node-key child))
          (label (node-label child))
          (is-group (group? child))
-         (sticky-target (and (command? child) (node-sticky-target child)))
+         (has-next (and (command? child) (node-next child)))
          ;; key-display-html wraps modifier glyphs in <span class="sigil-mod">,
          ;; so it's raw HTML — make-raw-html keeps the `span` builder from
          ;; escaping it. The list-renderer update path and the panel-grid row
@@ -114,13 +114,13 @@
                           (string-append label " \x2026;")
                           label))
          (label-class (if is-group "entry-label group-label" "entry-label")))
-    (if sticky-target
+    (if has-next
       (li '((class . "overlay-entry"))
         (span '((class . "entry-key")) display-key)
         (span '((class . "entry-arrow")) "\x2192;")
         (span (list (cons 'class label-class))
           (make-raw-html
-            (string-append "<span class=\"entry-sticky-marker\">\x21bb;</span>"
+            (string-append "<span class=\"entry-next-marker\">\x21bb;</span>"
                            (html-escape display-label)))))
       (li '((class . "overlay-entry"))
         (span '((class . "entry-key")) display-key)
@@ -145,11 +145,12 @@
 ;; node: the registered root tree node (provides children navigation only)
 ;; path: navigation path from root, e.g. ("w" "m")
 ;;
-;; When the current navigation point is in sticky context (the root or any
-;; ancestor on the path is sticky), the .overlay div gets a "sticky" class
-;; so users can theme the persistent mode indicator distinctly. Default
-;; styling in base.css gives it an accented border using the host color
-;; when set, otherwise a darker neutral.
+;; When the current navigation point is inside a Walk (the root or any
+;; ancestor on the path has a direct cyclic ('next 'self) member — see
+;; node-walk?), the .overlay div gets a "walk" class so users can theme
+;; the persistent mode indicator distinctly. Default styling in base.css
+;; gives it an accented border using the host color when set, otherwise
+;; a darker neutral.
 ;; Footer text — pinned at the bottom of every overlay so users can see
 ;; escape/back semantics without consulting docs. Distinct from the
 ;; entry list (smaller font, border-top in base.css).
@@ -159,11 +160,11 @@
 ;; readable across the available footer width.
 ;;
 ;; Backspace is contextual: it always navigates up a level when the path
-;; is non-empty, and at the root of a sticky tree it pops the modal-stack
-;; back to the caller (e.g. iTerm local nav pops back into the main
-;; iTerm tree). Only suppress the hint when backspace is truly a no-op —
-;; at the root of a transient tree, or at the root of a sticky tree with
-;; no caller pushed on the stack.
+;; is non-empty, and at the root with a caller pushed (modal-stack
+;; non-empty) it pops back to the caller (e.g. iTerm local nav pops back
+;; into the main iTerm tree), regardless of whether this root is a Walk.
+;; With no caller, a Walk root exits (see modal-step-back); a transient
+;; root no-ops — those are the two cases the hint is suppressed for.
 ;; Sigil glyphs are wrapped in <span class="sigil"> so base.css can bump
 ;; their font-size + weight above the surrounding footer body — the raw
 ;; glyphs are too small at the footer's default size.
@@ -224,10 +225,15 @@
           (list "1\x2013;9" "jump" applicable?))))
 
 ;; (back-available-for-path? path) → #t when backspace navigates somewhere
-;; — mirrors modal-step-back's conditions exactly so the hint advertises
-;; the actual binding behaviour. The path is the live modal navigation
-;; path (always equals modal-current-path at render time), so we can
-;; read the modal stack state directly.
+;; — mirrors modal-step-back's pop-a-caller condition (a non-empty
+;; modal-stack always has somewhere to pop back to, regardless of
+;; whether this root is a Walk) so the hint advertises the actual
+;; binding behaviour. A Walk root with no caller DOES exit on backspace
+;; (see modal-step-back) but that's identical in effect to Escape, so it
+;; deliberately doesn't earn the "back" hint here — showing one exit
+;; hint, not two for the same effect. The path is the live modal
+;; navigation path (always equals modal-current-path at render time), so
+;; we can read the modal stack state directly.
 (define (back-available-for-path? path)
   (cond
     ((not (null? path)) #t)
@@ -236,7 +242,7 @@
     ;; referenced from a .scm file loaded outside a define-library. The
     ;; accessor lives inside (modaliser state-machine), so it always
     ;; reads the live mutable cell.
-    ((and (in-sticky-context?) (not (modal-stack-empty?))) #t)
+    ((not (modal-stack-empty?)) #t)
     (else #f)))
 
 (define (footer-html-for-path path)
@@ -323,8 +329,8 @@
 (define (render-overlay-body root-segments node path)
   (let* ((current  (if (null? path) node (navigate-to-path node path)))
          (segments (append root-segments (path-labels node path)))
-         (sticky?  (and (deepest-sticky-on-path node path) #t))
-         (cls      (if sticky? "overlay sticky" "overlay"))
+         (walk?    (any-on-path? node path node-walk?))
+         (cls      (if walk? "overlay walk" "overlay"))
          (renderer (and current (node-renderer current))))
     (cond
       (renderer
@@ -615,7 +621,7 @@
          (k (node-key c))
          (lbl (node-label c))
          (is-grp (group? c))
-         (sticky-target (and (command? c) (node-sticky-target c))))
+         (has-next (and (command? c) (node-next c))))
     (cond
       ((category? c) #f)
       (hidden? #f)
@@ -623,7 +629,7 @@
        (string-append "{\"key\":\"" (js-escape-overlay (key-display-html k))
                       "\",\"label\":\"" (js-escape-overlay lbl)
                       "\",\"isGroup\":" (if is-grp "true" "false")
-                      ",\"isSticky\":" (if sticky-target "true" "false")
+                      ",\"isNext\":" (if has-next "true" "false")
                       "}")))))
 
 ;; (block-spec->json spec) → JSON object string
@@ -738,7 +744,7 @@
 ;; Key-sorted by default; declaration order when the group carries
 ;; 'order 'declared. The non-panel-grid analogue of panel->json's panel-
 ;; explicit 'order handling (manual-panel-order-k24): it lets a plain group —
-;; e.g. a sticky-set walk registered with 'order 'declared — opt its rows out
+;; e.g. a `walk`-registered mode with 'order 'declared — opt its rows out
 ;; of key-sorting, so the latched walk matches the declaration-ordered entry
 ;; point it splices from (iterm-nav-declared-order-k38). Both default-render
 ;; paths (initial render + push update) route through here so they can never
@@ -792,7 +798,7 @@
       (renderer
         ;; Custom-renderer payload carries both the renderer body (block
         ;; list or panel grid, per renderer-body-json) AND the chrome
-        ;; (breadcrumb segments, sticky flag, footer HTML) so the JS update
+        ;; (breadcrumb segments, walk flag, footer HTML) so the JS update
         ;; can refresh the header/footer alongside the body. Without this,
         ;; navigating from the root list into a custom-renderer group leaves
         ;; stale chrome from the previous depth — notably the root footer
@@ -800,12 +806,12 @@
         (let* ((body (renderer-body-json renderer current))
                (segments-json (path-segments-json node path))
                (path-json     (path-keys-json path))
-               (sticky?       (and (deepest-sticky-on-path node path) #t))
+               (walk?         (any-on-path? node path node-walk?))
                (footer-html   (footer-html-for-path path))
                (chrome (string-append
                          ",\"rootSegments\":" segments-json
                          ",\"path\":"         path-json
-                         ",\"sticky\":"       (if sticky? "true" "false")
+                         ",\"walk\":"         (if walk? "true" "false")
                          ",\"footer\":\""     (js-escape-overlay footer-html) "\""))
                ;; body looks like `{"type":"blocks","blocks":[…]}`; splice
                ;; the chrome fields in just before the closing brace.
@@ -841,8 +847,8 @@
     "]"))
 
 ;; Default list-renderer push (formerly the body of push-overlay-update).
-;; Takes the root `node` (needed by path-labels / deepest-sticky-on-path),
-;; the already-navigated `current` node, and `path`.
+;; Takes the root `node` (needed by path-labels / any-on-path?), the
+;; already-navigated `current` node, and `path`.
 (define (push-overlay-update-default node current path)
   ;; Incremental counterpart to render-overlay-default's clear: a plain key-list
   ;; push has no list to own the cursor, so retire it (and its footer hints).
@@ -862,7 +868,7 @@
                "]")))
          (segments-json (string-list->json (modal-root-segments)))
          (path-json     (string-list->json (path-labels node path)))
-         (sticky?       (and (deepest-sticky-on-path node path) #t))
+         (walk?         (any-on-path? node path node-walk?))
          (entries-json
            (string-append "["
              (let loop ((items sorted) (result ""))
@@ -872,9 +878,9 @@
                         (k (node-key item))
                         (lbl (node-label item))
                         (is-grp (group? item))
-                        (is-sticky-leaf
+                        (has-next
                           (and (command? item)
-                               (node-sticky-target item)
+                               (node-next item)
                                #t))
                         (hidden? (node-hidden? item)))
                    (cond
@@ -886,13 +892,13 @@
                                "{\"key\":\"" (js-escape-overlay (key-display-html k))
                                "\",\"label\":\"" (js-escape-overlay lbl)
                                "\",\"isGroup\":" (if is-grp "true" "false")
-                               ",\"isSticky\":" (if is-sticky-leaf "true" "false")
+                               ",\"isNext\":" (if has-next "true" "false")
                                "}")))))))
              "]")))
     (webview-eval overlay-webview-id
       (string-append "updateOverlay({\"rootSegments\":" segments-json
         ",\"path\":" path-json
-        ",\"sticky\":" (if sticky? "true" "false")
+        ",\"walk\":" (if walk? "true" "false")
         ",\"footer\":\"" (js-escape-overlay (footer-html-for-path path)) "\""
         ",\"keyCh\":" (number->string (max-key-chars sorted))
         ",\"entries\":" entries-json "})"))))

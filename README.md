@@ -89,7 +89,7 @@ Swift provides native libraries that Scheme calls into: keyboard capture, window
 - **Reference**
   - [DSL](docs/reference/dsl.md) — every form from `(modaliser dsl)`: `key`, `keys`, `group`, `category`, `selector`, `overlay`, `define-tree`, leader setters, …
   - [Libraries](docs/reference/libraries.md) — bundled `(modaliser …)` libraries: launchers, web-search, settings-menu, window-actions, apps/safari, apps/chrome, apps/iterm, blocks.
-  - [State machine](docs/reference/state-machine.md) — modal lifecycle, transient vs. sticky, `'sticky-target`, `'exit-on-unknown`, hook gating, dispatch precedence.
+  - [State machine](docs/reference/state-machine.md) — modal lifecycle, Terminal vs. Walk, `'next`, `'exit-on-unknown`, hook gating, dispatch precedence.
   - [Renderer protocol](docs/reference/renderer-protocol.md) — block spec shape, `on-render-fn` return-and-merge, chrome envelope, writing a custom block.
   - [Theming](docs/reference/theming.md) — CSS variables, class inventory, worked dark-mode override.
   - [Library system](docs/reference/library-system.md) — splitting configs across `.sld` files, the `sys/` mirror, lookup order, `prepend-library-path!`.

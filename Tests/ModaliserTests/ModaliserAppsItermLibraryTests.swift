@@ -113,10 +113,10 @@ struct ModaliserAppsItermLibraryTests {
     }
 
     // Regression: prior to this test, context-suffix-handler called
-    // (rebuild-tree!) with no opts, so any 'sticky-mode-id passed to
+    // (rebuild-tree!) with no opts, so any 'focus-mode-id passed to
     // register! got reverted to the default 'iterm-panes-focus on
     // the first leader-press into iTerm — and the dynamic tree's "f" key
-    // then dispatched to (enter-mode! 'iterm-panes-focus), a tree id that
+    // then crossed into (lookup-tree 'iterm-panes-focus), a tree id that
     // didn't exist for that user. The fix captures opts in register!
     // and threads them through to the suffix handler.
     @Test func registerOptsSurviveContextSuffixRebuild() throws {
@@ -125,11 +125,11 @@ struct ModaliserAppsItermLibraryTests {
           (import (modaliser dsl) (modaliser state-machine)
                   (modaliser event-dispatch) (modaliser apps iterm))
         """)
-        // Register with a custom sticky-mode id. install-context-suffix? defaults to #t,
+        // Register with a custom focus-mode id. install-context-suffix? defaults to #t,
         // so register! installs a closure that should re-apply opts on every
         // dispatcher call.
-        try engine.evaluate("(register! 'sticky-mode-id 'my-iterm-focus)")
-        // The initial registration created the custom sticky tree.
+        try engine.evaluate("(register! 'focus-mode-id 'my-iterm-focus)")
+        // The initial registration created the custom focus tree.
         #expect(try engine.evaluate("(lookup-tree \"my-iterm-focus\")") != .false)
         #expect(try engine.evaluate("(lookup-tree \"iterm-panes-focus\")") == .false)
         // Simulate a leader press into iTerm: the dispatcher calls local-context-suffix,
@@ -150,13 +150,13 @@ struct ModaliserAppsItermLibraryTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps iterm))")
         // Skip the auto-install — we'll exercise the handler directly.
-        try engine.evaluate("(register! 'install-context-suffix? #f 'sticky-mode-id 'manual-focus)")
+        try engine.evaluate("(register! 'install-context-suffix? #f 'focus-mode-id 'manual-focus)")
         #expect(try engine.evaluate("(lookup-tree \"manual-focus\")") != .false)
         // Invoke the handler with the same opts. The rebuild it does must
-        // preserve the custom sticky id, not revert to 'iterm-panes-focus.
+        // preserve the custom focus-mode id, not revert to 'iterm-panes-focus.
         _ = try engine.evaluate("""
           (context-suffix-handler "com.googlecode.iterm2"
-                                        'sticky-mode-id 'manual-focus)
+                                        'focus-mode-id 'manual-focus)
         """)
         #expect(try engine.evaluate("(lookup-tree \"manual-focus\")") != .false)
         #expect(try engine.evaluate("(lookup-tree \"iterm-panes-focus\")") == .false)

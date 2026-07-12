@@ -10,7 +10,7 @@
 | Delete | Step back one level |
 | Any letter/digit | Execute command or descend into group |
 
-In sticky modes (a group with `'sticky #t`, or a key with `'sticky-target`), firing a command returns navigation to the sticky group instead of exiting — so e.g. hjkl pane navigation can chain without re-pressing the leader. The overlay paints a `↻` marker on keys that transition into a sticky mode.
+A command leaf's `'next` keyword declares its post-action transition — `'next 'self` re-arms the containing collection (a **Walk**) instead of exiting, so e.g. hjkl pane navigation can chain without re-pressing the leader; `'next TARGET` crosses into a different registered Walk. A leaf with no `'next` is **Terminal** and exits normally. The overlay paints a `↻` marker on any key carrying `'next`.
 
 ## Chooser
 

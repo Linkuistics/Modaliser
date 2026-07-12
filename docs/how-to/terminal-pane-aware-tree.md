@@ -84,7 +84,7 @@ everything `register!` normally does **except** the
         (prefix (modaliser apps iterm) iterm:)
         (prefix (modaliser terminal)   terminal:))
 
-;; Register the iTerm backend record + sticky focus mode + digit-pick
+;; Register the iTerm backend record + focus Walk + digit-pick
 ;; mode + suffix handler with the façade, but leave the tree to us.
 (iterm:register! 'install-tree? #f)
 
@@ -172,11 +172,11 @@ three choices below bind the way they do.
 `(herdr:build-herdr-tree)` returns the whole herdr control surface —
 what the overlay shows on `/herdr`:
 
-- **`hjkl`** — focus the pane in that direction (first press latches a
-  sticky focus mode, so subsequent `hjkl` keep moving focus).
+- **`hjkl`** — focus the pane in that direction (first press crosses
+  into a focus Walk, so subsequent `hjkl` keep moving focus).
 - **`x`** then `hjkl` — split a new pane that direction (left/up split
   the opposite native way then swap back).
-- **`m`** then `hjkl` — sticky *move*: swap the focused pane with its
+- **`m`** then `hjkl` — Move Walk: swap the focused pane with its
   neighbour.
 - **`z`** / **`d`** — toggle zoom / close the focused pane.
 - **`t` Tabs**, **`w` Workspaces** — each a drill with `n`/`r`/`d`
@@ -278,12 +278,11 @@ module uses for its own conditional children:
       (if (terminal:supports-move-pane?)
           (list
             (group "m" "Move"
-              'sticky #t
               'exit-on-unknown #t
-              (key "h" "Left"  terminal:move-pane-left)
-              (key "j" "Down"  terminal:move-pane-down)
-              (key "k" "Up"    terminal:move-pane-up)
-              (key "l" "Right" terminal:move-pane-right)))
+              (key "h" "Left"  terminal:move-pane-left  'next 'self)
+              (key "j" "Down"  terminal:move-pane-down  'next 'self)
+              (key "k" "Up"    terminal:move-pane-up    'next 'self)
+              (key "l" "Right" terminal:move-pane-right 'next 'self)))
           '())
 
       ;; Digit-jump only on backends that paint chips.

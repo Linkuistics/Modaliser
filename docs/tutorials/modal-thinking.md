@@ -4,7 +4,7 @@ In this tutorial you'll build a `w` "Windows" leader from a one-key
 stub up to something that looks a lot like the bundled
 `default-config.scm`'s window-management screen. Along the way you'll
 meet every concept Modaliser is built from — leaders, screens &
-panels, blocks, selectors, sticky modes, sticky-target — by *using*
+panels, blocks, selectors, Walks, the `'next` edge — by *using*
 them, not by reading a table.
 
 By the end you'll have:
@@ -296,7 +296,7 @@ Modaliser looks like this — the global screen, the per-app screens, the
 launchers themselves. Part 2 is one new idea: what if some bindings
 *didn't* dismiss?
 
-## Step 6 — Staying in a mode: a sticky sub-group
+## Step 6 — Staying in a mode: a Walk
 
 Everything so far has been the launcher pattern: press a key, an
 action fires, the overlay dismisses. That's perfect for one-shot
@@ -313,12 +313,11 @@ directional cluster:
 
 ```scheme
 (group "a" "Arrange"
-       'sticky #t
        'exit-on-unknown #t
-  (key "h" "Left half"   (λ () (move-window 0    0    0.5  1)))
-  (key "j" "Bottom half" (λ () (move-window 0    0.5  1    0.5)))
-  (key "k" "Top half"    (λ () (move-window 0    0    1    0.5)))
-  (key "l" "Right half"  (λ () (move-window 0.5  0    0.5  1))))
+  (key "h" "Left half"   (λ () (move-window 0    0    0.5  1))   'next 'self)
+  (key "j" "Bottom half" (λ () (move-window 0    0.5  1    0.5)) 'next 'self)
+  (key "k" "Top half"    (λ () (move-window 0    0    1    0.5)) 'next 'self)
+  (key "l" "Right half"  (λ () (move-window 0.5  0    0.5  1))   'next 'self))
 ```
 
 (The four `move-window` calls are the same primitive you wrote
@@ -327,9 +326,12 @@ focused window to one half of the screen.)
 
 Two new keywords are doing the work:
 
-- **`'sticky #t`** — when a binding inside this group fires, the
-  modal navigation *stays in this group* instead of dismissing the
-  whole overlay. You can press another binding right away.
+- **`'next 'self`** on each key — a **cyclic edge**: when the binding
+  fires, the modal navigation *stays in this group* instead of
+  dismissing the whole overlay. You can press another binding right
+  away. A group with one or more `'next 'self` members is a **Walk**
+  (CONTEXT.md) — there's no group-level flag; being a Walk is derived
+  entirely from what its member keys declare.
 - **`'exit-on-unknown #t`** — any key that *isn't* one of `h/j/k/l`
   exits the modal cleanly. Without this, unknown keys are
   swallowed — the modal stays open and you're stuck until you find
@@ -351,50 +353,52 @@ Notice the cost, though: to start arranging a window you press *three*
 keys — `w`, `a`, `h`. That's one too many for something you might do
 dozens of times an hour. Step 7 fixes it with a small refactor.
 
-## Step 7 — Sticky-target: fire AND enter, in one press
+## Step 7 — The `'next` edge: fire AND cross, in one press
 
 Look at iTerm's `Focus` mode — open
 [`Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld) and find the
 `Focus` panel and its `focus-mode-tree`. It binds hjkl too, but you
 don't press an `a` first when you're in iTerm; the very first `h`
-*both* moves pane-focus *and* puts you in the sticky focus tree. How?
+*both* moves pane-focus *and* puts you in the focus Walk. How?
 
-`'sticky-target`. A trailing keyword on a `(key …)` binding: when the
-binding fires, the state machine (a) runs the action, then (b)
-transitions modal navigation into the sticky tree named by the
-symbol. One key press does two jobs. The overlay can paint a small
-marker on each cell so you can tell which keys are sticky-target
-leaders.
+`'next`. A trailing keyword on a `(key …)` binding: when the binding
+fires, the state machine (a) runs the action, then (b) follows the
+edge named by the value. Here the value is a registered tree's id — a
+**cross edge** — so navigation transitions into the Walk registered
+under that id. One key press does two jobs. The overlay paints a `↻`
+marker on any cell carrying `'next`, so you can tell which keys
+transition.
 
 The refactor: take the four hjkl bindings out of the `(group "a" …)`
-in Step 6, give them `'sticky-target 'window-arrange`, and put them
-directly into the `w` drill-down (say, an `Arrange` panel). Register a
-*separate* sticky tree named `'window-arrange` for the modal
-navigation to land in:
+in Step 6, give them `'next 'window-arrange` (a cross edge, not the
+`'next 'self` cyclic edge you just used inside the Walk itself), and
+put them directly into the `w` drill-down (say, an `Arrange` panel).
+Register a *separate* tree named `'window-arrange` for the modal
+navigation to land in — its own members carry `'next 'self` so it's a
+Walk in its own right:
 
 ```scheme
 ;; A new top-level form, outside (screen 'global …):
 
 (screen 'window-arrange
-  'sticky #t
   'exit-on-unknown #t
   'display-name "Arrange"
-  (key "h" "Left half"   (λ () (move-window 0    0    0.5  1)))
-  (key "j" "Bottom half" (λ () (move-window 0    0.5  1    0.5)))
-  (key "k" "Top half"    (λ () (move-window 0    0    1    0.5)))
-  (key "l" "Right half"  (λ () (move-window 0.5  0    0.5  1))))
+  (key "h" "Left half"   (λ () (move-window 0    0    0.5  1))   'next 'self)
+  (key "j" "Bottom half" (λ () (move-window 0    0.5  1    0.5)) 'next 'self)
+  (key "k" "Top half"    (λ () (move-window 0    0    1    0.5)) 'next 'self)
+  (key "l" "Right half"  (λ () (move-window 0.5  0    0.5  1))   'next 'self))
 
 ;; Inside the `w` drill-down, in place of the (group "a" …) you wrote
 ;; in Step 6 — e.g. as an (panel "Arrange" …):
 
 (key "h" "Left half"   (λ () (move-window 0    0    0.5  1))
-     'sticky-target 'window-arrange)
+     'next 'window-arrange)
 (key "j" "Bottom half" (λ () (move-window 0    0.5  1    0.5))
-     'sticky-target 'window-arrange)
+     'next 'window-arrange)
 (key "k" "Top half"    (λ () (move-window 0    0    1    0.5))
-     'sticky-target 'window-arrange)
+     'next 'window-arrange)
 (key "l" "Right half"  (λ () (move-window 0.5  0    0.5  1))
-     'sticky-target 'window-arrange)
+     'next 'window-arrange)
 ```
 
 **Relaunch. Press F18 w h l j k.** The very first `h` snaps the window
@@ -402,20 +406,21 @@ to the left half *and* swaps the overlay to the four-row Arrange tree;
 subsequent presses keep snapping the same window through the other
 halves. Esc exits. Compare: Step 6 needed `w a h`; Step 7 needs `w h`.
 
-Two concepts arrived together here. The obvious one is
-`'sticky-target` — fire-and-enter as a single press. The other is
-quieter but more useful: **sticky trees are *named, top-level trees***
-registered with their own `screen`. The launcher screen
-(`'global`), a per-app screen (e.g. `'com.googlecode.iterm2`), and a
-sticky screen (`'window-arrange`) are all sibling top-level forms —
-they look structurally identical; the only difference is what
-*references* them. Once you've seen three screens alongside each other,
-"screen" becomes the unit of mental composition for the whole system.
+Two concepts arrived together here. The obvious one is the `'next`
+cross edge — fire-and-cross as a single press. The other is quieter
+but more useful: **Walks are *named, top-level trees*** registered
+with their own `screen`. The launcher screen (`'global`), a per-app
+screen (e.g. `'com.googlecode.iterm2`), and the Walk screen
+(`'window-arrange`) are all sibling top-level forms — they look
+structurally identical; the only difference is what *references* them
+and what `'next` each member declares. Once you've seen three screens
+alongside each other, "screen" becomes the unit of mental composition
+for the whole system.
 
 iTerm's pane Focus mode is doing exactly what you just wrote, applied
 to AppleScript pane-focus instead of window arrangement. Your `w h`
 is structurally identical to iTerm's per-app pane Focus — same
-sticky-target plumbing, different action surface.
+`'next` plumbing, different action surface.
 
 ## Step 8 — Why this is "modal"
 
@@ -436,13 +441,13 @@ When a feature should be "type X, get Y, done", this is the shape.
 
 ### The modal pattern (Steps 6–7)
 
-A sticky tree the reader enters and stays inside until an unrecognised
+A Walk the reader enters and stays inside until an unrecognised
 key exits. Step 6 built it the explicit way (a parent key `a` opening
-a sticky sub-group). Step 7 refactored to the *sticky-target* shape
-the rest of the system uses (a binding both fires and transitions
-into a separately-registered sticky tree, in one key press). The two
-forms are equivalent for the same end state; sticky-target costs one
-less keystroke per session.
+a group whose members each declare `'next 'self`). Step 7 refactored
+to the `'next` cross-edge shape the rest of the system uses (a binding
+both fires and transitions into a separately-registered Walk, in one
+key press). The two forms are equivalent for the same end state; the
+cross edge costs one less keystroke per session.
 
 When a feature should be "stay in this tiny vocabulary until I tell
 you to leave", this is the shape. The canonical example is iTerm's
@@ -458,9 +463,10 @@ The system's surface area looks bigger than it is because there are
 two patterns multiplying through every layer. Per-app screens? Launcher
 pattern, with the screen selected by frontmost-app. `(panel …)`?
 A banded card grouping rows in one screen. Selectors? A launcher leaf
-that runs a fuzzy-finder before firing `'on-select`. Sticky modes?
-The modal pattern, scoped to a named tree. Sticky-target? The modal
-pattern's polite way of saying "first press does both jobs."
+that runs a fuzzy-finder before firing `'on-select`. Walks?
+The modal pattern, scoped to a named tree whose members cycle via
+`'next 'self`. The `'next` cross edge? The modal pattern's polite way
+of saying "first press does both jobs."
 
 Once you can name *which* pattern a thing is, the rest of the docs
 read as combinations of forms you've already met.
@@ -471,8 +477,8 @@ read as combinations of forms you've already met.
   adding a one-shot launcher leaf to the global tree.
 - [How to add a per-app tree](../how-to/add-a-per-app-tree.md) — give
   one application its own bindings under F17.
-- [How to add a sticky mode](../how-to/sticky-mode.md) — recipe
-  treatment of `'sticky`, `'sticky-target`, and `'exit-on-unknown`,
+- [How to set up a Walk](../how-to/walk-mode.md) — recipe
+  treatment of `'next 'self`, `'next TARGET`, and `'exit-on-unknown`,
   for when you want to write your own.
 - [How to customise the theme](../how-to/customise-theme.md) — colours,
   fonts, and chip styling via `~/.config/modaliser/theme.css`.

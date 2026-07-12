@@ -117,9 +117,9 @@ struct LayoutDslTests {
 
     @Test func panelExpandsSplicesAmongChildren() throws {
         let engine = try loadLayout()
-        // sticky-set returns a splice; its keys must hoist into the panel.
+        // walk returns a splice; its keys must hoist into the panel.
         try engine.evaluate("""
-            (define sp (sticky-set 'panel-walk-test "Walk"
+            (define sp (walk 'panel-walk-test "Walk"
               (key "h" "Left" (lambda () 'ok))
               (key "l" "Right" (lambda () 'ok))))
             (define p (panel "Nav" sp))
@@ -128,13 +128,13 @@ struct LayoutDslTests {
         #expect(try engine.evaluate("(command? (find-child p \"l\"))") == .true)
     }
 
-    @Test func stickySetForwardsOrderToRegisteredMode() throws {
+    @Test func walkForwardsOrderToRegisteredMode() throws {
         let engine = try loadLayout()
-        // 'order 'declared on sticky-set rides through to the registered mode
-        // tree so the latched walk renders in declaration order rather than
-        // key-sorted (iterm-nav-declared-order-k38).
+        // 'order 'declared on walk rides through to the registered mode
+        // tree so the crossed-into Walk renders in declaration order rather
+        // than key-sorted (iterm-nav-declared-order-k38).
         try engine.evaluate("""
-            (sticky-set 'sset-order-declared "Walk" 'order 'declared
+            (walk 'sset-order-declared "Walk" 'order 'declared
               (key "h" "Left"  (lambda () 'ok))
               (key "l" "Right" (lambda () 'ok)))
             """)
@@ -142,12 +142,12 @@ struct LayoutDslTests {
           "(eq? (node-renderer-payload (lookup-tree \"sset-order-declared\") 'order) 'declared)") == .true)
     }
 
-    @Test func stickySetOmitsOrderByDefault() throws {
+    @Test func walkOmitsOrderByDefault() throws {
         let engine = try loadLayout()
         // No 'order keyword → the registered mode carries no 'order entry, so
         // it keeps the renderer's key-sort default.
         try engine.evaluate("""
-            (sticky-set 'sset-order-default "Walk"
+            (walk 'sset-order-default "Walk"
               (key "h" "Left"  (lambda () 'ok))
               (key "l" "Right" (lambda () 'ok)))
             """)
@@ -155,13 +155,13 @@ struct LayoutDslTests {
           "(node-renderer-payload (lookup-tree \"sset-order-default\") 'order)") == .false)
     }
 
-    @Test func stickySetOrderKeywordDoesNotLeakIntoSplice() throws {
+    @Test func walkOrderKeywordDoesNotLeakIntoSplice() throws {
         let engine = try loadLayout()
         // The 'order keyword configures the registered mode only; the splice it
         // returns must carry exactly the two key nodes (so they hoist cleanly),
         // not the keyword pair.
         try engine.evaluate("""
-            (define sp (sticky-set 'sset-order-splice "Walk" 'order 'declared
+            (define sp (walk 'sset-order-splice "Walk" 'order 'declared
               (key "h" "Left"  (lambda () 'ok))
               (key "l" "Right" (lambda () 'ok))))
             """)
@@ -264,11 +264,10 @@ struct LayoutDslTests {
     @Test func screenAcceptsLifecycleKeywords() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
-            (screen 'scr-life 'sticky #t 'display-name "Title" 'exit-on-unknown #t
+            (screen 'scr-life 'display-name "Title" 'exit-on-unknown #t
               (panel "P" (key "c" "C" (lambda () 'ok))))
             """)
         let root = "(lookup-tree \"scr-life\")"
-        #expect(try engine.evaluate("(node-sticky? \(root))") == .true)
         #expect(try engine.evaluate("(equal? (node-display-name \(root)) \"Title\")") == .true)
         #expect(try engine.evaluate("(node-exit-on-unknown? \(root))") == .true)
     }
@@ -284,7 +283,7 @@ struct LayoutDslTests {
     @Test func screenExpandsTopLevelSplices() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
-            (define sp2 (sticky-set 'screen-walk-test "Walk"
+            (define sp2 (walk 'screen-walk-test "Walk"
               (key "h" "Left" (lambda () 'ok))))
             (screen 'scr-splice sp2 (panel "P" (key "c" "C" (lambda () 'ok))))
             """)
@@ -482,37 +481,37 @@ struct LayoutDslTests {
         #expect(try engine.evaluate("(category? (find-panel \(root) \"B\"))") == .true)
     }
 
-    @Test func fragmentComposesWithStickySetInPanel() throws {
+    @Test func fragmentComposesWithWalkInPanel() throws {
         let engine = try loadLayout()
-        // A fragment whose contents include a sticky-set — both are
-        // 'kind 'splice, so the nested splice hoists via expand-splices'
+        // A fragment whose contents include a walk — both are 'kind
+        // 'splice, so the nested splice hoists via expand-splices'
         // recursion. Proves splices compose inside a panel body.
         try engine.evaluate("""
             (define act (lambda () 'ok))
-            (define sset (sticky-set 'frag-compose-walk "Walk"
+            (define sset (walk 'frag-compose-walk "Walk"
                            (key "h" "Left" act)))
             (define frag2 (fragment (key "c" "Center" act) sset))
             (define p (panel "Nav" frag2))
             """)
         #expect(try engine.evaluate("(command? (find-child p \"c\"))") == .true)  // from fragment
-        #expect(try engine.evaluate("(command? (find-child p \"h\"))") == .true)  // from nested sticky-set
-        // The sticky entry keeps its 'sticky-target, latching as before.
-        #expect(try engine.evaluate("(eq? (cdr (assoc 'sticky-target (find-child p \"h\"))) 'frag-compose-walk)") == .true)
+        #expect(try engine.evaluate("(command? (find-child p \"h\"))") == .true)  // from nested walk
+        // The entry keeps its 'next cross edge, crossing in as before.
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'next (find-child p \"h\"))) 'frag-compose-walk)") == .true)
     }
 
-    @Test func fragmentComposesWithStickySetInScreen() throws {
+    @Test func fragmentComposesWithWalkInScreen() throws {
         let engine = try loadLayout()
-        // Same composition at screen level: a fragment + a sticky-set both
+        // Same composition at screen level: a fragment + a walk both
         // spliced into the screen body, their loose keys landing in the loose region.
         try engine.evaluate("""
             (define act (lambda () 'ok))
             (define ops (fragment (key "c" "Center" act)))
-            (define sset (sticky-set 'frag-screen-walk "Walk" (key "h" "Left" act)))
+            (define sset (walk 'frag-screen-walk "Walk" (key "h" "Left" act)))
             (screen 'scr-compose ops sset (panel "P" (key "p" "P" act)))
             """)
         let root = "(lookup-tree \"scr-compose\")"
         #expect(try engine.evaluate("(command? (find-child \(root) \"c\"))") == .true)  // fragment
-        #expect(try engine.evaluate("(command? (find-child \(root) \"h\"))") == .true)  // sticky-set
+        #expect(try engine.evaluate("(command? (find-child \(root) \"h\"))") == .true)  // walk
         #expect(try engine.evaluate("(command? (find-child \(root) \"p\"))") == .true)  // inline panel
     }
 

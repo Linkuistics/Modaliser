@@ -174,11 +174,11 @@ body {
 }
 
 /* Persistent mode indicator. Added when the current navigation point is
- * in a sticky tree / subgroup (see render-overlay-body and overlay.js).
- * The accent picks up the host header color if the user set one — the
- * mode then visually inherits its instance identity — falling back to a
- * darker neutral. Users can override via custom CSS in their config. */
-.overlay.sticky {
+ * inside a Walk — a collection whose members cycle (see render-overlay-body
+ * and overlay.js). The accent picks up the host header color if the user set
+ * one — the mode then visually inherits its instance identity — falling back
+ * to a darker neutral. Users can override via custom CSS in their config. */
+.overlay.walk {
   border-width: 2px;
   border-color: var(--color-host-bg, rgba(80, 80, 80, 1));
 }
@@ -316,13 +316,13 @@ body {
   color: var(--color-group);
 }
 
-/* Sticky-target marker. Painted on (key …) leaves declared with
- * 'sticky-target — the cell both fires its action and transitions the
- * modal into the named sticky mode, so users can chain hjkl moves
- * without re-pressing the leader. The accent picks up the host header
- * colour so the marker reads as "mode persistence" rather than "this
- * is the answer to a different question". */
-.entry-sticky-marker {
+/* Next-edge marker. Painted on (key …) leaves declared with 'next — the
+ * cell both fires its action and transitions the modal (into a cyclic or
+ * cross-registered mode), so users can chain hjkl moves without
+ * re-pressing the leader. The accent picks up the host header colour so
+ * the marker reads as "mode persistence" rather than "this is the answer
+ * to a different question". */
+.entry-next-marker {
   color: var(--color-host-bg, var(--color-group));
   /* Same treatment as .sigil — the marker glyph IS a sigil in the same
    * sense (key glyph, not body text). inline-block + line-height: 1 +

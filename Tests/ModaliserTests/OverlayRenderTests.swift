@@ -111,9 +111,10 @@ struct OverlayRenderTests {
     }
 
     @Test func renderOverlayFooterAtRootOmitsBackspaceHint() throws {
-        // At the root of a tree, backspace doesn't apply (transient roots
-        // are a no-op for back, sticky roots only pop modal-stack in the
-        // uncommon enter-mode! caller case), so the hint is omitted.
+        // At the root of a tree, backspace doesn't apply (a root only pops
+        // modal-stack in the uncommon enter-mode!-caller case; otherwise
+        // it's a no-op or — for a Walk with no caller — exits, which earns
+        // no distinct "back" hint), so the hint is omitted.
         // Sigils: ⎋ (U+238B) for escape, ⌫ (U+232B) for backspace.
         let engine = try loadOverlay()
         try engine.evaluate("""
@@ -168,19 +169,19 @@ struct OverlayRenderTests {
         #expect(footer.contains("class=\"sigil sigil-back\">\u{232B}"))
     }
 
-    @Test func renderOverlayHtmlPaintsStickyMarkerOnTaggedKeys() throws {
+    @Test func renderOverlayHtmlPaintsNextMarkerOnTaggedKeys() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
             (register-tree! 'global
               (key "h" "Focus Left" (lambda () 'ok)
-                'sticky-target 'iterm-panes-focus)
+                'next 'iterm-panes-focus)
               (key "c" "Copy" (lambda () 'ok)))
             """)
         let html = try engine.evaluate("""
             (render-overlay-html (lookup-tree "global") '("Global") '())
             """).asString()
-        // The sticky-target leaf gets a marker; plain keys don't.
-        #expect(html.contains("entry-sticky-marker"))
+        // The leaf carrying 'next gets a marker; plain keys don't.
+        #expect(html.contains("entry-next-marker"))
         // The marker character (↻) is U+21BB
         #expect(html.contains("\u{21BB}"))
     }
@@ -230,7 +231,7 @@ struct OverlayRenderTests {
 
     @Test func renderOverlayHtmlOrderDeclaredPreservesAuthoredOrder() throws {
         let engine = try loadOverlay()
-        // A group carrying 'order 'declared (e.g. a sticky-set walk registered
+        // A group carrying 'order 'declared (e.g. a `walk`-registered mode
         // with 'order 'declared) renders rows in declaration order, opting out
         // of the default key-sort (iterm-nav-declared-order-k38). Keys are
         // shuffled so a pass really proves the sort was skipped.

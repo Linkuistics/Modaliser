@@ -73,7 +73,7 @@
 ;; ── Recent-tab MRU walk (Dia's ctrl-tab switcher, driven from a modal) ──
 ;;
 ;; Dia's recent-tab switcher opens on ctrl+tab and commits when control is
-;; *released*. We hold control across the whole sticky modal (via
+;; *released*. We hold control across the whole Walk (via
 ;; send-key-down) and release it on exit (send-key-up). The input library
 ;; tracks held modifiers, so a plain (send-keystroke '() "tab") posted while
 ;; control is held is automatically seen as ctrl+tab — no need to restate the
@@ -95,17 +95,17 @@
     ;; *vertical* sidebar, so the hjkl mapping follows the sidebar's axis:
     ;; j (down) → next tab, k (up) → previous tab.
     ;;
-    ;; A sticky-set "act + latch": the j/k entry keys splice in here as
-    ;; top-level Dia cells, and the first press steps a tab *and* latches
+    ;; A `walk` "act + latch": the j/k entry keys splice in here as
+    ;; top-level Dia cells, and the first press steps a tab *and* crosses
     ;; into the registered 'dia-tab-walk mode, so further j/k keep stepping.
-    ;; The mode is auto-tagged 'sticky #t / 'exit-on-unknown #t, so Esc or
-    ;; any unbound key exits. This is *positional* stepping — distinct from
-    ;; the MRU "Recent Tabs" walk on r below.
-    (sticky-set 'dia-tab-walk "Tabs"
+    ;; The mode is auto-tagged 'exit-on-unknown #t, so Esc or any unbound
+    ;; key exits. This is *positional* stepping — distinct from the MRU
+    ;; "Recent Tabs" walk on r below.
+    (walk 'dia-tab-walk "Tabs"
       (key "j" "Next Tab" (λ () (send-keystroke '(cmd shift) "]")))
       (key "k" "Prev Tab" (λ () (send-keystroke '(cmd shift) "["))))
 
-  ;; Sticky "Recent Tabs" walk. Enter holds control and steps once, so the
+  ;; "Recent Tabs" Walk. Enter holds control and steps once, so the
   ;; HUD opens on the most-recent (next) tab; j/k step forward/back through
   ;; the MRU stack.
   ;;
@@ -121,7 +121,6 @@
   ;; balanced — a held control always gets its matching release. The leading
   ;; (send-key-up "ctrl") self-heals any control left held by an aborted walk.
   (group "r" "Recent Tabs"
-    'sticky #t
     'exit-on-unknown #t
     'on-enter (λ () (send-key-up   "ctrl")   ; clear any stale hold
                     (send-key-down "ctrl")   ; hold control (auto-asserts)
@@ -130,5 +129,5 @@
                 (unless (eq? reason 'confirm)
                   (send-keystroke "escape"))  ; cancel Dia's HUD
                 (send-key-up "ctrl"))         ; release (commit if confirmed)
-    (key "l" "Next" (λ () (dia-tab-step)))
-    (key "h" "Prev" (λ () (dia-tab-step-back)))))
+    (key "l" "Next" (λ () (dia-tab-step)) 'next 'self)
+    (key "h" "Prev" (λ () (dia-tab-step-back)) 'next 'self)))

@@ -9,12 +9,11 @@
   (key "k" "Jump to Chat"   (λ () (send-keystroke '(cmd) "k")))
   (key "/" "Search in Chat" (λ () (send-keystroke '(cmd) "f")))
 
-  ;; Sticky chat walk — ⌘↑/⌘↓ step chats, ⌥⌘↑/↓ step unread chats. j/k
-  ;; stay armed; any other key exits.
+  ;; Chats Walk — ⌘↑/⌘↓ step chats, ⌥⌘↑/↓ step unread chats. j/k stay
+  ;; armed (each carries 'next 'self); any other key exits.
   (group "c" "Chats"
-    'sticky #t
     'exit-on-unknown #t
-    (key "j" "Next"        (λ () (send-keystroke '(cmd) "down")))
-    (key "k" "Prev"        (λ () (send-keystroke '(cmd) "up")))
-    (key "J" "Next Unread" (λ () (send-keystroke '(cmd alt) "down")))
-    (key "K" "Prev Unread" (λ () (send-keystroke '(cmd alt) "up")))))
+    (key "j" "Next"        (λ () (send-keystroke '(cmd) "down")) 'next 'self)
+    (key "k" "Prev"        (λ () (send-keystroke '(cmd) "up")) 'next 'self)
+    (key "J" "Next Unread" (λ () (send-keystroke '(cmd alt) "down")) 'next 'self)
+    (key "K" "Prev Unread" (λ () (send-keystroke '(cmd alt) "up")) 'next 'self)))

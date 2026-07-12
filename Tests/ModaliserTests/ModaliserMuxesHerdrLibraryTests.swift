@@ -273,16 +273,73 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(11))
     }
 
-    /// (register!) wires the sticky top-level focus mode the herdr tree's
-    /// Focus panel latches into ('sticky-target 'herdr-panes-focus), so a
+    /// (register!) wires the Walk top-level focus mode the herdr tree's
+    /// Focus panel crosses into ('next 'herdr-panes-focus), so a
     /// first hjkl focuses AND keeps moving without another leader press.
-    @Test func registerInstallsStickyFocusMode() throws {
+    @Test func registerInstallsWalkFocusMode() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
         """)
         try engine.evaluate("(register!)")
         #expect(try engine.evaluate("(lookup-tree \"herdr-panes-focus\")") != .false)
+    }
+
+    /// ADR-0015 live smoke: dispatching through the REAL build-herdr-tree's
+    /// "m" Move Pane group. Each hjkl carries 'next 'self (a cyclic edge),
+    /// so repeat presses re-arm in place — no exit, no modal-stack growth —
+    /// and an unrelated key still exits per 'exit-on-unknown.
+    @Test func movePaneWalkReArmsInPlaceAndExitsOnUnknownKey() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("""
+          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
+        """)
+        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        try engine.evaluate("(modal-handle-key \"m\")")
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"m\"))") == .true)
+
+        try engine.evaluate("(modal-handle-key \"h\")")
+        try engine.evaluate("(modal-handle-key \"j\")")
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"m\"))") == .true)
+        #expect(try engine.evaluate("(null? modal-stack)") == .true)
+
+        try engine.evaluate("(modal-handle-key \"q\")") // unbound in Move Pane
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
+
+    /// ADR-0015 live smoke: the Focus panel's hjkl carry 'next
+    /// 'herdr-panes-focus (a cross edge) — the first press pushes the
+    /// caller (the herdr tree) and switches into the Walk; subsequent
+    /// hjkl inside it cycle via 'next 'self with no further push;
+    /// backspace pops back to the caller.
+    @Test func focusPanelCrossesIntoWalkThenCyclesInPlace() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("(register!)") // registers 'herdr-panes-focus
+        try engine.evaluate("""
+          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
+        """)
+        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        try engine.evaluate("(modal-handle-key \"h\")") // Focus panel, top level
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"herdr-panes-focus\"))") == .true)
+        #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
+
+        try engine.evaluate("(modal-handle-key \"j\")")
+        try engine.evaluate("(modal-handle-key \"k\")")
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
+
+        try engine.evaluate("(modal-step-back)")
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"com.googlecode.iterm2/herdr\"))") == .true)
+        #expect(try engine.evaluate("(null? modal-stack)") == .true)
     }
 
     /// The pure JSON→(targets . rows) extractor over a real `herdr pane list`
@@ -553,7 +610,7 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// blocked agents (agent_status == "blocked") are ordered by pane_id and
     /// `next-blocked-pane-id` returns the first blocked pane_id sorting strictly
     /// AFTER the currently-focused pane, wrapping to the first blocked pane when
-    /// focus is at/after the last (round-robin, non-sticky — D4). Fixture-fed,
+    /// focus is at/after the last (round-robin, not a Walk — D4). Fixture-fed,
     /// no live herdr. (pane_id compare is lexical for v1: fine while ids share a
     /// width; noted in the source.)
     @Test func nextBlockedPaneIdRoundRobin() throws {
@@ -624,7 +681,7 @@ struct ModaliserMuxesHerdrLibraryTests {
                   ((equal? (node-key (car lst)) k) (car lst))
                   (else (node-with-key k (cdr lst)))))
         """)
-        // Top-level `b` present and is a plain command key (non-sticky jump).
+        // Top-level `b` present and is a plain command key (Terminal jump, not a Walk).
         #expect(try engine.evaluate("(if (node-with-key \"b\" TREE) #t #f)") == .true)
         #expect(try engine.evaluate("""
           (eq? 'command (cdr (assoc 'kind (node-with-key "b" TREE))))

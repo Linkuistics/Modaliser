@@ -1,46 +1,39 @@
 # State machine
 
-How the modal moves through a command tree: lifecycle, sticky
-semantics, hook gating, dispatch precedence. The canonical
-implementation is
+How the modal moves through a command tree: lifecycle, the `'next` edge,
+Terminal-node capture release, hook gating, dispatch precedence. The
+canonical implementation is
 [`state-machine.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/state-machine.sld);
-this page is the conceptual companion.
+this page is the conceptual companion. See
+[ADR-0015](../adr/0015-navigation-graph-next-edges-terminal-release.md)
+for why the model is shaped this way.
 
 ## Modal lifecycle
 
-```
-  leader press
-       │
-       ▼
-  ┌─────────┐  key press  ┌──────────────┐
-  │  arm    │ ──────────▶ │ handle-key   │
-  └─────────┘             └──┬─────┬─────┘
-                             │     │
-            ┌────────────────┘     └──────────────┐
-            │                                     │
-       command leaf                          group child
-            │                                     │
-       ┌────┴─────┐                          ┌────┴────┐
-       │ run      │                          │ descend │
-       │ action   │                          │ + show  │
-       └────┬─────┘                          │ overlay │
-            │                                └────┬────┘
-            ▼                                     │
-       ┌─────────────┐                            │
-       │ transient?  │ ◀──────── back-to-arm? ────┘
-       └────┬────┬───┘
-            │    │
-        sticky  transient
-            │    │
-            ▼    ▼
-       reset   exit
-       to      modal
-       sticky
-       ancestor
+```mermaid
+flowchart TD
+    A[leader press] --> B[arm]
+    B -->|key press| C[handle-key]
+
+    C -->|command / range-command leaf| D{Terminal?<br/>no 'next}
+    D -->|yes: Terminal| E[exit modal]
+    E --> F[run action]
+    D -->|no: has 'next| G[run action]
+    G --> H{follow the 'next edge}
+    H -->|'self, or same tree| I[cyclic: re-arm in place]
+    H -->|a different registered id| J["cross: enter-mode!"]
+    H -->|dynamic resolver → #f| K[fail-safe: exit modal]
+
+    C -->|group child| L[descend + show overlay]
+    C -->|selector| M[exit modal, open chooser]
+    C -->|no match| N{'exit-on-unknown?}
+    N -->|yes| O[exit modal]
+    N -->|no| P[swallow the key]
 ```
 
 (For the actual implementation, see `modal-handle-key`,
-`modal-step-back`, `modal-enter`, `modal-exit` in `state-machine.sld`.)
+`modal-step-back`, `modal-enter`, `modal-exit`, `follow-next!` in
+`state-machine.sld`.)
 
 ### Arm
 
@@ -52,8 +45,8 @@ becomes the active context:
 - The catch-all key handler is registered, so every keypress while
   the modal is up is routed through `modal-handle-key` rather than
   reaching the focused app.
-- A delayed overlay-show is scheduled (or shown immediately for
-  sticky roots — see "Sticky semantics" below).
+- A delayed overlay-show is scheduled (or shown immediately when the
+  tree root is a **Walk** — see below).
 
 ### Dispatch
 
@@ -62,10 +55,10 @@ to `char`:
 
 | Child kind | Behaviour |
 |---|---|
-| Command | Run `(action)`. Then transient → exit; sticky → reset to deepest sticky ancestor; `'sticky-target` set → `(enter-mode! target)`. |
-| Range command (from `keys` / `key-range`) | Run `(action char)`. Same cleanup as command. |
+| Command | **Terminal** (no `'next`): exit the modal, *then* run `(action)`. **Non-terminal** (`'next` present): run `(action)`, then follow the edge — cyclic (`'self`, or a symbol naming the current tree) re-arms in place; cross (a different registered tree's id) calls `(enter-mode! target)`; a dynamic resolver that returns `#f` falls back to exit. |
+| Range command (from `keys` / `key-range`) | Run `(action char)`. Same Terminal/`'next` cleanup as command. |
 | Group | Fire `on-leave` for the leaving node, descend (push `char` onto `modal-current-path`), fire `on-enter` for the new node, refresh overlay. |
-| Selector | Exit the modal (the chooser owns input focus). Open the chooser. |
+| Selector | An instance of the Terminal rule: exit the modal (the chooser owns input focus), then open the chooser. |
 | (no match) | If any ancestor (or current group) has `'exit-on-unknown #t`, exit the modal. Otherwise swallow the key. |
 
 ### Exit
@@ -80,73 +73,100 @@ to `char`:
   regardless of how deeply stacked the modes are.
 
 `(modal-step-back)` is the navigational sibling — retreats one level
-along `modal-current-path`. At the root of a sticky tree it pops
-`modal-stack` (returning to the caller mode) or exits if the stack is
-empty. At the root of a transient launcher it's a no-op.
+along `modal-current-path`. At the root:
 
-## Transient vs sticky
+- If `modal-stack` is non-empty, pop the caller context (there's
+  always somewhere to pop back to, regardless of whether this root is
+  a Walk).
+- Else, if this root is a **Walk** (`node-walk?`), exit the modal — a
+  Walk entered directly still has a conceptual "outside" to back out
+  of.
+- Else (a plain transient launcher, no caller), it's a no-op.
 
-The default cleanup after a command-leaf fires is **transient**: the
-modal exits. Most launcher-style bindings use this — press `b`, the
-browser launches, the modal closes.
+## The `'next` edge and Terminal nodes
 
-A group can opt into **sticky** mode by setting `'sticky #t` on the
-group (or on the tree root via `screen`'s leading keywords):
+A command or range-command leaf's only transition mechanism is its
+declared **`'next`** property (ADR-0015) — the navigation tree is a
+*static graph*: a node's outgoing edges are declared on the leaf
+itself, never buried inside an action body.
 
-```scheme
-(group "p" "Pane" 'sticky #t
-  (key "h" "Left"  (λ () (focus-pane! 'left)))
-  (key "j" "Down"  (λ () (focus-pane! 'down)))
-  (key "k" "Up"    (λ () (focus-pane! 'up)))
-  (key "l" "Right" (λ () (focus-pane! 'right))))
-```
+- **No `'next`** → the leaf is **Terminal**: it has no outgoing edge.
+  Dispatch releases modal key capture (`modal-exit`) **before** running
+  the action, so the action may freely hand the keyboard to something
+  outside Modaliser — a native dialog, an external prompt, a chooser.
+  Terminality is static, knowable from the tree alone — never from what
+  an action's body happens to do.
+- **`'next` present** → the leaf is non-Terminal: capture stays live
+  through the action, and afterward dispatch follows the edge. `'next`
+  takes one of three shapes:
 
-After firing `h`, the modal *resets* to the nearest sticky ancestor
-(this group) instead of exiting. So `h j h h` chains four pane focus
-moves on one leader press.
+  | `'next` value | Edge kind | Effect |
+  |---|---|---|
+  | `'self` | **cyclic** | Re-arm in place: `modal-current-node`/`path` don't move (only descending into a group would), so nothing changes except an overlay refresh. No `modal-stack` push. |
+  | a registered tree's id (symbol) | **cross** | `(enter-mode! target)` — push the caller context, switch into the target tree. Same mechanics as the framework-internal `enter-mode!` primitive. |
+  | a 0-arg procedure | **dynamic** | Resolved at fire time to a symbol or `#f` (e.g. a façade's "whichever backend is frontmost"). The *existence* of the edge is still static — a procedure-valued `'next` is never Terminal, even where it resolves to `#f`. If it resolves to `#f`, dispatch falls back to a normal exit (fail-safe: the design never releases capture wrongly, it can only decline to release early). |
 
-**Composition.** Sticky groups can nest. The reset target is always
-the *deepest* sticky ancestor on the current path — nested sticky
-subgroups stay sticky in their own right.
-
-**Sticky-root overlay timing.** A tree whose root is sticky shows the
-overlay *immediately* on entry (no delay). The overlay is the mode
-indicator — the user must always know they're inside a sticky mode.
-Transient trees use the configured delay (`set-overlay-delay!`).
-
-### `'sticky-target` on a key
-
-`(key K L action 'sticky-target MODE-ID)` is a declarative form of
-"run the action, then enter MODE-ID." Used in the bundled iTerm tree:
+The overlay paints a `↻` marker on any cell carrying `'next`,
+regardless of which of the three shapes it is.
 
 ```scheme
 (key "h" "Left" (keystroke '(cmd alt) "left")
-  'sticky-target 'iterm-panes-focus)
+  'next 'iterm-panes-focus)
 ```
 
-First press: `h` fires the focus-move keystroke *and* transitions into
-the sticky `'iterm-panes-focus` mode. Subsequent `h j k l` presses
-keep moving panes without another leader.
+First press: `h` fires the focus-move keystroke *and* crosses into the
+`'iterm-panes-focus` Walk. Subsequent `h j k l` presses keep moving
+panes without another leader.
 
-The overlay paints a `↻` marker on cells that carry `'sticky-target`.
+## Walk — a collection of cyclic members
 
-`'sticky-target` overrides the surrounding tree's transient/sticky
-cleanup — the binding has declared explicit modal continuity, so the
-action runs and the mode switch happens regardless. If the action
-itself called `(enter-mode! …)`, that wins (root identity check
-before applying the declarative target).
+A **Walk** is a registered collection whose member leaves cycle back to
+it via `'next 'self` (CONTEXT.md). Unlike the old `'sticky` flag,
+being a Walk is **derived**, not declared: `(node-walk? node)` is true
+iff `node` has at least one direct command/range-command child
+declaring `'next 'self`. There is no group-level or tree-level flag —
+a `group` / `screen` / `open` no longer accepts anything like the old
+`'sticky` keyword at all.
+
+```scheme
+(register-tree! 'iterm-panes-focus
+  'exit-on-unknown #t
+  (key "h" "Left"  (λ () (focus-pane! 'left))  'next 'self)
+  (key "j" "Down"  (λ () (focus-pane! 'down))  'next 'self)
+  (key "k" "Up"    (λ () (focus-pane! 'up))    'next 'self)
+  (key "l" "Right" (λ () (focus-pane! 'right)) 'next 'self))
+```
+
+Firing `h` re-arms the same collection instead of exiting, so `h j h h`
+chains four pane-focus moves on one leader press.
+
+**Walk-root overlay timing.** A tree whose root is a Walk shows the
+overlay *immediately* on entry (no delay) — the overlay is the mode
+indicator, so the user must always know they're inside one. Transient
+trees use the configured delay (`set-overlay-delay!`).
+
+**Authoring a Walk.** The `(walk MODE-ID DISPLAY-NAME key…)` DSL form
+(see [dsl.md](dsl.md#walk-mode-id-display-name-key)) packages the whole
+pattern in one call: it registers the mode tree with each member
+decorated `'next 'self`, and returns a splice of the same keys
+decorated `'next MODE-ID` for you to drop at the entry point(s) — one
+key list, no duplication.
 
 ## The mode stack (`modal-stack`)
 
-`(enter-mode! id)` from inside an action thunk pushes the current
+`(enter-mode! id)` is the **cross-edge primitive** dispatch calls
+internally to follow a cross `'next` edge — it pushes the current
 modal context onto `modal-stack` and switches the modal root to the
-new tree. Backspace at the root of the new tree pops back to the
-caller (when the new tree is sticky).
+new tree. It is **not** config-facing (ADR-0015): a config declares a
+cross edge via `'next` on `(key …)`; it must not call `(enter-mode!
+…)` from inside an action body. Backspace at the root of the new tree
+pops `modal-stack` back to the caller.
 
 Used by the iTerm tree: pressing `h` from the dynamic-pane tree fires
-the focus-left keystroke and pushes the dynamic tree onto the stack
-while entering `'iterm-panes-focus`. Backspace from the focus mode
-returns to the dynamic tree.
+the focus-left keystroke and — because it carries `'next
+'iterm-panes-focus` — pushes the dynamic tree onto the stack while
+crossing into the Walk. Backspace from the focus mode returns to the
+dynamic tree.
 
 `modal-stack` is cleared by `(modal-exit)` — Escape unwinds all
 stacked callers in one shot.
@@ -160,13 +180,13 @@ typos in a deep tree.
 A group can opt back into dismissal:
 
 ```scheme
-(group "p" "Pane" 'sticky #t 'exit-on-unknown #t
-  (key "h" "Left" …) (key "j" "Down" …) …)
+(group "p" "Pane" 'exit-on-unknown #t
+  (key "h" "Left" … 'next 'self) (key "j" "Down" … 'next 'self) …)
 ```
 
 `'exit-on-unknown` is inherited along the path: if *any* ancestor
 group (or the current group) has it set, an unknown key exits the
-modal. Useful for sticky focus-movement modes where the user's next
+modal. Useful for Walks (focus-movement modes) where the user's next
 typing should reach the underlying app rather than forcing an
 explicit Escape.
 
@@ -237,5 +257,5 @@ mutations must call through a procedure. See the comments around
   machine dispatches.
 - [renderer-protocol.md](renderer-protocol.md) — how overlays consume
   the current node and path.
-- [how-to/sticky-mode.md](../how-to/sticky-mode.md) — recipe for
-  building a sticky focus-movement mode.
+- [how-to/walk-mode.md](../how-to/walk-mode.md) — recipe for
+  building a Walk focus-movement mode.
