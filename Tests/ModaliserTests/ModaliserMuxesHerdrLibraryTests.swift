@@ -758,4 +758,63 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(if (node-with-key \"n\" KIDS) #t #f)") == .true)
         #expect(try engine.evaluate("(if (node-with-key \"d\" KIDS) #t #f)") == .true)
     }
+
+    // MARK: - Async herdr ops (leaf herdr-dialogs-async-k2)
+
+    /// ADR-0014: the four interactive herdr ops — rename tab, rename
+    /// workspace, new worktree, remove worktree — fire fire-and-forget async
+    /// with no Modaliser dialog and no continuation payload (herdr's own UI
+    /// does the prompting/confirming once it ships prompt-on-missing-arg).
+    /// Both the id-resolution query and the async fire are routed through
+    /// parameterized test seams so no test spawns a real herdr
+    /// (feedback_no_live_env_mutation_in_tests): current-herdr-query-runner
+    /// hands back canned `pane current` JSON in place of a live query;
+    /// current-herdr-async-runner captures the exact verb string in place of
+    /// firing run-shell-async.
+    @Test func fourHerdrOpsFireExactAsyncVerbsWithFocusedId() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define captured '())
+          (parameterize
+            ((current-herdr-query-runner
+               (lambda (args)
+                 (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}")))
+             (current-herdr-async-runner
+               (lambda (args callback) (set! captured (cons args captured)))))
+            (rename-focused-tab!)
+            (rename-focused-workspace!)
+            (new-worktree!)
+            (remove-focused-worktree!))
+          (set! captured (reverse captured))
+        """#)
+        #expect(try engine.evaluate("(list-ref captured 0)") == .string("tab rename w9:t1"))
+        #expect(try engine.evaluate("(list-ref captured 1)") == .string("workspace rename w9"))
+        #expect(try engine.evaluate("(list-ref captured 2)")
+                == .string("worktree create --workspace w9 --focus"))
+        #expect(try engine.evaluate("(list-ref captured 3)")
+                == .string("worktree remove --workspace w9"))
+    }
+
+    /// The guard: with no focused id (herdr unreachable — `pane current`
+    /// resolves to #f), all four ops no-op — the async runner is never
+    /// invoked. The query runner is explicitly stubbed to #f rather than
+    /// relying on the ambient environment lacking herdr, so the assertion
+    /// holds regardless of whether the host machine has a live herdr
+    /// session.
+    @Test func fourHerdrOpsNoOpWithoutFocusedId() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate("""
+          (define fired? #f)
+          (parameterize
+            ((current-herdr-query-runner (lambda (args) #f))
+             (current-herdr-async-runner (lambda (args callback) (set! fired? #t))))
+            (rename-focused-tab!)
+            (rename-focused-workspace!)
+            (new-worktree!)
+            (remove-focused-worktree!))
+        """)
+        #expect(try engine.evaluate("fired?") == .false)
+    }
 }

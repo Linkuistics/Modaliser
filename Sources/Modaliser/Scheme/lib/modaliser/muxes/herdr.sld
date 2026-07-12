@@ -79,7 +79,23 @@
           ;; "br:<branch>" target + focused source workspace id → herdr command
           ;; args | #f), exported for unit tests — the smart-switch focus-fn
           ;; behind the `g` Worktrees digit range is a thin shell around it.
-          worktree-switch-command)
+          worktree-switch-command
+          ;; The four async fire-and-forget herdr ops (ADR-0014), exported for
+          ;; unit tests — each is also bound into build-herdr-tree's Tabs /
+          ;; Workspaces / Worktrees groups.
+          rename-focused-tab!
+          rename-focused-workspace!
+          new-worktree!
+          remove-focused-worktree!
+          ;; Test seams (ADR-0014): parameterized indirection points a test
+          ;; can override so no test spawns herdr
+          ;; (feedback_no_live_env_mutation_in_tests) — current-herdr-query-runner
+          ;; stubs canned JSON in place of a live `herdr <query>`, mirroring
+          ;; `current-frontmost-bundle-id` in (modaliser terminal);
+          ;; current-herdr-async-runner captures the exact verb string in
+          ;; place of firing run-shell-async.
+          current-herdr-query-runner
+          current-herdr-async-runner)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -115,24 +131,56 @@
     ;; ─── Socket-API query ───────────────────────────────────────────
     ;;
     ;; Run `herdr <args>`, parse stdout as JSON, return the alist/vector
-    ;; tree — or #f when the command produced nothing or non-JSON. The
-    ;; `guard` is the safety net: herdr's output is reliably JSON (even
-    ;; errors are `{"error":{…}}`, which parse fine and simply lack a
-    ;; "result" key), but a truncated/garbage line must not raise through
-    ;; a leader press.
-    (define (herdr-json args)
-      (let ((out (string-trim
-                   (run-shell
-                     (string-append path-prefix "herdr " args " 2>/dev/null")))))
-        (if (string=? out "")
-            #f
-            (guard (e (#t #f))
-              (json-parse out)))))
+    ;; tree — or #f when the command produced nothing or non-JSON. Routed
+    ;; through `current-herdr-query-runner` (mirrors `current-frontmost-
+    ;; bundle-id` in (modaliser terminal)) so a test can hand back canned
+    ;; JSON without a live herdr session (feedback_no_live_env_mutation_in_tests).
+    ;; The `guard` in the real runner is the safety net: herdr's output is
+    ;; reliably JSON (even errors are `{"error":{…}}`, which parse fine and
+    ;; simply lack a "result" key), but a truncated/garbage line must not
+    ;; raise through a leader press.
+    (define current-herdr-query-runner
+      (make-parameter
+        (lambda (args)
+          (let ((out (string-trim
+                       (run-shell
+                         (string-append path-prefix "herdr " args " 2>/dev/null")))))
+            (if (string=? out "")
+                #f
+                (guard (e (#t #f))
+                  (json-parse out)))))))
+
+    (define (herdr-json args) ((current-herdr-query-runner) args))
 
     ;; Fire a mutating pane op; output is ignored (2>/dev/null keeps
     ;; innocuous edge-of-layout errors out of the GUI app log).
     (define (herdr-cmd args)
       (run-shell (string-append path-prefix "herdr " args " 2>/dev/null")))
+
+    ;; ─── Async command dispatch (ADR-0014) ───────────────────────────
+    ;;
+    ;; Ops whose external UI needs the user's keyboard — herdr's own rename
+    ;; / worktree-create / worktree-remove prompts — must not fire through
+    ;; the synchronous herdr-cmd above. Dispatch has already released modal
+    ;; capture for these terminal leaves (ADR-0015), but release alone is
+    ;; not enough: a synchronous run-shell blocks the Scheme thread, and a
+    ;; leader press while herdr's prompt is up would then stall the
+    ;; keyboard tap (ADR-0014's stalled-tap failure mode). herdr-cmd-async
+    ;; fires through run-shell-async and returns immediately; the callback
+    ;; only logs a non-zero exit — no continuation payload, since the
+    ;; argument-gathering is herdr's UI, not Modaliser's. Routed through
+    ;; `current-herdr-async-runner` so a test can capture the exact verb
+    ;; string instead of shelling out (feedback_no_live_env_mutation_in_tests).
+    (define current-herdr-async-runner
+      (make-parameter
+        (lambda (args callback)
+          (run-shell-async (string-append path-prefix "herdr " args) callback))))
+
+    (define (herdr-cmd-async args)
+      ((current-herdr-async-runner) args
+        (lambda (code out err)
+          (when (not (eqv? code 0))
+            (log "herdr: '" args "' failed (exit " code "): " err)))))
 
     ;; ─── Detection ──────────────────────────────────────────────────
     ;;
@@ -334,77 +382,19 @@
                       (cons #\' (cons #\' (cons #\\ (cons #\' acc))))
                       (cons (car cs) acc))))))
 
-    ;; Native text prompt via AppleScript `display dialog … default answer`
-    ;; — herdr's rename takes the new label as a CLI arg (unlike iTerm's
-    ;; menu-driven inline editor), and Modaliser has no in-overlay free-text
-    ;; input, so a one-shot dialog is the cheapest complete path. Returns the
-    ;; typed text, or #f when cancelled (osascript errors → empty stdout).
-    ;; TITLE is a constant with no quotes, so it inlines safely.
-    (define (prompt-text title)
-      (let ((out (string-trim
-                   (run-shell
-                     (string-append
-                       "osascript -e 'text returned of "
-                       "(display dialog \"" title "\" default answer \"\" "
-                       "buttons {\"Cancel\", \"OK\"} default button \"OK\")' "
-                       "2>/dev/null")))))
-        (if (string=? out "") #f out)))
-
-    ;; ─── Confirm dialog (for the destructive `worktree remove`) ──────
-    ;;
-    ;; The remove prompt interpolates a branch name read from `worktree
-    ;; list`, so — unlike prompt-text's constant title — it needs BOTH escape
-    ;; layers: as-escape guards the AppleScript double-quoted string literal (`
-    ;; " and \), and osascript-run sq-escapes the WHOLE program before it lands
-    ;; inside the shell's `-e '…'` single quotes (a branch may contain ' or ",
-    ;; both legal in git refs). Missing either layer is a shell/AppleScript
-    ;; injection or parse break.
-
-    ;; Escape a string for an AppleScript double-quoted literal: backslash and
-    ;; double-quote. (Single quotes are handled by the shell layer below.)
-    (define (as-escape s)
-      (let loop ((cs (string->list s)) (acc '()))
-        (if (null? cs)
-            (list->string (reverse acc))
-            (let ((c (car cs)))
-              (loop (cdr cs)
-                    (cond ((char=? c #\\) (cons #\\ (cons #\\ acc)))
-                          ((char=? c #\") (cons #\" (cons #\\ acc)))
-                          (else (cons c acc))))))))
-
-    ;; Run an AppleScript PROGRAM string via `osascript -e`, single-quoting the
-    ;; whole program for the shell (sq-escape handles any ' the program carries).
-    ;; Returns the trimmed stdout, or "" on a raised AppleScript error (e.g. the
-    ;; user clicking a button literally named "Cancel" → error -128 → empty).
-    (define (osascript-run program)
-      (string-trim
-        (run-shell
-          (string-append "osascript -e '" (sq-escape program) "' 2>/dev/null"))))
-
-    ;; A modal OK/Cancel confirm. `default button "Cancel"` so a stray Return
-    ;; does NOT confirm a destructive op; clicking OK returns "OK", clicking
-    ;; Cancel raises (→ empty stdout). #t only on an explicit OK.
-    (define (confirm-dialog message)
-      (string=?
-        (osascript-run
-          (string-append
-            "button returned of (display dialog \"" (as-escape message) "\" "
-            "buttons {\"Cancel\", \"OK\"} default button \"Cancel\")"))
-        "OK"))
-
+    ;; Rename ops fire the verb WITHOUT the new label (ADR-0014): herdr
+    ;; requires the label positionally (`tab rename <id> <label>`), and
+    ;; prompt-on-missing-arg is herdr-repo work not yet shipped, so until
+    ;; then the verb errors harmlessly (stderr swallowed by the log-only
+    ;; callback) — the guard + async-fire shape is still fully verifiable.
+    ;; No Modaliser-drawn dialog: herdr's own UI is where the label is
+    ;; typed once it prompts.
     (define (rename-focused-tab!)
       (let ((id (focused-tab-id)))
-        (when id
-          (let ((name (prompt-text "Rename herdr tab:")))
-            (when (and name (not (string=? name "")))
-              (herdr-cmd (string-append "tab rename " id " '" (sq-escape name) "'")))))))
+        (when id (herdr-cmd-async (string-append "tab rename " id)))))
     (define (rename-focused-workspace!)
       (let ((id (focused-workspace-id)))
-        (when id
-          (let ((name (prompt-text "Rename herdr workspace:")))
-            (when (and name (not (string=? name "")))
-              (herdr-cmd
-                (string-append "workspace rename " id " '" (sq-escape name) "'")))))))
+        (when id (herdr-cmd-async (string-append "workspace rename " id)))))
 
     ;; ─── Worktree ops (the `g` Worktrees drill, W1–W4) ──────────────
     ;;
@@ -454,54 +444,26 @@
       (let ((cmd (worktree-switch-command target (focused-workspace-id))))
         (when cmd (herdr-cmd cmd))))
 
-    ;; New (`n`, W1). Prompt a branch name, then create a fresh branch+worktree
-    ;; and open a workspace on it (base = herdr default HEAD; no base picker in
-    ;; v1). Guard on the focused workspace id first — a #f means herdr is
-    ;; unreachable, so no-op rather than pop a dialog that could not complete.
-    ;; Empty / cancelled prompt → no-op.
+    ;; New (`n`, W1). Guard on the focused workspace id — a #f means herdr is
+    ;; unreachable, so no-op — then fire `worktree create` async with no
+    ;; `--branch` (ADR-0014): herdr's own UI prompts for the branch name, not
+    ;; a Modaliser dialog. `--focus` still switches to the new workspace once
+    ;; herdr finishes creating it.
     (define (new-worktree!)
       (let ((wsid (focused-workspace-id)))
         (when wsid
-          (let ((name (prompt-text "New worktree branch:")))
-            (when (and name (not (string=? name "")))
-              (herdr-cmd
-                (string-append "worktree create --workspace " wsid
-                               " --branch '" (sq-escape name) "' --focus")))))))
-
-    ;; The current worktree's branch, for the Remove confirm prompt: from a
-    ;; parsed `worktree list`, the row whose open_workspace_id equals
-    ;; result.source.source_workspace_id (the same cross-field "current" rule
-    ;; k14 uses). #f when unreadable or the current worktree is detached (no
-    ;; branch) — the caller falls back to the ws-id. Pure over the JSON.
-    (define (current-worktree-branch parsed)
-      (let* ((result (and parsed (json-ref parsed "result")))
-             (source (and result (json-ref result "source")))
-             (src-ws (and source (json-ref source "source_workspace_id")))
-             (arr    (and result (json-ref result "worktrees"))))
-        (and (string? src-ws) (vector? arr)
-             (let loop ((k 0))
-               (if (>= k (vector-length arr))
-                   #f
-                   (let* ((item (vector-ref arr k))
-                          (ws   (json-ref item "open_workspace_id")))
-                     (if (and (string? ws) (string=? ws src-ws))
-                         (let ((br (json-ref item "branch")))
-                           (and (string? br) (not (string=? br "")) br))
-                         (loop (+ k 1)))))))))
+          (herdr-cmd-async (string-append "worktree create --workspace " wsid " --focus")))))
 
     ;; Remove (`d`, W2). Acts on the FOCUSED worktree — always a valid,
     ;; unambiguous target (the focused workspace's worktree), mirroring
     ;; close-pane/tab/workspace. NO `--force`: a dirty worktree or the main
-    ;; checkout makes herdr/git refuse, 2>/dev/null swallows the refusal, no
-    ;; data loss. Guarded by an OK/Cancel confirm (default Cancel) naming the
-    ;; branch when readable, else the ws-id. Cancel / #f ws-id → no-op.
+    ;; checkout makes herdr/git refuse, no data loss. No Modaliser confirm
+    ;; dialog (ADR-0014) — the remove-confirm UX is herdr-side; the safety
+    ;; that survives here is the missing --force. #f ws-id → no-op.
     (define (remove-focused-worktree!)
       (let ((wsid (focused-workspace-id)))
         (when wsid
-          (let* ((branch (current-worktree-branch (herdr-json "worktree list")))
-                 (name   (or branch wsid)))
-            (when (confirm-dialog (string-append "Remove worktree " name "?"))
-              (herdr-cmd (string-append "worktree remove --workspace " wsid)))))))
+          (herdr-cmd-async (string-append "worktree remove --workspace " wsid)))))
 
     ;; ─── Live-list blocks (panes / tabs / workspaces) ───────────────
     ;;

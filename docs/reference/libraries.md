@@ -518,7 +518,7 @@ the same names).
 | `(modaliser app)` | Process / app management: `launch-app`, `activate-app`, `find-installed-apps`, `app-display-name`, `reveal-in-finder`, `open-with`, etc. |
 | `(modaliser keyboard)` | Keycode constants (`F18`, `F17`, …), modifier symbols. |
 | `(modaliser input)` | Keystroke synthesis: `send-keystroke`, `send-key-down`, `send-key-up`. |
-| `(modaliser shell)` | Shell execution: `run-shell`, `modaliser-tool-path`. |
+| `(modaliser shell)` | Shell execution: `run-shell`, `run-shell-async` (non-blocking; ADR-0014), `modaliser-tool-path`. |
 | `(modaliser pasteboard)` | Clipboard: `set-clipboard!`, `read-clipboard`. |
 | `(modaliser http)` | HTTP requests used by web-search. |
 | `(modaliser lifecycle)` | `relaunch!`, `after-delay`. |
