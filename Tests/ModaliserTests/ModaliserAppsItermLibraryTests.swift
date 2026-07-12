@@ -29,8 +29,8 @@ struct ModaliserAppsItermLibraryTests {
         // shared (modaliser event-dispatch) state between tests.
         try engine.evaluate("(register! 'install-context-suffix? #f)")
         #expect(try engine.evaluate("(lookup-tree \"com.googlecode.iterm2\")") != .false)
-        // The digit-pick mode is also registered, ready for the façade's
-        // (focus-pane-by-digit) thunk to (enter-mode! 'iterm-pane-digit).
+        // The digit-pick mode is also registered, ready for the backend's
+        // focus-pane-by-digit symbol ('iterm-pane-digit) to name.
         #expect(try engine.evaluate("(lookup-tree \"iterm-pane-digit\")") != .false)
     }
 

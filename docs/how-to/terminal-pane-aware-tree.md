@@ -285,9 +285,13 @@ module uses for its own conditional children:
               (key "l" "Right" terminal:move-pane-right 'next 'self)))
           '())
 
-      ;; Digit-jump only on backends that paint chips.
+      ;; Digit-jump only on backends that paint chips. The façade's
+      ;; focus-pane-by-digit is a fire-time resolver (ADR-0015): the
+      ;; action is a no-op, and 'next takes the edge to whichever
+      ;; backend's digit-mode is active.
       (if (terminal:supports-digit-jump?)
-          (list (key "g" "Goto pane" terminal:focus-pane-by-digit))
+          (list (key "g" "Goto pane" (lambda () (if #f #f))
+                  'next terminal:focus-pane-by-digit))
           '())
 
       ;; Zoom only on backends with a native zoom toggle.

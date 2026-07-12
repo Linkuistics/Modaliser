@@ -580,6 +580,15 @@ struct SchemeCoreSmokeTests {
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
+    // enter-mode! is no longer exported (ADR-0015 / digit-jump-facade-async-k7):
+    // it's the cross-edge primitive `follow-next!` calls internally after a
+    // leaf's action, never something these tests — or a leaf's action — call
+    // directly. Every test below drives it the same way production does: a
+    // leaf declaring 'next TARGET, fired via modal-handle-key from an already-
+    // active modal (modal-key-handler, enter-mode!'s only route in, is itself
+    // only installed while a modal is active, so a "no modal active" entry is
+    // not a reachable production path and isn't tested here).
+
     @Test func enterModeByIdEntersRegisteredTree() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
@@ -589,9 +598,12 @@ struct SchemeCoreSmokeTests {
             (register-tree! 'panes
               'display-name "Pane Mode"
               (key "h" "Left" (lambda () 'ok)))
+            (register-tree! 'launcher
+              (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes))
             """)
 
-        try engine.evaluate("(enter-mode! 'panes)")
+        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("(modal-handle-key \"p\")")
         #expect(try engine.evaluate("modal-active?") == .true)
         #expect(try engine.evaluate("(member \"Pane Mode\" (modal-root-segments))") != .false)
 
@@ -607,15 +619,15 @@ struct SchemeCoreSmokeTests {
             (register-tree! 'panes
               (key "h" "Left" (lambda () 'ok)))
             (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+              (key "s" "Safari" (lambda () 'ok) 'next 'panes))
             """)
 
         // Enter the global modal first.
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
         #expect(try engine.evaluate("modal-active?") == .true)
 
-        // enter-mode! should switch us cleanly into the panes mode.
-        try engine.evaluate("(enter-mode! 'panes)")
+        // The cross edge should switch us cleanly into the panes mode.
+        try engine.evaluate("(modal-handle-key \"s\")")
         #expect(try engine.evaluate("modal-active?") == .true)
         #expect(try engine.evaluate(
             "(eq? modal-root-node (lookup-tree \"panes\"))") == .true)
@@ -637,12 +649,12 @@ struct SchemeCoreSmokeTests {
               'display-name "Splits"
               (key "h" "Left" (lambda () 'ok)))
             (register-tree! 'global
-              (key "s" "Splits" (lambda () 'ok)))
+              (key "s" "Splits" (lambda () 'ok) 'next 'walk-mode))
             """)
 
         // Enter the parent (global → root segment "Global"), then cross in.
         try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
-        try engine.evaluate("(enter-mode! 'walk-mode)")
+        try engine.evaluate("(modal-handle-key \"s\")")
 
         // Both the caller's segment and the mode's segment are present.
         #expect(try engine.evaluate(
@@ -763,15 +775,12 @@ struct SchemeCoreSmokeTests {
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
-    // MARK: - Modal stack via enter-mode!
+    // MARK: - Modal stack via enter-mode! (fired through 'next + modal-handle-key)
 
     @Test func enterModeFromTransientLeafPushesCaller() throws {
-        // enter-mode! is the cross-edge primitive dispatch calls
-        // internally (after a leaf's action runs, per its 'next) — not
-        // something a leaf's action calls itself anymore (ADR-0015).
-        // Called directly with a modal already active (the launcher),
-        // it pushes the caller context. Backspace at the new mode's root
-        // pops back to the launcher rather than exiting entirely.
+        // A cross edge fired from an active modal (the launcher) pushes
+        // the caller context. Backspace at the new mode's root pops back
+        // to the launcher rather than exiting entirely.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try loadCore(engine, schemePath)
@@ -780,11 +789,11 @@ struct SchemeCoreSmokeTests {
             (register-tree! 'panes
               (key "h" "Left" (lambda () 'ok)))
             (register-tree! 'launcher
-              (key "p" "Pane Mode" (lambda () 'ok)))
+              (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
-        try engine.evaluate("(enter-mode! 'panes)")
+        try engine.evaluate("(modal-handle-key \"p\")")
         #expect(try engine.evaluate(
             "(eq? modal-root-node (lookup-tree \"panes\"))") == .true)
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
@@ -801,25 +810,6 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    @Test func enterModeFromFreshStateDoesNotPush() throws {
-        // enter-mode! with no active modal is a fresh entry. The stack
-        // stays empty; backspace at a Walk root exits (no caller to pop).
-        let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try loadCore(engine, schemePath)
-
-        try engine.evaluate("""
-            (register-tree! 'panes
-              (key "h" "Left" (lambda () 'ok) 'next 'self))
-            """)
-
-        try engine.evaluate("(enter-mode! 'panes)")
-        #expect(try engine.evaluate("(null? modal-stack)") == .true)
-
-        try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("modal-active?") == .false)
-    }
-
     @Test func escapeClearsTheEntireStack() throws {
         // Escape (= modal-exit) tears down everything, even with pushed
         // callers — the user can never be stuck in a half-exited stack.
@@ -831,11 +821,11 @@ struct SchemeCoreSmokeTests {
             (register-tree! 'panes
               (key "h" "Left" (lambda () 'ok)))
             (register-tree! 'launcher
-              (key "p" "Pane Mode" (lambda () 'ok)))
+              (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
-        try engine.evaluate("(enter-mode! 'panes)")
+        try engine.evaluate("(modal-handle-key \"p\")")
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
 
         try engine.evaluate("(modal-exit)")
@@ -844,7 +834,7 @@ struct SchemeCoreSmokeTests {
     }
 
     @Test func nestedEnterModeBuildsStack() throws {
-        // enter-mode! from an already-stacked mode pushes again.
+        // A cross edge fired from an already-stacked mode pushes again.
         // Backspace then unwinds one level at a time.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
@@ -854,14 +844,14 @@ struct SchemeCoreSmokeTests {
             (register-tree! 'b
               (key "x" "Noop" (lambda () 'ok)))
             (register-tree! 'a
-              (key "n" "Next" (lambda () 'ok)))
+              (key "n" "Next" (lambda () 'ok) 'next 'b))
             (register-tree! 'launcher
-              (key "p" "Mode A" (lambda () 'ok)))
+              (key "p" "Mode A" (lambda () 'ok) 'next 'a))
             """)
 
         try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
-        try engine.evaluate("(enter-mode! 'a)")  // launcher → a
-        try engine.evaluate("(enter-mode! 'b)")  // a → b
+        try engine.evaluate("(modal-handle-key \"p\")")  // launcher → a
+        try engine.evaluate("(modal-handle-key \"n\")")  // a → b
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(2))
         #expect(try engine.evaluate(
             "(eq? modal-root-node (lookup-tree \"b\"))") == .true)

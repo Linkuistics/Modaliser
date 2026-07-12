@@ -51,8 +51,9 @@ struct ModaliserAppsWeztermLibraryTests {
         #expect(inChain == .true)
     }
 
-    /// (register!) also wires the digit-pick mode so that the façade's
-    /// (focus-pane-by-digit) thunk has a tree to (enter-mode!) into.
+    /// (register!) also wires the digit-pick mode so that the backend's
+    /// focus-pane-by-digit symbol ('wezterm-pane-digit) names a real tree
+    /// for the façade's resolver to hand a procedure-valued 'next.
     @Test func registerInstallsDigitPickTree() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""

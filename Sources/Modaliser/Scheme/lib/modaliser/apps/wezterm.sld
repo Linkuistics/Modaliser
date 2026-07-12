@@ -351,9 +351,6 @@
         'on-leave (lambda () (hints-hide))
         (digit-range)))
 
-    (define (focus-pane-by-digit)
-      (enter-mode! 'wezterm-pane-digit))
-
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
     ;; configured? is constant #t — WezTerm has no provisioning step
@@ -373,7 +370,7 @@
         ;; move-pane-{left,right,up,down}: #f. No WezTerm primitive
         ;; implements directional pane swap (see module-level notes).
         #f #f #f #f
-        focus-pane-by-digit
+        'wezterm-pane-digit
         toggle-pane-zoom
         configured?))
 

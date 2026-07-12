@@ -29,7 +29,6 @@
     modal-enter modal-exit modal-step-back modal-handle-key
     modal-show-overlay-now modal-show-overlay-delayed
     modal-list-cursor-move! modal-list-cursor-activate!
-    enter-mode!
     set-overlay-delay!
     ;; Key handler hook (installed by event-dispatch after it defines modal-key-handler)
     set-modal-key-handler!

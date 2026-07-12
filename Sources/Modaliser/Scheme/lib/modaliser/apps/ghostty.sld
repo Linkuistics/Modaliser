@@ -309,9 +309,6 @@
         'on-leave (lambda () (hints-hide))
         (digit-range)))
 
-    (define (focus-pane-by-digit)
-      (enter-mode! 'ghostty-pane-digit))
-
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
     ;; configured? is constant #t — Ghostty has no provisioning step
@@ -331,7 +328,7 @@
         ;; move-pane-{left,right,up,down}: #f. No Ghostty primitive
         ;; implements directional pane swap (see module-level notes).
         #f #f #f #f
-        focus-pane-by-digit
+        'ghostty-pane-digit
         toggle-pane-zoom
         configured?))
 

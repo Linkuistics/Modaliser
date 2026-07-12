@@ -111,6 +111,11 @@
     ;; predicates AND the field's presence with `configured?` so bindings
     ;; gated by `(supports-move-pane?)` etc. flip on only after configure-
     ;; entry has done its provisioning.
+    ;;
+    ;; `focus-pane-by-digit` is the one exception: it holds a plain
+    ;; digit-mode-id symbol (or #f when unsupported), not a thunk — the
+    ;; façade export of the same name resolves it at fire time (see
+    ;; below) rather than dispatching-and-calling it like the other 13.
     (define-record-type <terminal-backend>
       (make-terminal-backend symbol name kind match-key
                              detect-foreground-command
@@ -283,8 +288,15 @@
     (define (move-pane-up)      (dispatch "move-pane-up"      terminal-backend-move-pane-up))
     (define (move-pane-down)    (dispatch "move-pane-down"    terminal-backend-move-pane-down))
 
+    ;; Fire-time resolver, not a dispatch-and-call op shim (ADR-0015
+    ;; Context item 3): the active backend's slot is a digit-mode-id
+    ;; symbol (or #f), returned as-is for a procedure-valued `'next` to
+    ;; follow. No active backend, or an unsupported slot, resolves to
+    ;; #f — dispatch's fail-safe branch then keeps capture and does
+    ;; normal cleanup, never an error.
     (define (focus-pane-by-digit)
-      (dispatch "focus-pane-by-digit" terminal-backend-focus-pane-by-digit))
+      (let ((b (active-backend)))
+        (and b (terminal-backend-focus-pane-by-digit b))))
     (define (toggle-pane-zoom)
       (dispatch "toggle-pane-zoom" terminal-backend-toggle-pane-zoom))
 

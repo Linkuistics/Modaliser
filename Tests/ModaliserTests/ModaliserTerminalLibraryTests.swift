@@ -64,7 +64,8 @@ struct ModaliserTerminalLibraryTests {
               (lambda () 'fpl) (lambda () 'fpr) (lambda () 'fpu) (lambda () 'fpd)
               (lambda () 'spl) (lambda () 'spr) (lambda () 'spu) (lambda () 'spd)
               (lambda () 'mpl) (lambda () 'mpr) (lambda () 'mpu) (lambda () 'mpd)
-              (lambda () 'digit) (lambda () 'zoom)
+              'digit (lambda () 'zoom)        ; focus-pane-by-digit: a plain
+                                               ; symbol, not a thunk (ADR-0015)
               (lambda () #t)))                ; configured?
           (register-backend! host)
           """)
@@ -133,7 +134,7 @@ struct ModaliserTerminalLibraryTests {
               (lambda () 'fpl) (lambda () 'fpr) (lambda () 'fpu) (lambda () 'fpd)
               (lambda () 'spl) (lambda () 'spr) (lambda () 'spu) (lambda () 'spd)
               (lambda () 'mpl) (lambda () 'mpr) (lambda () 'mpu) (lambda () 'mpd)
-              (lambda () 'host-digit) (lambda () 'host-zoom)
+              'host-digit (lambda () 'host-zoom)
               (lambda () #t)))
           (define mux
             (make-terminal-backend
@@ -143,7 +144,7 @@ struct ModaliserTerminalLibraryTests {
               (lambda () 'mux-fpl) (lambda () 'mux-fpr) (lambda () 'mux-fpu) (lambda () 'mux-fpd)
               (lambda () 'mux-spl) (lambda () 'mux-spr) (lambda () 'mux-spu) (lambda () 'mux-spd)
               (lambda () 'mux-mpl) (lambda () 'mux-mpr) (lambda () 'mux-mpu) (lambda () 'mux-mpd)
-              (lambda () 'mux-digit) (lambda () 'mux-zoom)
+              'mux-digit (lambda () 'mux-zoom)
               (lambda () #t)))
           (register-backend! host)
           (register-backend! mux)
@@ -181,7 +182,7 @@ struct ModaliserTerminalLibraryTests {
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
-              (lambda () 'x) (lambda () 'x)
+              'x (lambda () 'x)
               (lambda () #f)))                ; NOT configured
           (register-backend! host)
           """)
@@ -204,7 +205,7 @@ struct ModaliserTerminalLibraryTests {
               (lambda () 'fpl) (lambda () 'fpr) (lambda () 'fpu) (lambda () 'fpd)
               (lambda () 'spl) (lambda () 'spr) (lambda () 'spu) (lambda () 'spd)
               #f #f #f #f                     ; move-pane unsupported
-              (lambda () 'digit) (lambda () 'zoom)
+              'digit (lambda () 'zoom)
               (lambda () #t)))
           (register-backend! host)
           """)
@@ -250,6 +251,36 @@ struct ModaliserTerminalLibraryTests {
         } catch {
             // Expected.
         }
+    }
+
+    /// `focus-pane-by-digit` is a fire-time resolver, not a dispatch-
+    /// and-call op shim (ADR-0015 Context item 3): no active backend, or
+    /// an active backend whose slot is #f (unsupported), resolves to #f
+    /// rather than raising — the fail-safe a procedure-valued `'next`
+    /// edge relies on.
+    @Test func focusPaneByDigitResolvesOrFailsSafe() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser terminal))")
+        try engine.evaluate("""
+          (define host
+            (make-terminal-backend
+              'stub-host "Stub" 'host "test.bundle"
+              (lambda () "vim") (lambda () "p")
+              (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+              (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+              (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+              #f (lambda () 'zoom)            ; focus-pane-by-digit unsupported
+              (lambda () #t)))
+          (register-backend! host)
+          """)
+
+        #expect(try engine.evaluate(stubbed("(focus-pane-by-digit)")) == .false)
+
+        let noBackend = try engine.evaluate(
+            "(parameterize ((current-frontmost-bundle-id (lambda () \"unregistered.bundle\"))) " +
+            "  (focus-pane-by-digit))"
+        )
+        #expect(noBackend == .false)
     }
 
     /// Wraps the given form in a parameterize that overrides the

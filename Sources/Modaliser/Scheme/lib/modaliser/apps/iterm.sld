@@ -567,8 +567,8 @@
 
     ;; Walk focus-mode children. Pure hjkl focus moves, entered from the
     ;; transient tree via any of its hjkl keys (each carries 'next → here,
-    ;; a cross edge) or via (enter-mode! 'iterm-panes-focus). Each key
-    ;; here carries 'next 'self so it cycles back to itself.
+    ;; a cross edge) or from any other leaf declaring 'next 'iterm-panes-focus.
+    ;; Each key here carries 'next 'self so it cycles back to itself.
     (define (focus-mode-tree)
       (list
         (key "h" "Left"  focus-pane-left  'next 'self)
@@ -635,7 +635,9 @@
         (else #f)))
 
     ;; A standalone "pick a digit to focus a pane" mode. The façade's
-    ;; (terminal:focus-pane-by-digit) thunk enters this tree. on-enter
+    ;; (terminal:focus-pane-by-digit) resolver names this tree as the
+    ;; procedure-valued 'next target on a config's digit-jump binding.
+    ;; on-enter
     ;; snapshots the pane layout (so iterm-panes-current-targets is
     ;; populated for focus-by-digit's lookup) and paints chips; on-leave
     ;; hides them. The single hidden key-range dispatches by digit and
@@ -653,11 +655,6 @@
         'on-leave (lambda () (hints-hide))
         (pane-range)))
 
-    ;; Façade slot. Pushes the digit-pick mode; the user's next digit
-    ;; press focuses the corresponding pane and pops back.
-    (define (focus-pane-by-digit)
-      (enter-mode! 'iterm-pane-digit))
-
     ;; Build the <terminal-backend> record this module hands to
     ;; (modaliser terminal). Same procedures the iterm:focus-pane-*
     ;; etc. exports point at — registering doesn't duplicate
@@ -671,7 +668,7 @@
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
         split-pane-left  split-pane-right  split-pane-up    split-pane-down
         move-pane-left   move-pane-right   move-pane-up     move-pane-down
-        focus-pane-by-digit
+        'iterm-pane-digit
         toggle-pane-zoom
         iterm-configured?))
 

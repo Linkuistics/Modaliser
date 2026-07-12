@@ -372,9 +372,6 @@
         'on-leave (lambda () (hints-hide))
         (digit-range)))
 
-    (define (focus-pane-by-digit)
-      (enter-mode! 'tmux-pane-digit))
-
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
     ;; configured? is constant #t — tmux has no provisioning step (no
@@ -392,7 +389,7 @@
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
         split-pane-left  split-pane-right  split-pane-up    split-pane-down
         move-pane-left   move-pane-right   move-pane-up     move-pane-down
-        focus-pane-by-digit
+        'tmux-pane-digit
         toggle-pane-zoom
         configured?))
 

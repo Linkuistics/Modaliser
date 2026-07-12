@@ -404,6 +404,72 @@ struct EndToEndSchemeModalTests {
         try engine.evaluate("(set! mock-focused-sock #f)")
         #expect(try engine.evaluate("(focused-nvim-socket)") == .false)
     }
+
+    /// The generic digit-jump recipe from
+    /// docs/how-to/terminal-pane-aware-tree.md, end to end: a config binds
+    /// `(key "g" "Goto pane" (lambda () (if #f #f)) 'next
+    /// terminal:focus-pane-by-digit)` — a no-op action, all the work done
+    /// by the procedure-valued 'next edge (digit-jump-facade-async-k7). The
+    /// stub backend's focus-pane-by-digit slot is a plain mode-id symbol
+    /// naming a real registered tree, mirroring the seven real backends'
+    /// shape post-migration. Pressing "g" resolves the symbol and crosses
+    /// (capture stays — a procedure-valued 'next is never Terminal); the
+    /// digit press that follows is itself Terminal, so it releases capture.
+    @Test func digitJumpFacadeRecipeCrossesToDigitPickThenReleasesOnDigit() throws {
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+        try engine.evaluate("(import (modaliser terminal))")
+        // The generic recipe is written against the terminal: prefix a
+        // config gets via (import (prefix (modaliser terminal) terminal:))
+        // (default-config.scm:33) — mirror that here rather than the bare
+        // (modaliser terminal) import above.
+        try engine.evaluate("(import (prefix (modaliser terminal) terminal:))")
+
+        try engine.evaluate("""
+            (define focused #f)
+            (register-tree! 'stub-pane-digit
+              (key-range "1.." "Pane <n>" (list "1" "2" "3")
+                (lambda (k) (set! focused k))))
+            (define host
+              (make-terminal-backend
+                'stub-host "Stub Host" 'host "test.bundle"
+                (lambda () #f) (lambda () "p")
+                (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+                (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+                (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+                'stub-pane-digit (lambda () 'zoom)
+                (lambda () #t)))
+            (register-backend! host)
+            (register-tree! 'launcher
+              (key "g" "Goto pane" (lambda () (if #f #f))
+                'next terminal:focus-pane-by-digit))
+            """)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("""
+            (parameterize ((current-frontmost-bundle-id (lambda () "test.bundle")))
+              (modal-key-handler 5 0))
+            """)  // keycode 5 = 'g'
+
+        // Cross edge: still capturing, now rooted at the digit-pick tree.
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"stub-pane-digit\"))") == .true)
+
+        // keycode 18 = '1' — Terminal (no 'next): releases capture and runs
+        // the digit action.
+        try engine.evaluate("(modal-key-handler 18 0)")
+        let focused = try engine.evaluate("focused")
+        if case .string(let ms) = focused {
+            #expect((ms as String) == "1")
+        } else {
+            Issue.record("expected string \"1\", got \(focused)")
+        }
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
 }
 
 private func joinPath(_ base: String, _ component: String) -> String {

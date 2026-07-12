@@ -272,9 +272,6 @@
         'on-leave (lambda () #f)
         (digit-range)))
 
-    (define (focus-pane-by-digit)
-      (enter-mode! 'herdr-pane-digit))
-
     ;; ─── herdr-in-iTerm variant wiring (ADR-0013) ───────────────────
     ;;
     ;; On each local-leader press the iTerm context-suffix hook picks a
@@ -726,7 +723,7 @@
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
         split-pane-left  split-pane-right  split-pane-up    split-pane-down
         move-pane-left   move-pane-right   move-pane-up     move-pane-down
-        focus-pane-by-digit
+        'herdr-pane-digit
         toggle-pane-zoom
         configured?))
 

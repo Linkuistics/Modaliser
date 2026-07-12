@@ -682,9 +682,6 @@
         (digit-range)))
 
 
-    (define (focus-pane-by-digit)
-      (enter-mode! 'kitty-pane-digit))
-
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
     ;; toggle-pane-zoom field is #f — Kitty has no native single-pane
@@ -698,7 +695,7 @@
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
         split-pane-left  split-pane-right  split-pane-up    split-pane-down
         move-pane-left   move-pane-right   move-pane-up     move-pane-down
-        focus-pane-by-digit
+        'kitty-pane-digit
         ;; toggle-pane-zoom: #f — Kitty has no native single-
         ;; pane zoom; (supports-zoom?) is the only capability predicate
         ;; that flips to #f for a splitting backend in v1.
