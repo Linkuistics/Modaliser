@@ -84,12 +84,31 @@ top-level `hjkl` (pane focus) in both.
 
 ## Modal-dispatch domain
 
+**`'next` edge** — a command leaf's declared post-action transition target:
+a registered collection's id, or `'self` (the leaf's own containing group —
+the cycle case). The navigation tree's only transition mechanism; a leaf
+without one is **Terminal**. _Avoid_: "sticky-target" — the retired flag-era
+spelling.
+
+**Terminal** — a node with no outgoing edge: no children, no `'next`. Firing
+a terminal node releases the modal key capture *before* its action runs, so
+the action may freely hand the keyboard elsewhere (an external prompt, a
+chooser). Terminality is static — knowable from the tree alone, never from
+what an action's body does.
+
+**Walk** — a registered collection whose member leaves cycle back to it via
+`'next` (latched UX: fire a row, stay in the collection). Authored with the
+`walk` DSL form. What the flag era called a "sticky mode"; stickiness is now
+*derived* from the members' edges, never declared on the group. _Avoid_:
+"sticky", "sticky-set" — retired; a group carries no latch flag.
+
 **Dialog command** — a command leaf whose action needs the user's keyboard
-*outside* Modaliser: it raises a native prompt/confirm/info dialog (herdr
-renames, the new-worktree prompt, the worktree-remove confirm, backend error
-dialogs). A dialog command must release the modal key capture before its
-dialog shows and must not block Scheme evaluation while the dialog is up
-(ADR-0014). _Avoid_: "trigger" — ambiguous with the key that fires an action.
+*outside* Modaliser: it fires a command whose UI prompts the user (herdr
+renames, the new-worktree prompt, the worktree-remove confirm) or raises a
+native info dialog (backend error dialogs). Necessarily **Terminal** — the
+released capture is what lets the external UI receive typing — and its action
+must not block Scheme evaluation while that UI is up (ADR-0014). _Avoid_:
+"trigger" — ambiguous with the key that fires an action.
 
 ## Window-switching domain
 
@@ -231,9 +250,9 @@ fallback now; the default is the JS balance.
 or on `screen` / `open` as a grid-wide default; resolved **panel-explicit >
 screen/open default > `keys`**. Presentation only — dispatch is key-addressed
 and order-independent. The **loose region** is always `declared`. A
-`sticky-set`'s **latched walk** (the registered sticky-mode tree) also takes an
-`'order` keyword, opting its rows out of the default key-sort so the walk reads
-in the same grouped order as its declaration-ordered entry point.
+A **walk** (the registered latched collection) also takes an `'order`
+keyword, opting its rows out of the default key-sort so the walk reads in the
+same grouped order as its declaration-ordered entry point.
 
 **Live list** — a dynamic-list block (`window-list`, `iterm-panes`,
 `iterm-tabs`) placed inside a panel, or **loose** in a screen/open body (then it
@@ -271,7 +290,7 @@ form (a `panel`, by contrast, is transparent — it never changes key paths).
 
 **Fragment** — a reusable, named chunk of layout (panels or command rows) spliced
 into multiple screens/panels for DRY (e.g. a shared `window-actions` set). Built
-on `expand-splices` — the same splice mechanism `sticky-set` already uses for
+on `expand-splices` — the same splice mechanism `walk` already uses for
 keys — so nothing downstream sees the fragment; the result is identical to
 writing its contents inline.
 

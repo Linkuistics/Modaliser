@@ -2,55 +2,63 @@
 
 ## Goal
 
-Dialog commands (CONTEXT.md, ADR-0014) currently raise their osascript
-dialogs synchronously from inside `modal-handle-key`, while the modal
-catch-all is still registered and the Scheme thread is blocked — so the
-dialog never receives typing (observed: herdr workspace rename is
-impossible). Fix per ADR-0014: a shared portable `(modaliser dialogs)`
-library that (1) does a guarded `modal-exit` before spawning any dialog and
-(2) runs the dialog via `run-shell-async`, continuation-passing the follow-on
-command.
+Commands whose UI needs the user's keyboard (herdr rename/create/remove
+prompts, backend error dialogs) currently fire synchronously from inside
+`modal-handle-key` while the modal catch-all is still registered — the
+external UI never receives typing. Fix per ADR-0015 + ADR-0014:
+
+1. **Navigation graph (ADR-0015).** All transitions become declared `'next`
+   edges; terminal nodes (no outgoing edge) get capture released by dispatch
+   *before* their action runs. Stickiness is derived (`walk`s whose members
+   cycle); `enter-mode!` becomes framework-internal.
+2. **Never block (ADR-0014).** Interactive commands run through
+   `run-shell-async`; herdr prompts are herdr's own UI (Modaliser fires the
+   verb without the argument — herdr-side work, tracked in the herdr repo);
+   Modaliser-raised alerts go through a slim `(modaliser dialogs)`.
 
 ## Done when
 
-- Renaming a herdr workspace (and tab), the new-worktree prompt, and the
-  worktree-remove confirm all receive typing, live, with the leader still
-  responsive while a dialog is up.
-- The iTerm / Kitty / Alacritty error dialogs go through the same library
-  (their Return/OK was swallowed by the same mechanism).
-- `scripts/check-portable-surface.sh` passes; tests cover the library through
-  the `current-dialog-runner` seam only (no test spawns osascript or herdr —
-  see feedback_no_live_env_mutation_in_tests).
+- Terminal-node release-before-action is live; the seven
+  `focus-pane-by-digit` slots and all sticky groups/walks are migrated;
+  `swift test` and `scripts/check-portable-surface.sh` pass.
+- The four herdr ops fire their verbs async with capture already released
+  (typing lands in herdr's prompt once herdr ships it; until then: verify
+  release + non-blocking).
+- The iTerm / Kitty / Alacritty error dialogs go through the slim dialogs
+  library (release now framework-owned; async via `current-dialog-runner`).
 
 ## Decomposition
 
-- 02 `capture-release-signal-k4` — surfaced mid-session while executing k2:
-  whether a command can statically signal "I release modal capture" (a new
-  DSL/tree node kind, modelled on `selector?`) instead of a dialog-raising
-  action releasing capture imperatively from inside its own body. Blocks
-  k2's final shape; sequenced ahead of it.
-- 03 `herdr-dialogs-async-k2` — build `(modaliser dialogs)` + convert the four
-  herdr dialog commands + live verify.
-- 04 `error-dialogs-async-k3` — convert the three backend error-dialog sites.
+- 02 `capture-release-signal-k4` — planning (done): grilled the static
+  capture-release question; produced ADR-0015, reworked ADR-0014, retired
+  "sticky" from the UL (CONTEXT.md), reshaped the remaining leaves.
+- 03 `navigation-graph-next-edges-k5` — the machinery + migration.
+- 04 `herdr-dialogs-async-k2` — the four herdr ops → async fire-and-forget.
+- 05 `error-dialogs-async-k3` — the three error-dialog sites + slim dialogs.
 
 ## Pointers
 
-- ADR-0014 (`docs/adr/0014-dialogs-release-capture-and-run-async.md`) — the
-  mechanism and both invariants; read it before touching dispatch ordering.
-- `muxes/herdr.sld` — `prompt-text`, `confirm-dialog`, `osascript-run`,
-  `sq-escape`, `as-escape` (the code the library absorbs), and the four
-  dialog commands (~lines 340–510).
-- `state-machine.sld` `modal-handle-key` — action-before-exit ordering is
-  deliberate (`enter-mode!`); guards already tolerate an action that exits.
-- `ShellLibrary.swift` — `run-shell-async` (callback on main queue, optional
-  'timeout).
-- Test idiom: `ModaliserMuxesHerdrLibraryTests.swift` (`parameterize` +
-  `current-frontmost-bundle-id`) — mirror it for `current-dialog-runner`.
+- ADR-0015 (`docs/adr/0015-navigation-graph-next-edges-terminal-release.md`)
+  — the graph model, migration inventory, rejected alternatives.
+- ADR-0014 (`docs/adr/0014-interactive-commands-never-block.md`) — the async
+  invariant and the stalled-tap failure mode.
+- `CONTEXT.md` Modal-dispatch domain — **'next edge**, **Terminal**,
+  **Walk**, **Dialog command**.
+- `state-machine.sld` `modal-handle-key` + `enter-mode!` + the retired
+  sticky walks (`deepest-sticky-on-path`, `in-sticky-context?`).
+- `dsl.sld` — `key-cmd` ('sticky-target → 'next), `sticky-set` → `walk`
+  (line ~358: already stamps per-leaf edges — the model's existing proof).
+- `ShellLibrary.swift` — `run-shell-async` (callback on main queue).
+- Test seams (agreed): e2e modal harness for dispatch; parameterized
+  captured-command runner for herdr ops (mirror
+  `ModaliserMuxesHerdrLibraryTests`'s `current-frontmost-bundle-id` idiom);
+  `current-dialog-runner` for the slim dialogs. No test spawns
+  osascript/herdr (feedback_no_live_env_mutation_in_tests).
 
 ## Notes
 
-- The state machine is NOT changed; no per-command DSL annotation (rejected
-  during plan-k1 grilling — the async dialog is needed inside regardless).
-- Error-dialog sites in `apps/iterm.sld:437`, `kitty.sld:402`,
-  `alacritty.sld:224` are info-only (no typed input) — they need the release
-  + async treatment but no continuation payload.
+- herdr 0.7.3 requires the rename label positionally; prompt-on-missing-arg
+  is future herdr-side work. k2 does the Modaliser side only.
+- The k2-era CPS draft (osascript dialog-prompt/confirm + herdr conversions)
+  was discarded uncommitted at k4; its reusable escaping/CPS snippets are
+  embedded in `05-error-dialogs-async-k3.md`.
