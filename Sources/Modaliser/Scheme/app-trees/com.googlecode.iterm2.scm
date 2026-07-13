@@ -167,9 +167,10 @@
 ;; ── herdr variant trees (ADR-0013) ──────────────────────────────────
 ;;
 ;; When the focused iTerm pane runs the herdr client, the composed suffix
-;; hook below swaps in a herdr variant tree. herdr owns the top-level hjkl
-;; pane focus in both (identical muscle memory); the augment tree is the
-;; replace tree PLUS the iTerm `i`-splits drill for the other iTerm splits.
+;; hook below swaps in a herdr variant tree. Both splice the same herdr
+;; tree (including the Panes drill), so the pane surface is identical in
+;; both; the augment tree is the replace tree PLUS the iTerm `i`-splits
+;; drill for the other iTerm splits.
 ;; Both are skeletons here — the full herdr surface (splits / move / zoom /
 ;; digit-jump, tabs, workspaces) is grown alongside the herdr block helpers.
 
@@ -194,7 +195,7 @@
 ;; (muxes herdr) build-herdr-tree. In replace mode herdr owns the sole iTerm
 ;; session so the sequence lands on it; in augment mode it lands on the focused
 ;; (herdr) split (the herdr trees only show when herdr is focused). `c` is free
-;; in build-herdr-tree (top-level keys: x m z d t w g b a).
+;; in build-herdr-tree (top-level keys: p t w g b a).
 ;;
 ;; v1 assumption: the user runs herdr on the DEFAULT prefix (ctrl+b). herdr
 ;; exposes no CLI to query the resolved prefix; if the user rebinds herdr's

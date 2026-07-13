@@ -328,9 +328,9 @@
     ;;
     ;; On each local-leader press the iTerm context-suffix hook picks a
     ;; variant tree by the herdr situation in the frontmost iTerm window.
-    ;; herdr owns the top-level hjkl pane focus in BOTH variant trees
-    ;; (identical muscle memory); the augment tree = this tree + the iTerm
-    ;; `i`-splits drill (spliced in by the config from
+    ;; Both variant trees splice the same herdr tree (including the Panes
+    ;; drill, so the pane surface is identical in both); the augment tree =
+    ;; this tree + the iTerm `i`-splits drill (spliced in by the config from
     ;; (modaliser apps iterm) build-iterm-splits-drill).
 
     ;; The replace/augment classifier (R1). Keyed on the CURRENT-TAB iTerm
@@ -610,12 +610,12 @@
             (herdr-cmd (string-append "agent focus " target))
             (herdr-cmd "notification show 'No blocked agents'"))))
 
-    ;; The Walk top-level focus mode. The Focus panel's hjkl each carry
-    ;; 'next 'herdr-panes-focus (build-herdr-tree, a cross edge), so the
-    ;; first hjkl focuses AND crosses into this mode; each member here
-    ;; carries 'next 'self (a cyclic edge back to itself), so subsequent
-    ;; hjkl keep moving focus without another leader press (herdr owns the
-    ;; top-level hjkl, root BRIEF).
+    ;; The Walk focus mode the Panes drill's Focus panel crosses into. The
+    ;; Focus panel's hjkl each carry 'next 'herdr-panes-focus (build-herdr-
+    ;; tree, a cross edge), so the first hjkl focuses AND crosses into this
+    ;; mode; each member here carries 'next 'self (a cyclic edge back to
+    ;; itself), so subsequent hjkl keep moving focus without another leader
+    ;; press.
     (define (focus-mode-register!)
       (register-tree! 'herdr-panes-focus
         'exit-on-unknown #t
@@ -625,16 +625,22 @@
         (key "k" "Up"    focus-pane-up    'next 'self)
         (key "l" "Right" focus-pane-right 'next 'self)))
 
-    ;; The herdr variant tree. herdr owns the top-level hjkl pane focus —
-    ;; bound to the herdr-DIRECT ops above, never the façade, so it drives
-    ;; herdr regardless of what active-backend resolves to. Returns a list of
-    ;; nodes the config splices into (screen 'com.googlecode.iterm2/herdr …)
-    ;; and, with the iTerm `i`-drill appended, (screen …/herdr+split …).
+    ;; The herdr variant tree. Pane ops are bound to the herdr-DIRECT ops
+    ;; above, never the façade, so they drive herdr regardless of what
+    ;; active-backend resolves to. Returns a list of nodes the config
+    ;; splices into (screen 'com.googlecode.iterm2/herdr …) and, with the
+    ;; iTerm `i`-drill appended, (screen …/herdr+split …).
     ;;
-    ;;   Focus panel  hjkl → focus (crosses into the 'herdr-panes-focus Walk)
-    ;;   x Split      hjkl → new split that direction (left/up = split+swap)
-    ;;   m Move Pane  Walk hjkl → swap focused pane with its neighbour
-    ;;   z / d        toggle zoom / close pane
+    ;;   p Panes      the whole pane surface, drilled (herdr-pane-group grove):
+    ;;                  Focus panel  hjkl → focus (crosses into the
+    ;;                               'herdr-panes-focus Walk)
+    ;;                  s Split      hjkl → new split that direction
+    ;;                               (left/up = split+swap)
+    ;;                  m Move       Walk hjkl → swap focused pane with its
+    ;;                               neighbour
+    ;;                  z / d        toggle zoom / close pane
+    ;;                  Panes panel  the panes list + chips (digit → focus
+    ;;                               by id)
     ;;   t Tabs       n/r/d + the tabs list (digit → switch); no Move Tab —
     ;;                 herdr exposes no socket/CLI tab-reorder verb (see
     ;;                 Tab ops above)
@@ -642,27 +648,28 @@
     ;;   g Worktrees  n/d + the worktrees list (digit → smart-switch)
     ;;   b Jump       focus the next blocked agent (round-robin; toast if none)
     ;;   a Agents     the agents list (status-badged, blocked-first; digit → focus)
-    ;;   Panes panel  the panes list + chips (digit → focus by id)
     (define (build-herdr-tree)
       (list
-        (panel "Focus"
-          (key "h" "Left"  focus-pane-left  'next 'herdr-panes-focus)
-          (key "j" "Down"  focus-pane-down  'next 'herdr-panes-focus)
-          (key "k" "Up"    focus-pane-up    'next 'herdr-panes-focus)
-          (key "l" "Right" focus-pane-right 'next 'herdr-panes-focus))
-        (group "x" "Split"
-          (key "h" "Left"  split-pane-left)
-          (key "j" "Down"  split-pane-down)
-          (key "k" "Up"    split-pane-up)
-          (key "l" "Right" split-pane-right))
-        (group "m" "Move Pane"
-          'exit-on-unknown #t
-          (key "h" "Left"  move-pane-left  'next 'self)
-          (key "j" "Down"  move-pane-down  'next 'self)
-          (key "k" "Up"    move-pane-up    'next 'self)
-          (key "l" "Right" move-pane-right 'next 'self))
-        (key "z" "Toggle Zoom" toggle-pane-zoom)
-        (key "d" "Close Pane"  close-pane)
+        (open "p" "Panes"
+          (panel "Focus"
+            (key "h" "Left"  focus-pane-left  'next 'herdr-panes-focus)
+            (key "j" "Down"  focus-pane-down  'next 'herdr-panes-focus)
+            (key "k" "Up"    focus-pane-up    'next 'herdr-panes-focus)
+            (key "l" "Right" focus-pane-right 'next 'herdr-panes-focus))
+          (group "s" "Split"
+            (key "h" "Left"  split-pane-left)
+            (key "j" "Down"  split-pane-down)
+            (key "k" "Up"    split-pane-up)
+            (key "l" "Right" split-pane-right))
+          (group "m" "Move"
+            'exit-on-unknown #t
+            (key "h" "Left"  move-pane-left  'next 'self)
+            (key "j" "Down"  move-pane-down  'next 'self)
+            (key "k" "Up"    move-pane-up    'next 'self)
+            (key "l" "Right" move-pane-right 'next 'self))
+          (key "z" "Zoom"  toggle-pane-zoom)
+          (key "d" "Close" close-pane)
+          (panel "Panes" (pane-list-block 'chips? #t)))
         (open "t" "Tabs"
           (key "n" "New"    new-tab)
           (key "r" "Rename" rename-focused-tab!)
@@ -688,8 +695,7 @@
         ;; (D8) — no send/read/explain, so the drill is just the list panel.
         (key "b" "Jump to Blocked" jump-to-next-blocked)
         (open "a" "Agents"
-          (panel "Agents" (agent-list-block)))
-        (panel "Panes" (pane-list-block 'chips? #t))))
+          (panel "Agents" (agent-list-block)))))
 
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;

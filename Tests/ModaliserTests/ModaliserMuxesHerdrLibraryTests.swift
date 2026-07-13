@@ -260,18 +260,18 @@ struct ModaliserMuxesHerdrLibraryTests {
     // MARK: - herdr control surface (leaf herdr-controls-k9)
 
     /// `build-herdr-tree` returns the full herdr surface, not the hjkl
-    /// skeleton: a Focus panel, the x Split / m Move groups, z/d pane keys,
-    /// the t Tabs / w Workspaces / g Worktrees drills, the b Jump-to-Blocked
-    /// key + a Agents drill (agents surface, k13), and the Panes list panel —
-    /// eleven top-level nodes. It must build without touching herdr (all
-    /// shell-outs live in on-render thunks / key actions, never at construction
-    /// time).
+    /// skeleton: a `p` Panes drill (Focus panel, s Split / m Move groups,
+    /// z/d pane keys, the Panes list panel), the t Tabs / w Workspaces /
+    /// g Worktrees drills, the b Jump-to-Blocked key, and a Agents drill
+    /// (agents surface, k13) — six top-level nodes (herdr-pane-group grove).
+    /// It must build without touching herdr (all shell-outs live in
+    /// on-render thunks / key actions, never at construction time).
     @Test func buildHerdrTreeIsFullSurface() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
         """)
-        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(11))
+        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(6))
     }
 
     /// (register!) wires the Walk top-level focus mode the herdr tree's
@@ -287,9 +287,10 @@ struct ModaliserMuxesHerdrLibraryTests {
     }
 
     /// ADR-0015 live smoke: dispatching through the REAL build-herdr-tree's
-    /// "m" Move Pane group. Each hjkl carries 'next 'self (a cyclic edge),
-    /// so repeat presses re-arm in place — no exit, no modal-stack growth —
-    /// and an unrelated key still exits per 'exit-on-unknown.
+    /// `p` Panes drill, "m" Move group. Each hjkl carries 'next 'self (a
+    /// cyclic edge), so repeat presses re-arm in place — no exit, no
+    /// modal-stack growth — and an unrelated key still exits per
+    /// 'exit-on-unknown.
     @Test func movePaneWalkReArmsInPlaceAndExitsOnUnknownKey() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
@@ -299,24 +300,25 @@ struct ModaliserMuxesHerdrLibraryTests {
           (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
         """)
         try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        try engine.evaluate("(modal-handle-key \"p\")")
         try engine.evaluate("(modal-handle-key \"m\")")
-        #expect(try engine.evaluate("(equal? modal-current-path '(\"m\"))") == .true)
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"p\" \"m\"))") == .true)
 
         try engine.evaluate("(modal-handle-key \"h\")")
         try engine.evaluate("(modal-handle-key \"j\")")
         #expect(try engine.evaluate("modal-active?") == .true)
-        #expect(try engine.evaluate("(equal? modal-current-path '(\"m\"))") == .true)
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"p\" \"m\"))") == .true)
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
 
-        try engine.evaluate("(modal-handle-key \"q\")") // unbound in Move Pane
+        try engine.evaluate("(modal-handle-key \"q\")") // unbound in Move
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
-    /// ADR-0015 live smoke: the Focus panel's hjkl carry 'next
-    /// 'herdr-panes-focus (a cross edge) — the first press pushes the
-    /// caller (the herdr tree) and switches into the Walk; subsequent
-    /// hjkl inside it cycle via 'next 'self with no further push;
-    /// backspace pops back to the caller.
+    /// ADR-0015 live smoke: the `p` Panes drill's Focus panel's hjkl carry
+    /// 'next 'herdr-panes-focus (a cross edge) — the first press pushes the
+    /// caller (the herdr tree, inside the Panes drill) and switches into
+    /// the Walk; subsequent hjkl inside it cycle via 'next 'self with no
+    /// further push; backspace pops back to the caller.
     @Test func focusPanelCrossesIntoWalkThenCyclesInPlace() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
@@ -327,7 +329,8 @@ struct ModaliserMuxesHerdrLibraryTests {
           (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
         """)
         try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
-        try engine.evaluate("(modal-handle-key \"h\")") // Focus panel, top level
+        try engine.evaluate("(modal-handle-key \"p\")") // Panes drill
+        try engine.evaluate("(modal-handle-key \"h\")") // Focus panel
         #expect(try engine.evaluate(
             "(eq? modal-root-node (lookup-tree \"herdr-panes-focus\"))") == .true)
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))

@@ -180,14 +180,14 @@
     ;; ─── iTerm-direct splits drill (herdr augment variant) ──────────
     ;;
     ;; The `i` drill spliced into the `com.googlecode.iterm2/herdr+split`
-    ;; augment tree (see ADR-0013). herdr owns the top-level hjkl in both
-    ;; herdr trees; when the iTerm window carries *other* splits besides the
-    ;; herdr pane, this drill exposes them — bound to the iTerm-DIRECT ops
-    ;; above (focus-pane-*, split-pane-*, move-pane-*), because in augment
-    ;; mode the (modaliser terminal) façade resolves to herdr and its shims
-    ;; would drive the wrong layer. Content is the core focus / split / move
-    ;; / zoom surface; richer iTerm content (pane chips, digit-jump) is grown
-    ;; alongside the herdr tree content.
+    ;; augment tree (see ADR-0013). Both herdr trees splice the same herdr
+    ;; tree (including its Panes drill); when the iTerm window carries
+    ;; *other* splits besides the herdr pane, this drill exposes them —
+    ;; bound to the iTerm-DIRECT ops above (focus-pane-*, split-pane-*,
+    ;; move-pane-*), because in augment mode the (modaliser terminal) façade
+    ;; resolves to herdr and its shims would drive the wrong layer. Content
+    ;; is the core focus / split / move / zoom surface; richer iTerm content
+    ;; (pane chips, digit-jump) is grown alongside the herdr tree content.
     (define (build-iterm-splits-drill)
       (group "i" "iTerm Splits"
         (key "h" "Focus Left"  focus-pane-left)

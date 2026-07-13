@@ -163,22 +163,26 @@ the plain iTerm tree:
   splits too, so the herdr tree gains an `i` drill for those iTerm
   splits.
 
-herdr owns the top-level `hjkl` (pane focus) in both, so muscle
-memory is identical; augment is literally the replace tree plus the
-iTerm-splits drill. See
+Both variant trees splice the same herdr tree (build-herdr-tree,
+including its `p` Panes drill), so the pane surface — and muscle
+memory — is identical in both; augment is literally the replace tree
+plus the iTerm-splits drill. See
 [ADR-0013](../adr/0013-herdr-replace-vs-augment-tree.md) for why the
 three choices below bind the way they do.
 
 `(herdr:build-herdr-tree)` returns the whole herdr control surface —
 what the overlay shows on `/herdr`:
 
-- **`hjkl`** — focus the pane in that direction (first press crosses
-  into a focus Walk, so subsequent `hjkl` keep moving focus).
-- **`x`** then `hjkl` — split a new pane that direction (left/up split
-  the opposite native way then swap back).
-- **`m`** then `hjkl` — Move Walk: swap the focused pane with its
-  neighbour.
-- **`z`** / **`d`** — toggle zoom / close the focused pane.
+- **`p` Panes** — the entire pane surface, drilled:
+  - **`hjkl`** — focus the pane in that direction (first press crosses
+    into a focus Walk, so subsequent `hjkl` keep moving focus).
+  - **`s`** then `hjkl` — split a new pane that direction (left/up
+    split the opposite native way then swap back).
+  - **`m`** then `hjkl` — Move Walk: swap the focused pane with its
+    neighbour.
+  - **`z`** / **`d`** — toggle zoom / close the focused pane.
+  - **Panes panel** — the panes live list plus digit **chips** over
+    the on-screen panes (replace-mode-correct; see below).
 - **`t` Tabs**, **`w` Workspaces** — each a drill with `n`/`r`/`d`
   (new / rename / close) plus a live list whose digits switch.
 - **`g` Worktrees** — `n` new (prompt a branch), `d` remove the
@@ -188,8 +192,6 @@ what the overlay shows on `/herdr`:
   (round-robin; a toast when none are blocked).
 - **`a` Agents** — the agents live list, status-badged and
   blocked-first; a digit focuses that agent's pane.
-- **Panes panel** — the panes live list plus digit **chips** over the
-  on-screen panes (replace-mode-correct; see below).
 
 Augment (`/herdr+split`) adds one more: an **`i`** drill for the other
 iTerm splits.
