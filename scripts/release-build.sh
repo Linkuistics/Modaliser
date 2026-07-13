@@ -35,14 +35,30 @@ read_version() {
   git -C "$REPO_ROOT" describe --tags --abbrev=0 | sed 's/^v//'
 }
 
+# build-app.sh copies the repo's Info.plist into the bundle verbatim, so the
+# shipped version is whatever that file last hardcoded. Stamp it from the tag
+# instead — the tag is the single source of truth for a release's version, and
+# the two drifted apart for every release up to v2.7.0.
+stamp_bundle_version() {
+  local bundle="$1" version="$2"
+  local plist="$bundle/Contents/Info.plist"
+  echo "release-build: stamping bundle version $version" >&2
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$plist" >&2
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$plist" >&2
+}
+
 # build-app.sh signs with the local "Modaliser Dev" cert when present, which is
 # meaningless on other machines. Re-sign ad-hoc so the release artifact has a
 # consistent (if unverified) signature regardless of the builder's cert state.
+# The version stamp must land before that re-sign: a signature seals Info.plist,
+# so editing the plist afterwards would invalidate it.
 build_app_bundle() {
+  local version="$1"
   echo "release-build: building $APP_NAME.app" >&2
   bash "$REPO_ROOT/scripts/build-app.sh" >&2
   local built="$REPO_ROOT/.build/release/$APP_NAME.app"
   [[ -d "$built" ]] || die "build-app.sh did not produce $built"
+  stamp_bundle_version "$built" "$version"
   echo "release-build: re-signing ad-hoc for distribution" >&2
   codesign --force --sign - "$built" >&2
   echo "$built"
@@ -100,7 +116,7 @@ main() {
   mkdir -p "$DIST_DIR/staging"
 
   local built_app stage archive sha
-  built_app="$(build_app_bundle)"
+  built_app="$(build_app_bundle "$version")"
   stage="$(assemble_bundle "$built_app")"
   archive="$(package_bundle "$stage" "$version")"
   sha="$(sha256_of "$archive")"
