@@ -7,7 +7,7 @@ cask "modaliser" do
   desc "Scheme-scriptable modal keyboard system for macOS"
   homepage "https://github.com/Linkuistics/Modaliser"
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
   depends_on arch: :arm64
 
   app "Modaliser.app"
