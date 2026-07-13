@@ -33,3 +33,24 @@ CONTEXT.md/ADR-0013 updated inline if the grilling changes what "herdr
 owns the top-level hjkl" means.
 
 ## Notes
+
+Grilled 2026-07-13. Decision log (human's calls):
+
+1. hjkl pane-focus moves **fully** under the Panes drill — no top-level
+   duplicate. Retires "herdr owns the top-level hjkl" (ADR-0013 + the
+   CONTEXT.md Replace/Augment entry reworked inline to the splice-identity
+   formulation, which is layout-independent).
+2. Drill row: `p` → "Panes" (plural, parallel to the sibling drills).
+3. Inner keys **renormalized**: `s` Split (against the keep-`x`
+   recommendation — human explicitly chose the redesign), `m`/`z`/`d` kept.
+4. Short inner labels: Split / Move / Zoom / Close.
+5. Panes list + chips + digit-jump move into the drill (`<leader> p 3`).
+
+New glossary term: **Panes drill (herdr)**. Tree grown: pane-drill-k2
+(work) carries the full target shape + reconciliation sweep.
+
+Mid-session, the human raised two further concerns — externalized as
+leaves per the Decompose rule, not absorbed: pane-list-tab-local-k3
+(work: panes list scoped to the displayed tab, precedent 5b2ffa1) and
+prev-next-nav-k4 (planning: prev/next cycling for the four groups —
+keys/wrap/walk semantics need their own grilling).

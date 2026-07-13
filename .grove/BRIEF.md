@@ -8,12 +8,24 @@ instead of scattered at the top level.
 
 ## Done when
 
-Not yet decided — first leaf grills the target hierarchy.
+`build-herdr-tree`'s top level is exactly `p` Panes / `t` Tabs /
+`w` Workspaces / `g` Worktrees / `b` Jump to Blocked / `a` Agents, with the
+whole pane surface (Focus hjkl, `s` Split, `m` Move, `z` Zoom, `d` Close,
+panes list + chips) inside the `p` drill; stale "herdr owns the top-level
+hjkl" claims swept from code comments and docs; tests green.
 
 ## Decomposition
 
-One planning leaf (grilling) to work out where pane ops belong and what
-groups under `Pane`, then likely a follow-up work leaf to implement.
+Grilled 2026-07-13 (plan-k1): everything pane moves under the drill — no
+top-level hjkl duplicate (the ADR-0013 muscle-memory claim is reworked to
+splice-identity), `s` replaces `x` for Split, short inner labels, digits/
+chips behind the drill. pane-drill-k2 (work) implements and carries the
+agreed target shape. Two concerns raised mid-grilling grew the tree
+further: pane-list-tab-local-k3 (work — scope the panes list to the
+displayed tab, mirroring the tabs/workspace scoping of 5b2ffa1) and
+prev-next-nav-k4 (planning — grill prev/next cycling for the
+Workspaces/Tabs/Agents/Panes groups). The grouping is explicitly
+provisional — a future interaction-hierarchy rethink is out of scope here.
 
 ## Pointers
 

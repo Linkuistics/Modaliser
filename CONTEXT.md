@@ -79,8 +79,17 @@ herdr is the *sole* iTerm split in the current tab, so the tree is herdr-only
 (no iTerm controls). **Augment** (`/herdr+split`): the current tab has *other*
 iTerm splits too, so the tree is the herdr tree *plus* an iTerm-splits drill.
 Distinguished by the iTerm split count in the **current tab** — not the whole
-window; a second background tab must not miscount (ADR-0013). herdr owns the
-top-level `hjkl` (pane focus) in both.
+window; a second background tab must not miscount (ADR-0013). Both splice the
+same herdr tree, so the surface — including the **Panes drill** — is identical
+in both. _Avoid_: "herdr owns the top-level hjkl" — the retired pre-drill
+contract; pane focus now lives under the Panes drill.
+
+**Panes drill (herdr)** — the `p` drill row in the herdr tree holding the
+*entire* pane surface: focus (hjkl, crossing into the focus walk), split, move,
+zoom, close, and the panes live-list (chips + digit-jump). Parallel to the
+Tabs / Workspaces / Worktrees / Agents drills; no pane op lives at the herdr
+top level. Provisional grouping "until a better hierarchy of interaction" is
+worked out (herdr-pane-group grove).
 
 ## Modal-dispatch domain
 

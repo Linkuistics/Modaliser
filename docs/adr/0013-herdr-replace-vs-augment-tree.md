@@ -13,9 +13,10 @@ the focused window:
   besides the herdr pane, so the herdr tree gains an `i` drill for those iTerm
   splits.
 
-herdr owns the top-level `hjkl` (pane focus) in **both** trees, so muscle
-memory is identical; augment is literally the replace tree plus the `i`
-iTerm-splits drill.
+Both trees splice the same `build-herdr-tree` — the whole herdr surface,
+including the `p` Panes drill that holds every pane op (focus hjkl, split,
+move, zoom, close, the panes list) — so muscle memory is identical; augment is
+literally the replace tree plus the `i` iTerm-splits drill.
 
 ## Why it binds
 
