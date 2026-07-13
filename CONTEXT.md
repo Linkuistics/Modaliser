@@ -103,12 +103,15 @@ what an action's body does.
 "sticky", "sticky-set" — retired; a group carries no latch flag.
 
 **Dialog command** — a command leaf whose action needs the user's keyboard
-*outside* Modaliser: it fires a command whose UI prompts the user (herdr
-renames, the new-worktree prompt, the worktree-remove confirm) or raises a
-native info dialog (backend error dialogs). Necessarily **Terminal** — the
-released capture is what lets the external UI receive typing — and its action
-must not block Scheme evaluation while that UI is up (ADR-0014). _Avoid_:
-"trigger" — ambiguous with the key that fires an action.
+outside modal key-capture: it fires a command whose UI prompts the user
+(herdr's own new-worktree prompt, the worktree-remove confirm) or raises UI
+Modaliser itself owns (a **Chooser prompt** for herdr tab/workspace rename;
+native info/confirm dialogs for backend errors). Necessarily **Terminal** —
+the released capture is what lets the external UI receive typing — and its
+action must not block Scheme evaluation while that UI is up (ADR-0014).
+_Avoid_: "trigger" — ambiguous with the key that fires an action; assuming
+every dialog command's UI is literally outside the app — some, like the
+Chooser prompt, are Modaliser's own panels.
 
 ## Window-switching domain
 
@@ -183,6 +186,16 @@ hosts a focused text input.
 each chooser hosts. The lone keyboard-text-entry site in Modaliser; if
 clipboard paste fails anywhere in Modaliser, it fails here.
 _Avoid_: "search box", "filter field" — use "chooser input."
+
+**Chooser prompt** — a mode of the Chooser panel with no result list: one
+pre-filled text input, submitted via a closure continuation (CPS, mirroring
+`dialog-confirm`'s shape) rather than an on-select callback. Reuses the same
+activating-WebView machinery and chooser input as the list Chooser;
+`chooser.js` tells the two apart by the *absence* of a `.chooser-results`
+element, not a separate mode flag. A self-contained async action a **Dialog
+command** calls directly (not a `'selector` tree node — no modal-dispatch
+integration). Used where a command needs one piece of typed text before it
+can fire (herdr's tab/workspace rename).
 
 **Standard text-editing shortcuts** — the full Cocoa class of keyboard
 behaviours a focused `NSTextField` / `<input>` gives a macOS user without

@@ -24,9 +24,12 @@ external UI never receives typing. Fix per ADR-0015 + ADR-0014:
 - Terminal-node release-before-action is live; the seven
   `focus-pane-by-digit` slots and all sticky groups/walks are migrated;
   `swift test` and `scripts/check-portable-surface.sh` pass.
-- The four herdr ops fire their verbs async with capture already released
-  (typing lands in herdr's prompt once herdr ships it; until then: verify
-  release + non-blocking).
+- The four herdr ops fire their verbs async with capture already released.
+  Worktree create/remove fire bare into herdr's own UI (no missing-arg gap,
+  so nothing more to verify there); tab/workspace rename collect the label
+  through a Modaliser-owned `chooser-prompt` first — real typing lands
+  immediately, not gated on unshipped herdr-side prompt-on-missing-arg work
+  (`herdr-rename-prompt-ownership-k9`).
 - The iTerm / Kitty / Alacritty error dialogs go through the slim dialogs
   library (release now framework-owned; async via `current-dialog-runner`).
 
