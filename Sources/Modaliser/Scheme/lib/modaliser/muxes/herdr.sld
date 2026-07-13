@@ -550,23 +550,30 @@
     ;; clean `focus` verbs. cursor-*-fn wire the selection cursor to the
     ;; block's live targets / focused row (mirrors iterm:pane-list-block). A
     ;; digit pressed before the on-render snapshot ran re-snapshots on demand.
-    (define (list-digit-range kind focus-fn)
+    ;; ws-id-fn is the optional focused-workspace-id-fn (only the tabs kind
+    ;; passes one — see herdr-list-block below); threaded through so the
+    ;; on-demand refresh stays scoped identically to the on-render snapshot.
+    (define (list-digit-range kind focus-fn ws-id-fn)
       (cons (cons 'hidden #t)
             (key-range "1.." "Item <n>"
               digit-labels
               (lambda (k)
                 (let ((entry (or (assoc k (herdr-list-current-targets))
                                  (begin
-                                   (herdr-list-refresh! kind)
+                                   (herdr-list-refresh! kind (and ws-id-fn (ws-id-fn)))
                                    (assoc k (herdr-list-current-targets))))))
                   (when entry (focus-fn (cdr entry))))))))
 
-    (define (herdr-list-block kind focus-fn chips?)
-      (append (make-herdr-list-block 'kind kind 'chips? chips?)
+    ;; ws-id-fn: an optional zero-arg thunk scoping the tabs kind to the
+    ;; focused workspace (see (modaliser blocks herdr-list)'s module header);
+    ;; #f for every other kind, which stay global by design.
+    (define (herdr-list-block kind focus-fn chips? ws-id-fn)
+      (append (make-herdr-list-block 'kind kind 'chips? chips?
+                                      'focused-workspace-id-fn ws-id-fn)
               (list (cons 'cursor-targets-fn herdr-list-current-targets)
                     (cons 'cursor-initial-index-fn herdr-list-focused-index)
                     (cons 'block-children
-                          (list (list-digit-range kind focus-fn))))))
+                          (list (list-digit-range kind focus-fn ws-id-fn))))))
 
     ;; The panes block takes an optional 'chips? — when #t it paints digit
     ;; chips over the on-screen herdr panes (rects from `herdr pane layout`;
@@ -576,27 +583,31 @@
       (let ((chips? (alist-ref (apply props->alist opts) 'chips? #f)))
         (herdr-list-block 'panes
           (lambda (id) (herdr-cmd (string-append "agent focus " id)))
-          chips?)))
+          chips? #f)))
+    ;; The only kind scoped to the focused workspace (grove herdr-tabs-
+    ;; workspace-local-k3) — reuses focused-workspace-id, the same `pane
+    ;; current` read the close/rename ops below rely on, so no extra query.
     (define (tab-list-block)
       (herdr-list-block 'tabs
-        (lambda (id) (herdr-cmd (string-append "tab focus " id))) #f))
+        (lambda (id) (herdr-cmd (string-append "tab focus " id))) #f
+        focused-workspace-id))
     (define (workspace-list-block)
       (herdr-list-block 'workspaces
-        (lambda (id) (herdr-cmd (string-append "workspace focus " id))) #f))
+        (lambda (id) (herdr-cmd (string-append "workspace focus " id))) #f #f))
     ;; Agents list (D1/D7): the 'agents kind reorders status-priority
     ;; (blocked-first) and paints a status badge; digit → focus the agent's
     ;; pane by id via the universal `agent focus`. No chips (D6) — the list is
     ;; the visualization, and agents can live cross-workspace (off-screen).
     (define (agent-list-block)
       (herdr-list-block 'agents
-        (lambda (id) (herdr-cmd (string-append "agent focus " id))) #f))
+        (lambda (id) (herdr-cmd (string-append "agent focus " id))) #f #f))
     ;; Worktrees list (W3/W4): the 'worktrees kind whose digit target is a
     ;; COMPUTED tagged string (open → "ws:<id>", dormant → "br:<branch>"), so the
     ;; focus-fn is the smart-switch parser, not a bare `<x> focus`. Branch title +
     ;; ●/○ path detail; no chips (worktrees have no on-screen rect — the list is
     ;; the visualization, like agents).
     (define (worktree-list-block)
-      (herdr-list-block 'worktrees switch-worktree #f))
+      (herdr-list-block 'worktrees switch-worktree #f #f))
 
     ;; ─── Jump to next blocked agent (top-level `b`, D4/D5) ──────────
     ;;
