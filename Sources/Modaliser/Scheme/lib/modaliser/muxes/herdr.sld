@@ -374,21 +374,49 @@
       (let ((id (focused-workspace-id)))
         (when id (herdr-cmd (string-append "workspace close " id)))))
 
-    ;; Rename ops fire the verb WITHOUT the new label: herdr requires the
-    ;; label positionally (`tab rename <id> <label>`), and prompt-on-
-    ;; missing-arg is unshipped herdr-repo work with no ETA, so today the
-    ;; verb just errors harmlessly (stderr swallowed by the log-only
-    ;; callback) — the guard + async-fire shape is still fully verifiable.
-    ;; Per ADR-0014 (reworked at herdr-rename-prompt-ownership-k9) these two
-    ;; ops are moving to a Modaliser-owned `chooser-prompt` instead of
-    ;; waiting on herdr — see that leaf/node for the wiring
-    ;; (chooser-prompt-herdr-rename-k10).
+    ;; herdr requires the rename label positionally (`tab rename <id>
+    ;; <label>`), and prompt-on-missing-arg is unshipped herdr-repo work
+    ;; with no ETA (ADR-0014, reworked at herdr-rename-prompt-ownership-k9),
+    ;; so these two ops collect the label through a Modaliser-owned
+    ;; chooser-prompt instead of firing bare and hitting herdr's own
+    ;; usage-error exit. Look up ID's current label via `herdr <kind> list`
+    ;; (the same query the live-list blocks already read) so the prompt
+    ;; opens pre-filled; a failed/empty lookup degrades to "" rather than
+    ;; blocking the rename.
+    (define (herdr-label-for-id list-cmd list-key id-key id)
+      (let* ((j (herdr-json list-cmd))
+             (arr (and j (json-ref (json-ref j "result") list-key))))
+        (if (not (vector? arr))
+            ""
+            (let loop ((k 0))
+              (if (>= k (vector-length arr))
+                  ""
+                  (let ((item (vector-ref arr k)))
+                    (if (equal? (json-ref item id-key) id)
+                        (let ((lab (json-ref item "label")))
+                          (if (string? lab) lab ""))
+                        (loop (+ k 1)))))))))
+
+    ;; Enter submits the edited label, sq-escaped and single-quoted exactly
+    ;; like worktree-switch-command's branch-name interpolation below;
+    ;; Escape cancels the prompt and never calls this continuation, so no
+    ;; herdr call fires.
     (define (rename-focused-tab!)
       (let ((id (focused-tab-id)))
-        (when id (herdr-cmd-async (string-append "tab rename " id)))))
+        (when id
+          (open-chooser-prompt "Rename tab…"
+            (herdr-label-for-id "tab list" "tabs" "tab_id" id)
+            (lambda (label)
+              (herdr-cmd-async
+                (string-append "tab rename " id " '" (sq-escape label) "'")))))))
     (define (rename-focused-workspace!)
       (let ((id (focused-workspace-id)))
-        (when id (herdr-cmd-async (string-append "workspace rename " id)))))
+        (when id
+          (open-chooser-prompt "Rename workspace…"
+            (herdr-label-for-id "workspace list" "workspaces" "workspace_id" id)
+            (lambda (label)
+              (herdr-cmd-async
+                (string-append "workspace rename " id " '" (sq-escape label) "'")))))))
 
     ;; ─── Worktree ops (the `g` Worktrees drill, W1–W4) ──────────────
     ;;

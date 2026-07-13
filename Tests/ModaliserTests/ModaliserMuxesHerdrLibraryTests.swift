@@ -761,21 +761,16 @@ struct ModaliserMuxesHerdrLibraryTests {
 
     // MARK: - Async herdr ops (leaf herdr-dialogs-async-k2)
 
-    /// ADR-0014: the four interactive herdr ops — rename tab, rename
-    /// workspace, new worktree, remove worktree — fire fire-and-forget async
-    /// with no continuation payload here. As of this leaf, worktree create/
-    /// remove still take no Modaliser dialog (herdr's own UI, no missing-arg
-    /// gap); the two rename ops are moving to a Modaliser-owned
-    /// `chooser-prompt` instead of waiting on herdr (ADR-0014, reworked at
-    /// herdr-rename-prompt-ownership-k9) — this test still exercises the
-    /// pre-rewire bare-verb fire until chooser-prompt-herdr-rename-k10 lands.
-    /// Both the id-resolution query and the async fire are routed through
-    /// parameterized test seams so no test spawns a real herdr
-    /// (feedback_no_live_env_mutation_in_tests): current-herdr-query-runner
-    /// hands back canned `pane current` JSON in place of a live query;
-    /// current-herdr-async-runner captures the exact verb string in place of
-    /// firing run-shell-async.
-    @Test func fourHerdrOpsFireExactAsyncVerbsWithFocusedId() throws {
+    /// ADR-0014: worktree create/remove fire fire-and-forget async with no
+    /// continuation payload — herdr's own UI, no missing-arg gap (unlike
+    /// the rename ops below, moved off this bare-fire shape at
+    /// herdr-rename-prompt-ownership-k9). Both the id-resolution query and
+    /// the async fire are routed through parameterized test seams so no
+    /// test spawns a real herdr (feedback_no_live_env_mutation_in_tests):
+    /// current-herdr-query-runner hands back canned `pane current` JSON in
+    /// place of a live query; current-herdr-async-runner captures the
+    /// exact verb string in place of firing run-shell-async.
+    @Test func worktreeOpsFireExactAsyncVerbsWithFocusedId() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
         try engine.evaluate(#"""
@@ -786,31 +781,118 @@ struct ModaliserMuxesHerdrLibraryTests {
                  (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}")))
              (current-herdr-async-runner
                (lambda (args callback) (set! captured (cons args captured)))))
-            (rename-focused-tab!)
-            (rename-focused-workspace!)
             (new-worktree!)
             (remove-focused-worktree!))
           (set! captured (reverse captured))
         """#)
-        #expect(try engine.evaluate("(list-ref captured 0)") == .string("tab rename w9:t1"))
-        #expect(try engine.evaluate("(list-ref captured 1)") == .string("workspace rename w9"))
-        #expect(try engine.evaluate("(list-ref captured 2)")
+        #expect(try engine.evaluate("(list-ref captured 0)")
                 == .string("worktree create --workspace w9 --focus"))
-        #expect(try engine.evaluate("(list-ref captured 3)")
+        #expect(try engine.evaluate("(list-ref captured 1)")
                 == .string("worktree remove --workspace w9"))
     }
 
+    /// herdr-rename-prompt-ownership-k9: the two rename ops no longer fire
+    /// bare — they open a Modaliser-owned chooser-prompt (via the
+    /// (modaliser state-machine) open-chooser-prompt deferred hook, the
+    /// same shape open-chooser uses) pre-filled with the id's current
+    /// label, read via `tab list` (the same query the live-list blocks
+    /// already use). Only submitting the prompt's continuation fires the
+    /// async verb, with the (possibly edited) label sq-escaped and
+    /// single-quoted exactly like worktree-switch-command's branch-name
+    /// interpolation. open-chooser-prompt is a plain setter (not a
+    /// parameter), so it's stubbed directly rather than parameterized —
+    /// the stub captures the (prompt, initial-value, on-submit) triple
+    /// without a real WebView.
+    @Test func renameFocusedTabOpensPromptPrefilledAndFiresEscapedLabelOnSubmit() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser muxes herdr) (modaliser state-machine) (modaliser json))
+        """)
+        try engine.evaluate(#"""
+          (define captured-prompt #f)
+          (define captured-initial #f)
+          (define captured-submit #f)
+          (define captured-cmd #f)
+          (set-open-chooser-prompt!
+            (lambda (prompt initial on-submit)
+              (set! captured-prompt prompt)
+              (set! captured-initial initial)
+              (set! captured-submit on-submit)))
+          (parameterize
+            ((current-herdr-query-runner
+               (lambda (args)
+                 (cond
+                   ((string=? args "pane current")
+                    (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}"))
+                   ((string=? args "tab list")
+                    (json-parse "{\"result\":{\"tabs\":[{\"tab_id\":\"w9:t1\",\"label\":\"main\"}]}}"))
+                   (else #f))))
+             (current-herdr-async-runner
+               (lambda (args callback) (set! captured-cmd args))))
+            (rename-focused-tab!)
+            (captured-submit "feature work"))
+        """#)
+        #expect(try engine.evaluate("captured-prompt").asString() == "Rename tab…")
+        #expect(try engine.evaluate("captured-initial").asString() == "main")
+        #expect(try engine.evaluate("captured-cmd").asString()
+                == "tab rename w9:t1 'feature work'")
+    }
+
+    /// Same shape as the tab test above, plus the sq-escape case: an
+    /// apostrophe in the submitted label must reach the fired verb via the
+    /// close-quote/escaped-literal/reopen idiom (POSIX single-quote
+    /// escaping), not break the shell-command quoting.
+    @Test func renameFocusedWorkspaceOpensPromptPrefilledAndEscapesApostropheOnSubmit() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser muxes herdr) (modaliser state-machine) (modaliser json))
+        """)
+        try engine.evaluate(#"""
+          (define captured-prompt #f)
+          (define captured-initial #f)
+          (define captured-submit #f)
+          (define captured-cmd #f)
+          (set-open-chooser-prompt!
+            (lambda (prompt initial on-submit)
+              (set! captured-prompt prompt)
+              (set! captured-initial initial)
+              (set! captured-submit on-submit)))
+          (parameterize
+            ((current-herdr-query-runner
+               (lambda (args)
+                 (cond
+                   ((string=? args "pane current")
+                    (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}"))
+                   ((string=? args "workspace list")
+                    (json-parse "{\"result\":{\"workspaces\":[{\"workspace_id\":\"w9\",\"label\":\"work\"}]}}"))
+                   (else #f))))
+             (current-herdr-async-runner
+               (lambda (args callback) (set! captured-cmd args))))
+            (rename-focused-workspace!)
+            (captured-submit "it's mine"))
+        """#)
+        #expect(try engine.evaluate("captured-prompt").asString() == "Rename workspace…")
+        #expect(try engine.evaluate("captured-initial").asString() == "work")
+        #expect(try engine.evaluate("captured-cmd").asString()
+                == "workspace rename w9 'it'\\''s mine'")
+    }
+
     /// The guard: with no focused id (herdr unreachable — `pane current`
-    /// resolves to #f), all four ops no-op — the async runner is never
-    /// invoked. The query runner is explicitly stubbed to #f rather than
-    /// relying on the ambient environment lacking herdr, so the assertion
-    /// holds regardless of whether the host machine has a live herdr
-    /// session.
+    /// resolves to #f), all four ops no-op — neither the async runner nor
+    /// (for the two rename ops) open-chooser-prompt is ever invoked. The
+    /// query runner is explicitly stubbed to #f rather than relying on the
+    /// ambient environment lacking herdr, so the assertion holds
+    /// regardless of whether the host machine has a live herdr session.
     @Test func fourHerdrOpsNoOpWithoutFocusedId() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate("""
+          (import (modaliser muxes herdr) (modaliser state-machine) (modaliser json))
+        """)
         try engine.evaluate("""
           (define fired? #f)
+          (define prompted? #f)
+          (set-open-chooser-prompt!
+            (lambda (prompt initial on-submit) (set! prompted? #t)))
           (parameterize
             ((current-herdr-query-runner (lambda (args) #f))
              (current-herdr-async-runner (lambda (args callback) (set! fired? #t))))
@@ -820,5 +902,6 @@ struct ModaliserMuxesHerdrLibraryTests {
             (remove-focused-worktree!))
         """)
         #expect(try engine.evaluate("fired?") == .false)
+        #expect(try engine.evaluate("prompted?") == .false)
     }
 }

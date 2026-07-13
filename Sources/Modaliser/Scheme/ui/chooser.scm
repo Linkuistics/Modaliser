@@ -26,11 +26,15 @@
 (define chooser-selector-node #f)    ;; the selector alist
 (define chooser-action-index 0)      ;; index into actions list when panel is visible
 (define chooser-dynamic-search #f)   ;; dynamic-search callback or #f
+(define chooser-prompt-on-submit #f) ;; chooser-prompt continuation, or #f when no prompt is open
 
 ;; ─── Panel Configuration ────────────────────────────────────
 
 (define chooser-panel-width 500)
 (define chooser-panel-height 420)
+;; chooser-prompt has no result list or actions panel — a single input
+;; row plus header/footer, so a much shorter panel than the list chooser.
+(define chooser-prompt-panel-height 130)
 
 ;; ─── Highlight Matches ──────────────────────────────────────
 
@@ -345,7 +349,8 @@
     (set! chooser-actions-visible? #f)
     (set! chooser-selector-node #f)
     (set! chooser-action-index 0)
-    (set! chooser-dynamic-search #f)))
+    (set! chooser-dynamic-search #f)
+    (set! chooser-prompt-on-submit #f)))
 
 ;; Render just the results rows as an HTML string (no document wrapper).
 (define (render-results-inner-html visible-items selected-index)
@@ -417,6 +422,91 @@
         (render-chooser-html prompt chooser-filtered chooser-query
                              chooser-selected-index chooser-actions-visible?
                              actions)))))
+
+;; ─── Chooser Prompt (text input + closure continuation) ─────
+;;
+;; A minimal mode of the same activating-WebView panel (herdr-rename-
+;; prompt-ownership-k9): one pre-filled text input, no result list, no
+;; actions. Enter submits the typed value through a continuation closure —
+;; CPS-shaped like (modaliser dialogs)'s dialog-confirm; Escape cancels and
+;; the continuation never fires. Reuses chooser-open?/close-chooser (set
+;; via set-chooser-open!/chooser-close-impl above) so a leader press while
+;; the prompt is up closes it exactly like the list chooser (see
+;; make-leader-handler in event-dispatch.sld).
+
+;; (render-chooser-prompt-html prompt value) → HTML document string
+;;
+;; Pure. Deliberately omits any .chooser-results element — chooser.js's
+;; keydown handler uses its absence to detect prompt mode and post
+;; 'submit (with the input's current value) instead of 'select on Enter.
+(define (render-chooser-prompt-html prompt value)
+  (let* ((css (string-append overlay-base-css
+                             (if (string=? user-theme-css "")
+                               ""
+                               (string-append "\n" user-theme-css))))
+         (segments (append (modal-root-segments)
+                           (list (chooser-prompt-segment prompt))))
+         ;; Empty count span keeps the same two-flex-child layout as
+         ;; chooser-footer-html, so the hints still anchor the right edge.
+         (footer-html
+           (string-append
+             "<span class=\"chooser-footer-count\"></span>"
+             "<span class=\"chooser-footer-hints\">"
+               (footer-hints-html
+                 (list (list chooser-sigil-enter  "submit" #t)
+                       (list chooser-sigil-escape "cancel" #t)))
+             "</span>"))
+         (body
+           (div '((class . "chooser"))
+             (render-header-breadcrumb "chooser-header" segments)
+             (div '((class . "chooser-search"))
+               (input-element (list (cons 'type "text")
+                                    (cons 'class "chooser-input")
+                                    (cons 'id "chooser-input")
+                                    (cons 'value value)
+                                    (cons 'autocomplete "off")
+                                    (cons 'autofocus #t))))
+             (div '((class . "chooser-footer")) (make-raw-html footer-html)))))
+    (html-document
+      (make-raw-html
+        (string-append
+          (html->string (style-element '() css))
+          (html->string (script-element '() chooser-js))))
+      body)))
+
+;; Handle messages from the chooser JavaScript while in prompt mode
+;; (registered instead of chooser-message-handler by chooser-prompt-impl).
+;; 'submit fires the continuation with the typed value; 'cancel closes
+;; without ever calling it (ADR-0014's CPS shape).
+(define (chooser-prompt-message-handler msg)
+  (let ((msg-type (alist-ref msg 'type "")))
+    (cond
+      ((equal? msg-type "submit")
+       (let ((value (alist-ref msg 'value ""))
+             (k chooser-prompt-on-submit))
+         (close-chooser)
+         (when k (k value))))
+      ((equal? msg-type "cancel")
+       (close-chooser)))))
+
+;; (chooser-prompt-impl prompt initial-value on-submit) — open the prompt
+;; panel. Installed via (set-open-chooser-prompt! chooser-prompt-impl);
+;; herdr.sld (portable tree) calls it through the (modaliser state-machine)
+;; open-chooser-prompt hook, the same shape open-chooser uses.
+(define (chooser-prompt-impl prompt initial-value on-submit)
+  (set-chooser-open! #t)
+  (set! chooser-prompt-on-submit on-submit)
+  (webview-create chooser-webview-id
+    (list (cons 'width chooser-panel-width)
+          (cons 'height chooser-prompt-panel-height)
+          (cons 'activating #t)
+          (cons 'floating #t)
+          (cons 'transparent #t)
+          (cons 'shadow #t)
+          (cons 'asset-root *scheme-directory*)))
+  (webview-on-message chooser-webview-id chooser-prompt-message-handler)
+  (webview-set-html! chooser-webview-id
+    (render-chooser-prompt-html prompt initial-value)))
 
 ;; ─── Dynamic Chooser Support ────────────────────────────────
 
@@ -545,6 +635,7 @@
 ;; Install chooser implementation into the state-machine.
 (set-open-chooser! chooser-open-impl)
 (set-close-chooser! chooser-close-impl)
+(set-open-chooser-prompt! chooser-prompt-impl)
 
 ;; ─── File Indexing ──────────────────────────────────────────
 ;; index-files is a Swift native function in (modaliser app).

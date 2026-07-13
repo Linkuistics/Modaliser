@@ -36,8 +36,9 @@
     set-on-leave-accepts-reason!
     ;; Overlay/chooser hooks
     overlay-open? show-overlay update-overlay hide-overlay open-chooser
+    open-chooser-prompt
     set-overlay-open! set-show-overlay! set-update-overlay!
-    set-hide-overlay! set-open-chooser!
+    set-hide-overlay! set-open-chooser! set-open-chooser-prompt!
     chooser-open? set-chooser-open! close-chooser set-close-chooser!
     ;; Breadcrumb
     resolve-app-segments compute-root-segments compute-tree-root-segments)
@@ -402,16 +403,25 @@
 (define update-overlay-impl (lambda (node path) (if #f #f)))
 (define hide-overlay-impl   (lambda ()          (if #f #f)))
 (define open-chooser-impl   (lambda (sel)       (if #f #f)))
+;; chooser-prompt (herdr-rename-prompt-ownership-k9): a second, narrower
+;; entry point into the same host-specific chooser panel — a text-input +
+;; closure-continuation mode, not a selector tree-node. Same deferred-hook
+;; shape as open-chooser, so a portable-tree library (herdr.sld) can call
+;; it without importing ui/chooser.scm directly.
+(define open-chooser-prompt-impl (lambda (prompt initial on-submit) (if #f #f)))
 
 (define (show-overlay   node path) (show-overlay-impl node path))
 (define (update-overlay node path) (update-overlay-impl node path))
 (define (hide-overlay)             (hide-overlay-impl))
 (define (open-chooser selector-node) (open-chooser-impl selector-node))
+(define (open-chooser-prompt prompt initial-value on-submit)
+  (open-chooser-prompt-impl prompt initial-value on-submit))
 
 (define (set-show-overlay!   fn) (set! show-overlay-impl   fn))
 (define (set-update-overlay! fn) (set! update-overlay-impl fn))
 (define (set-hide-overlay!   fn) (set! hide-overlay-impl   fn))
 (define (set-open-chooser!   fn) (set! open-chooser-impl   fn))
+(define (set-open-chooser-prompt! fn) (set! open-chooser-prompt-impl fn))
 
 ;; %chooser-open?-flag is private; chooser-open? exported as a thunk
 ;; for the same LispKit-snapshotting reason as overlay-open? above.

@@ -38,16 +38,31 @@ document.addEventListener('DOMContentLoaded', function() {
       sendSelect('secondary-action');
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      sendSelect('select');
+      if (isPromptMode()) {
+        window.webkit.messageHandlers.modaliser.postMessage({
+          type: 'submit',
+          value: input.value
+        });
+      } else {
+        sendSelect('select');
+      }
     } else if (e.key === 'Escape') {
       e.preventDefault();
       window.webkit.messageHandlers.modaliser.postMessage({ type: 'cancel' });
-    } else if (e.key === 'Tab') {
+    } else if (e.key === 'Tab' && !isPromptMode()) {
       e.preventDefault();
       window.webkit.messageHandlers.modaliser.postMessage({ type: 'toggle-actions' });
     }
   });
 });
+
+// chooser-prompt mode (a text input + continuation, no result list) reuses
+// this same panel/JS — render-chooser-prompt-html omits .chooser-results,
+// so its absence is the mode signal: no separate flag needs to ride
+// through the Scheme → HTML → JS handoff.
+function isPromptMode() {
+  return !document.querySelector('.chooser-results');
+}
 
 function moveSelection(delta) {
   if (chooserItems.length === 0) return;

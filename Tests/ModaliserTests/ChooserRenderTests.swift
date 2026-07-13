@@ -353,4 +353,72 @@ struct ChooserRenderTests {
         #expect(html.contains("Find app"))
     }
 
+    // MARK: - Chooser Prompt (herdr-rename-prompt-ownership-k9)
+
+    @Test func renderChooserPromptHtmlContainsPrefilledInput() throws {
+        let engine = try loadAllModules()
+        let html = try engine.evaluate("""
+            (render-chooser-prompt-html "Rename tab…" "main")
+            """).asString()
+        #expect(html.contains("<input"))
+        #expect(html.contains("chooser-input"))
+        #expect(html.contains("value=\"main\""))
+        #expect(html.contains("Rename tab"))
+    }
+
+    // chooser.js detects prompt mode by the ABSENCE of a .chooser-results
+    // DOM element — the prompt render path must never emit that element,
+    // or Enter would wrongly dispatch through the list-select path
+    // instead of submit. The embedded chooser-js script mentions the
+    // class name in its own source regardless of mode (isPromptMode's
+    // querySelector call), so assert against the actual element markup,
+    // not the bare substring.
+    @Test func renderChooserPromptHtmlOmitsResultsList() throws {
+        let engine = try loadAllModules()
+        let html = try engine.evaluate("""
+            (render-chooser-prompt-html "Rename tab…" "")
+            """).asString()
+        #expect(!html.contains("class=\"chooser-results\""))
+    }
+
+    @Test func renderChooserPromptHtmlShowsSubmitCancelHints() throws {
+        let engine = try loadAllModules()
+        let html = try engine.evaluate("""
+            (render-chooser-prompt-html "Rename tab…" "")
+            """).asString()
+        #expect(html.contains(" submit</span>"))
+        #expect(html.contains(" cancel</span>"))
+        // Not the list-chooser's choose/select hints — this mode has no
+        // result list to choose or select from.
+        #expect(!html.contains(" choose</span>"))
+        #expect(!html.contains(" select</span>"))
+    }
+
+    @Test func chooserPromptMessageHandlerSubmitInvokesContinuationAndCloses() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("""
+            (define submitted #f)
+            (chooser-prompt-impl "Rename tab…" "main"
+              (lambda (v) (set! submitted v)))
+            (chooser-prompt-message-handler
+              (list (cons 'type "submit") (cons 'value "renamed")))
+            """)
+        #expect(try engine.evaluate("submitted").asString() == "renamed")
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
+        #expect(try engine.evaluate("(length webview-close-calls)").asInt() == 1)
+    }
+
+    @Test func chooserPromptMessageHandlerCancelClosesWithoutInvokingContinuation() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("""
+            (define submitted #f)
+            (chooser-prompt-impl "Rename tab…" "main"
+              (lambda (v) (set! submitted v)))
+            (chooser-prompt-message-handler (list (cons 'type "cancel")))
+            """)
+        #expect(try engine.evaluate("submitted") == .false)
+        #expect(try engine.evaluate("(chooser-open?)") == .false)
+        #expect(try engine.evaluate("(length webview-close-calls)").asInt() == 1)
+    }
+
 }
