@@ -22,6 +22,17 @@
 ;; no re-query. No status badge; the open/dormant state is folded into the
 ;; dimmed detail text (● open / ○ dormant), reusing the renderer unchanged.
 ;;
+;; The panes kind is tab-scoped, unlike tabs/workspaces/agents/worktrees which
+;; stay global by design (herdr-pane-group grove). `pane list` spans every
+;; workspace and tab (confirmed live — no `result.source` to compare against,
+;; same as tabs before it), so the focused tab id is supplied by the caller —
+;; (modaliser muxes herdr)'s `focused-tab-id`, a `pane current` read — via the
+;; 'focused-tab-id-fn block opt, threaded through snapshot! into
+;; herdr-list-extract's focused-tab-id parameter. A pane row whose tab_id
+;; doesn't match is dropped before labels are assigned, so digits and chips
+;; map to exactly the displayed tab's panes. #f (herdr unreachable, no focused
+;; tab known) degrades to unfiltered — global — rather than an empty list.
+;;
 ;; (make-herdr-list-block 'kind 'panes|'tabs|'workspaces|'agents|'worktrees . opts)
 ;;   → block-spec
 ;;
@@ -51,11 +62,15 @@
 ;;   • AREA-RELATIVE. herdr paints a left sidebar, so layout.area.x ≥ 26; we
 ;;     subtract area.x/area.y before scaling so the sidebar offset doesn't
 ;;     shift every chip right.
-;;   • SUBSET of rows. `pane layout` covers only the CURRENT tab's splits,
-;;     while `pane list` (the row source) spans all tabs. So chips are keyed to
-;;     the row labels by pane_id: a row whose pane is off-tab simply gets no
-;;     chip. Digit-jump still focuses it by id (via `agent focus`); only the
-;;     visible chip is absent.
+;;   • SUBSET of rows, historically. `pane layout` covers only the CURRENT
+;;     tab's splits; since pane-list-tab-local-k3, `pane list` (the row
+;;     source) is scoped identically (dropped to the focused tab in the pure
+;;     extractor, mirroring the tabs kind's workspace-scoping), so a listed
+;;     pane always has a matching chip. The lookup-by-pane_id keying stays as
+;;     the mechanism — it still matters for the degraded #f-focused-tab-id
+;;     case, where the row list reverts to global and an off-tab row again
+;;     has no chip. Digit-jump still focuses such a row by id (via `agent
+;;     focus`); only the visible chip is absent.
 ;;   • REPLACE MODE ONLY is correct. host-frame takes the FIRST iTerm
 ;;     AXScrollArea; in replace mode herdr owns the sole one, so the frame is
 ;;     right. In augment mode (herdr + other iTerm splits) that first area may
@@ -275,12 +290,17 @@
                             raw))))
         (append (band 0) (band 1) (band 2) (band 3))))
 
-    ;; Pure extractor: parsed `herdr <x> list` JSON + kind + labels →
-    ;; (targets . rows). targets = ((label . id) …) for the first (length
-    ;; labels) entries; rows = every entry as an alist ((label title detail
-    ;; focused) plus, for the agents kind only, status). An entry past the
-    ;; label supply still renders (blank key, no dispatch). Exported so a
-    ;; fixture-fed test needs no live herdr.
+    ;; Pure extractor: parsed `herdr <x> list` JSON + kind + labels +
+    ;; focused-tab-id → (targets . rows). targets = ((label . id) …) for the
+    ;; first (length labels) entries; rows = every entry as an alist ((label
+    ;; title detail focused) plus, for the agents kind only, status). An
+    ;; entry past the label supply still renders (blank key, no dispatch).
+    ;; Exported so a fixture-fed test needs no live herdr.
+    ;;
+    ;; focused-tab-id scopes the panes kind only (tabs/workspaces/agents/
+    ;; worktrees ignore it — global by design): a pane whose tab_id doesn't
+    ;; match is dropped in phase 1, before labels are assigned, so digits map
+    ;; to exactly the displayed tab's panes. #f degrades to unfiltered.
     ;;
     ;; The worktrees kind computes its digit target (a tagged
     ;; open-workspace-id-or-branch) and its current row (open_workspace_id ==
@@ -288,18 +308,23 @@
     ;; id / `focused` field; it too carries no status and skips the reorder.
     ;;
     ;; Three phases, so the agents kind can reorder BEFORE labels are assigned:
-    ;;  1. gather   — one raw entry per item, in JSON order.
+    ;;  1. gather   — one raw entry per item, in JSON order; panes also filters
+    ;;                by focused-tab-id here.
     ;;  2. reorder  — agents only: status-priority (blocked-first), stable band.
     ;;  3. label    — walk the (possibly reordered) entries, assigning digit
     ;;                labels and building targets so digit "1" = first row.
     ;; The non-agents kinds skip phase 2 and carry no status.
-    (define (herdr-list-extract kind labels parsed)
+    (define (herdr-list-extract kind labels parsed focused-tab-id)
       (let* ((spec       (kind-spec kind))
              (array-key  (list-ref spec 1))
              (id-key     (list-ref spec 2))
              (title-key  (list-ref spec 3))
              (agents?    (eq? kind 'agents))
              (worktrees? (eq? kind 'worktrees))
+             ;; Panes only: drop rows outside the focused tab. #f (no focused
+             ;; tab known — herdr unreachable) degrades to unfiltered rather
+             ;; than an empty list.
+             (panes-scoped? (and (eq? kind 'panes) (string? focused-tab-id)))
              (arr (and parsed
                        (json-ref (json-ref parsed "result") array-key)))
              (items (if (vector? arr) arr #()))
@@ -314,35 +339,42 @@
              ;; Phase 1 — raw entries in JSON order. `has-id` records whether a
              ;; real target was built (only those become digit targets); for
              ;; worktrees the target is the computed tagged string; `status` is
-             ;; the agent_status string for agents, else #f.
+             ;; the agent_status string for agents, else #f. A pane outside the
+             ;; focused tab (panes-scoped?) is skipped entirely, so it never
+             ;; reaches phase 3's label assignment.
              (raw
               (let loop ((k 0) (acc '()))
                 (if (>= k (vector-length items))
                     (reverse acc)
-                    (let* ((item    (vector-ref items k))
-                           ;; Digit target: worktrees compute a tagged string
-                           ;; (or #f when unswitchable); other kinds read the
-                           ;; plain id field.
-                           (target  (if worktrees?
-                                        (worktree-target item)
-                                        (json-ref item id-key)))
-                           (idstr   (if (string? target) target ""))
-                           ;; `focused`: worktrees compute the current row
-                           ;; cross-field; other kinds read herdr's `focused`.
-                           (focused (if worktrees?
-                                        (worktree-current? item source-ws-id)
-                                        (eq? (json-ref item "focused") #t)))
-                           (status  (and agents?
-                                         (let ((s (json-ref item "agent_status")))
-                                           (if (string? s) s "unknown")))))
-                      (loop (+ k 1)
-                            (cons (list (cons 'id idstr)
-                                        (cons 'has-id (string? target))
-                                        (cons 'focused focused)
-                                        (cons 'title (row-title kind item idstr title-key))
-                                        (cons 'detail (row-detail kind item))
-                                        (cons 'status status))
-                                  acc))))))
+                    (let ((item (vector-ref items k)))
+                      (if (and panes-scoped?
+                               (not (equal? (json-ref item "tab_id")
+                                            focused-tab-id)))
+                          (loop (+ k 1) acc)
+                          (let* (;; Digit target: worktrees compute a tagged
+                                 ;; string (or #f when unswitchable); other
+                                 ;; kinds read the plain id field.
+                                 (target  (if worktrees?
+                                              (worktree-target item)
+                                              (json-ref item id-key)))
+                                 (idstr   (if (string? target) target ""))
+                                 ;; `focused`: worktrees compute the current row
+                                 ;; cross-field; other kinds read herdr's
+                                 ;; `focused`.
+                                 (focused (if worktrees?
+                                              (worktree-current? item source-ws-id)
+                                              (eq? (json-ref item "focused") #t)))
+                                 (status  (and agents?
+                                               (let ((s (json-ref item "agent_status")))
+                                                 (if (string? s) s "unknown")))))
+                            (loop (+ k 1)
+                                  (cons (list (cons 'id idstr)
+                                              (cons 'has-id (string? target))
+                                              (cons 'focused focused)
+                                              (cons 'title (row-title kind item idstr title-key))
+                                              (cons 'detail (row-detail kind item))
+                                              (cons 'status status))
+                                        acc))))))))
              ;; Phase 2 — agents reorder status-priority; other kinds untouched.
              (entries (if agents? (order-agents-by-status raw) raw)))
         ;; Phase 3 — assign labels over the final sequence.
@@ -375,10 +407,12 @@
                            rows))))))))
 
     ;; Query herdr, extract, store into the shared cell. Returns targets.
-    (define (snapshot! kind labels)
+    ;; focused-tab-id is threaded straight into herdr-list-extract — see its
+    ;; docstring; only the panes kind uses it.
+    (define (snapshot! kind labels focused-tab-id)
       (let* ((spec   (kind-spec kind))
              (parsed (herdr-list-json (list-ref spec 0)))
-             (pair   (herdr-list-extract kind labels parsed)))
+             (pair   (herdr-list-extract kind labels parsed focused-tab-id)))
         (set! current-targets (car pair))
         (set! current-data    (cdr pair))
         current-targets))
@@ -386,8 +420,10 @@
     ;; On-demand refresh for the digit key-range: a leader-then-digit press
     ;; faster than the overlay delay can fire before the on-render snapshot
     ;; ran, so the dispatcher re-snapshots the right kind and looks again.
-    (define (herdr-list-refresh! kind)
-      (snapshot! kind default-herdr-labels)
+    ;; Takes the same focused-tab-id as the on-render path so a refresh
+    ;; mid-digit-press stays scoped identically.
+    (define (herdr-list-refresh! kind focused-tab-id)
+      (snapshot! kind default-herdr-labels focused-tab-id)
       current-targets)
 
     ;; ─── Pane chips ─────────────────────────────────────────────────
@@ -501,17 +537,20 @@
     ;; With 'chips? #t on a panes block it also paints pane chips and installs
     ;; an on-leave-fn that hides them (mirrors iterm-panes). Chips are
     ;; panes-only — tabs/workspaces have no on-screen rects, so 'chips? is
-    ;; ignored for those kinds.
+    ;; ignored for those kinds. 'focused-tab-id-fn is an optional zero-arg
+    ;; thunk, called fresh on every render/refresh (see the module header) —
+    ;; only the panes kind's caller passes one.
     (define (make-herdr-list-block . opts)
       (let* ((alist  (apply props->alist opts))
              (kind   (alist-ref alist 'kind 'panes))
              (labels (alist-ref alist 'labels default-herdr-labels))
+             (tab-fn (alist-ref alist 'focused-tab-id-fn #f))
              (chips? (and (alist-ref alist 'chips? #f) (eq? kind 'panes))))
         (if chips?
             (list (cons 'type 'herdr-list)
                   (cons 'on-render-fn
                     (lambda ()
-                      (snapshot! kind labels)
+                      (snapshot! kind labels (and tab-fn (tab-fn)))
                       (paint-pane-chips!)
                       (list (cons 'rows current-data))))
                   (cons 'on-leave-fn
@@ -519,7 +558,7 @@
             (list (cons 'type 'herdr-list)
                   (cons 'on-render-fn
                     (lambda ()
-                      (snapshot! kind labels)
+                      (snapshot! kind labels (and tab-fn (tab-fn)))
                       (list (cons 'rows current-data))))))))
 
     (add-overlay-asset-file! 'css "lib/modaliser/blocks/herdr-list.css")

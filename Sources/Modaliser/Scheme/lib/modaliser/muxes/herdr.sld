@@ -277,6 +277,12 @@
     ;; panes list block, whose Panes panel paints digit chips over the
     ;; on-screen herdr panes (see (modaliser blocks herdr-list)).
 
+    ;; Still snapshots the GLOBAL `pane list`, unlike the shipping Panes
+    ;; drill's block (herdr-list-block's 'panes call above), which is
+    ;; tab-scoped (pane-list-tab-local-k3). Left unscoped on purpose: this
+    ;; façade slot is near-dead surface (build-herdr-tree uses the block
+    ;; instead, so no shipping variant tree reaches this path) — not worth
+    ;; threading focused-tab-id through a path nothing exercises.
     (define (list-pane-ids)
       (let ((j (herdr-json "pane list")))
         (if (not j)
@@ -495,53 +501,63 @@
     ;; clean `focus` verbs. cursor-*-fn wire the selection cursor to the
     ;; block's live targets / focused row (mirrors iterm:pane-list-block). A
     ;; digit pressed before the on-render snapshot ran re-snapshots on demand.
-    (define (list-digit-range kind focus-fn)
+    ;; tab-id-fn is the optional focused-tab-id-fn (only the panes kind passes
+    ;; one — see herdr-list-block below); threaded through so the on-demand
+    ;; refresh stays scoped identically to the on-render snapshot.
+    (define (list-digit-range kind focus-fn tab-id-fn)
       (cons (cons 'hidden #t)
             (key-range "1.." "Item <n>"
               digit-labels
               (lambda (k)
                 (let ((entry (or (assoc k (herdr-list-current-targets))
                                  (begin
-                                   (herdr-list-refresh! kind)
+                                   (herdr-list-refresh! kind (and tab-id-fn (tab-id-fn)))
                                    (assoc k (herdr-list-current-targets))))))
                   (when entry (focus-fn (cdr entry))))))))
 
-    (define (herdr-list-block kind focus-fn chips?)
-      (append (make-herdr-list-block 'kind kind 'chips? chips?)
+    ;; tab-id-fn: an optional zero-arg thunk scoping the panes kind to the
+    ;; displayed tab (see (modaliser blocks herdr-list)'s module header); #f
+    ;; for every other kind, which stay global by design.
+    (define (herdr-list-block kind focus-fn chips? tab-id-fn)
+      (append (make-herdr-list-block 'kind kind 'chips? chips?
+                                      'focused-tab-id-fn tab-id-fn)
               (list (cons 'cursor-targets-fn herdr-list-current-targets)
                     (cons 'cursor-initial-index-fn herdr-list-focused-index)
                     (cons 'block-children
-                          (list (list-digit-range kind focus-fn))))))
+                          (list (list-digit-range kind focus-fn tab-id-fn))))))
 
     ;; The panes block takes an optional 'chips? — when #t it paints digit
     ;; chips over the on-screen herdr panes (rects from `herdr pane layout`;
     ;; correct in replace mode, best-effort in augment — see the block header).
-    ;; tabs/workspaces have no on-screen rects, so they never chip.
+    ;; tabs/workspaces have no on-screen rects, so they never chip. The only
+    ;; kind scoped to the displayed tab (grove herdr-pane-group,
+    ;; pane-list-tab-local-k3) — reuses focused-tab-id, the same `pane
+    ;; current` read the close/rename ops rely on, so no extra query.
     (define (pane-list-block . opts)
       (let ((chips? (alist-ref (apply props->alist opts) 'chips? #f)))
         (herdr-list-block 'panes
           (lambda (id) (herdr-cmd (string-append "agent focus " id)))
-          chips?)))
+          chips? focused-tab-id)))
     (define (tab-list-block)
       (herdr-list-block 'tabs
-        (lambda (id) (herdr-cmd (string-append "tab focus " id))) #f))
+        (lambda (id) (herdr-cmd (string-append "tab focus " id))) #f #f))
     (define (workspace-list-block)
       (herdr-list-block 'workspaces
-        (lambda (id) (herdr-cmd (string-append "workspace focus " id))) #f))
+        (lambda (id) (herdr-cmd (string-append "workspace focus " id))) #f #f))
     ;; Agents list (D1/D7): the 'agents kind reorders status-priority
     ;; (blocked-first) and paints a status badge; digit → focus the agent's
     ;; pane by id via the universal `agent focus`. No chips (D6) — the list is
     ;; the visualization, and agents can live cross-workspace (off-screen).
     (define (agent-list-block)
       (herdr-list-block 'agents
-        (lambda (id) (herdr-cmd (string-append "agent focus " id))) #f))
+        (lambda (id) (herdr-cmd (string-append "agent focus " id))) #f #f))
     ;; Worktrees list (W3/W4): the 'worktrees kind whose digit target is a
     ;; COMPUTED tagged string (open → "ws:<id>", dormant → "br:<branch>"), so the
     ;; focus-fn is the smart-switch parser, not a bare `<x> focus`. Branch title +
     ;; ●/○ path detail; no chips (worktrees have no on-screen rect — the list is
     ;; the visualization, like agents).
     (define (worktree-list-block)
-      (herdr-list-block 'worktrees switch-worktree #f))
+      (herdr-list-block 'worktrees switch-worktree #f #f))
 
     ;; ─── Jump to next blocked agent (top-level `b`, D4/D5) ──────────
     ;;

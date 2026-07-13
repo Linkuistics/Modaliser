@@ -356,7 +356,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
         try engine.evaluate(#"""
           (define J (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"cwd\":\"/w/one\",\"focused\":true,\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\"},{\"cwd\":\"/w/two\",\"focused\":false,\"pane_id\":\"w9:p2\",\"tab_id\":\"w9:t2\"}]}}"))
-          (define R (herdr-list-extract 'panes (list "1" "2" "3") J))
+          (define R (herdr-list-extract 'panes (list "1" "2" "3") J #f))
           (define TARGETS (car R))
           (define ROWS (cdr R))
         """#)
@@ -382,14 +382,14 @@ struct ModaliserMuxesHerdrLibraryTests {
         // Tabs.
         try engine.evaluate(#"""
           (define JT (json-parse "{\"result\":{\"tabs\":[{\"focused\":true,\"label\":\"1 claude\",\"tab_id\":\"w9:t1\"},{\"focused\":false,\"label\":\"2 hunk\",\"tab_id\":\"w9:t2\"}]}}"))
-          (define RT (herdr-list-extract 'tabs (list "1" "2") JT))
+          (define RT (herdr-list-extract 'tabs (list "1" "2") JT #f))
         """#)
         #expect(try engine.evaluate("(cdr (assoc \"2\" (car RT)))") == .string("w9:t2"))
         #expect(try engine.evaluate("(cdr (assoc 'title (car (cdr RT))))") == .string("1 claude"))
         // Workspaces.
         try engine.evaluate(#"""
           (define JW (json-parse "{\"result\":{\"workspaces\":[{\"focused\":true,\"label\":\"TestAnyware\",\"workspace_id\":\"w9\"}]}}"))
-          (define RW (herdr-list-extract 'workspaces (list "1") JW))
+          (define RW (herdr-list-extract 'workspaces (list "1") JW #f))
         """#)
         #expect(try engine.evaluate("(cdr (assoc \"1\" (car RW)))") == .string("w9"))
         #expect(try engine.evaluate("(cdr (assoc 'title (car (cdr RW))))") == .string("TestAnyware"))
@@ -401,9 +401,49 @@ struct ModaliserMuxesHerdrLibraryTests {
     @Test func herdrListExtractDegradesToEmpty() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser blocks herdr-list))")
-        try engine.evaluate("(define R (herdr-list-extract 'panes (list \"1\" \"2\") #f))")
+        try engine.evaluate("(define R (herdr-list-extract 'panes (list \"1\" \"2\") #f #f))")
         #expect(try engine.evaluate("(null? (car R))") == .true)
         #expect(try engine.evaluate("(null? (cdr R))") == .true)
+    }
+
+    /// pane-list-tab-local-k3: `herdr pane list` is GLOBAL (confirmed against a
+    /// live server — panes from every workspace/tab, no `result.source` to
+    /// compare against, same as tabs), so the panes kind is scoped by the
+    /// caller-supplied focused-tab-id — a pane whose tab_id doesn't match is
+    /// dropped in phase 1, before labels are assigned. A four-pane, two-tab
+    /// fixture: only wC:t1's two panes become rows/digit targets, relabeled
+    /// "1"/"2" (not the fixture's original JSON positions 1 and 3).
+    @Test func herdrListExtractScopesPanesToFocusedTab() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"cwd\":\"/w/one\",\"focused\":true,\"pane_id\":\"wC:p1\",\"tab_id\":\"wC:t1\"},{\"cwd\":\"/w/two\",\"focused\":false,\"pane_id\":\"wD:p1\",\"tab_id\":\"wD:t1\"},{\"cwd\":\"/w/three\",\"focused\":false,\"pane_id\":\"wC:p2\",\"tab_id\":\"wC:t1\"},{\"cwd\":\"/w/four\",\"focused\":false,\"pane_id\":\"wD:p2\",\"tab_id\":\"wD:t1\"}]}}"))
+          (define R (herdr-list-extract 'panes (list "1" "2" "3" "4") J "wC:t1"))
+          (define TARGETS (car R))
+          (define ROWS (cdr R))
+        """#)
+        // Only wC:t1's two panes survive — wD:t1's are dropped, not just unlabeled.
+        #expect(try engine.evaluate("(length TARGETS)") == .fixnum(2))
+        #expect(try engine.evaluate("(length ROWS)") == .fixnum(2))
+        #expect(try engine.evaluate("(cdr (assoc \"1\" TARGETS))") == .string("wC:p1"))
+        #expect(try engine.evaluate("(cdr (assoc \"2\" TARGETS))") == .string("wC:p2"))
+        #expect(try engine.evaluate("(if (assoc \"3\" TARGETS) #t #f)") == .false)
+        #expect(try engine.evaluate("(cdr (assoc 'detail (car ROWS)))") == .string("/w/one"))
+        #expect(try engine.evaluate("(cdr (assoc 'detail (cadr ROWS)))") == .string("/w/three"))
+    }
+
+    /// A #f focused-tab-id (herdr unreachable, `pane current` failed) degrades
+    /// to unfiltered — every tab's panes still render — rather than an empty
+    /// list. Non-panes kinds ignore the parameter outright: a tab_id-bearing
+    /// fixture (agents also carry tab_id) is unaffected by a scope value.
+    @Test func herdrListExtractPanesUnfilteredWithoutFocusedTab() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"focused\":true,\"pane_id\":\"wC:p1\",\"tab_id\":\"wC:t1\"},{\"focused\":false,\"pane_id\":\"wD:p1\",\"tab_id\":\"wD:t1\"}]}}"))
+          (define R (herdr-list-extract 'panes (list "1" "2") J #f))
+        """#)
+        #expect(try engine.evaluate("(length (car R))") == .fixnum(2))
     }
 
     // MARK: - Agents list (leaf agents-list-block-k12)
@@ -423,7 +463,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         // stable within-band order.
         try engine.evaluate(#"""
           (define J (json-parse "{\"result\":{\"agents\":[{\"agent\":\"idle-a\",\"agent_status\":\"idle\",\"focused\":false,\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"},{\"agent\":\"blk-a\",\"agent_status\":\"blocked\",\"focused\":false,\"pane_id\":\"w9:p2\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"},{\"agent\":\"wrk-a\",\"agent_status\":\"working\",\"focused\":true,\"pane_id\":\"w9:p3\",\"tab_id\":\"w9:t2\",\"workspace_id\":\"w9\"},{\"agent\":\"blk-b\",\"agent_status\":\"blocked\",\"focused\":false,\"pane_id\":\"w9:p4\",\"tab_id\":\"w9:t2\",\"workspace_id\":\"w9\"},{\"agent\":\"unk-a\",\"agent_status\":\"unknown\",\"focused\":false,\"pane_id\":\"w9:p5\",\"tab_id\":\"w9:t3\",\"workspace_id\":\"w9\"}]}}"))
-          (define R (herdr-list-extract 'agents (list "1" "2" "3" "4" "5") J))
+          (define R (herdr-list-extract 'agents (list "1" "2" "3" "4" "5") J #f))
           (define TARGETS (car R))
           (define ROWS (cdr R))
           (define (row i) (list-ref ROWS i))
@@ -459,7 +499,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
         try engine.evaluate(#"""
           (define J (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"agent_status\":\"idle\",\"cwd\":\"/w/one\",\"focused\":true,\"pane_id\":\"w9:p1\"}]}}"))
-          (define ROWS (cdr (herdr-list-extract 'panes (list "1") J)))
+          (define ROWS (cdr (herdr-list-extract 'panes (list "1") J #f)))
         """#)
         #expect(try engine.evaluate("(if (assoc 'status (car ROWS)) #t #f)") == .false)
     }
@@ -486,7 +526,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         // digit target).
         try engine.evaluate(#"""
           (define J (json-parse "{\"result\":{\"source\":{\"source_workspace_id\":\"w9\"},\"worktrees\":[{\"branch\":\"main\",\"label\":\"main\",\"path\":\"/repo\",\"open_workspace_id\":\"w9\",\"is_detached\":false},{\"branch\":\"feature-x\",\"label\":\"feature-x\",\"path\":\"/repo/.grove-worktrees/feature-x\",\"open_workspace_id\":\"w12\",\"is_detached\":false},{\"branch\":\"ocr-accuracy\",\"label\":\"ocr\",\"path\":\"/repo/.grove-worktrees/ocr-accuracy\",\"is_detached\":false},{\"label\":\"detached-wt\",\"path\":\"/repo/.grove-worktrees/detached-dir\",\"is_detached\":true}]}}"))
-          (define R (herdr-list-extract 'worktrees (list "1" "2" "3" "4") J))
+          (define R (herdr-list-extract 'worktrees (list "1" "2" "3" "4") J #f))
           (define TARGETS (car R))
           (define ROWS (cdr R))
           (define (row i) (list-ref ROWS i))
@@ -529,7 +569,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
         try engine.evaluate(#"""
           (define J (json-parse "{\"result\":{\"source\":{\"source_workspace_id\":\"w9\"},\"worktrees\":[{\"path\":\"/repo/.grove-worktrees/loose-dir\",\"is_detached\":true}]}}"))
-          (define ROWS (cdr (herdr-list-extract 'worktrees (list "1") J)))
+          (define ROWS (cdr (herdr-list-extract 'worktrees (list "1") J #f)))
         """#)
         #expect(try engine.evaluate("(cdr (assoc 'title (car ROWS)))") == .string("loose-dir"))
         // Dormant + no branch → no target, and ○ dormant marker in the detail.
@@ -546,7 +586,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
         try engine.evaluate(#"""
           (define J (json-parse "{\"result\":{\"worktrees\":[{\"branch\":\"a\",\"path\":\"/x\",\"open_workspace_id\":\"w1\"},{\"branch\":\"b\",\"path\":\"/y\"}]}}"))
-          (define ROWS (cdr (herdr-list-extract 'worktrees (list "1" "2") J)))
+          (define ROWS (cdr (herdr-list-extract 'worktrees (list "1" "2") J #f)))
         """#)
         // Open row: target still built, but not current (no source to match).
         #expect(try engine.evaluate("(cdr (assoc 'focused (car ROWS)))") == .false)
