@@ -340,6 +340,7 @@ leader press to track the live pane layout.
 | `default-pane-labels` | `("1" "2" … "9" "0")` — default pane-label list. |
 | `configure-entry` | A `(key …)` node for the one-shot **Configure iTerm** action (`Ctrl+Shift+I`). Splice into your iTerm tree; it auto-hides once iTerm is configured. |
 | `iterm-configured?` | `#t` when iTerm already carries the eight provisioned key bindings. Drives `configure-entry`'s hidden state. |
+| `current-iterm-provision-runner` | The test seam for the provisioning script: a `(lambda (shell-command callback) ...)` matching `run-shell-async`'s shape, mirroring `current-dialog-runner`. Default: the real `run-shell-async`. |
 
 **`register!` / `rebuild-tree!` options:**
 
@@ -375,7 +376,10 @@ iTerm keyboard shortcuts that are not all iTerm defaults. The
 iTerm" — provisions them. It is hidden via `iterm-configured?`, so it
 shows only while iTerm lacks the bindings and disappears once they are
 set. Triggering it shows a confirmation dialog; on Continue it quits
-iTerm, writes eight `GlobalKeyMap` bindings, and relaunches iTerm:
+iTerm, writes eight `GlobalKeyMap` bindings, and relaunches iTerm — quit
+can take several seconds (it polls for the process to exit), so the whole
+provisioning step fires through `run-shell-async` (ADR-0014), keeping the
+leader responsive while it runs:
 
 | Shortcut | Action |
 |---|---|

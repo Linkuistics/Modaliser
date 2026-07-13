@@ -57,7 +57,12 @@
           ;; terminal) façade resolves to herdr — the iTerm splits need these
           ;; direct ops, not the façade shims.
           build-iterm-splits-drill
-          configure-entry iterm-configured?)
+          configure-entry iterm-configured?
+          ;; Test seam (ADR-0014): a parameterized indirection point a test
+          ;; can override so no test quits/reconfigures a real iTerm
+          ;; (feedback_no_live_env_mutation_in_tests) — mirrors
+          ;; current-dialog-runner / current-herdr-async-runner.
+          current-iterm-provision-runner)
   (import (scheme base)
           (modaliser dsl)
           (modaliser state-machine)
@@ -412,19 +417,30 @@
         "  - Relaunch iTerm\n\n"
         "A timestamped backup of iTerm's preferences is saved first."))
 
+    ;; The seam (ADR-0014). Default: the real run-shell-async, whose
+    ;; (command callback) shape this parameter's value must match — a test
+    ;; overrides it to capture the assembled script instead of quitting and
+    ;; reconfiguring a real iTerm.
+    (define current-iterm-provision-runner
+      (make-parameter run-shell-async))
+
     ;; Overlay action: confirm (async, ADR-0014 — the dialog fires through
     ;; the slim (modaliser dialogs) library so the Scheme thread stays free
-    ;; while it's up), provision, re-probe. Idempotent — if iTerm is already
-    ;; configured (e.g. the key was pressed while the entry was hidden) it
-    ;; just syncs the cache and returns, no dialog.
+    ;; while it's up), provision (also async — the quit-then-poll-pgrep
+    ;; loop below is a multi-second blocking window if run synchronously;
+    ;; iterm-refresh-configured! moves into the callback so it only runs
+    ;; once provisioning has actually finished), re-probe. Idempotent — if
+    ;; iTerm is already configured (e.g. the key was pressed while the
+    ;; entry was hidden) it just syncs the cache and returns, no dialog.
     (define (iterm-configure!)
       (if (iterm-probe-configured?)
         (iterm-refresh-configured!)
         (dialog-confirm iterm-configure-dialog-message
           (lambda (continue?)
             (when continue?
-              (run-shell iterm-provision-script)
-              (iterm-refresh-configured!)))
+              ((current-iterm-provision-runner) iterm-provision-script
+                (lambda (exit-code stdout stderr)
+                  (iterm-refresh-configured!)))))
           'title "Configure iTerm" 'ok-label "Continue" 'icon "caution")))
 
     ;; A `(key …)` node for the iTerm tree, bound to Ctrl+Shift+I.

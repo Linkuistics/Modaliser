@@ -161,4 +161,45 @@ struct ModaliserAppsItermLibraryTests {
         #expect(try engine.evaluate("(lookup-tree \"manual-focus\")") != .false)
         #expect(try engine.evaluate("(lookup-tree \"iterm-panes-focus\")") == .false)
     }
+
+    // MARK: - Async provisioning (leaf provision-scripts-async-k8)
+
+    /// ADR-0014: the provisioning script `iterm-configure!` runs on Continue
+    /// (quit iTerm, poll pgrep for up to ~6s, edit prefs, relaunch) is a
+    /// genuinely long blocking window, so it must fire through
+    /// `run-shell-async` rather than synchronous `run-shell` — a leader
+    /// press during that window must not stall the keyboard tap. This test
+    /// only checks the seam's existence and default wiring: `iterm-configure!`
+    /// itself is gated by a live `iterm-probe-configured?` system probe with
+    /// no test seam of its own (unrelated pre-existing gap), so driving it
+    /// end-to-end here would make the test's outcome depend on whether this
+    /// machine's real iTerm already carries Modaliser's bindings — exactly
+    /// the live-environment dependency feedback_no_live_env_mutation_in_tests
+    /// warns against. Mirrors current-dialog-runner / current-herdr-async-
+    /// runner: a parameterized indirection point defaulting to the real
+    /// run-shell-async, so a future test driving iterm-configure! (once the
+    /// probe itself gets a seam) can override it without touching a real
+    /// iTerm installation.
+    @Test func provisionRunnerSeamDefaultsToRealAsyncShell() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser shell) (modaliser apps iterm))")
+        #expect(try engine.evaluate("(procedure? (current-iterm-provision-runner))") == .true)
+        #expect(try engine.evaluate("(eq? (current-iterm-provision-runner) run-shell-async)") == .true)
+    }
+
+    /// The seam is a genuine parameter: overridable within a dynamic extent
+    /// and restored outside it, same contract `current-dialog-runner` and
+    /// `current-herdr-async-runner` already rely on.
+    @Test func provisionRunnerSeamIsParameterizable() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser shell) (modaliser apps iterm))")
+        try engine.evaluate("""
+          (define stub (lambda (script callback) 'stubbed))
+          (define during #f)
+          (parameterize ((current-iterm-provision-runner stub))
+            (set! during (eq? (current-iterm-provision-runner) stub)))
+        """)
+        #expect(try engine.evaluate("during") == .true)
+        #expect(try engine.evaluate("(eq? (current-iterm-provision-runner) run-shell-async)") == .true)
+    }
 }
