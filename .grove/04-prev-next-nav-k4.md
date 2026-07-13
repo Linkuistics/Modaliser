@@ -35,6 +35,42 @@ groups in the herdr tree, then grow the implementing work leaf/leaves.
     wrapping, fixture-testable). That helper is the in-repo precedent to
     generalize.
 
+## Decisions (running log)
+
+- **Mechanism (audit, 2026-07-13):** herdr 0.7.3 has no prev/next verb on
+  any CLI noun and no cycle action on the socket API (`api schema`
+  checked; `previous_*` hits are focus-event payload fields). Cycling is
+  pure computation over list + focused id → `<x> focus` /
+  `agent focus`, the `next-blocked-pane-id` shape.
+- **Cycle domain (human):** "The herdr cli (or at least the key bindings)
+  already define this" — mirror herdr's own semantics, which coincide
+  with cycling the drill's *displayed rows*: tabs in `number` order
+  within the focused workspace (herdr `prefix+n/p`), workspaces in
+  `number` order (herdr navigate-mode up/down), panes tab-local (herdr
+  `prefix+Tab` cycle). Agents have no herdr binding — default to the
+  displayed (status-banded, blocked-first) order, flagged for veto.
+- **Keys (human):** `[` prev / `]` next, uniform across all four drills.
+  herdr's own mnemonics all collide (n/p vs n=New; Tab unbindable
+  without new Swift key-mapping — keyCode 48 absent from
+  `keyCodeToCharacter`; j/k owned by the selection cursor). `[`/`]` is
+  free everywhere, zero Swift work.
+- **Branch fact:** tabs workspace-scoping (5b2ffa1) is on main only;
+  this branch has pane tab-scoping (a5a51bf) — same regions of
+  herdr-list.sld/herdr.sld, so the implementing leaf must merge main
+  first (conflict expected and understood).
+- **Walk (human):** `[`/`]` are walk members — 'next 'self back into the
+  drill, so presses chain and the list re-renders showing the new
+  focused row each step. Matches the Move precedent.
+- **Wrap (human):** ring semantics — wrap at both ends, matching
+  `next-blocked-pane-id`'s round-robin.
+- **Agents order (human):** displayed order (status-banded,
+  blocked-first, stable within band) — one mental model across all four
+  drills; mid-walk reshuffle on a status flip accepted (each press
+  re-renders first).
+- **Non-goals:** Worktrees drill gets no [/] (the direction named four
+  groups); no ADR — every decision here is cheap to reverse, failing
+  the when-to-write bar; decisions live in this log + the leaf specs.
+
 ## Done when
 
 Shared understanding on keys/semantics for all four groups; decisions
