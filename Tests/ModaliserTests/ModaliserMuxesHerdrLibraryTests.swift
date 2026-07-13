@@ -262,16 +262,16 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// `build-herdr-tree` returns the full herdr surface, not the hjkl
     /// skeleton: a Focus panel, the x Split / m Move groups, z/d pane keys,
     /// the t Tabs / w Workspaces / g Worktrees drills, the b Jump-to-Blocked
-    /// key + a Agents drill (agents surface, k13), and the Panes list panel —
-    /// eleven top-level nodes. It must build without touching herdr (all
-    /// shell-outs live in on-render thunks / key actions, never at construction
-    /// time).
+    /// key + a Agents drill (agents surface, k13), the q Quit group
+    /// (herdr-quit-group-k2), and the Panes list panel — twelve top-level
+    /// nodes. It must build without touching herdr (all shell-outs live in
+    /// on-render thunks / key actions, never at construction time).
     @Test func buildHerdrTreeIsFullSurface() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
         """)
-        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(11))
+        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(12))
     }
 
     /// (register!) wires the Walk top-level focus mode the herdr tree's
@@ -903,5 +903,69 @@ struct ModaliserMuxesHerdrLibraryTests {
         """)
         #expect(try engine.evaluate("fired?") == .false)
         #expect(try engine.evaluate("prompted?") == .false)
+    }
+
+    // MARK: - Quit group (leaf herdr-quit-group-k2)
+
+    /// Tree-shape only: top-level `q` is a group holding `d` Detach and `s`
+    /// Stop Server. Detach's keystroke-emission body stays untested by
+    /// design (same trust level as the config's untested copy-mode key) —
+    /// no new keystroke test seam, per the grilled decision.
+    @Test func buildHerdrTreeWiresQuitGroup() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("""
+          (define TREE (build-herdr-tree))
+          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
+          (define (node-with-key k lst)
+            (cond ((null? lst) #f)
+                  ((equal? (node-key (car lst)) k) (car lst))
+                  (else (node-with-key k (cdr lst)))))
+        """)
+        // Top-level `q` present and is a plain group (not a Walk/drill).
+        #expect(try engine.evaluate("(if (node-with-key \"q\" TREE) #t #f)") == .true)
+        #expect(try engine.evaluate("""
+          (eq? 'group (cdr (assoc 'kind (node-with-key "q" TREE))))
+        """) == .true)
+        // Its children hold `d` (Detach) and `s` (Stop Server).
+        try engine.evaluate("""
+          (define Q (node-with-key "q" TREE))
+          (define KIDS (cdr (assoc 'children Q)))
+        """)
+        #expect(try engine.evaluate("(if (node-with-key \"d\" KIDS) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (node-with-key \"s\" KIDS) #t #f)") == .true)
+    }
+
+    /// Stop Server behaviour (ADR-0014): cancel fires no async verb; OK
+    /// fires exactly "server stop". Routed through the same
+    /// current-dialog-runner + current-herdr-async-runner seams already
+    /// used elsewhere in this file — no new test seam.
+    @Test func stopServerFiresOnConfirmOnlyAndDoesNothingOnCancel() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser dialogs))")
+
+        // Cancel clicked (stdout doesn't match the "Stop" ok-label) → no fire.
+        try engine.evaluate("""
+          (define fired? #f)
+          (parameterize
+            ((current-dialog-runner (lambda (cmd cb) (cb 0 "Cancel\\n" "")))
+             (current-herdr-async-runner
+               (lambda (args callback) (set! fired? #t))))
+            (stop-server!))
+        """)
+        #expect(try engine.evaluate("fired?") == .false)
+
+        // "Stop" clicked → exactly "server stop" fired.
+        try engine.evaluate("""
+          (define captured #f)
+          (parameterize
+            ((current-dialog-runner (lambda (cmd cb) (cb 0 "Stop\\n" "")))
+             (current-herdr-async-runner
+               (lambda (args callback) (set! captured args))))
+            (stop-server!))
+        """)
+        #expect(try engine.evaluate("captured").asString() == "server stop")
     }
 }

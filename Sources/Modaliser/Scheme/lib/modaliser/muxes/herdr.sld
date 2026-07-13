@@ -87,6 +87,15 @@
           rename-focused-workspace!
           new-worktree!
           remove-focused-worktree!
+          ;; The Stop Server op (`q s`), exported for unit tests — bound into
+          ;; build-herdr-tree's Quit group. Its dialog-confirm gate (ADR-0014)
+          ;; is driven through the same current-dialog-runner /
+          ;; current-herdr-async-runner seams as the ops above, no new seam.
+          ;; Detach (`q d`) has no test seam of its own — a keystroke
+          ;; emission, same trust level as the config's untested copy-mode
+          ;; key — so it is not exported; only a tree-shape assertion covers
+          ;; it.
+          stop-server!
           ;; Test seams (ADR-0014): parameterized indirection points a test
           ;; can override so no test spawns herdr
           ;; (feedback_no_live_env_mutation_in_tests) — current-herdr-query-runner
@@ -104,8 +113,15 @@
           (modaliser json)
           ;; sq-escape: the one canonical POSIX single-quote escaper (ADR-0014's
           ;; (modaliser dialogs) is its home); used here for shell-safe branch-
-          ;; name interpolation, unrelated to that library's dialog concern.
-          (only (modaliser dialogs) sq-escape)
+          ;; name interpolation. dialog-confirm: the Stop Server op's confirm
+          ;; gate — herdr's own CLI stops the server immediately with no
+          ;; herdr-side confirm of its own, unlike worktree remove above.
+          (only (modaliser dialogs) sq-escape dialog-confirm)
+          ;; send-keystroke: Detach has no socket/CLI verb (it's herdr's own
+          ;; client-side keybinding), so it is emitted as a keystroke into the
+          ;; focused iTerm session — established portable-tree practice
+          ;; (apps/*.sld: chrome.sld, iterm.sld, safari.sld).
+          (modaliser input)
           ;; The three herdr live-list blocks (panes / tabs / workspaces)
           ;; share one kind-parameterised constructor; build-herdr-tree wraps
           ;; each with a hidden digit key-range whose focus action lives here
@@ -487,6 +503,45 @@
         (when wsid
           (herdr-cmd-async (string-append "worktree remove --workspace " wsid)))))
 
+    ;; ─── Quit ops (the `q` Quit group, D-etach / S-top server) ──────
+    ;;
+    ;; "Quit" unqualified is ambiguous between ending the herdr CLIENT and
+    ;; the herdr SERVER (CONTEXT.md "Detach (herdr)" / "Stop (herdr
+    ;; server)"), so the group names both explicitly rather than offering a
+    ;; single bare Quit binding.
+
+    ;; Detach (`d`). herdr has no socket/CLI verb for it — detach is the
+    ;; client's OWN keybinding (default `prefix+q`, i.e. ctrl+b then q), so
+    ;; it is emitted as a keystroke into the focused iTerm session where the
+    ;; herdr client is listening, exactly like the config's Scrollback key
+    ;; (herdr-copy-mode-k16, app-trees/com.googlecode.iterm2.scm) — same
+    ;; prefix-then-key shape, same (modaliser input) portable-tree import.
+    ;; Each send-keystroke is self-contained (ctrl is bracketed on `b`
+    ;; only), so the trailing `q` carries no stray modifier.
+    ;;
+    ;; v1 assumption: the user runs herdr on the DEFAULT prefix (ctrl+b).
+    ;; herdr exposes no CLI to query the resolved prefix; if the user
+    ;; rebinds herdr's prefix, update the ctrl+b below to match (same
+    ;; caveat as the Scrollback key).
+    (define (detach!)
+      (send-keystroke '(ctrl) "b")   ; herdr prefix
+      (send-keystroke "q"))          ; detach-client
+
+    ;; Stop Server (`s`). Ends the herdr SERVER: every pane and agent
+    ;; terminates. Unlike worktree remove above (herdr-side confirm UX, no
+    ;; Modaliser dialog), herdr's CLI stops the server immediately with no
+    ;; confirm of its own — so this is the one herdr op that raises a
+    ;; Modaliser dialog-confirm. CPS per ADR-0014: never synchronous
+    ;; run-shell around a dialog. On confirm, fires the same fire-and-forget
+    ;; async seam as the ops above.
+    (define (stop-server!)
+      (dialog-confirm
+        "Stop the herdr server? Every pane and agent will terminate."
+        (lambda (continue?)
+          (when continue?
+            (herdr-cmd-async "server stop")))
+        'title "Stop herdr Server" 'ok-label "Stop" 'icon "caution"))
+
     ;; ─── Live-list blocks (panes / tabs / workspaces) ───────────────
     ;;
     ;; Each wraps the shared (modaliser blocks herdr-list) constructor and
@@ -642,6 +697,7 @@
     ;;   g Worktrees  n/d + the worktrees list (digit → smart-switch)
     ;;   b Jump       focus the next blocked agent (round-robin; toast if none)
     ;;   a Agents     the agents list (status-badged, blocked-first; digit → focus)
+    ;;   q Quit       d Detach (keystroke, ctrl+b q) / s Stop Server (confirm-gated)
     ;;   Panes panel  the panes list + chips (digit → focus by id)
     (define (build-herdr-tree)
       (list
@@ -689,6 +745,13 @@
         (key "b" "Jump to Blocked" jump-to-next-blocked)
         (open "a" "Agents"
           (panel "Agents" (agent-list-block)))
+        ;; Quit group (k2). "Quit" unqualified is ambiguous between ending
+        ;; the herdr client and the herdr server (CONTEXT.md), so the group
+        ;; names both ops explicitly — no bare top-level Quit binding, and a
+        ;; fumbled double-tap of `q` lands nowhere.
+        (group "q" "Quit"
+          (key "d" "Detach"      detach!)
+          (key "s" "Stop Server" stop-server!))
         (panel "Panes" (pane-list-block 'chips? #t))))
 
     ;; ─── Backend record ─────────────────────────────────────────────

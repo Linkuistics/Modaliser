@@ -188,6 +188,11 @@ what the overlay shows on `/herdr`:
   (round-robin; a toast when none are blocked).
 - **`a` Agents** — the agents live list, status-badged and
   blocked-first; a digit focuses that agent's pane.
+- **`q` Quit** — `d` Detach (ends the herdr *client* only, emitted as
+  herdr's own `prefix+q` keystroke — `ctrl+b` then `q`) or `s` Stop
+  Server (ends the herdr *server*, behind a confirm dialog since
+  herdr's CLI stops it immediately with no confirm of its own). See
+  CONTEXT.md's Detach/Stop glossary entries for the distinction.
 - **Panes panel** — the panes live list plus digit **chips** over the
   on-screen panes (replace-mode-correct; see below).
 
