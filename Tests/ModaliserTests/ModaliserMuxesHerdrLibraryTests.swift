@@ -763,8 +763,12 @@ struct ModaliserMuxesHerdrLibraryTests {
 
     /// ADR-0014: the four interactive herdr ops — rename tab, rename
     /// workspace, new worktree, remove worktree — fire fire-and-forget async
-    /// with no Modaliser dialog and no continuation payload (herdr's own UI
-    /// does the prompting/confirming once it ships prompt-on-missing-arg).
+    /// with no continuation payload here. As of this leaf, worktree create/
+    /// remove still take no Modaliser dialog (herdr's own UI, no missing-arg
+    /// gap); the two rename ops are moving to a Modaliser-owned
+    /// `chooser-prompt` instead of waiting on herdr (ADR-0014, reworked at
+    /// herdr-rename-prompt-ownership-k9) — this test still exercises the
+    /// pre-rewire bare-verb fire until chooser-prompt-herdr-rename-k10 lands.
     /// Both the id-resolution query and the async fire are routed through
     /// parameterized test seams so no test spawns a real herdr
     /// (feedback_no_live_env_mutation_in_tests): current-herdr-query-runner

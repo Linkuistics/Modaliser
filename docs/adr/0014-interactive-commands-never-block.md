@@ -39,8 +39,18 @@ dispatch's job (ADR-0015).
 
 ## Consequences
 
-- Commands whose UI prompts (herdr rename/create/remove) are plain
-  fire-and-forget async commands; the prompting UI is herdr's own.
+- herdr's worktree create/remove commands are plain fire-and-forget async
+  commands; every flag Modaliser omits (`--branch`, `--label`, `--path`,
+  `--force`) is optional in herdr's CLI, so there is no missing-argument gap
+  and the prompting UI, if any, stays herdr's own.
+- herdr's tab/workspace rename commands require a `<label>` positionally,
+  and herdr 0.7.3 has no prompt-on-missing-arg feature to collect it — fired
+  bare, the command just hits herdr's own usage-error exit with no UI ever
+  opening. These two ops instead collect the label through a
+  Modaliser-owned `chooser-prompt` (a text-input continuation panel
+  extending the chooser's activating-WebView machinery — CPS-shaped like
+  `dialog-confirm`) before firing, rather than waiting on unshipped
+  herdr-side work (`herdr-rename-prompt-ownership-k9`).
 - Interactive commands are CPS-shaped where a result is consumed: the code
   after the dialog lives in a callback, not on the next line. That is the
   accepted cost of an unblocked Scheme thread.

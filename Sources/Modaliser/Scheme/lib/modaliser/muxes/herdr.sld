@@ -374,13 +374,15 @@
       (let ((id (focused-workspace-id)))
         (when id (herdr-cmd (string-append "workspace close " id)))))
 
-    ;; Rename ops fire the verb WITHOUT the new label (ADR-0014): herdr
-    ;; requires the label positionally (`tab rename <id> <label>`), and
-    ;; prompt-on-missing-arg is herdr-repo work not yet shipped, so until
-    ;; then the verb errors harmlessly (stderr swallowed by the log-only
+    ;; Rename ops fire the verb WITHOUT the new label: herdr requires the
+    ;; label positionally (`tab rename <id> <label>`), and prompt-on-
+    ;; missing-arg is unshipped herdr-repo work with no ETA, so today the
+    ;; verb just errors harmlessly (stderr swallowed by the log-only
     ;; callback) — the guard + async-fire shape is still fully verifiable.
-    ;; No Modaliser-drawn dialog: herdr's own UI is where the label is
-    ;; typed once it prompts.
+    ;; Per ADR-0014 (reworked at herdr-rename-prompt-ownership-k9) these two
+    ;; ops are moving to a Modaliser-owned `chooser-prompt` instead of
+    ;; waiting on herdr — see that leaf/node for the wiring
+    ;; (chooser-prompt-herdr-rename-k10).
     (define (rename-focused-tab!)
       (let ((id (focused-tab-id)))
         (when id (herdr-cmd-async (string-append "tab rename " id)))))

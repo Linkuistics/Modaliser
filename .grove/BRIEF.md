@@ -12,9 +12,12 @@ external UI never receives typing. Fix per ADR-0015 + ADR-0014:
    *before* their action runs. Stickiness is derived (`walk`s whose members
    cycle); `enter-mode!` becomes framework-internal.
 2. **Never block (ADR-0014).** Interactive commands run through
-   `run-shell-async`; herdr prompts are herdr's own UI (Modaliser fires the
-   verb without the argument — herdr-side work, tracked in the herdr repo);
-   Modaliser-raised alerts go through a slim `(modaliser dialogs)`.
+   `run-shell-async`; herdr's worktree create/remove prompts are herdr's own
+   UI (Modaliser fires the verb — no missing-argument gap); herdr's
+   tab/workspace rename ops collect their label through a Modaliser-owned
+   `chooser-prompt` instead, since herdr 0.7.3 has no prompt-on-missing-arg
+   feature (`herdr-rename-prompt-ownership-k9`); Modaliser-raised alerts go
+   through a slim `(modaliser dialogs)`.
 
 ## Done when
 
@@ -39,6 +42,10 @@ external UI never receives typing. Fix per ADR-0015 + ADR-0014:
   provisioning scripts (iTerm's quit-wait loop especially) still block via
   synchronous `run-shell`, reintroducing ADR-0014's stalled-tap window one
   step later than the dialog itself.
+- 07 `herdr-rename-prompt-ownership-k9` — surfaced live-testing k2: herdr's
+  rename ops need a label herdr 0.7.3 can't yet prompt for; reopens "herdr's
+  own UI" for those two ops only, via a general `chooser-prompt` primitive
+  (node — see its `BRIEF.md`).
 
 ## Pointers
 
