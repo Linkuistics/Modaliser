@@ -504,6 +504,25 @@ command line of the foregrounded process in the focused terminal pane.
 |---|---|
 | `set-local-context-suffix!` | Install a `(lambda (bundle-id) …)` that returns a variant suffix (e.g. `"/nvim"`) to refine the dispatched scope. |
 
+### `(modaliser dialogs)`
+
+Slim async AppleScript dialog helpers (ADR-0014). A dialog-raising command
+is an ordinary Terminal leaf (CONTEXT.md "Dialog command") — dispatch has
+already released modal capture before the action runs (ADR-0015), so this
+library does no capture handling; it only fires through
+`current-dialog-runner` (never a synchronous `run-shell`) so a leader press
+while the dialog is up never stalls the keyboard tap.
+
+| Export | Signature | Description |
+|---|---|---|
+| `dialog-confirm` | `(dialog-confirm message k ['title str] ['ok-label str] ['icon str])` | Cancel/affirmative-button confirm dialog; `k` receives `#t` iff the affirmative button was chosen. `ok-label` defaults to `"OK"`. |
+| `dialog-info` | `(dialog-info message [k])` | Single-button "OK" alert; `k`, if given, is a 0-arg procedure called once dismissed. |
+| `current-dialog-runner` | parameter | The test seam: a `(lambda (shell-command callback) ...)` matching `run-shell-async`'s shape. Default: the real `run-shell-async`. |
+| `sq-escape` | `(sq-escape str)` | POSIX single-quote escaping (the `'\''` idiom) for safe interpolation inside a single-quoted shell word — the one canonical implementation shared by callers with their own shell-quoting needs. |
+
+Used by `(modaliser apps iterm)`, `(modaliser apps kitty)`, and
+`(modaliser apps alacritty)` for their configure-entry confirm dialogs.
+
 ---
 
 ## Native primitives

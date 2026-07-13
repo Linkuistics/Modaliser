@@ -35,6 +35,10 @@ external UI never receives typing. Fix per ADR-0015 + ADR-0014:
 - 03 `navigation-graph-next-edges-k5` — the machinery + migration.
 - 04 `herdr-dialogs-async-k2` — the four herdr ops → async fire-and-forget.
 - 05 `error-dialogs-async-k3` — the three error-dialog sites + slim dialogs.
+- 06 `provision-scripts-async-k8` — surfaced at k3: the post-confirm
+  provisioning scripts (iTerm's quit-wait loop especially) still block via
+  synchronous `run-shell`, reintroducing ADR-0014's stalled-tap window one
+  step later than the dialog itself.
 
 ## Pointers
 

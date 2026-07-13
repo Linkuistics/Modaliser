@@ -102,6 +102,10 @@
           (modaliser util)
           (modaliser shell)
           (modaliser json)
+          ;; sq-escape: the one canonical POSIX single-quote escaper (ADR-0014's
+          ;; (modaliser dialogs) is its home); used here for shell-safe branch-
+          ;; name interpolation, unrelated to that library's dialog concern.
+          (only (modaliser dialogs) sq-escape)
           ;; The three herdr live-list blocks (panes / tabs / workspaces)
           ;; share one kind-parameterised constructor; build-herdr-tree wraps
           ;; each with a hidden digit key-range whose focus action lives here
@@ -369,18 +373,6 @@
     (define (close-focused-workspace)
       (let ((id (focused-workspace-id)))
         (when id (herdr-cmd (string-append "workspace close " id)))))
-
-    ;; Rewrite each ' to the POSIX '\'' idiom so a user-typed label is safe
-    ;; to interpolate inside a single-quoted zsh word (same idiom as
-    ;; apps/iterm.sld's shell-sq-escape).
-    (define (sq-escape s)
-      (let loop ((cs (string->list s)) (acc '()))
-        (if (null? cs)
-            (list->string (reverse acc))
-            (loop (cdr cs)
-                  (if (char=? (car cs) #\')
-                      (cons #\' (cons #\' (cons #\\ (cons #\' acc))))
-                      (cons (car cs) acc))))))
 
     ;; Rename ops fire the verb WITHOUT the new label (ADR-0014): herdr
     ;; requires the label positionally (`tab rename <id> <label>`), and

@@ -64,6 +64,7 @@
           (modaliser event-dispatch)
           (modaliser util)
           (modaliser shell)
+          (modaliser dialogs)
           (modaliser input)
           (modaliser accessibility)
           (modaliser hints)
@@ -395,21 +396,6 @@
       (set! *iterm-configured* (iterm-probe-configured?))
       *iterm-configured*)
 
-    ;; Rewrite each ' to the POSIX '\'' idiom so the string is safe to
-    ;; interpolate inside a single-quoted /bin/zsh word. A single quote
-    ;; can't be backslash-escaped *within* single quotes — it must close
-    ;; the quote, emit an escaped literal ', then reopen. Without this an
-    ;; apostrophe (the dialog message has "iTerm's") terminates
-    ;; osascript's -e '...' argument mid-string.
-    (define (shell-sq-escape s)
-      (let loop ((cs (string->list s)) (acc '()))
-        (if (null? cs)
-          (list->string (reverse acc))
-          (loop (cdr cs)
-                (if (char=? (car cs) #\')
-                  (cons #\' (cons #\' (cons #\\ (cons #\' acc))))
-                  (cons (car cs) acc))))))
-
     (define iterm-configure-dialog-message
       (string-append
         "Modaliser drives iTerm pane splits, swaps and menu actions "
@@ -426,32 +412,20 @@
         "  - Relaunch iTerm\n\n"
         "A timestamped backup of iTerm's preferences is saved first."))
 
-    ;; Show the confirm dialog; #t if the user chose Continue. The
-    ;; cancel button raises osascript error -128 → empty stdout, so
-    ;; "not Continue" is treated as cancelled.
-    (define (iterm-confirm-configure)
-      (string-contains?
-        (run-shell
-          (string-append
-            "osascript -e 'display dialog \""
-            (shell-sq-escape iterm-configure-dialog-message)
-            "\" with title \"Configure iTerm\" "
-            "buttons {\"Cancel\", \"Continue\"} "
-            "default button \"Cancel\" cancel button \"Cancel\" "
-            "with icon caution' 2>/dev/null"))
-        "Continue"))
-
-    ;; Overlay action: confirm, provision, re-probe. Idempotent — if
-    ;; iTerm is already configured (e.g. the key was pressed while the
-    ;; entry was hidden) it just syncs the cache and returns.
+    ;; Overlay action: confirm (async, ADR-0014 — the dialog fires through
+    ;; the slim (modaliser dialogs) library so the Scheme thread stays free
+    ;; while it's up), provision, re-probe. Idempotent — if iTerm is already
+    ;; configured (e.g. the key was pressed while the entry was hidden) it
+    ;; just syncs the cache and returns, no dialog.
     (define (iterm-configure!)
-      (cond
-        ((iterm-probe-configured?)
-         (iterm-refresh-configured!))
-        ((iterm-confirm-configure)
-         (run-shell iterm-provision-script)
-         (iterm-refresh-configured!))
-        (else #f)))
+      (if (iterm-probe-configured?)
+        (iterm-refresh-configured!)
+        (dialog-confirm iterm-configure-dialog-message
+          (lambda (continue?)
+            (when continue?
+              (run-shell iterm-provision-script)
+              (iterm-refresh-configured!)))
+          'title "Configure iTerm" 'ok-label "Continue" 'icon "caution")))
 
     ;; A `(key …)` node for the iTerm tree, bound to Ctrl+Shift+I.
     ;; Its 'hidden property is the iterm-configured? thunk, so the

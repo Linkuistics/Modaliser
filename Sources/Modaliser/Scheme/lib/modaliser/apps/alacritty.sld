@@ -87,6 +87,7 @@
           (modaliser dsl)
           (modaliser util)
           (modaliser shell)
+          (modaliser dialogs)
           (only (modaliser terminal)
                 make-terminal-backend
                 register-backend!
@@ -189,21 +190,6 @@
       ;; the entry; only 'quarantined surfaces it.
       (not (eq? *alacritty-state* 'quarantined)))
 
-    ;; Single-quote escape for safe interpolation inside an
-    ;; osascript -e '...' word. Same idiom (modaliser apps iterm /
-    ;; kitty) use; the dialog message contains the literal command
-    ;; "xattr -d com.apple.quarantine ..." so it's already
-    ;; apostrophe-free, but the helper is here for symmetry and
-    ;; future edits.
-    (define (shell-sq-escape s)
-      (let loop ((cs (string->list s)) (acc '()))
-        (if (null? cs)
-          (list->string (reverse acc))
-          (loop (cdr cs)
-                (if (char=? (car cs) #\')
-                  (cons #\' (cons #\' (cons #\\ (cons #\' acc))))
-                  (cons (car cs) acc))))))
-
     (define alacritty-configure-dialog-message
       (string-append
         "Alacritty is installed but macOS is blocking it from "
@@ -217,32 +203,23 @@
         "GitHub-releases DMG never sets this attribute; the brew "
         "cask does.)"))
 
-    (define (alacritty-confirm-configure)
-      (string-contains?
-        (run-shell
-          (string-append
-            "osascript -e 'display dialog \""
-            (shell-sq-escape alacritty-configure-dialog-message)
-            "\" with title \"Configure Alacritty\" "
-            "buttons {\"Cancel\", \"Continue\"} "
-            "default button \"Cancel\" cancel button \"Cancel\" "
-            "with icon caution' 2>/dev/null"))
-        "Continue"))
-
-    ;; The action itself: re-probe (the user may have fixed it
-    ;; manually since the entry rendered), confirm, run xattr, re-
-    ;; probe so the cache flips to 'clean and the entry hides.
+    ;; The action itself: re-probe (the user may have fixed it manually
+    ;; since the entry rendered); if still quarantined, confirm (async,
+    ;; ADR-0014 — through the slim (modaliser dialogs) library so the
+    ;; Scheme thread stays free while the dialog is up), run xattr, re-probe
+    ;; so the cache flips to 'clean and the entry hides.
     (define (alacritty-configure!)
-      (cond
-        ((not (eq? (alacritty-probe-state) 'quarantined))
-         (alacritty-refresh-state!))
-        ((alacritty-confirm-configure)
-         (run-shell
-           (string-append
-             "xattr -d com.apple.quarantine \""
-             alacritty-app-path "\" 2>/dev/null"))
-         (alacritty-refresh-state!))
-        (else #f)))
+      (if (not (eq? (alacritty-probe-state) 'quarantined))
+        (alacritty-refresh-state!)
+        (dialog-confirm alacritty-configure-dialog-message
+          (lambda (continue?)
+            (when continue?
+              (run-shell
+                (string-append
+                  "xattr -d com.apple.quarantine \""
+                  alacritty-app-path "\" 2>/dev/null"))
+              (alacritty-refresh-state!)))
+          'title "Configure Alacritty" 'ok-label "Continue" 'icon "caution")))
 
     ;; A `(key …)` node bound to Ctrl+Shift+I — same key as iTerm's
     ;; and Kitty's configure-entry. They're mutually exclusive by

@@ -74,6 +74,7 @@
           (modaliser state-machine)
           (modaliser util)
           (modaliser shell)
+          (modaliser dialogs)
           (modaliser accessibility)
           (modaliser hints)
           (modaliser ax-hints)
@@ -371,15 +372,6 @@
       (set! *kitty-configured* (kitty-probe-configured?))
       *kitty-configured*)
 
-    (define (shell-sq-escape s)
-      (let loop ((cs (string->list s)) (acc '()))
-        (if (null? cs)
-          (list->string (reverse acc))
-          (loop (cdr cs)
-                (if (char=? (car cs) #\')
-                  (cons #\' (cons #\' (cons #\\ (cons #\' acc))))
-                  (cons (car cs) acc))))))
-
     (define kitty-configure-dialog-message
       (string-append
         "Modaliser needs three settings in your kitty config to drive "
@@ -395,26 +387,20 @@
         "  - Leave the rest of your config untouched\n\n"
         "You'll need to relaunch Kitty for the changes to take effect."))
 
-    (define (kitty-confirm-configure)
-      (string-contains?
-        (run-shell
-          (string-append
-            "osascript -e 'display dialog \""
-            (shell-sq-escape kitty-configure-dialog-message)
-            "\" with title \"Configure Kitty\" "
-            "buttons {\"Cancel\", \"Continue\"} "
-            "default button \"Cancel\" cancel button \"Cancel\" "
-            "with icon caution' 2>/dev/null"))
-        "Continue"))
-
+    ;; Overlay action: confirm (async, ADR-0014 — the dialog fires through
+    ;; the slim (modaliser dialogs) library so the Scheme thread stays free
+    ;; while it's up), provision, re-probe. Idempotent — if kitty is already
+    ;; configured (e.g. the key was pressed while the entry was hidden) it
+    ;; just syncs the cache and returns, no dialog.
     (define (kitty-configure!)
-      (cond
-        ((kitty-probe-configured?)
-         (kitty-refresh-configured!))
-        ((kitty-confirm-configure)
-         (run-shell kitty-provision-script)
-         (kitty-refresh-configured!))
-        (else #f)))
+      (if (kitty-probe-configured?)
+        (kitty-refresh-configured!)
+        (dialog-confirm kitty-configure-dialog-message
+          (lambda (continue?)
+            (when continue?
+              (run-shell kitty-provision-script)
+              (kitty-refresh-configured!)))
+          'title "Configure Kitty" 'ok-label "Continue" 'icon "caution")))
 
     ;; A `(key …)` node bound to Ctrl+Shift+I (same key as iTerm's
     ;; configure-entry — they're mutually exclusive by frontmost app,
