@@ -1134,4 +1134,160 @@ struct ModaliserMuxesHerdrLibraryTests {
         """)
         #expect(try engine.evaluate("captured").asString() == "server stop")
     }
+
+    // MARK: - Prev/Next ring cycling (leaf prev-next-impl-k10)
+
+    /// The pure ring-step helper (prev-next-nav-k4): wraps at both ends,
+    /// seeds from an unfocused (#f) index by step direction, degrades an
+    /// empty ring to #f, and resolves trivially for a single row.
+    /// Fixture-fed — no live herdr, mirroring next-blocked-pane-id's shape.
+    @Test func cycleTargetIdRingSteps() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        try engine.evaluate("""
+          (define TS (list (cons "1" "a") (cons "2" "b") (cons "3" "c")))
+        """)
+        // Next (step +1): wraps from the last row back to the first.
+        #expect(try engine.evaluate("(cycle-target-id TS 0 1)") == .string("b"))
+        #expect(try engine.evaluate("(cycle-target-id TS 1 1)") == .string("c"))
+        #expect(try engine.evaluate("(cycle-target-id TS 2 1)") == .string("a"))
+        // Prev (step -1): wraps from the first row back to the last.
+        #expect(try engine.evaluate("(cycle-target-id TS 0 -1)") == .string("c"))
+        #expect(try engine.evaluate("(cycle-target-id TS 1 -1)") == .string("a"))
+        #expect(try engine.evaluate("(cycle-target-id TS 2 -1)") == .string("b"))
+        // #f focused-index (no row focused yet, e.g. before the first
+        // render) seeds by direction: next → first row, prev → last row.
+        #expect(try engine.evaluate("(cycle-target-id TS #f 1)") == .string("a"))
+        #expect(try engine.evaluate("(cycle-target-id TS #f -1)") == .string("c"))
+        // An out-of-range focused-index seeds the same way as #f.
+        #expect(try engine.evaluate("(cycle-target-id TS 9 1)") == .string("a"))
+        #expect(try engine.evaluate("(cycle-target-id TS -1 -1)") == .string("c"))
+        // Empty ring → #f regardless of direction or focused-index.
+        #expect(try engine.evaluate("(cycle-target-id '() 0 1)") == .false)
+        #expect(try engine.evaluate("(cycle-target-id '() #f -1)") == .false)
+        // Single row → always itself, from any focused-index or direction.
+        try engine.evaluate("(define ONE (list (cons \"1\" \"only\")))")
+        #expect(try engine.evaluate("(cycle-target-id ONE 0 1)") == .string("only"))
+        #expect(try engine.evaluate("(cycle-target-id ONE 0 -1)") == .string("only"))
+        #expect(try engine.evaluate("(cycle-target-id ONE #f 1)") == .string("only"))
+    }
+
+    /// The `[`/`]` pair is wired into the Panes, Tabs, Workspaces, and
+    /// Agents drills — uniform loose keys, each carrying 'next 'self (a
+    /// cyclic edge, not a sub-mode to enter) — and deliberately absent from
+    /// Worktrees (the human direction named four cycling groups, not five;
+    /// prev-next-nav-k4's Notes). Tree-shape assertion, no live herdr.
+    @Test func buildHerdrTreeWiresPrevNextCycling() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("""
+          (define TREE (build-herdr-tree))
+          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
+          (define (node-with-key k lst)
+            (cond ((null? lst) #f)
+                  ((equal? (node-key (car lst)) k) (car lst))
+                  (else (node-with-key k (cdr lst)))))
+          (define (children n) (cdr (assoc 'children n)))
+          (define (next-is-self? n) (eq? (cdr (assoc 'next n)) 'self))
+        """)
+        for drillKey in ["p", "t", "w", "a"] {
+            try engine.evaluate("(define KIDS (children (node-with-key \"\(drillKey)\" TREE)))")
+            #expect(try engine.evaluate("(if (node-with-key \"[\" KIDS) #t #f)") == .true,
+                    "drill \(drillKey) missing [")
+            #expect(try engine.evaluate("(if (node-with-key \"]\" KIDS) #t #f)") == .true,
+                    "drill \(drillKey) missing ]")
+            #expect(try engine.evaluate("(next-is-self? (node-with-key \"[\" KIDS))") == .true,
+                    "drill \(drillKey) [ not 'next 'self")
+            #expect(try engine.evaluate("(next-is-self? (node-with-key \"]\" KIDS))") == .true,
+                    "drill \(drillKey) ] not 'next 'self")
+        }
+        // Worktrees deliberately excluded.
+        try engine.evaluate("(define GKIDS (children (node-with-key \"g\" TREE)))")
+        #expect(try engine.evaluate("(if (node-with-key \"[\" GKIDS) #t #f)") == .false)
+        #expect(try engine.evaluate("(if (node-with-key \"]\" GKIDS) #t #f)") == .false)
+    }
+
+    /// prev-next-nav-k4's "Also": the registered herdr-panes-focus Walk
+    /// carries the `[`/`]` pair TOO (added by focus-mode-register!, not
+    /// just the Panes drill's own top-level copy), so cycling stays
+    /// available mid-focus-walk without leaving it — same 'next 'self
+    /// cyclic edge as hjkl.
+    @Test func registerInstallsPrevNextInFocusWalk() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("(register!)")
+        try engine.evaluate("""
+          (define FOCUS (lookup-tree "herdr-panes-focus"))
+          (define KIDS (cdr (assoc 'children FOCUS)))
+          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
+          (define (node-with-key k lst)
+            (cond ((null? lst) #f)
+                  ((equal? (node-key (car lst)) k) (car lst))
+                  (else (node-with-key k (cdr lst)))))
+        """)
+        #expect(try engine.evaluate("(if (node-with-key \"[\" KIDS) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (node-with-key \"]\" KIDS) #t #f)") == .true)
+        #expect(try engine.evaluate(
+            "(eq? (cdr (assoc 'next (node-with-key \"[\" KIDS))) 'self)") == .true)
+        #expect(try engine.evaluate(
+            "(eq? (cdr (assoc 'next (node-with-key \"]\" KIDS))) 'self)") == .true)
+    }
+
+    /// Cycling shares the SAME stale-kind guard the digit path uses
+    /// (herdr-fast-key-drops-k8): a fast leader→drill→`]` press can reach
+    /// the cycling action before THIS kind's on-render-fn ever snapshotted,
+    /// so a bare read of the shared current-targets/current-data cell
+    /// could silently ring-step another kind's leftover rows. Simulates a
+    /// prior Panes render this session, then presses "a" "]" with no
+    /// Agents render in between (this harness never opens the overlay): the
+    /// kind mismatch must force a fresh `agent list` snapshot before
+    /// cycling, exactly like list-digit-range's guard.
+    @Test func cyclePressBeforeRenderIgnoresStaleOtherKindEntry() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr)
+                  (modaliser blocks herdr-list) (modaliser json))
+        """)
+        try engine.evaluate("""
+          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
+        """)
+        // Prior render this session: Panes, one focused row.
+        try engine.evaluate(#"""
+          (parameterize
+            ((current-herdr-list-runner
+               (lambda (subcmd)
+                 (cond
+                   ((string=? subcmd "pane list")
+                    (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"focused\":true,\"pane_id\":\"STALE-PANE\",\"tab_id\":\"w1:t1\"}]}}"))
+                   (else #f)))))
+            (herdr-list-refresh! 'panes #f))
+        """#)
+        #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'panes)") == .true)
+
+        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        try engine.evaluate("(modal-handle-key \"a\")") // Agents drill — no render yet here
+
+        try engine.evaluate(#"""
+          (parameterize
+            ((current-herdr-list-runner
+               (lambda (subcmd)
+                 (cond
+                   ((string=? subcmd "agent list")
+                    (json-parse "{\"result\":{\"agents\":[{\"agent\":\"a1\",\"agent_status\":\"idle\",\"focused\":true,\"pane_id\":\"REAL-AGENT-1\"},{\"agent\":\"a2\",\"agent_status\":\"idle\",\"focused\":false,\"pane_id\":\"REAL-AGENT-2\"}]}}"))
+                   (else #f)))))
+            (modal-handle-key "]"))
+        """#)
+
+        // The kind mismatch forced a fresh Agents snapshot before cycling —
+        // the shared cell no longer belongs to the stale Panes render.
+        #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'agents)") == .true)
+        // 'next 'self: firing never pushes/pops — still inside "a".
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"a\"))") == .true)
+        #expect(try engine.evaluate("(null? modal-stack)") == .true)
+    }
 }

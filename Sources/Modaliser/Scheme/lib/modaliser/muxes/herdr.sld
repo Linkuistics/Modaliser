@@ -59,6 +59,15 @@
 ;; herdr panes in replace mode — see (modaliser blocks herdr-list). The
 ;; backend's own focus-pane-by-digit slot below (the generic-capability-tree
 ;; entry point, not on the shipping herdr variant path) stays chip-less.
+;;
+;; ── Prev/Next ring cycling ([ / ]) ──
+;; `[` prev / `]` next cycle the Panes/Tabs/Workspaces/Agents drills'
+;; DISPLAYED rows (Worktrees excluded — prev-next-nav-k4), mirroring
+;; herdr's own cycle semantics. Pure computation over the live-list
+;; block's already-snapshotted targets + focused-row index — same
+;; "zero new herdr queries" shape as digit-jump above, wrapping at both
+;; ends, firing the same focus verb the digit path uses. See
+;; cycle-target-id below.
 
 (define-library (modaliser muxes herdr)
   (export register!
@@ -75,6 +84,11 @@
           ;; pane_id → next blocked pane_id | #f), exported for unit tests —
           ;; the jump-to-blocked op (`b`) is a thin shell around it.
           next-blocked-pane-id
+          ;; Pure prev/next ring-step helper (a live-list block's targets +
+          ;; focused-row index + step → target id | #f), exported for unit
+          ;; tests (prev-next-nav-k4) — the `[`/`]` keys in the Panes / Tabs
+          ;; / Workspaces / Agents drills are a thin shell around it.
+          cycle-target-id
           ;; Pure worktree switch-target parser (k14's tagged "ws:<id>" /
           ;; "br:<branch>" target + focused source workspace id → herdr command
           ;; args | #f), exported for unit tests — the smart-switch focus-fn
@@ -600,6 +614,15 @@
                     (cons 'block-children
                           (list (list-digit-range kind focus-fn scope-id-fn))))))
 
+    ;; Named focus verbs, one per kind, so the `[`/`]` ring cycling below
+    ;; (prev-next-nav-k4) fires EXACTLY the same command the digit path
+    ;; does — no second definition to drift out of sync. `agent focus
+    ;; <pane_id>` is the universal pane focus, so panes and agents (both
+    ;; pane_id-keyed) share focus-pane-by-id.
+    (define (focus-pane-by-id id)      (herdr-cmd (string-append "agent focus " id)))
+    (define (focus-tab-by-id id)       (herdr-cmd (string-append "tab focus " id)))
+    (define (focus-workspace-by-id id) (herdr-cmd (string-append "workspace focus " id)))
+
     ;; The panes block takes an optional 'chips? — when #t it paints digit
     ;; chips over the on-screen herdr panes (rects from `herdr pane layout`;
     ;; correct in replace mode, best-effort in augment — see the block header).
@@ -609,26 +632,20 @@
     ;; ops rely on, so no extra query.
     (define (pane-list-block . opts)
       (let ((chips? (alist-ref (apply props->alist opts) 'chips? #f)))
-        (herdr-list-block 'panes
-          (lambda (id) (herdr-cmd (string-append "agent focus " id)))
-          chips? focused-tab-id)))
+        (herdr-list-block 'panes focus-pane-by-id chips? focused-tab-id)))
     ;; Scoped to the focused workspace (grove herdr-tabs-workspace-local-k3) —
     ;; reuses focused-workspace-id, the same `pane current` read the
     ;; close/rename ops above rely on, so no extra query.
     (define (tab-list-block)
-      (herdr-list-block 'tabs
-        (lambda (id) (herdr-cmd (string-append "tab focus " id))) #f
-        focused-workspace-id))
+      (herdr-list-block 'tabs focus-tab-by-id #f focused-workspace-id))
     (define (workspace-list-block)
-      (herdr-list-block 'workspaces
-        (lambda (id) (herdr-cmd (string-append "workspace focus " id))) #f #f))
+      (herdr-list-block 'workspaces focus-workspace-by-id #f #f))
     ;; Agents list (D1/D7): the 'agents kind reorders status-priority
     ;; (blocked-first) and paints a status badge; digit → focus the agent's
     ;; pane by id via the universal `agent focus`. No chips (D6) — the list is
     ;; the visualization, and agents can live cross-workspace (off-screen).
     (define (agent-list-block)
-      (herdr-list-block 'agents
-        (lambda (id) (herdr-cmd (string-append "agent focus " id))) #f #f))
+      (herdr-list-block 'agents focus-pane-by-id #f #f))
     ;; Worktrees list (W3/W4): the 'worktrees kind whose digit target is a
     ;; COMPUTED tagged string (open → "ws:<id>", dormant → "br:<branch>"), so the
     ;; focus-fn is the smart-switch parser, not a bare `<x> focus`. Branch title +
@@ -704,12 +721,84 @@
             (herdr-cmd (string-append "agent focus " target))
             (herdr-cmd "notification show 'No blocked agents'"))))
 
+    ;; ─── Prev/Next ring cycling ([ / ], prev-next-nav-k4) ───────────
+    ;;
+    ;; `[` prev / `]` next cycle a drill's DISPLAYED rows one step —
+    ;; mirroring herdr's own cycle semantics (prefix+n/p tabs, navigate-
+    ;; mode workspaces, prefix+Tab panes; agents default to the displayed
+    ;; status-banded order, no herdr binding of its own). Pure computation
+    ;; over the live-list block's already-snapshotted targets + focused-
+    ;; row index — the same shape as next-blocked-pane-id above, but ring-
+    ;; stepped by POSITION (these targets are display-ordered, not a
+    ;; sortable id) rather than searched by string order.
+
+    ;; (cycle-target-id targets focused-index step) → target id | #f
+    ;;
+    ;; TARGETS is a live-list block's ((label . id) …) snapshot
+    ;; (herdr-list-current-targets, display order); FOCUSED-INDEX is the
+    ;; row index of the currently-focused row (herdr-list-focused-index);
+    ;; STEP is +1 (next) or -1 (prev) — mirrors modal-list-cursor-move!'s
+    ;; j/k step convention rather than a 'next/'prev symbol, so it never
+    ;; reads as the unrelated DSL 'next-edge keyword. Ring semantics: wraps
+    ;; at both ends via `modulo`. A FOCUSED-INDEX outside [0, length
+    ;; TARGETS) — including #f, no row focused yet (e.g. before the first
+    ;; render) — seeds the ring instead of erroring: STEP > 0 starts at the
+    ;; first target, STEP < 0 at the last. Empty TARGETS → #f, the
+    ;; nothing-to-cycle-to case (mirrors next-blocked-pane-id's empty-ring
+    ;; #f).
+    (define (cycle-target-id targets focused-index step)
+      (let ((n (length targets)))
+        (if (= n 0)
+            #f
+            (let ((idx (if (and (integer? focused-index)
+                                 (>= focused-index 0)
+                                 (< focused-index n))
+                           (modulo (+ focused-index step) n)
+                           (if (> step 0) 0 (- n 1)))))
+              (cdr (list-ref targets idx))))))
+
+    ;; The `[`/`]` press's action: ensure a fresh snapshot for THIS kind —
+    ;; the same stale-kind guard list-digit-range uses above
+    ;; (herdr-fast-key-drops-k8: a fast leader→drill→[ press can beat the
+    ;; on-render snapshot) — then step the ring and fire FOCUS-FN on the
+    ;; result. An empty ring is a silent no-op; either way the drill's
+    ;; overlay refresh (triggered by the 'next 'self edge below) re-runs
+    ;; the live list's on-render-fn, so the NEXT press reads a snapshot
+    ;; reflecting whatever focus this press just set.
+    (define (cycle-fire! kind focus-fn scope-id-fn step)
+      (let* ((targets (if (eq? kind (herdr-list-current-kind))
+                          (herdr-list-current-targets)
+                          (herdr-list-refresh! kind (and scope-id-fn (scope-id-fn)))))
+             (target (cycle-target-id targets (herdr-list-focused-index) step)))
+        (when target (focus-fn target))))
+
+    ;; The loose `[` Prev / `]` Next pair a drill splices in, uniform
+    ;; across Panes/Tabs/Workspaces/Agents (Worktrees deliberately
+    ;; excluded — the human direction named four groups). Each is 'next
+    ;; 'self — a cyclic edge re-arming right where the press happened, no
+    ;; sub-mode to enter (unlike Move, one keystroke already tours the
+    ;; ring) — so presses chain, and the walk feel (press-press-press
+    ;; tours the ring with the list updating) falls out of the overlay
+    ;; refresh described on cycle-fire! above.
+    (define (cycle-nav kind focus-fn scope-id-fn)
+      (fragment
+        (key "[" "Prev" (lambda () (cycle-fire! kind focus-fn scope-id-fn -1)) 'next 'self)
+        (key "]" "Next" (lambda () (cycle-fire! kind focus-fn scope-id-fn 1))  'next 'self)))
+
+    ;; The Panes pair, reused in TWO places (see focus-mode-register! below):
+    ;; the top-level Panes drill AND the registered herdr-panes-focus Walk,
+    ;; so cycling stays available mid-focus-walk without leaving it.
+    (define (pane-cycle-nav) (cycle-nav 'panes focus-pane-by-id focused-tab-id))
+
     ;; The Walk focus mode the Panes drill's Focus panel crosses into. The
     ;; Focus panel's hjkl each carry 'next 'herdr-panes-focus (build-herdr-
     ;; tree, a cross edge), so the first hjkl focuses AND crosses into this
     ;; mode; each member here carries 'next 'self (a cyclic edge back to
     ;; itself), so subsequent hjkl keep moving focus without another leader
     ;; press.
+    ;; Also carries the `[`/`]` cycling pair (prev-next-nav-k4's "Also") —
+    ;; the SAME registered Walk, not a second key-range, so a hjkl-then-[
+    ;; sequence never leaves Focus mode.
     (define (focus-mode-register!)
       (register-tree! 'herdr-panes-focus
         'exit-on-unknown #t
@@ -717,7 +806,8 @@
         (key "h" "Left"  focus-pane-left  'next 'self)
         (key "j" "Down"  focus-pane-down  'next 'self)
         (key "k" "Up"    focus-pane-up    'next 'self)
-        (key "l" "Right" focus-pane-right 'next 'self)))
+        (key "l" "Right" focus-pane-right 'next 'self)
+        (pane-cycle-nav)))
 
     ;; The herdr variant tree. Pane ops are bound to the herdr-DIRECT ops
     ;; above, never the façade, so they drive herdr regardless of what
@@ -732,16 +822,22 @@
     ;;                               (left/up = split+swap)
     ;;                  m Move       Walk hjkl → swap focused pane with its
     ;;                               neighbour
+    ;;                  [ / ]        Prev/Next — cycle the displayed panes
+    ;;                               (tab-scoped; prev-next-nav-k4)
     ;;                  z / d        toggle zoom / close pane
     ;;                  Panes panel  the panes list + chips (digit → focus
     ;;                               by id)
-    ;;   t Tabs       n/r/d + the tabs list (digit → switch); no Move Tab —
-    ;;                 herdr exposes no socket/CLI tab-reorder verb (see
-    ;;                 Tab ops above)
-    ;;   w Workspaces n/r/d + the workspaces list (digit → switch)
-    ;;   g Worktrees  n/d + the worktrees list (digit → smart-switch)
+    ;;   t Tabs       n/r/d + [ / ] Prev/Next (workspace-scoped) + the tabs
+    ;;                list (digit → switch); no Move Tab — herdr exposes no
+    ;;                socket/CLI tab-reorder verb (see Tab ops above)
+    ;;   w Workspaces n/r/d + [ / ] Prev/Next (global) + the workspaces list
+    ;;                (digit → switch)
+    ;;   g Worktrees  n/d + the worktrees list (digit → smart-switch); no
+    ;;                [ / ] — the human direction named four cycling groups,
+    ;;                not five (prev-next-nav-k4)
     ;;   b Jump       focus the next blocked agent (round-robin; toast if none)
-    ;;   a Agents     the agents list (status-badged, blocked-first; digit → focus)
+    ;;   a Agents     [ / ] Prev/Next (status-banded order) + the agents list
+    ;;                (status-badged, blocked-first; digit → focus)
     ;;   q Quit       d Detach (keystroke, ctrl+b q) / s Stop Server (confirm-gated)
     (define (build-herdr-tree)
       (list
@@ -764,16 +860,19 @@
             (key "l" "Right" move-pane-right 'next 'self))
           (key "z" "Zoom"  toggle-pane-zoom)
           (key "d" "Close" close-pane)
+          (pane-cycle-nav)
           (panel "Panes" (pane-list-block 'chips? #t)))
         (open "t" "Tabs"
           (key "n" "New"    new-tab)
           (key "r" "Rename" rename-focused-tab!)
           (key "d" "Close"  close-focused-tab)
+          (cycle-nav 'tabs focus-tab-by-id focused-workspace-id)
           (panel "Tabs" (tab-list-block)))
         (open "w" "Workspaces"
           (key "n" "New"    new-workspace)
           (key "r" "Rename" rename-focused-workspace!)
           (key "d" "Close"  close-focused-workspace)
+          (cycle-nav 'workspaces focus-workspace-by-id #f)
           (panel "Workspaces" (workspace-list-block)))
         ;; Worktrees surface (k6). `g` (= git worktree; `w` is Workspaces) drills
         ;; a live worktree list: digit → smart-switch (focus the live workspace
@@ -786,10 +885,13 @@
           (panel "Worktrees" (worktree-list-block)))
         ;; Agents surface (k5). `b` jumps to the next blocked agent in one
         ;; keystroke (the differentiator); `a` drills into the Agents live-list
-        ;; (status-badged, blocked-first, digit → focus by id). v1 focus-only
-        ;; (D8) — no send/read/explain, so the drill is just the list panel.
+        ;; (status-badged, blocked-first, digit → focus by id), plus [ / ]
+        ;; Prev/Next over that same displayed (status-banded) order
+        ;; (prev-next-nav-k4). v1 focus-only (D8) — no send/read/explain, so
+        ;; the drill is the list panel plus the cycling pair.
         (key "b" "Jump to Blocked" jump-to-next-blocked)
         (open "a" "Agents"
+          (cycle-nav 'agents focus-pane-by-id #f)
           (panel "Agents" (agent-list-block)))
         ;; Quit group (k2). "Quit" unqualified is ambiguous between ending
         ;; the herdr client and the herdr server (CONTEXT.md), so the group

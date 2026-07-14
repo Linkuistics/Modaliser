@@ -175,22 +175,29 @@ what the overlay shows on `/herdr`:
 
 - **`p` Panes** — the entire pane surface, drilled:
   - **`hjkl`** — focus the pane in that direction (first press crosses
-    into a focus Walk, so subsequent `hjkl` keep moving focus).
+    into a focus Walk, so subsequent `hjkl` keep moving focus; `[`/`]`
+    cycling below also works mid-walk).
   - **`s`** then `hjkl` — split a new pane that direction (left/up
     split the opposite native way then swap back).
   - **`m`** then `hjkl` — Move Walk: swap the focused pane with its
     neighbour.
+  - **`[`** / **`]`** — Prev/Next: cycle focus through the displayed
+    (tab-scoped) panes, wrapping at both ends.
   - **`z`** / **`d`** — toggle zoom / close the focused pane.
   - **Panes panel** — the panes live list plus digit **chips** over
     the on-screen panes (replace-mode-correct; see below).
 - **`t` Tabs**, **`w` Workspaces** — each a drill with `n`/`r`/`d`
-  (new / rename / close) plus a live list whose digits switch.
+  (new / rename / close), `[`/`]` Prev/Next cycling (tabs are
+  workspace-scoped; workspaces are global), plus a live list whose
+  digits switch.
 - **`g` Worktrees** — `n` new (prompt a branch), `d` remove the
   focused worktree (behind a confirm), plus a live list whose digits
   *smart-switch* (focus a live workspace, or open a dormant worktree).
+  No `[`/`]` — cycling covers four groups, not five.
 - **`b` Jump to Blocked** — focus the next blocked agent in one press
   (round-robin; a toast when none are blocked).
-- **`a` Agents** — the agents live list, status-badged and
+- **`a` Agents** — `[`/`]` Prev/Next cycling over the displayed
+  (status-banded) order, plus the agents live list, status-badged and
   blocked-first; a digit focuses that agent's pane.
 - **`q` Quit** — `d` Detach (ends the herdr *client* only, emitted as
   herdr's own `prefix+q` keystroke — `ctrl+b` then `q`) or `s` Stop

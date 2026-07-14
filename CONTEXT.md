@@ -94,10 +94,20 @@ contract; pane focus now lives under the Panes drill.
 
 **Panes drill (herdr)** — the `p` drill row in the herdr tree holding the
 *entire* pane surface: focus (hjkl, crossing into the focus walk), split, move,
-zoom, close, and the panes live-list (chips + digit-jump). Parallel to the
-Tabs / Workspaces / Worktrees / Agents drills; no pane op lives at the herdr
-top level. Provisional grouping "until a better hierarchy of interaction" is
-worked out (herdr-pane-group grove).
+`[`/`]` prev/next cycling, zoom, close, and the panes live-list (chips +
+digit-jump). Parallel to the Tabs / Workspaces / Worktrees / Agents drills; no
+pane op lives at the herdr top level. Provisional grouping "until a better
+hierarchy of interaction" is worked out (herdr-pane-group grove).
+
+**Prev/Next cycling (herdr)** — the `[` prev / `]` next keys, uniform across
+the Panes / Tabs / Workspaces / Agents drills (Worktrees excluded), that
+ring-step the drill's *displayed rows* one at a time: tab-scoped for Panes,
+workspace-scoped for Tabs, global for Workspaces, status-banded order for
+Agents — mirroring herdr's own cycle semantics (`prefix+n/p` tabs,
+navigate-mode workspaces, `prefix+Tab` panes). Loose keys, not a sub-mode:
+each carries `'next 'self` directly in the drill body, so pressing one
+re-arms in place and the drill's live list re-renders with the new focus
+(prev-next-nav-k4).
 
 ## Modal-dispatch domain
 
