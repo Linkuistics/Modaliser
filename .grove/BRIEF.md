@@ -10,7 +10,7 @@ instead of scattered at the top level.
 
 `build-herdr-tree`'s top level is exactly `p` Panes / `t` Tabs /
 `w` Workspaces / `g` Worktrees / `b` Jump to Blocked / `a` Agents, with the
-whole pane surface (Focus hjkl, `s` Split, `m` Move, `z` Zoom, `d` Close,
+whole pane surface (Focus hjkl, `n` New, `m` Move, `z` Zoom, `d` Close,
 panes list + chips) inside the `p` drill; stale "herdr owns the top-level
 hjkl" claims swept from code comments and docs; tests green.
 

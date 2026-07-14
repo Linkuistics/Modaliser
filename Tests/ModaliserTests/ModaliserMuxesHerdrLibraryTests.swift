@@ -260,7 +260,7 @@ struct ModaliserMuxesHerdrLibraryTests {
     // MARK: - herdr control surface (leaf herdr-controls-k9)
 
     /// `build-herdr-tree` returns the full herdr surface, not the hjkl
-    /// skeleton: a `p` Panes drill (Focus panel, s Split / m Move groups,
+    /// skeleton: a `p` Panes drill (Focus panel, n New / m Move groups,
     /// z/d pane keys, the Panes list panel), the t Tabs / w Workspaces /
     /// g Worktrees drills, the b Jump-to-Blocked key, and a Agents drill
     /// (agents surface, k13) — six top-level nodes (herdr-pane-group grove).

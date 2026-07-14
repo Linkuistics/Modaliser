@@ -650,7 +650,7 @@
     ;;   p Panes      the whole pane surface, drilled (herdr-pane-group grove):
     ;;                  Focus panel  hjkl → focus (crosses into the
     ;;                               'herdr-panes-focus Walk)
-    ;;                  s Split      hjkl → new split that direction
+    ;;                  n New         hjkl → new split that direction
     ;;                               (left/up = split+swap)
     ;;                  m Move       Walk hjkl → swap focused pane with its
     ;;                               neighbour
@@ -672,7 +672,7 @@
             (key "j" "Down"  focus-pane-down  'next 'herdr-panes-focus)
             (key "k" "Up"    focus-pane-up    'next 'herdr-panes-focus)
             (key "l" "Right" focus-pane-right 'next 'herdr-panes-focus))
-          (group "s" "Split"
+          (group "n" "New"
             (key "h" "Left"  split-pane-left)
             (key "j" "Down"  split-pane-down)
             (key "k" "Up"    split-pane-up)
