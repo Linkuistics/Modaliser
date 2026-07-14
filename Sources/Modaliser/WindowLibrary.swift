@@ -79,7 +79,8 @@ final class WindowLibrary: NativeLibrary {
         if windowId == 0 {
             WindowManipulator.activateApp(ownerPID: pid_t(pid))
         } else {
-            WindowManipulator.focusWindow(ownerPID: pid_t(pid), title: title)
+            WindowManipulator.focusWindow(
+                ownerPID: pid_t(pid), windowId: CGWindowID(windowId), title: title)
         }
         return .void
     }

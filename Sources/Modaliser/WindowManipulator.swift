@@ -36,23 +36,57 @@ enum WindowManipulator {
         app.activate()
     }
 
-    /// Focus a specific window by its owner PID and title (current Space only).
-    static func focusWindow(ownerPID: pid_t, title: String) {
+    /// One AX window as `focusWindow`'s resolver sees it: its AX-derived
+    /// CGWindowID (via `_AXUIElementGetWindow`, 0 when unresolvable) and
+    /// title. A plain value type so `resolveWindowIndex` is unit-testable
+    /// with a synthetic list, no live AX/window server (mirrors
+    /// `ChipPlacement.WindowEntry`).
+    struct WindowCandidate {
+        let windowId: CGWindowID
+        let title: String
+    }
+
+    /// Pick which candidate `focusWindow` should raise: prefer an exact
+    /// `windowId` match — unambiguous even when two windows share a title —
+    /// falling back to the first title match only when `windowId` is 0
+    /// (absent) or matches no candidate (the AX id SPI is occasionally
+    /// unreliable — see `windowVisibleAtFunction`'s comment on the same
+    /// disagreement). Pure — no system calls — so it is unit-testable.
+    static func resolveWindowIndex(
+        candidates: [WindowCandidate], windowId: CGWindowID, title: String
+    ) -> Int? {
+        if windowId != 0, let idx = candidates.firstIndex(where: { $0.windowId == windowId }) {
+            return idx
+        }
+        return candidates.firstIndex(where: { $0.title == title })
+    }
+
+    /// Focus a specific window by owner PID (current Space only), preferring
+    /// an exact `windowId` match over `title` — two windows of the same app
+    /// can share a title, in which case title-only matching raises whichever
+    /// comes first in `kAXWindowsAttribute`'s order rather than the one the
+    /// caller actually chose. See `resolveWindowIndex` for the fallback rule.
+    static func focusWindow(ownerPID: pid_t, windowId: CGWindowID, title: String) {
         guard let app = NSRunningApplication(processIdentifier: ownerPID) else { return }
 
         let appElement = AXUIElementCreateApplication(ownerPID)
         guard let windows = axAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement] else { return }
 
-        for window in windows {
-            if let windowTitle = axAttribute(window, kAXTitleAttribute) as? String,
-               windowTitle == title {
-                AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
-                AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-                AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-                app.activate()
-                break
-            }
+        let candidates = windows.map { window -> WindowCandidate in
+            var wid: CGWindowID = 0
+            _ = _AXUIElementGetWindow(window, &wid)
+            let windowTitle = axAttribute(window, kAXTitleAttribute) as? String ?? ""
+            return WindowCandidate(windowId: wid, title: windowTitle)
         }
+        guard let idx = resolveWindowIndex(candidates: candidates, windowId: windowId, title: title) else {
+            return
+        }
+
+        let window = windows[idx]
+        AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        app.activate()
     }
 
     /// Center the focused window on its current screen.
