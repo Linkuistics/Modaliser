@@ -73,6 +73,14 @@ one if dormant.
 pane: `idle` / `working` / `blocked` / `unknown`. Surfaced by `herdr pane list`.
 The thing "jump to a blocked agent" acts on.
 
+**Detach (herdr)** — end the herdr *client*, leaving the server and every
+pane/agent running for a later re-attach (`herdr`). A client-side keybinding
+(default `prefix+q`), not a socket/CLI verb. Contrast **Stop (herdr server)**.
+
+**Stop (herdr server)** — end the herdr *server* (`herdr server stop`):
+every pane and agent terminates; the host terminal returns to the shell.
+"Quit" unqualified is ambiguous between detach and stop — name which one.
+
 **Replace tree / Augment tree** — the two herdr variant trees selected by the
 suffix hook when the frontmost iTerm pane runs herdr. **Replace** (`/herdr`):
 herdr is the *sole* iTerm split in the current tab, so the tree is herdr-only

@@ -260,18 +260,19 @@ struct ModaliserMuxesHerdrLibraryTests {
     // MARK: - herdr control surface (leaf herdr-controls-k9)
 
     /// `build-herdr-tree` returns the full herdr surface, not the hjkl
-    /// skeleton: a `p` Panes drill (Focus panel, n New / m Move groups,
-    /// z/d pane keys, the Panes list panel), the t Tabs / w Workspaces /
-    /// g Worktrees drills, the b Jump-to-Blocked key, and a Agents drill
-    /// (agents surface, k13) — six top-level nodes (herdr-pane-group grove).
-    /// It must build without touching herdr (all shell-outs live in
+    /// skeleton: a `p` Panes drill (Focus panel, n New / m Move groups, z/d
+    /// pane keys, the Panes list panel), the t Tabs / w Workspaces /
+    /// g Worktrees drills, the b Jump-to-Blocked key, a Agents drill (agents
+    /// surface, k13), and the q Quit group (herdr-quit-group-k2) — seven
+    /// top-level nodes (herdr-pane-group grove). It must build without
+    /// touching herdr (all shell-outs live in
     /// on-render thunks / key actions, never at construction time).
     @Test func buildHerdrTreeIsFullSurface() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
         """)
-        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(6))
+        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(7))
     }
 
     /// (register!) wires the Walk top-level focus mode the herdr tree's
@@ -511,6 +512,48 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate(#"""
           (define J (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"focused\":true,\"pane_id\":\"wC:p1\",\"tab_id\":\"wC:t1\"},{\"focused\":false,\"pane_id\":\"wD:p1\",\"tab_id\":\"wD:t1\"}]}}"))
           (define R (herdr-list-extract 'panes (list "1" "2") J #f))
+        """#)
+        #expect(try engine.evaluate("(length (car R))") == .fixnum(2))
+    }
+
+    /// herdr-tabs-workspace-local-k3: `herdr tab list` is GLOBAL (confirmed
+    /// against a live server — it carries every workspace's tabs, unlike
+    /// `worktree list` it has no `result.source` to compare against), so the
+    /// tabs kind is scoped by the caller-supplied focused-workspace-id — a tab
+    /// whose workspace_id doesn't match is dropped in phase 1, before labels
+    /// are assigned. A four-tab, two-workspace fixture: only wC's two tabs
+    /// become rows/digit targets, relabeled "1"/"2" (not the fixture's
+    /// original JSON positions 1 and 3).
+    @Test func herdrListExtractScopesTabsToFocusedWorkspace() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"tabs\":[{\"focused\":true,\"label\":\"1 Claude\",\"tab_id\":\"wC:t1\",\"workspace_id\":\"wC\"},{\"focused\":false,\"label\":\"2 Yazi\",\"tab_id\":\"wC:t2\",\"workspace_id\":\"wC\"},{\"focused\":false,\"label\":\"1 Claude\",\"tab_id\":\"wD:t1\",\"workspace_id\":\"wD\"},{\"focused\":false,\"label\":\"2 Yazi\",\"tab_id\":\"wD:t2\",\"workspace_id\":\"wD\"}]}}"))
+          (define R (herdr-list-extract 'tabs (list "1" "2" "3" "4") J "wC"))
+          (define TARGETS (car R))
+          (define ROWS (cdr R))
+        """#)
+        // Only wC's two tabs survive — wD's are dropped, not just unlabeled.
+        #expect(try engine.evaluate("(length TARGETS)") == .fixnum(2))
+        #expect(try engine.evaluate("(length ROWS)") == .fixnum(2))
+        #expect(try engine.evaluate("(cdr (assoc \"1\" TARGETS))") == .string("wC:t1"))
+        #expect(try engine.evaluate("(cdr (assoc \"2\" TARGETS))") == .string("wC:t2"))
+        #expect(try engine.evaluate("(if (assoc \"3\" TARGETS) #t #f)") == .false)
+        #expect(try engine.evaluate("(cdr (assoc 'title (car ROWS)))") == .string("1 Claude"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (cadr ROWS)))") == .string("2 Yazi"))
+    }
+
+    /// A #f focused-workspace-id (herdr unreachable, `pane current` failed)
+    /// degrades to unfiltered — every workspace's tabs still render — rather
+    /// than an empty list. Non-tabs kinds ignore the parameter outright: a
+    /// workspace_id-bearing fixture (agents also carry workspace_id) is
+    /// unaffected by a scope value.
+    @Test func herdrListExtractTabsUnfilteredWithoutFocusedWorkspace() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"tabs\":[{\"focused\":true,\"label\":\"1 Claude\",\"tab_id\":\"wC:t1\",\"workspace_id\":\"wC\"},{\"focused\":false,\"label\":\"1 Claude\",\"tab_id\":\"wD:t1\",\"workspace_id\":\"wD\"}]}}"))
+          (define R (herdr-list-extract 'tabs (list "1" "2") J #f))
         """#)
         #expect(try engine.evaluate("(length (car R))") == .fixnum(2))
     }
@@ -1026,5 +1069,69 @@ struct ModaliserMuxesHerdrLibraryTests {
         """)
         #expect(try engine.evaluate("fired?") == .false)
         #expect(try engine.evaluate("prompted?") == .false)
+    }
+
+    // MARK: - Quit group (leaf herdr-quit-group-k2)
+
+    /// Tree-shape only: top-level `q` is a group holding `d` Detach and `s`
+    /// Stop Server. Detach's keystroke-emission body stays untested by
+    /// design (same trust level as the config's untested copy-mode key) —
+    /// no new keystroke test seam, per the grilled decision.
+    @Test func buildHerdrTreeWiresQuitGroup() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("""
+          (define TREE (build-herdr-tree))
+          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
+          (define (node-with-key k lst)
+            (cond ((null? lst) #f)
+                  ((equal? (node-key (car lst)) k) (car lst))
+                  (else (node-with-key k (cdr lst)))))
+        """)
+        // Top-level `q` present and is a plain group (not a Walk/drill).
+        #expect(try engine.evaluate("(if (node-with-key \"q\" TREE) #t #f)") == .true)
+        #expect(try engine.evaluate("""
+          (eq? 'group (cdr (assoc 'kind (node-with-key "q" TREE))))
+        """) == .true)
+        // Its children hold `d` (Detach) and `s` (Stop Server).
+        try engine.evaluate("""
+          (define Q (node-with-key "q" TREE))
+          (define KIDS (cdr (assoc 'children Q)))
+        """)
+        #expect(try engine.evaluate("(if (node-with-key \"d\" KIDS) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (node-with-key \"s\" KIDS) #t #f)") == .true)
+    }
+
+    /// Stop Server behaviour (ADR-0014): cancel fires no async verb; OK
+    /// fires exactly "server stop". Routed through the same
+    /// current-dialog-runner + current-herdr-async-runner seams already
+    /// used elsewhere in this file — no new test seam.
+    @Test func stopServerFiresOnConfirmOnlyAndDoesNothingOnCancel() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser dialogs))")
+
+        // Cancel clicked (stdout doesn't match the "Stop" ok-label) → no fire.
+        try engine.evaluate("""
+          (define fired? #f)
+          (parameterize
+            ((current-dialog-runner (lambda (cmd cb) (cb 0 "Cancel\\n" "")))
+             (current-herdr-async-runner
+               (lambda (args callback) (set! fired? #t))))
+            (stop-server!))
+        """)
+        #expect(try engine.evaluate("fired?") == .false)
+
+        // "Stop" clicked → exactly "server stop" fired.
+        try engine.evaluate("""
+          (define captured #f)
+          (parameterize
+            ((current-dialog-runner (lambda (cmd cb) (cb 0 "Stop\\n" "")))
+             (current-herdr-async-runner
+               (lambda (args callback) (set! captured args))))
+            (stop-server!))
+        """)
+        #expect(try engine.evaluate("captured").asString() == "server stop")
     }
 }

@@ -87,6 +87,15 @@
           rename-focused-workspace!
           new-worktree!
           remove-focused-worktree!
+          ;; The Stop Server op (`q s`), exported for unit tests — bound into
+          ;; build-herdr-tree's Quit group. Its dialog-confirm gate (ADR-0014)
+          ;; is driven through the same current-dialog-runner /
+          ;; current-herdr-async-runner seams as the ops above, no new seam.
+          ;; Detach (`q d`) has no test seam of its own — a keystroke
+          ;; emission, same trust level as the config's untested copy-mode
+          ;; key — so it is not exported; only a tree-shape assertion covers
+          ;; it.
+          stop-server!
           ;; Test seams (ADR-0014): parameterized indirection points a test
           ;; can override so no test spawns herdr
           ;; (feedback_no_live_env_mutation_in_tests) — current-herdr-query-runner
@@ -104,8 +113,15 @@
           (modaliser json)
           ;; sq-escape: the one canonical POSIX single-quote escaper (ADR-0014's
           ;; (modaliser dialogs) is its home); used here for shell-safe branch-
-          ;; name interpolation, unrelated to that library's dialog concern.
-          (only (modaliser dialogs) sq-escape)
+          ;; name interpolation. dialog-confirm: the Stop Server op's confirm
+          ;; gate — herdr's own CLI stops the server immediately with no
+          ;; herdr-side confirm of its own, unlike worktree remove above.
+          (only (modaliser dialogs) sq-escape dialog-confirm)
+          ;; send-keystroke: Detach has no socket/CLI verb (it's herdr's own
+          ;; client-side keybinding), so it is emitted as a keystroke into the
+          ;; focused iTerm session — established portable-tree practice
+          ;; (apps/*.sld: chrome.sld, iterm.sld, safari.sld).
+          (modaliser input)
           ;; The three herdr live-list blocks (panes / tabs / workspaces)
           ;; share one kind-parameterised constructor; build-herdr-tree wraps
           ;; each with a hidden digit key-range whose focus action lives here
@@ -493,6 +509,45 @@
         (when wsid
           (herdr-cmd-async (string-append "worktree remove --workspace " wsid)))))
 
+    ;; ─── Quit ops (the `q` Quit group, D-etach / S-top server) ──────
+    ;;
+    ;; "Quit" unqualified is ambiguous between ending the herdr CLIENT and
+    ;; the herdr SERVER (CONTEXT.md "Detach (herdr)" / "Stop (herdr
+    ;; server)"), so the group names both explicitly rather than offering a
+    ;; single bare Quit binding.
+
+    ;; Detach (`d`). herdr has no socket/CLI verb for it — detach is the
+    ;; client's OWN keybinding (default `prefix+q`, i.e. ctrl+b then q), so
+    ;; it is emitted as a keystroke into the focused iTerm session where the
+    ;; herdr client is listening, exactly like the config's Scrollback key
+    ;; (herdr-copy-mode-k16, app-trees/com.googlecode.iterm2.scm) — same
+    ;; prefix-then-key shape, same (modaliser input) portable-tree import.
+    ;; Each send-keystroke is self-contained (ctrl is bracketed on `b`
+    ;; only), so the trailing `q` carries no stray modifier.
+    ;;
+    ;; v1 assumption: the user runs herdr on the DEFAULT prefix (ctrl+b).
+    ;; herdr exposes no CLI to query the resolved prefix; if the user
+    ;; rebinds herdr's prefix, update the ctrl+b below to match (same
+    ;; caveat as the Scrollback key).
+    (define (detach!)
+      (send-keystroke '(ctrl) "b")   ; herdr prefix
+      (send-keystroke "q"))          ; detach-client
+
+    ;; Stop Server (`s`). Ends the herdr SERVER: every pane and agent
+    ;; terminates. Unlike worktree remove above (herdr-side confirm UX, no
+    ;; Modaliser dialog), herdr's CLI stops the server immediately with no
+    ;; confirm of its own — so this is the one herdr op that raises a
+    ;; Modaliser dialog-confirm. CPS per ADR-0014: never synchronous
+    ;; run-shell around a dialog. On confirm, fires the same fire-and-forget
+    ;; async seam as the ops above.
+    (define (stop-server!)
+      (dialog-confirm
+        "Stop the herdr server? Every pane and agent will terminate."
+        (lambda (continue?)
+          (when continue?
+            (herdr-cmd-async "server stop")))
+        'title "Stop herdr Server" 'ok-label "Stop" 'icon "caution"))
+
     ;; ─── Live-list blocks (panes / tabs / workspaces) ───────────────
     ;;
     ;; Each wraps the shared (modaliser blocks herdr-list) constructor and
@@ -501,9 +556,9 @@
     ;; clean `focus` verbs. cursor-*-fn wire the selection cursor to the
     ;; block's live targets / focused row (mirrors iterm:pane-list-block). A
     ;; digit pressed before the on-render snapshot ran re-snapshots on demand.
-    ;; tab-id-fn is the optional focused-tab-id-fn (only the panes kind passes
-    ;; one — see herdr-list-block below); threaded through so the on-demand
-    ;; refresh stays scoped identically to the on-render snapshot.
+    ;; scope-id-fn is the optional zero-arg scope thunk (the panes and tabs
+    ;; kinds each pass one — see herdr-list-block below); threaded through so
+    ;; the on-demand refresh stays scoped identically to the on-render snapshot.
     ;;
     ;; The stale-kind guard (herdr-fast-key-drops-k8): current-targets is ONE
     ;; cell shared by every kind (the single-render invariant above the block
@@ -522,7 +577,7 @@
     ;; optimistic-capture buffer and the async-deferred catch-all in
     ;; KeyboardHandlerRegistry/KeyboardLibrary already keep every keystroke
     ;; queued in arrival order regardless of typing speed).
-    (define (list-digit-range kind focus-fn tab-id-fn)
+    (define (list-digit-range kind focus-fn scope-id-fn)
       (cons (cons 'hidden #t)
             (key-range "1.." "Item <n>"
               digit-labels
@@ -530,36 +585,40 @@
                 (let ((entry (or (and (eq? kind (herdr-list-current-kind))
                                        (assoc k (herdr-list-current-targets)))
                                  (begin
-                                   (herdr-list-refresh! kind (and tab-id-fn (tab-id-fn)))
+                                   (herdr-list-refresh! kind (and scope-id-fn (scope-id-fn)))
                                    (assoc k (herdr-list-current-targets))))))
                   (when entry (focus-fn (cdr entry))))))))
 
-    ;; tab-id-fn: an optional zero-arg thunk scoping the panes kind to the
-    ;; displayed tab (see (modaliser blocks herdr-list)'s module header); #f
-    ;; for every other kind, which stay global by design.
-    (define (herdr-list-block kind focus-fn chips? tab-id-fn)
+    ;; scope-id-fn: an optional zero-arg thunk scoping panes to the displayed
+    ;; tab or tabs to the focused workspace (see (modaliser blocks herdr-list)'s
+    ;; module header); #f for every other kind, which stay global by design.
+    (define (herdr-list-block kind focus-fn chips? scope-id-fn)
       (append (make-herdr-list-block 'kind kind 'chips? chips?
-                                      'focused-tab-id-fn tab-id-fn)
+                                      'scope-id-fn scope-id-fn)
               (list (cons 'cursor-targets-fn herdr-list-current-targets)
                     (cons 'cursor-initial-index-fn herdr-list-focused-index)
                     (cons 'block-children
-                          (list (list-digit-range kind focus-fn tab-id-fn))))))
+                          (list (list-digit-range kind focus-fn scope-id-fn))))))
 
     ;; The panes block takes an optional 'chips? — when #t it paints digit
     ;; chips over the on-screen herdr panes (rects from `herdr pane layout`;
     ;; correct in replace mode, best-effort in augment — see the block header).
-    ;; tabs/workspaces have no on-screen rects, so they never chip. The only
-    ;; kind scoped to the displayed tab (grove herdr-pane-group,
-    ;; pane-list-tab-local-k3) — reuses focused-tab-id, the same `pane
-    ;; current` read the close/rename ops rely on, so no extra query.
+    ;; tabs/workspaces have no on-screen rects, so they never chip. Scoped to
+    ;; the displayed tab (grove herdr-pane-group, pane-list-tab-local-k3) —
+    ;; reuses focused-tab-id, the same `pane current` read the close/rename
+    ;; ops rely on, so no extra query.
     (define (pane-list-block . opts)
       (let ((chips? (alist-ref (apply props->alist opts) 'chips? #f)))
         (herdr-list-block 'panes
           (lambda (id) (herdr-cmd (string-append "agent focus " id)))
           chips? focused-tab-id)))
+    ;; Scoped to the focused workspace (grove herdr-tabs-workspace-local-k3) —
+    ;; reuses focused-workspace-id, the same `pane current` read the
+    ;; close/rename ops above rely on, so no extra query.
     (define (tab-list-block)
       (herdr-list-block 'tabs
-        (lambda (id) (herdr-cmd (string-append "tab focus " id))) #f #f))
+        (lambda (id) (herdr-cmd (string-append "tab focus " id))) #f
+        focused-workspace-id))
     (define (workspace-list-block)
       (herdr-list-block 'workspaces
         (lambda (id) (herdr-cmd (string-append "workspace focus " id))) #f #f))
@@ -683,6 +742,7 @@
     ;;   g Worktrees  n/d + the worktrees list (digit → smart-switch)
     ;;   b Jump       focus the next blocked agent (round-robin; toast if none)
     ;;   a Agents     the agents list (status-badged, blocked-first; digit → focus)
+    ;;   q Quit       d Detach (keystroke, ctrl+b q) / s Stop Server (confirm-gated)
     (define (build-herdr-tree)
       (list
         (open "p" "Panes"
@@ -730,7 +790,14 @@
         ;; (D8) — no send/read/explain, so the drill is just the list panel.
         (key "b" "Jump to Blocked" jump-to-next-blocked)
         (open "a" "Agents"
-          (panel "Agents" (agent-list-block)))))
+          (panel "Agents" (agent-list-block)))
+        ;; Quit group (k2). "Quit" unqualified is ambiguous between ending
+        ;; the herdr client and the herdr server (CONTEXT.md), so the group
+        ;; names both ops explicitly — no bare top-level Quit binding, and a
+        ;; fumbled double-tap of `q` lands nowhere.
+        (group "q" "Quit"
+          (key "d" "Detach"      detach!)
+          (key "s" "Stop Server" stop-server!))))
 
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
