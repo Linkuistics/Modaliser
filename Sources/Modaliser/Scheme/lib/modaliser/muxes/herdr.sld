@@ -504,12 +504,31 @@
     ;; tab-id-fn is the optional focused-tab-id-fn (only the panes kind passes
     ;; one — see herdr-list-block below); threaded through so the on-demand
     ;; refresh stays scoped identically to the on-render snapshot.
+    ;;
+    ;; The stale-kind guard (herdr-fast-key-drops-k8): current-targets is ONE
+    ;; cell shared by every kind (the single-render invariant above the block
+    ;; constructor), so a bare (assoc k …) can spuriously HIT — under the
+    ;; SAME digit label — leftover targets from whichever OTHER kind rendered
+    ;; last, e.g. the Panes list from an earlier press this session. That is
+    ;; not a hypothetical: descending into a group fires the group's on-enter
+    ;; / on-render synchronously ONLY when the overlay is already visible
+    ;; (modal-handle-key's group? branch, state-machine.sld); a fast
+    ;; leader→w→<digit> sequence types the digit before the overlay's
+    ;; modal-overlay-delay (0.3s default) elapses, so this kind's on-render-fn
+    ;; — and thus its snapshot! — never ran. Without the kind check, the
+    ;; digit's assoc would silently accept the OTHER kind's id and fire the
+    ;; wrong (often stale) target instead of refreshing. Root cause of the
+    ;; "fast w <digit> doesn't work" report — not a stalled event tap (the
+    ;; optimistic-capture buffer and the async-deferred catch-all in
+    ;; KeyboardHandlerRegistry/KeyboardLibrary already keep every keystroke
+    ;; queued in arrival order regardless of typing speed).
     (define (list-digit-range kind focus-fn tab-id-fn)
       (cons (cons 'hidden #t)
             (key-range "1.." "Item <n>"
               digit-labels
               (lambda (k)
-                (let ((entry (or (assoc k (herdr-list-current-targets))
+                (let ((entry (or (and (eq? kind (herdr-list-current-kind))
+                                       (assoc k (herdr-list-current-targets)))
                                  (begin
                                    (herdr-list-refresh! kind (and tab-id-fn (tab-id-fn)))
                                    (assoc k (herdr-list-current-targets))))))

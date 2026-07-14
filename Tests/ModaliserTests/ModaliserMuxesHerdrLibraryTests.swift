@@ -346,6 +346,75 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
     }
 
+    /// herdr-fast-key-drops-k8: reproduces the reported "leader, w, <digit>
+    /// typed fast doesn't work" bug and proves the fix.
+    ///
+    /// current-targets / current-kind is ONE cell shared by every herdr-list
+    /// kind (the single-render invariant, blocks/herdr-list.sld). A group
+    /// descent only renders synchronously when the overlay is already open
+    /// (modal-handle-key's group? branch, state-machine.sld) — never true in
+    /// this hermetic harness, which installs no overlay backend, exactly
+    /// mirroring a real press faster than modal-overlay-delay. So pressing
+    /// "w" then a digit here reaches the digit key-range without Workspaces
+    /// ever having snapshotted.
+    ///
+    /// Simulates a Panes render earlier in the session (current-kind =
+    /// 'panes, label "1" → a pane id), then presses "w" "1" with no
+    /// Workspaces render in between: the digit must not accept the stale
+    /// Panes entry just because it happens to sit under the same label — it
+    /// must detect the kind mismatch, force a fresh `workspace list`
+    /// snapshot, and resolve "1" against THAT data. Before the kind guard,
+    /// the bare (assoc "1" current-targets) hit the stale Panes id directly,
+    /// herdr-list-refresh! for 'workspaces was never called, and the wrong
+    /// (often since-invalid) id fired — the fast-typing failure the human
+    /// reported.
+    @Test func digitPressBeforeRenderIgnoresStaleOtherKindEntry() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr)
+                  (modaliser blocks herdr-list) (modaliser json))
+        """)
+        try engine.evaluate("""
+          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
+        """)
+
+        // Prior render this session: Panes, label "1" → a stale pane id.
+        try engine.evaluate(#"""
+          (parameterize
+            ((current-herdr-list-runner
+               (lambda (subcmd)
+                 (cond
+                   ((string=? subcmd "pane list")
+                    (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"focused\":true,\"pane_id\":\"STALE-PANE\",\"tab_id\":\"w1:t1\"}]}}"))
+                   (else #f)))))
+            (herdr-list-refresh! 'panes #f))
+        """#)
+        #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'panes)") == .true)
+        #expect(try engine.evaluate("(cdr (assoc \"1\" (herdr-list-current-targets)))")
+                == .string("STALE-PANE"))
+
+        // Fast leader→w→1: the overlay never opens in this harness, so "w"'s
+        // descent does not render Workspaces before "1" fires.
+        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        try engine.evaluate(#"""
+          (parameterize
+            ((current-herdr-list-runner
+               (lambda (subcmd)
+                 (cond
+                   ((string=? subcmd "workspace list")
+                    (json-parse "{\"result\":{\"workspaces\":[{\"focused\":true,\"label\":\"work\",\"workspace_id\":\"REAL-WORKSPACE\"}]}}"))
+                   (else #f)))))
+            (modal-handle-key "w")
+            (modal-handle-key "1"))
+        """#)
+
+        // The digit forced a real Workspaces snapshot instead of trusting
+        // the stale Panes entry under the same label.
+        #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'workspaces)") == .true)
+        #expect(try engine.evaluate("(cdr (assoc \"1\" (herdr-list-current-targets)))")
+                == .string("REAL-WORKSPACE"))
+    }
+
     /// The pure JSON→(targets . rows) extractor over a real `herdr pane list`
     /// fixture. Panes carry no `label`, so the row title falls back to the
     /// agent name (else the pane id); the digit targets map label→pane_id in

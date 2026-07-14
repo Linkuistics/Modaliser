@@ -45,14 +45,23 @@
 ;; (it never shells a mutating op).
 ;;
 ;; ── Single-render invariant ──
-;; State (current-targets / current-data) is module-level, one cell shared by
-;; all kinds. That is safe because the herdr variant tree renders at most ONE
-;; herdr list per overlay frame: panes at the top level, tabs under `open
-;; "t"`, workspaces under `open "w"`, agents under `open "a"`, worktrees under
-;; `open "g"` — never two at once. Each render overwrites the cell with the
-;; visible list, and the digit key-range reads it at key-press time, so it
-;; always sees the list on screen. (The iTerm blocks use a module-state cell
-;; per list; herdr collapses to one because these never co-render.)
+;; State (current-targets / current-data / current-kind) is module-level, one
+;; cell shared by all kinds. That is safe because the herdr variant tree
+;; renders at most ONE herdr list per overlay frame: panes at the top level,
+;; tabs under `open "t"`, workspaces under `open "w"`, agents under `open
+;; "a"`, worktrees under `open "g"` — never two at once. Each render
+;; overwrites the cell with the visible list. (The iTerm blocks use a
+;; module-state cell per list; herdr collapses to one because these never
+;; co-render.)
+;;
+;; A render is NOT guaranteed to have run by the time the digit key-range
+;; reads the cell, though (herdr-fast-key-drops-k8): a group descent only
+;; renders synchronously when the overlay is already visible
+;; (modal-handle-key, state-machine.sld) — a fast leader→group→digit press
+;; can reach the digit before that. current-kind exists so a reader can tell
+;; a genuine snapshot of ITS kind apart from another kind's leftovers still
+;; sitting in the shared cell, rather than trusting a bare (assoc label
+;; current-targets) that could spuriously hit under the same digit label.
 ;;
 ;; ── Pane chips (panes kind, 'chips? #t) ──
 ;; With 'chips? #t the panes block also paints digit chips over the on-screen
@@ -87,6 +96,12 @@
   (export make-herdr-list-block
           herdr-list-current-targets
           herdr-list-current-labels
+          ;; The kind that populated the current-targets/current-data cell
+          ;; (herdr-fast-key-drops-k8) — the single shared cell (see the
+          ;; single-render invariant above) means a caller checking targets
+          ;; for its OWN kind must confirm the cell actually belongs to it;
+          ;; digit dispatch below is the one caller that does.
+          herdr-list-current-kind
           herdr-list-focused-index
           herdr-list-refresh!
           ;; Pure JSON → (targets . rows) extractor, exported for unit tests
@@ -95,7 +110,12 @@
           ;; Pure chip-rect synthesis (targets + parsed `pane layout` + host
           ;; frame → labelled chip entries), exported for unit tests.
           herdr-chip-entries
-          default-herdr-labels)
+          default-herdr-labels
+          ;; Test seam (herdr-fast-key-drops-k8, mirrors current-herdr-query-
+          ;; runner in (modaliser muxes herdr)): a test hands back canned
+          ;; `herdr <x> list` JSON in place of a live query
+          ;; (feedback_no_live_env_mutation_in_tests).
+          current-herdr-list-runner)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
@@ -118,12 +138,16 @@
 
     ;; Per-render state — one shared cell (see the single-render invariant
     ;; above). current-targets drives digit dispatch; current-data is the
-    ;; rendered rows.
+    ;; rendered rows; current-kind names which kind last populated them, so
+    ;; a caller can tell a genuine snapshot of ITS kind apart from another
+    ;; kind's leftovers (herdr-fast-key-drops-k8 — see herdr-list-current-kind).
     (define current-targets '())   ;; ((label . id) …)
     (define current-data '())      ;; row alists: ((label title detail focused) …)
+    (define current-kind #f)
 
     (define (herdr-list-current-targets) current-targets)
     (define (herdr-list-current-labels) (map car current-targets))
+    (define (herdr-list-current-kind) current-kind)
 
     ;; Row index of the focused entry among the rendered rows, for the
     ;; selection cursor's initial position (list-cursor-initial-focus-k25).
@@ -144,14 +168,21 @@
     ;; Run `herdr <subcmd>`, parse stdout as JSON → alist/vector tree, or #f
     ;; on empty/non-JSON output. The guard keeps a truncated line from
     ;; raising through a render pass (herdr output is reliably JSON, even
-    ;; errors, but a render must never break).
-    (define (herdr-list-json subcmd)
-      (let ((out (string-trim
-                   (run-shell
-                     (string-append path-prefix "herdr " subcmd " 2>/dev/null")))))
-        (if (string=? out "")
-            #f
-            (guard (e (#t #f)) (json-parse out)))))
+    ;; errors, but a render must never break). Routed through
+    ;; current-herdr-list-runner (mirrors current-herdr-query-runner in
+    ;; (modaliser muxes herdr)) so a test can hand back canned JSON without a
+    ;; live herdr session (feedback_no_live_env_mutation_in_tests).
+    (define current-herdr-list-runner
+      (make-parameter
+        (lambda (subcmd)
+          (let ((out (string-trim
+                       (run-shell
+                         (string-append path-prefix "herdr " subcmd " 2>/dev/null")))))
+            (if (string=? out "")
+                #f
+                (guard (e (#t #f)) (json-parse out)))))))
+
+    (define (herdr-list-json subcmd) ((current-herdr-list-runner) subcmd))
 
     ;; Per-kind spec: (cli-subcommand result-array-key id-key title-key).
     ;; The result envelope is {"result":{"<array-key>":[ … ]}} for every
@@ -419,6 +450,7 @@
              (pair   (herdr-list-extract kind labels parsed focused-tab-id)))
         (set! current-targets (car pair))
         (set! current-data    (cdr pair))
+        (set! current-kind    kind)
         current-targets))
 
     ;; On-demand refresh for the digit key-range: a leader-then-digit press
