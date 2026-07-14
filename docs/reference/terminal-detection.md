@@ -435,10 +435,15 @@ autocmds are in place.
 
 The herdr panes list block paints digit chips over the on-screen
 herdr panes. Rects are synthesised tmux-style: `herdr pane layout`
-gives each pane's cell rect and the canvas `area` (offset by
-herdr's left sidebar, so the synthesis is **area-relative** —
-`area.x`/`area.y` are subtracted before scaling), and the focused
-iTerm `AXScrollArea` frame supplies the pixel canvas.
+gives each pane's cell rect and the `area` — herdr's left sidebar
+means `area.x`/`area.y` offset that sub-region, but pane rects are
+already absolute cells within the *full* canvas (sidebar included),
+matching the focused iTerm `AXScrollArea` frame that supplies the
+pixel canvas. So the synthesis is **canvas-relative**: pane rects
+need no offset subtraction, and the per-cell pixel size divides by
+the total canvas (`area.x + area.width` × `area.y + area.height`),
+not by `area.width`/`area.height` alone — verified live (2026-07-14,
+herdr 0.7.3) against the session's own column/row count.
 
 This is correct in **replace** mode, where herdr owns the sole
 iTerm scroll area. In **augment** mode (herdr shares its iTerm tab

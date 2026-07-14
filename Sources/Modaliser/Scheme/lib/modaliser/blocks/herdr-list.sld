@@ -59,9 +59,13 @@
 ;; herdr panes (mirroring iterm-panes' paint-and-snapshot! / hints-hide). Rects
 ;; come from `herdr pane layout` — per-pane cell rects scaled by the focused
 ;; iTerm AXScrollArea pixel frame, tmux-style. Two subtleties:
-;;   • AREA-RELATIVE. herdr paints a left sidebar, so layout.area.x ≥ 26; we
-;;     subtract area.x/area.y before scaling so the sidebar offset doesn't
-;;     shift every chip right.
+;;   • CANVAS-RELATIVE. herdr paints a left sidebar, so layout.area.x ≥ 26 —
+;;     but that area is only the pane sub-region, NOT the full canvas the AX
+;;     host frame maps to. Pane rects are already absolute cells within the
+;;     full (sidebar-included) canvas, so no offset subtraction is applied;
+;;     the per-cell pixel size instead divides by (area.x + area.width) ×
+;;     (area.y + area.height) — the total canvas — not by area.width/height
+;;     alone. See herdr-chip-entries below for the live verification.
 ;;   • SUBSET of rows, historically. `pane layout` covers only the CURRENT
 ;;     tab's splits; since pane-list-tab-local-k3, `pane list` (the row
 ;;     source) is scoped identically (dropped to the focused tab in the pure
@@ -474,19 +478,32 @@
     ;; (x)(y)(w)(h))) — same shape ax-find-elements rows have, so
     ;; ax-target-hints consumes it unchanged (it places the chip inset from the
     ;; entry's top-left and sizes it from the theme; w/h ride along for parity).
-    ;; Cell→pixel scale is area-relative: subtract area.x/area.y before scaling
-    ;; so herdr's left sidebar doesn't shift chips. quotient (multiply-then-
-    ;; divide) keeps integer precision, exactly as tmux's chip-entries does.
-    ;; A target whose pane is absent from this (current-tab) layout is skipped.
+    ;;
+    ;; Cell→pixel scale is CANVAS-relative, not area-relative. Verified live
+    ;; (2026-07-14, herdr 0.7.3): `layout.area` is only the pane sub-region —
+    ;; it excludes herdr's left sidebar — while pane `rect`s are already
+    ;; absolute cells within the FULL canvas (sidebar included), and so is the
+    ;; iTerm AXScrollArea host frame (confirmed against the live session's
+    ;; own column/row count via iTerm's scripting bridge: area.x + area.width
+    ;; == the session's total columns). So the total canvas size is
+    ;; (area.x + area.width) × (area.y + area.height), pane rects need no
+    ;; offset subtraction, and the per-cell pixel size divides by the TOTAL,
+    ;; not by area.width/area.height alone — dividing by area.width alone
+    ;; over-widens each cell (it pretends the sidebar's columns don't exist),
+    ;; which combined with the offset subtraction shifted every chip left of
+    ;; its pane. quotient (multiply-then-divide) keeps integer precision,
+    ;; exactly as tmux's chip-entries does. A target whose pane is absent from
+    ;; this (current-tab) layout is skipped.
     (define (herdr-chip-entries targets layout host)
       (let ((area (and layout (herdr-layout-area layout))))
         (if (not (and area host))
             '()
-            (let ((ax (list-ref area 0)) (ay (list-ref area 1))
-                  (aw (list-ref area 2)) (ah (list-ref area 3))
-                  (hx (cdr (assoc 'x host))) (hy (cdr (assoc 'y host)))
-                  (hw (cdr (assoc 'w host))) (hh (cdr (assoc 'h host)))
-                  (rects (herdr-layout-rects layout)))
+            (let* ((ax (list-ref area 0)) (ay (list-ref area 1))
+                   (aw (list-ref area 2)) (ah (list-ref area 3))
+                   (total-w (+ ax aw)) (total-h (+ ay ah))
+                   (hx (cdr (assoc 'x host))) (hy (cdr (assoc 'y host)))
+                   (hw (cdr (assoc 'w host))) (hh (cdr (assoc 'h host)))
+                   (rects (herdr-layout-rects layout)))
               (let loop ((ts targets) (acc '()))
                 (cond
                   ((null? ts) (reverse acc))
@@ -498,10 +515,10 @@
                      (if r
                          (let* ((rx (list-ref r 0)) (ry (list-ref r 1))
                                 (rw (list-ref r 2)) (rh (list-ref r 3))
-                                (x (+ hx (quotient (* (- rx ax) hw) aw)))
-                                (y (+ hy (quotient (* (- ry ay) hh) ah)))
-                                (w (quotient (* rw hw) aw))
-                                (h (quotient (* rh hh) ah)))
+                                (x (+ hx (quotient (* rx hw) total-w)))
+                                (y (+ hy (quotient (* ry hh) total-h)))
+                                (w (quotient (* rw hw) total-w))
+                                (h (quotient (* rh hh) total-h)))
                            (loop (cdr ts)
                                  (cons (cons label
                                              (list (cons 'handle #f)

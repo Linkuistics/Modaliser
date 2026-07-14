@@ -600,33 +600,44 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// Given the label→pane_id targets (from `pane list`), the parsed layout
     /// (per-pane cell rects + the sidebar-offset area), and the focused iTerm
     /// AXScrollArea pixel frame, `herdr-chip-entries` places each chip at the
-    /// pane's top-left in host pixels. The AREA-RELATIVE offset is the crux:
-    /// area.x = 26 (herdr's left sidebar), yet the leftmost pane's chip x must
-    /// equal host.x, NOT host.x + 26·cell_w — the synthesis subtracts area.x/y
-    /// before scaling. A target whose pane_id is absent from the current-tab
-    /// layout (a cross-tab pane) yields NO chip: chips are a subset of rows.
-    @Test func herdrChipEntriesSynthesisesAreaRelativeRects() throws {
+    /// pane's top-left in host pixels. CANVAS-RELATIVE is the crux, verified
+    /// live (2026-07-14, herdr 0.7.3, herdr-chip-offset-k5): `area` (100×50
+    /// here) is only the pane sub-region — herdr's left sidebar occupies the
+    /// other area.x=26 columns of the FULL 126-wide canvas the AXScrollArea
+    /// maps to (confirmed against a live session's own column count via
+    /// iTerm's scripting bridge: area.x + area.width == total columns). Pane
+    /// rects are already absolute cells in that full canvas, so the leftmost
+    /// pane's chip x must land INSET from host.x by the sidebar's pixel
+    /// width (host.x + 26·cell_w), not at host.x itself — and cell_w divides
+    /// by the total canvas width (126), not by area.width (100) alone. A
+    /// target whose pane_id is absent from the current-tab layout (a
+    /// cross-tab pane) yields NO chip: chips are a subset of rows.
+    @Test func herdrChipEntriesSynthesisesCanvasRelativeRects() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser blocks herdr-list) (modaliser json))")
-        // area 100×50 cells offset by the x=26 sidebar; host 1000×500 px at
-        // (200,100) → cell_w = cell_h = 10. Two side-by-side panes; a third
+        // area 100×50 cells offset by the x=26 sidebar (full canvas = 126×50);
+        // host 1260×500 px at (200,100) → cell_w = cell_h = 10. Two
+        // side-by-side panes filling the area (26..76, 76..126); a third
         // target (w9:p9) is off-tab and not in this layout.
         try engine.evaluate(#"""
           (define LAYOUT (json-parse "{\"result\":{\"layout\":{\"area\":{\"x\":26,\"y\":0,\"width\":100,\"height\":50},\"focused_pane_id\":\"w9:p1\",\"zoomed\":false,\"panes\":[{\"pane_id\":\"w9:p1\",\"focused\":true,\"rect\":{\"x\":26,\"y\":0,\"width\":50,\"height\":50}},{\"pane_id\":\"w9:p2\",\"focused\":false,\"rect\":{\"x\":76,\"y\":0,\"width\":50,\"height\":50}}]}}}"))
           (define TARGETS (list (cons "1" "w9:p1") (cons "2" "w9:p2") (cons "3" "w9:p9")))
-          (define HOST (list (cons 'x 200) (cons 'y 100) (cons 'w 1000) (cons 'h 500)))
+          (define HOST (list (cons 'x 200) (cons 'y 100) (cons 'w 1260) (cons 'h 500)))
           (define ENTRIES (herdr-chip-entries TARGETS LAYOUT HOST))
           (define (chip lab key) (cdr (assoc key (cdr (assoc lab ENTRIES)))))
         """#)
         // Only the two on-screen panes get chips (p9 is off-tab → dropped).
         #expect(try engine.evaluate("(length ENTRIES)") == .fixnum(2))
-        // Pane 1: leftmost. Area-relative → chip.x = host.x (200), NOT 200+260.
-        #expect(try engine.evaluate("(chip \"1\" 'x)") == .fixnum(200))
+        // Pane 1: leftmost PANE, but not the canvas's left edge — the sidebar
+        // (26 cols · 10 px) sits before it. chip.x = 200 + 260 = 460.
+        #expect(try engine.evaluate("(chip \"1\" 'x)") == .fixnum(460))
         #expect(try engine.evaluate("(chip \"1\" 'y)") == .fixnum(100))
         #expect(try engine.evaluate("(chip \"1\" 'w)") == .fixnum(500))
         #expect(try engine.evaluate("(chip \"1\" 'h)") == .fixnum(500))
-        // Pane 2: right half. (76-26)=50 cells · 10 px = 500 → x = 200+500.
-        #expect(try engine.evaluate("(chip \"2\" 'x)") == .fixnum(700))
+        // Pane 2: 76 cells · 10 px = 760 → x = 200 + 760 = 960; pane 2's
+        // right edge (76+50=126 cells · 10 px = 1260) lands exactly on the
+        // host's right edge (host.x + host.w = 200 + 1260 = 1460).
+        #expect(try engine.evaluate("(chip \"2\" 'x)") == .fixnum(960))
         #expect(try engine.evaluate("(chip \"2\" 'y)") == .fixnum(100))
         #expect(try engine.evaluate("(chip \"2\" 'w)") == .fixnum(500))
     }
