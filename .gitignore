@@ -4,6 +4,7 @@
 dist/
 .grove-worktrees/
 .claude/worktrees/
+.jj
 
 # Brainstorming visual companion scratch
 .superpowers/
