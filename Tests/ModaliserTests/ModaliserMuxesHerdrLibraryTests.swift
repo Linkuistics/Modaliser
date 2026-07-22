@@ -1663,10 +1663,10 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// herdr-jump-provider assigns each axis's single-key label from its
     /// OWN reserved pool (jump-label-axis-pools-k43,
     /// docs/specs/herdr-jump-navigation.md "Jump labels"): panes from
-    /// `a s d f g`, spaces from `q w e r t`, agents first from the shared
-    /// remainder `h i j k l m n o p u v x y z`, tabs from whatever that
-    /// leaves (here, one agent target consumes "h", so the sole tab target
-    /// gets "i" — the next letter in the shared pool). Each assigned label
+    /// `h j k l ;`, spaces from `a s d f g`, agents first from the shared
+    /// top row `q w e r t y u i o p`, tabs from whatever that
+    /// leaves (here, one agent target consumes "q", so the sole tab target
+    /// gets "w" — the next letter in the shared pool). Each assigned label
     /// dispatches through the kind-appropriate focus verb, captured here
     /// via current-herdr-jump-focus-runner (the test seam standing in for
     /// a real herdr-cmd shell-out — see its own docstring, mirroring
@@ -1709,13 +1709,13 @@ struct ModaliserMuxesHerdrLibraryTests {
              (current-herdr-jump-focus-runner
                (lambda (kind id) (set! captured (cons (cons kind id) captured)))))
             (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
+            (modal-handle-key "h")
+            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
             (modal-handle-key "a")
             (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
             (modal-handle-key "q")
             (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
-            (modal-handle-key "h")
-            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
-            (modal-handle-key "i"))
+            (modal-handle-key "w"))
         """#)
         #expect(try engine.evaluate("(length captured)") == .fixnum(4))
         #expect(try engine.evaluate("(if (member (cons 'panes \"w1:p1\") captured) #t #f)") == .true)
@@ -1724,18 +1724,21 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(if (member (cons 'tabs \"w1:t3\") captured) #t #f)") == .true)
     }
 
-    /// Two-key narrowing end to end: 25 tab-scoped panes exceed the panes
-    /// pool's ("a" "s" "d" "f" "g", jump-label-axis-pools-k43) 5 single-key
-    /// slots, so jump-labels-assign escalates leader "a" (the pool's own
+    /// Two-key narrowing end to end: 24 tab-scoped panes exceed the panes
+    /// pool's ("h" "j" "k" "l" ";", jump-label-axis-pools-k43) 5 single-key
+    /// slots, so jump-labels-assign escalates leader "h" (the pool's own
     /// first letter — escalation never borrows another axis's pool) to
-    /// two-key duty: p1..p4 keep the remaining singles "s" "d" "f" "g" in
-    /// order, p5 gets "aa", p6 gets "ad" (leader "a", second-alphabet order
-    /// "a" then "d" — the shared full alphabet). Pressing "a" narrows
-    /// (modal stays active, modal-current-path becomes ("a")); a second
+    /// two-key duty: p1..p4 keep the remaining singles "j" "k" "l" ";" in
+    /// order, p5 gets "ha", p6 gets "hs" (leader "h", second-alphabet order
+    /// "a" then "s" — the shared 20-key union of the pools). 24 panes, not
+    /// 25: that is one promoted leader's exact capacity (4 singles + 20
+    /// two-keys); a 25th would promote leader "j" too, reshuffling the
+    /// singles. Pressing "h" narrows
+    /// (modal stays active, modal-current-path becomes ("h")); a second
     /// key fires the matching target (Terminal); backspace after the
     /// leader un-narrows back to the top level (modal-current-path empty,
     /// modal still active), and the root's OWN single-key edges work again
-    /// (here "d" -> p2, the second remaining single) — proving the herdr
+    /// (here "k" -> p2, the second remaining single) — proving the herdr
     /// entry node's provider re-runs (a fresh Visit, not stale state) on
     /// return, per docs/specs/fsm-graph.md "Runtime semantics".
     @Test func herdrJumpProviderTwoKeyLabelNarrowsThenFiresAndBackspaceUnNarrows() throws {
@@ -1748,7 +1751,7 @@ struct ModaliserMuxesHerdrLibraryTests {
           (apply screen 'com.googlecode.iterm2/herdr 'provider herdr-jump-provider (build-herdr-tree))
           (define captured '())
         """)
-        let paneEntries = (1...25).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
+        let paneEntries = (1...24).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
         let paneListEscaped = "{\"result\":{\"panes\":[\(paneEntries)]}}"
             .replacingOccurrences(of: "\"", with: "\\\"")
         // Every mutating action below runs inside its own `parameterize` +
@@ -1791,26 +1794,26 @@ struct ModaliserMuxesHerdrLibraryTests {
             """# + body + ")")
         }
 
-        // Round 1: leader "a" narrows; a second "a" fires p5 ("aa").
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "a")"#)
-        #expect(try engine.evaluate("(equal? modal-current-path (list \"a\"))") == .true)
+        // Round 1: leader "h" narrows; a second "a" fires p5 ("ha").
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "h")"#)
+        #expect(try engine.evaluate("(equal? modal-current-path (list \"h\"))") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
         try act(#"(modal-handle-key "a")"#)
         #expect(try engine.evaluate("modal-active?") == .false)
 
-        // Round 2: leader "a" then second key "d" fires p6 ("ad").
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "a") (modal-handle-key "d")"#)
+        // Round 2: leader "h" then second key "s" fires p6 ("hs").
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "h") (modal-handle-key "s")"#)
         #expect(try engine.evaluate("modal-active?") == .false)
 
-        // Round 3: leader "a" then backspace un-narrows back to the top
-        // level; the root's OWN single-key edge ("d" -> p2, the pool's
+        // Round 3: leader "h" then backspace un-narrows back to the top
+        // level; the root's OWN single-key edge ("k" -> p2, the pool's
         // second remaining single) still fires afterward — proving the
         // provider re-ran (a fresh Visit), not stale state left over from
         // before narrowing.
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "a") (modal-step-back)"#)
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "h") (modal-step-back)"#)
         #expect(try engine.evaluate("(null? modal-current-path)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
-        try act(#"(modal-handle-key "d")"#)
+        try act(#"(modal-handle-key "k")"#)
 
         #expect(try engine.evaluate("(length captured)") == .fixnum(3))
         #expect(try engine.evaluate("(if (member (cons 'panes \"w1:p5\") captured) #t #f)") == .true)
@@ -1822,9 +1825,9 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// (not just gather-jump-targets' own pure-function tests above):
     /// an agent whose pane_id duplicates an already-listed pane still gets
     /// its OWN target and its OWN label before label assignment runs. With
-    /// 3 resulting targets — "a" panes/w1:p1 (panes' own pool), "h"
+    /// 3 resulting targets — "h" panes/w1:p1 (panes' own pool), "q"
     /// agents/w1:p1 (a redundant path to the SAME pane, shared-pool order),
-    /// "i" agents/w1:p9 (shared-pool order) — all three are independently
+    /// "w" agents/w1:p9 (shared-pool order) — all three are independently
     /// live keys.
     @Test func herdrJumpProviderKeepsEveryTargetAsIndependentLiveKey() throws {
         let engine = try SchemeEngine()
@@ -1859,9 +1862,9 @@ struct ModaliserMuxesHerdrLibraryTests {
             """# + body + ")")
         }
 
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "a")"#)
         try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "h")"#)
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "i")"#)
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "q")"#)
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "w")"#)
 
         #expect(try engine.evaluate("(length captured)") == .fixnum(3))
         #expect(try engine.evaluate("(if (member (cons 'panes \"w1:p1\") captured) #t #f)") == .true)
@@ -1909,16 +1912,16 @@ struct ModaliserMuxesHerdrLibraryTests {
                      (else #f)))))
               (herdr-jump-provider)))
         """#)
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/panes/w1:p1\" (edges-of RESULT-A))") == .string("a"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/workspaces/w_1\" (edges-of RESULT-A))") == .string("q"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p1\" (edges-of RESULT-A))") == .string("h"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p2\" (edges-of RESULT-A))") == .string("i"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t1\" (edges-of RESULT-A))") == .string("j"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/panes/w1:p1\" (edges-of RESULT-A))") == .string("h"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/workspaces/w_1\" (edges-of RESULT-A))") == .string("a"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p1\" (edges-of RESULT-A))") == .string("q"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p2\" (edges-of RESULT-A))") == .string("w"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t1\" (edges-of RESULT-A))") == .string("e"))
 
         // Scenario B: SAME space/agents, tabs grown 1 -> 3. Panes/spaces/
-        // agents must be untouched; w1:t1 keeps "j" (agents unchanged, so
+        // agents must be untouched; w1:t1 keeps "e" (agents unchanged, so
         // the shared pool still hands tabs the same starting letter), the
-        // two new tabs continue "k" "l".
+        // two new tabs continue "r" "t".
         try engine.evaluate(#"""
           (define RESULT-B
             (parameterize
@@ -1934,18 +1937,18 @@ struct ModaliserMuxesHerdrLibraryTests {
                      (else #f)))))
               (herdr-jump-provider)))
         """#)
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/panes/w1:p1\" (edges-of RESULT-B))") == .string("a"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/workspaces/w_1\" (edges-of RESULT-B))") == .string("q"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p1\" (edges-of RESULT-B))") == .string("h"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p2\" (edges-of RESULT-B))") == .string("i"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t1\" (edges-of RESULT-B))") == .string("j"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t2\" (edges-of RESULT-B))") == .string("k"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t3\" (edges-of RESULT-B))") == .string("l"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/panes/w1:p1\" (edges-of RESULT-B))") == .string("h"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/workspaces/w_1\" (edges-of RESULT-B))") == .string("a"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p1\" (edges-of RESULT-B))") == .string("q"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p2\" (edges-of RESULT-B))") == .string("w"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t1\" (edges-of RESULT-B))") == .string("e"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t2\" (edges-of RESULT-B))") == .string("r"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t3\" (edges-of RESULT-B))") == .string("t"))
 
         // Scenario C: SAME space, agents grown 2 -> 3, tabs back to 1.
         // Panes/spaces stay untouched; agents claim one more shared-pool
-        // letter ("j"), so w1:t1's label shifts from "j" (Scenarios A/B) to
-        // "k" — the one coupling this leaf's pools deliberately keep
+        // letter ("e"), so w1:t1's label shifts from "e" (Scenarios A/B) to
+        // "r" — the one coupling this leaf's pools deliberately keep
         // (agents → tabs, never tabs → agents, never touching panes/spaces).
         try engine.evaluate(#"""
           (define RESULT-C
@@ -1962,12 +1965,12 @@ struct ModaliserMuxesHerdrLibraryTests {
                      (else #f)))))
               (herdr-jump-provider)))
         """#)
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/panes/w1:p1\" (edges-of RESULT-C))") == .string("a"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/workspaces/w_1\" (edges-of RESULT-C))") == .string("q"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p1\" (edges-of RESULT-C))") == .string("h"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p2\" (edges-of RESULT-C))") == .string("i"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p3\" (edges-of RESULT-C))") == .string("j"))
-        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t1\" (edges-of RESULT-C))") == .string("k"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/panes/w1:p1\" (edges-of RESULT-C))") == .string("h"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/workspaces/w_1\" (edges-of RESULT-C))") == .string("a"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p1\" (edges-of RESULT-C))") == .string("q"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p2\" (edges-of RESULT-C))") == .string("w"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p3\" (edges-of RESULT-C))") == .string("e"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t1\" (edges-of RESULT-C))") == .string("r"))
     }
 
     // MARK: - Full-size chip painting (leaf full-size-chip-letter-labels-k27)
@@ -2108,9 +2111,9 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// leader-split logic itself). The payload must carry NEITHER
     /// 'on-enter NOR 'on-leave — the double-fire trap: leaving those
     /// alongside 'entry/'exit would let the delayed overlay callback's
-    /// run-on-enter/run-on-leave paint/clear a second time. 25 tab-scoped
+    /// run-on-enter/run-on-leave paint/clear a second time. 24 tab-scoped
     /// panes (mirroring herdrJumpProviderTwoKeyLabelNarrows... above)
-    /// force leader "a" to escalate to two-key duty, minting a real
+    /// force leader "h" to escalate to two-key duty, minting a real
     /// prefix state to inspect. Calling herdr-jump-provider directly (not
     /// through modal-enter/modal-handle-key) keeps this fixture-only;
     /// structural only — never invokes the hooks, so no AX/hints-show
@@ -2118,7 +2121,7 @@ struct ModaliserMuxesHerdrLibraryTests {
     @Test func jumpPrefixStateWiresChipPaintEntryExit() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser muxes herdr) (modaliser json) (modaliser util))")
-        let paneEntries = (1...25).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
+        let paneEntries = (1...24).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
         let paneListEscaped = "{\"result\":{\"panes\":[\(paneEntries)]}}"
             .replacingOccurrences(of: "\"", with: "\\\"")
         try engine.evaluate(#"""
@@ -2135,7 +2138,7 @@ struct ModaliserMuxesHerdrLibraryTests {
               (herdr-jump-provider)))
           (define STATES (cdr (assoc 'states RESULT)))
           (define PREFIX
-            (find (lambda (s) (equal? (cdr (assoc 'id s)) "com.googlecode.iterm2/herdr/a")) STATES))
+            (find (lambda (s) (equal? (cdr (assoc 'id s)) "com.googlecode.iterm2/herdr/h")) STATES))
           (define PAYLOAD (cdr (assoc 'payload PREFIX)))
         """#)
         #expect(try engine.evaluate("(procedure? (cdr (assoc 'entry PREFIX)))") == .true)
@@ -2309,13 +2312,13 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// overlay.scm change needed, only this payload shape. 6 tab-scoped
     /// panes exceed the panes pool's 5 single-key slots by exactly one,
     /// so jump-labels-assign's escalation (jump-labels.sld's
-    /// compute-escalation) promotes ONLY leader "a" (its own pool's first
+    /// compute-escalation) promotes ONLY leader "h" (its own pool's first
     /// letter) to two-key duty — p1..p4 keep the remaining singles
-    /// "s" "d" "f" "g", p5/p6 escalate to "aa"/"ad" — minting a real
+    /// "j" "k" "l" ";", p5/p6 escalate to "ha"/"hs" — minting a real
     /// prefix state with EXACTLY two survivors (p5, p6) to inspect. A
-    /// larger pane count (e.g. 25, as
+    /// larger pane count (e.g. 24, as
     /// herdrJumpProviderTwoKeyLabelNarrowsThenFiresAndBackspaceUnNarrows
-    /// above uses) still promotes only leader "a" but escalates every
+    /// above uses) still promotes only leader "h" but escalates every
     /// pane past p4 under it, so this test deliberately stays small
     /// enough that leader "a"'s survivor set is small and exhaustively
     /// checkable. Structural only: never invokes entry/exit, no
@@ -2346,7 +2349,7 @@ struct ModaliserMuxesHerdrLibraryTests {
               (herdr-jump-provider)))
           (define STATES (cdr (assoc 'states RESULT)))
           (define PREFIX
-            (find (lambda (s) (equal? (cdr (assoc 'id s)) "com.googlecode.iterm2/herdr/a")) STATES))
+            (find (lambda (s) (equal? (cdr (assoc 'id s)) "com.googlecode.iterm2/herdr/h")) STATES))
           (define PAYLOAD (cdr (assoc 'payload PREFIX)))
           (define CHILDREN (node-children PAYLOAD))
           (define JUMP-PANEL (car CHILDREN))
@@ -2368,7 +2371,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         """#)
         #expect(try engine.evaluate("(length ROWS)") == .fixnum(2))
         #expect(try engine.evaluate(
-            "(equal? (map (lambda (r) (cdr (assoc 'label r))) ROWS) (list \"a\" \"d\"))") == .true)
+            "(equal? (map (lambda (r) (cdr (assoc 'label r))) ROWS) (list \"a\" \"s\"))") == .true)
         #expect(try engine.evaluate(
             "(equal? (map (lambda (r) (cdr (assoc 'title r))) ROWS) (list \"claude\" \"gpt\"))") == .true)
     }

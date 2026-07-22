@@ -41,14 +41,15 @@ activation lands at the innermost detected context's entry point.
   deterministically **per axis from reserved letter pools** (revised by the
   jump-space-legend-overlay-k40 grilling; the original global panes-first
   priority let the volatile current-tab pane count shift every space/agent
-  label on a mere tab switch): panes own `a s d f g` (left home row — the
-  most-jumped targets on the strongest reach), spaces own `q w e r t` (the
-  row above), and agents-then-tabs share the remainder
-  (`h i j k l m n o p u v x y z`), agents first so agent churn only ever
+  label on a mere tab switch): panes own `h j k l ;` (right home row — the
+  most-jumped targets on the resting navigation position), spaces own
+  `a s d f g` (left home row), and agents-then-tabs share the top row
+  (`q w e r t y u i o p`), agents first so agent churn only ever
   shifts tab labels. One `jump-labels-assign` call per axis: the pool is
   that axis's single-key AND leader alphabet (overflow escalates to two-key
   labels led by the axis's own letters, never borrowing another pool's);
-  the second-key alphabet is the full jump alphabet, shared — cross-axis
+  the second-key alphabet is the full 20-key jump alphabet (the union of
+  the three pools), shared — cross-axis
   prefix-freedom needs only disjoint first chars, so per-axis assignments
   compose. Stability contract: an axis's labels are a pure function of its
   own visible list. Visual order within an axis; still no cross-invocation

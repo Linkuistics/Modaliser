@@ -225,8 +225,8 @@ naming the same destination (an agent whose pane is already on-screen)
 each keep their own independent label rather than collapsing to one — a
 stable target set keeps label assignment stable too
 (`include-focused-targets-for-stability-k39`). Each axis assigns labels
-from its OWN reserved letter pool — panes `a s d f g`, spaces `q w e r
-t`, agents then tabs sharing the remainder (agents first, so agent churn
+from its OWN reserved letter pool — panes `h j k l ;`, spaces `a s d f
+g`, agents then tabs sharing the top row (agents first, so agent churn
 only ever shifts tab labels) — escalating to two-key labels, led by the
 axis's own letters, only once that axis's pool is exhausted (the general
 `jump-labels-assign` utility, `(modaliser jump-labels)`, called once per

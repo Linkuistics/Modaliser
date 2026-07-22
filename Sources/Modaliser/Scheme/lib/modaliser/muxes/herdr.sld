@@ -750,27 +750,29 @@
     ;; edges before provider-supplied ones (classify-and-snapshot appends
     ;; provider edges after static-edges) — so assigning "c" here would
     ;; silently mint an unreachable jump label instead of erroring. The
-    ;; remaining 24 letters are PARTITIONED into three reserved,
+    ;; label space is the 20 home-position keys (never b/c, satisfying the
+    ;; constraints above for free), PARTITIONED into three reserved,
     ;; per-axis single-key/leader pools (jump-label-axis-pools-k43,
-    ;; revising the original one-pool global-priority scheme —
+    ;; revising the original one-pool global-priority scheme, pools since
+    ;; re-anchored to the home position —
     ;; docs/specs/herdr-jump-navigation.md "Jump labels"): panes own the
-    ;; left home row (most-jumped targets, strongest reach), spaces own the
-    ;; row above, and agents/tabs SHARE the remainder — agents assigns
+    ;; right home row hjkl; (most-jumped targets, the resting navigation
+    ;; position), spaces own the left home row, and agents/tabs SHARE the
+    ;; top row — agents assigns
     ;; first so agent churn only ever shifts tab labels, never the reverse
     ;; (see herdr-jump-provider below for the hand-off). Each axis's pool
     ;; serves as BOTH its single-key and its leader alphabet — overflow
     ;; escalates to two-key labels led by the axis's own letters, never
     ;; borrowing another axis's pool. The second-key alphabet is shared by
     ;; every axis (a two-key label's second char cannot collide across
-    ;; axes once first chars are disjoint), so it stays the full 24-letter
-    ;; set.
-    (define herdr-jump-panes-pool  (list "a" "s" "d" "f" "g"))
-    (define herdr-jump-spaces-pool (list "q" "w" "e" "r" "t"))
-    (define herdr-jump-shared-pool
-      (list "h" "i" "j" "k" "l" "m" "n" "o" "p" "u" "v" "x" "y" "z"))
-    (define herdr-jump-second-alphabet
-      (list "a" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n"
-            "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"))
+    ;; axes once first chars are disjoint), so it is the full 20-key union
+    ;; of the three pools.
+    (define herdr-jump-spaces-pool    (list "a" "s" "d" "f" "g"))
+    (define herdr-jump-panes-pool     (list "h" "j" "k" "l" ";"))
+    (define herdr-jump-shared-pool    (list "q" "w" "e" "r" "t" "y" "u" "i" "o" "p"))
+    (define herdr-jump-second-alphabet (append herdr-jump-spaces-pool
+                                               herdr-jump-panes-pool
+                                               herdr-jump-shared-pool))
 
     ;; Per-kind focus verb — panes and agents share focus-pane-by-id (both
     ;; pane_id-keyed; "agent focus" is the universal pane focus, per the
