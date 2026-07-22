@@ -243,7 +243,10 @@
 
     (define backend
       (make-terminal-backend
-        'alacritty "Alacritty" 'host "org.alacritty"
+        ;; tool-name #f: Alacritty exposes no CLI tool at all (module
+        ;; header) — every op is #f, so there is nothing this backend
+        ;; could ever shell out to that a relocation could break.
+        'alacritty "Alacritty" 'host "org.alacritty" #f
         detect-fg-command
         focused-pane-id
         #f #f #f #f                       ; focus-pane-{l,r,u,d}

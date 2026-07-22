@@ -109,7 +109,7 @@ struct ModaliserAppsKittyLibraryTests {
           (define ops (lambda () 'x))
           (define stub
             (make-terminal-backend
-              'kitty "Kitty" 'host "net.kovidgoyal.kitty"
+              'kitty "Kitty" 'host "net.kovidgoyal.kitty" "kitty"
               (lambda () #f) (lambda () #f)
               ops ops ops ops
               ops ops ops ops

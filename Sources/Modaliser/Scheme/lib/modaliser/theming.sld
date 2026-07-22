@@ -7,7 +7,7 @@
 ;; those rules to concrete values without reimplementing a CSS engine in
 ;; Scheme, we spawn a hidden 1×1 offscreen WKWebView at boot, load the
 ;; full overlay CSS stack into it, and have a tiny inline <script> read
-;; getComputedStyle on two probe <div>s and post the resolved alist back
+;; getComputedStyle on four probe <div>s and post the resolved alist back
 ;; via webview-on-message.
 ;;
 ;; Probe lifecycle:
@@ -17,13 +17,15 @@
 ;;   2. root.scm then calls (run-chip-theme-probe!). The library creates
 ;;      a non-activating, transparent, offscreen panel, installs a
 ;;      message handler, and posts the HTML. WKWebView runs the script,
-;;      which posts a {type:"chip-theme", normal:…, faded:…} message.
-;;   3. The handler updates the two theme cells and closes the panel.
+;;      which posts a {type:"chip-theme", normal:…, faded:…, display:…,
+;;      dim:…} message.
+;;   3. The handler updates the four theme cells and closes the panel.
 ;;
-;; Public API: (current-chip-theme) / (current-chip-theme 'normal|'faded)
-;; returns an alist. Before the probe completes, callers see seed
-;; defaults that match the .chip / .chip.faded declarations in base.css,
-;; so the first chip paint never shows "uninitialised" values. After,
+;; Public API: (current-chip-theme) / (current-chip-theme
+;; 'normal|'faded|'display|'dim) returns an alist. Before the probe
+;; completes, callers see seed defaults that match the .chip /
+;; .chip.faded / .chip.display / .chip.dim declarations in base.css, so
+;; the first chip paint never shows "uninitialised" values. After,
 ;; callers see the resolved values.
 ;;
 ;; No refresh API. Edit theme.css and relaunch — same reload story as
@@ -109,15 +111,34 @@
             (cons 'border-width 1)
             (cons 'border-color "#000000")))
 
-    ;; (current-chip-theme [variant]) — variant is 'normal (default), 'faded, or 'display.
+    ;; Narrowing-dim seed — mirrors .chip + .chip.dim in base.css: translucent
+    ;; black (55% alpha ≈ "#0000008c", matching what the probe's _hex would
+    ;; resolve from `rgba(0, 0, 0, 0.55)`) so a dimmed chip reads as "switched
+    ;; off" against the desktop, distinct from chip-theme-faded's opaque
+    ;; slate-blue (window occlusion, a different concept — mini-chips-k7's
+    ;; BRIEF.md). Callers also reuse this variant's 'background as the
+    ;; consumed-first-char text colour on surviving chips (see
+    ;; jump-narrow-chip-targets/paint-jump-chips-narrowed! in (modaliser
+    ;; muxes herdr)) — one resolved "inactive" colour, two renderings.
+    (define chip-theme-dim
+      (list (cons 'color "#ffffff")
+            (cons 'background "#0000008c")
+            (cons 'font-size 56)
+            (cons 'padding 16)
+            (cons 'corner-radius 8)
+            (cons 'border-width 1)
+            (cons 'border-color "#000000")))
+
+    ;; (current-chip-theme [variant]) — variant is 'normal (default), 'faded, 'display, or 'dim.
     (define (current-chip-theme . args)
       (let ((variant (if (null? args) 'normal (car args))))
         (cond
           ((eq? variant 'normal)  chip-theme-normal)
           ((eq? variant 'faded)   chip-theme-faded)
           ((eq? variant 'display) chip-theme-display)
+          ((eq? variant 'dim)     chip-theme-dim)
           (else (error
-                  "current-chip-theme: variant must be 'normal, 'faded or 'display"
+                  "current-chip-theme: variant must be 'normal, 'faded, 'display or 'dim"
                   variant)))))
 
     ;; The probe HTML. Two <div class="chip"> elements are added to the
@@ -163,8 +184,9 @@
         "var normal=_probe(document.getElementById('probe-normal'));"
         "var faded=_probe(document.getElementById('probe-faded'));"
         "var display=_probe(document.getElementById('probe-display'));"
+        "var dim=_probe(document.getElementById('probe-dim'));"
         "window.webkit.messageHandlers.modaliser.postMessage({"
-        "type:'chip-theme',normal:normal,faded:faded,display:display"
+        "type:'chip-theme',normal:normal,faded:faded,display:display,dim:dim"
         "});"))
 
     ;; Build the full probe HTML. The CSS stack matches the overlay's
@@ -180,6 +202,7 @@
         "<div class=\"chip\" id=\"probe-normal\">M</div>"
         "<div class=\"chip faded\" id=\"probe-faded\">M</div>"
         "<div class=\"chip display\" id=\"probe-display\">M</div>"
+        "<div class=\"chip dim\" id=\"probe-dim\">M</div>"
         "<script>" probe-script "</script>"
         "</body></html>"))
 
@@ -217,7 +240,8 @@
         (when (equal? type "chip-theme")
           (let ((normal  (alist-ref msg 'normal '()))
                 (faded   (alist-ref msg 'faded '()))
-                (display (alist-ref msg 'display '())))
+                (display (alist-ref msg 'display '()))
+                (dim     (alist-ref msg 'dim '())))
             ;; The hashtable library excludes set-cdr! (per
             ;; feedback_lispkit_no_mutable_pairs) — assign fresh alists
             ;; with set! rather than mutating in place.
@@ -227,6 +251,8 @@
               (set! chip-theme-faded  (coerce-chip-alist faded)))
             (when (pair? display)
               (set! chip-theme-display (coerce-chip-alist display)))
+            (when (pair? dim)
+              (set! chip-theme-dim (coerce-chip-alist dim)))
             (webview-close probe-panel-id)))))
 
     ;; Spawn the probe. Panel is 100×100 (just big enough that WKWebView

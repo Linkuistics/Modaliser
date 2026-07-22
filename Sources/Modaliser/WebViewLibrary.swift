@@ -108,16 +108,19 @@ final class WebViewLibrary: NativeLibrary {
         webViewManager.setMessageHandler(id: id) { [weak self] body in
             guard let self else { return }
             let schemeValue = self.jsValueToScheme(body)
+            let context = self.context
             // Defer evaluation to the next run loop iteration so the WebView
             // can process pending keyboard events before we block the main thread
             // with fuzzy matching and HTML rendering.
             DispatchQueue.main.async {
-                let args: Expr = .pair(schemeValue, .null)
-                let result = evaluator.execute { machine in
-                    try machine.apply(handler, to: args)
-                }
-                if case .error(let err) = result {
-                    NSLog("WebViewLibrary: message handler error: %@", "\(err)")
+                context.withEvalLockNonBlocking {
+                    let args: Expr = .pair(schemeValue, .null)
+                    let result = evaluator.execute { machine in
+                        try machine.apply(handler, to: args)
+                    }
+                    if case .error(let err) = result {
+                        NSLog("WebViewLibrary: message handler error: %@", "\(err)")
+                    }
                 }
             }
         }

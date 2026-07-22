@@ -73,7 +73,12 @@ xattr -cr "${APP_BUNDLE}" 2>/dev/null || true
 echo "Signing ${APP_NAME}.app..."
 # Use "Modaliser Dev" certificate for stable identity across rebuilds.
 # This preserves Accessibility TCC permissions between builds.
-# Falls back to ad-hoc signing if the certificate isn't found.
+# Falls back to ad-hoc signing if the certificate isn't found. That branch
+# also fires when the cert exists but lost its explicit trust setting —
+# find-identity -v hides untrusted identities, and a macOS update can wipe
+# the trust store (observed after 26.5.2, 2026-07). Re-trust with:
+#   security add-trusted-cert -p codeSign \
+#     -k ~/Library/Keychains/login.keychain-db <exported-cert.pem>
 if security find-identity -v -p codesigning | grep -q "Modaliser Dev"; then
     codesign --force --sign "Modaliser Dev" "${APP_BUNDLE}"
 else

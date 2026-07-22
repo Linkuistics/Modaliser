@@ -48,15 +48,10 @@
           select-session-by-id
           tab-list-block
           select-tab-by-index
-          ;; Tab-scoped session count source for the herdr replace/augment
-          ;; classifier (see ADR-0013): `sessions of current tab of current
-          ;; window`, NOT an all-tabs AX scroll-area count.
+          ;; Tab-scoped session count source for pane-UUID resolution:
+          ;; `sessions of current tab of current window`, NOT an all-tabs AX
+          ;; scroll-area count.
           iterm-list-session-ids
-          ;; iTerm-DIRECT pane-ops drill for the herdr *augment* variant tree.
-          ;; In augment mode the focused pane runs herdr, so the (modaliser
-          ;; terminal) façade resolves to herdr — the iTerm splits need these
-          ;; direct ops, not the façade shims.
-          build-iterm-splits-drill
           configure-entry iterm-configured?
           ;; Test seam (ADR-0014): a parameterized indirection point a test
           ;; can override so no test quits/reconfigures a real iTerm
@@ -176,36 +171,6 @@
     ;; "z Toggle Zoom" through the same keystroke.
     (define (toggle-pane-zoom)
       (send-keystroke '(cmd shift) "return"))
-
-    ;; ─── iTerm-direct splits drill (herdr augment variant) ──────────
-    ;;
-    ;; The `i` drill spliced into the `com.googlecode.iterm2/herdr+split`
-    ;; augment tree (see ADR-0013). Both herdr trees splice the same herdr
-    ;; tree (including its Panes drill); when the iTerm window carries
-    ;; *other* splits besides the herdr pane, this drill exposes them —
-    ;; bound to the iTerm-DIRECT ops above (focus-pane-*, split-pane-*,
-    ;; move-pane-*), because in augment mode the (modaliser terminal) façade
-    ;; resolves to herdr and its shims would drive the wrong layer. Content
-    ;; is the core focus / split / move / zoom surface; richer iTerm content
-    ;; (pane chips, digit-jump) is grown alongside the herdr tree content.
-    (define (build-iterm-splits-drill)
-      (group "i" "iTerm Splits"
-        (key "h" "Focus Left"  focus-pane-left)
-        (key "j" "Focus Down"  focus-pane-down)
-        (key "k" "Focus Up"    focus-pane-up)
-        (key "l" "Focus Right" focus-pane-right)
-        (key "z" "Toggle Zoom" toggle-pane-zoom)
-        (group "n" "New Split"
-          (key "h" "Left"  split-pane-left)
-          (key "j" "Down"  split-pane-down)
-          (key "k" "Up"    split-pane-up)
-          (key "l" "Right" split-pane-right))
-        (group "m" "Move Pane"
-          'exit-on-unknown #t
-          (key "h" "Left"  move-pane-left  'next 'self)
-          (key "j" "Down"  move-pane-down  'next 'self)
-          (key "k" "Up"    move-pane-up    'next 'self)
-          (key "l" "Right" move-pane-right 'next 'self))))
 
     ;; UUID of the focused iTerm session. AppleScript's `is running`
     ;; guard prevents probe-time Launch Services auto-launch — see
@@ -652,7 +617,9 @@
     ;; iTerm is frontmost.
     (define (iterm-terminal-backend)
       (make-terminal-backend
-        'iterm "iTerm2" 'host "com.googlecode.iterm2"
+        ;; tool-name #f: iTerm2 is entirely AppleScript-driven — no CLI
+        ;; tool binary to resolve.
+        'iterm "iTerm2" 'host "com.googlecode.iterm2" #f
         detect-fg-command
         focused-pane-id
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down

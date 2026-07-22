@@ -147,37 +147,44 @@ For example, branch on its filetype:
 This requires the nvim-side `FocusGained`/`FocusLost` autocmds — see
 [The nvim side](../reference/terminal-detection.md#the-nvim-side).
 
-## Worked example: herdr replace/augment variant trees
+## Worked example: the herdr nested entry point
 
 [herdr](https://herdr.dev) — an "agent multiplexer" run *inside* an
-iTerm split — is the first production user of variant trees, and a
-complete worked example of composing the suffix hook (the
-[One hook total](#notes) note below). When the focused iTerm pane
-runs herdr, F17 shows one of two herdr **variant trees** instead of
-the plain iTerm tree:
+iTerm split — is a worked example of a **different** mechanism from
+everything above: a **nested entry point** (ADR-0013), not a
+context-suffix variant tree. The two don't compose the same way, so
+read this section on its own terms:
 
-- **Replace** (`/herdr`) — herdr is the *sole* iTerm split in the
-  current tab, so it owns the whole window: a herdr-only tree, no
-  iTerm controls.
-- **Augment** (`/herdr+split`) — the current tab holds *other* iTerm
-  splits too, so the herdr tree gains an `i` drill for those iTerm
-  splits.
+- A **context-suffix tree** (`/nvim` above) is resolved by
+  `resolve-app-tree` trying a suffixed scope before falling back to
+  the plain one — the suffix hook decides, every leader press.
+- A **nested entry point** is a second, independent activation target
+  in the FSM's entry table (CONTEXT.md "Entry table" / "Entry point"):
+  leader activation picks whichever passing entry is most specific,
+  and specificity here comes from a real graph edge — the nested
+  node's **up edge** into its container — not a suffix string.
 
-Both variant trees splice the same herdr tree (build-herdr-tree,
-including its `p` Panes drill), so the pane surface — and muscle
-memory — is identical in both; augment is literally the replace tree
-plus the iTerm-splits drill. See
-[ADR-0013](../adr/0013-herdr-replace-vs-augment-tree.md) for why the
-three choices below bind the way they do.
+When the focused iTerm pane runs herdr, F17 activates the **herdr
+entry node** directly instead of the plain iTerm tree; backspace from
+it walks back to the iTerm node over that same up edge, so the full
+iTerm splits/panes/tabs surface is always one keystroke away — there
+is no second "augment" tree duplicating it. See
+[ADR-0013](../adr/0013-nested-context-entry-points.md) for the full
+rationale.
 
 `(herdr:build-herdr-tree)` returns the whole herdr control surface —
-what the overlay shows on `/herdr`:
+what the overlay shows at the herdr entry node. Its top level follows
+the **plane rule** (`docs/specs/herdr-jump-navigation.md`): capitals
+name the drills/Quit, and `b` is the one lowercase key kept at this
+level — it is a jump (Jump to Blocked), not a drill. Every other
+lowercase letter belongs to the **jump space** — see below the drill
+list for how it dispatches and paints chips.
 
-- **`p` Panes** — the entire pane surface, drilled:
+- **`P` Panes** — the entire pane surface, drilled:
   - **`hjkl`** — focus the pane in that direction (first press crosses
     into a focus Walk, so subsequent `hjkl` keep moving focus; `[`/`]`
     cycling below also works mid-walk).
-  - **`s`** then `hjkl` — split a new pane that direction (left/up
+  - **`n`** then `hjkl` — split a new pane that direction (left/up
     split the opposite native way then swap back).
   - **`m`** then `hjkl` — Move Walk: swap the focused pane with its
     neighbour.
@@ -185,33 +192,75 @@ what the overlay shows on `/herdr`:
     (tab-scoped) panes, wrapping at both ends.
   - **`z`** / **`d`** — toggle zoom / close the focused pane.
   - **Panes panel** — the panes live list plus digit **chips** over
-    the on-screen panes (replace-mode-correct; see below).
-- **`t` Tabs**, **`w` Workspaces** — each a drill with `n`/`r`/`d`
+    the on-screen panes (correct when herdr is the sole current-tab
+    split; see below).
+- **`T` Tabs**, **`S` Spaces** — each a drill with `n`/`r`/`d`
   (new / rename / close), `[`/`]` Prev/Next cycling (tabs are
-  workspace-scoped; workspaces are global), plus a live list whose
-  digits switch.
-- **`g` Worktrees** — `n` new (prompt a branch), `d` remove the
+  workspace-scoped; spaces are global), plus a live list whose
+  digits switch. "Spaces" is the user-facing label everywhere
+  (matching herdr's own UI term); the code identifiers underneath
+  keep herdr's `workspace` stem.
+- **`W` Worktrees** — `n` new (prompt a branch), `d` remove the
   focused worktree (behind a confirm), plus a live list whose digits
   *smart-switch* (focus a live workspace, or open a dormant worktree).
   No `[`/`]` — cycling covers four groups, not five.
 - **`b` Jump to Blocked** — focus the next blocked agent in one press
   (round-robin; a toast when none are blocked).
-- **`a` Agents** — `[`/`]` Prev/Next cycling over the displayed
+- **`A` Agents** — `[`/`]` Prev/Next cycling over the displayed
   (status-banded) order, plus the agents live list, status-badged and
   blocked-first; a digit focuses that agent's pane.
-- **`q` Quit** — `d` Detach (ends the herdr *client* only, emitted as
+- **`Q` Quit** — `d` Detach (ends the herdr *client* only, emitted as
   herdr's own `prefix+q` keystroke — `ctrl+b` then `q`) or `s` Stop
   Server (ends the herdr *server*, behind a confirm dialog since
   herdr's CLI stops it immediately with no confirm of its own). See
   CONTEXT.md's Detach/Stop glossary entries for the distinction.
 
-Augment (`/herdr+split`) adds one more: an **`i`** drill for the other
-iTerm splits.
+**The jump space (every other lowercase letter).** Typing a target's
+assigned label focuses it directly, no drill in between
+(`docs/specs/herdr-jump-navigation.md`). Targets are gathered fresh on
+every visit — a `'provider` on the herdr entry node's own state,
+`herdr-jump-provider` — across four axes in stable-axis order (spaces →
+agents → tabs → panes), visual order within an axis. Two visible targets
+naming the same destination (an agent whose pane is already on-screen)
+each keep their own independent label rather than collapsing to one — a
+stable target set keeps label assignment stable too
+(`include-focused-targets-for-stability-k39`). Each axis assigns labels
+from its OWN reserved letter pool — panes `a s d f g`, spaces `q w e r
+t`, agents then tabs sharing the remainder (agents first, so agent churn
+only ever shifts tab labels) — escalating to two-key labels, led by the
+axis's own letters, only once that axis's pool is exhausted (the general
+`jump-labels-assign` utility, `(modaliser jump-labels)`, called once per
+axis).
+
+- **Full-size letter chips** paint over the current tab's on-screen
+  panes the instant the herdr entry node is reached — an unconditional
+  `'entry`/`'exit` pair (`paint-jump-chips!`/`clear-jump-chips!`, [state-
+  machine.md](../reference/state-machine.md#unconditional-hooks-entry--exit))
+  reusing the same chip pipeline the `P` drill's digit chips use (see the
+  split-tab caveat below). `'entry`/`'exit` fire regardless of
+  `modal-overlay-delay` — chips never wait out the which-key overlay's
+  no-flash delay the way a gated `'on-enter`/`'on-leave` pair would.
+- **Typing a two-key label's first (leader) key narrows**: the modal
+  moves to a resting prefix state whose only live edges are that
+  leader's second keys plus backspace (un-narrows back to the top
+  level) and Escape (clears and exits, as usual). The design's
+  vimium-style chip *dimming* during narrowing
+  (`docs/specs/herdr-jump-navigation.md` "Narrowing", CONTEXT.md
+  "Narrowing") isn't painted yet — chips stay full-brightness through a
+  narrowing; that visual lands with the mini-chips work.
+- **A jump firing is Terminal** — focus moves and the modal exits
+  immediately, exactly like `b` Jump to Blocked.
+- **Only the Panes axis has a visible chip today.** The Spaces/Agents/
+  Tabs axes are already gathered, labelled, and dispatch correctly if
+  you know their assigned key, but nothing paints a chip over the
+  sidebar/tab-bar entries until the mini-chips work lands.
 
 ```scheme
 (import (modaliser dsl)
-        (modaliser event-dispatch)                   ; set-local-context-suffix!
-        (prefix (modaliser terminal)    terminal:)   ; in-chain?
+        (modaliser state-machine)                     ; register-tree-up-edge!,
+                                                        ; register-tree-entry-gated!
+        (modaliser event-dispatch)                    ; set-local-context-suffix!
+        (prefix (modaliser terminal)    terminal:)    ; in-chain?
         (prefix (modaliser apps iterm)  iterm:)
         (prefix (modaliser muxes herdr) herdr:))
 
@@ -222,41 +271,53 @@ iTerm splits.
 (iterm:register! 'install-tree? #f 'install-context-suffix? #f)
 (herdr:register!)
 
-;; 2. Register the two variant screens. build-herdr-tree returns the
-;;    node list; the augment screen appends the iTerm-splits drill,
-;;    which binds iterm-DIRECT ops — in augment mode the (modaliser
-;;    terminal) façade resolves to herdr, so its shims would drive the
-;;    wrong layer.
-(apply screen 'com.googlecode.iterm2/herdr (herdr:build-herdr-tree))
-(apply screen 'com.googlecode.iterm2/herdr+split
-  (append (herdr:build-herdr-tree)
-          (list (iterm:build-iterm-splits-drill))))
+(define (herdr-detected?) (terminal:in-chain? 'herdr))
 
-;; 3. One composed suffix hook (the global slot is last-write-wins,
-;;    so herdr must compose, not install a second hook). herdr focused
-;;    → classify replace vs augment by the CURRENT-TAB split count; the
-;;    (in-chain? 'herdr) gate short-circuits the AppleScript count query
-;;    when herdr is absent. Otherwise delegate to iTerm's own
-;;    nvim/zellij handler.
+;; 2. The plain iTerm screen (elsewhere in your config, e.g. the
+;;    "If you've inlined your iTerm tree" section above) and the herdr
+;;    screen. 'auto-entry #f suppresses the automatic bundle-id/suffix
+;;    entry row — this scope contains "/", which would otherwise be
+;;    treated as a suffix variant of "com.googlecode.iterm2" gated on the
+;;    suffix hook; the two calls below register the real thing.
+;;    'provider wires the jump space's per-visit FSM edges (dynamic
+;;    lowercase key edges + narrowing prefix states, gathered fresh on
+;;    every visit); 'entry/'exit paint and clear the jump-letter chips
+;;    over the on-screen panes, unconditionally — not gated behind
+;;    modal-overlay-delay the way 'on-enter/'on-leave would be.
+(apply screen 'com.googlecode.iterm2/herdr 'auto-entry #f
+  'provider herdr:herdr-jump-provider
+  'entry herdr:paint-jump-chips!
+  'exit herdr:clear-jump-chips!
+  (herdr:build-herdr-tree))
+
+;; 3. The outward up edge (backspace: herdr entry node -> iTerm node)
+;;    and the entry point's own gate. fsm-entry-more-specific?'s
+;;    up-edge-containment check is what then ranks this entry above the
+;;    plain iTerm one whenever both pass — no suffix/'refines needed.
+(register-tree-up-edge! 'com.googlecode.iterm2/herdr 'com.googlecode.iterm2)
+(register-tree-entry-gated! 'com.googlecode.iterm2/herdr herdr-detected?)
+
+;; 4. Step in from the plain iTerm tree with "." while herdr is running
+;;    (add this key inside your (screen 'com.googlecode.iterm2 …)):
+;;      (step-in "." "Herdr" 'com.googlecode.iterm2/herdr herdr-detected?)
+
+;; 5. The composed suffix hook — herdr no longer routes through it, so
+;;    this is just iTerm's own nvim/zellij delegation (the [One hook
+;;    total](#notes) note still applies if you add more branches).
 (set-local-context-suffix!
  (lambda (bundle-id)
-   (or (and (equal? bundle-id "com.googlecode.iterm2")
-            (terminal:in-chain? 'herdr)
-            (herdr:classify-herdr-variant
-             (length (iterm:iterm-list-session-ids))))
-       (iterm:context-suffix-handler bundle-id 'rebuild? #f))))
+   (iterm:context-suffix-handler bundle-id 'rebuild? #f)))
 ```
 
-`classify-herdr-variant` keys on the **current-tab** split count
-(`iterm-list-session-ids` = `sessions of current tab`), *not* an
-all-tabs `AXScrollArea` count — a herdr window with a second
-background tab would otherwise miscount and wrongly pick augment.
-
-**Pane chips are replace-mode-correct only.** The herdr tree's Panes
-panel paints digit chips over the on-screen herdr panes; in augment
-mode the host-frame heuristic can target the wrong split, so chips may
-be misplaced (`hjkl` focus and digit-jump by pane id are unaffected).
-See [herdr pane chips](../reference/terminal-detection.md#herdr-pane-chips-replace-mode-only).
+**Pane chips are correct only when herdr is the sole current-tab
+split.** The herdr tree's Panes panel paints digit chips over the
+on-screen herdr panes, and the top-level jump space's letter chips
+reuse that exact same pipeline; when the iTerm tab holds other splits
+too, the host-frame heuristic can target the wrong one, so either kind
+of chip may be misplaced (`hjkl` focus, digit-jump, and jump-letter
+dispatch by id are all unaffected) — a plain pane-chip-pipeline
+geometry concern now, not a tree-model one.
+See [herdr pane chips](../reference/terminal-detection.md#herdr-pane-chips).
 
 ## One tree across every backend: capability predicates
 
@@ -377,6 +438,6 @@ In-place reload is not supported — relaunch is the reload.
   RPC route.
 - [`add-a-per-app-tree.md`](add-a-per-app-tree.md) — registering
   per-app trees without pane-awareness.
-- [ADR-0013](../adr/0013-herdr-replace-vs-augment-tree.md) — why the
-  herdr replace/augment trees bind backend-direct ops and compose the
-  suffix hook.
+- [ADR-0013](../adr/0013-nested-context-entry-points.md) — why the
+  herdr entry node binds backend-direct ops and activates via an
+  outward up edge rather than a merged variant tree.

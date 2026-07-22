@@ -41,7 +41,7 @@ struct ModaliserMuxesTmuxLibraryTests {
         try engine.evaluate("""
           (define stub-host
             (make-terminal-backend
-              'stub-host "Stub" 'host "test.bundle"
+              'stub-host "Stub" 'host "test.bundle" #f
               (lambda () "tmux")       ; foreground command → descend into tmux
               (lambda () "host-1")
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
@@ -99,7 +99,7 @@ struct ModaliserMuxesTmuxLibraryTests {
         try engine.evaluate("""
           (define h
             (make-terminal-backend
-              'sh "H" 'host "t.b"
+              'sh "H" 'host "t.b" #f
               (lambda () "tmux") (lambda () "p")
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)

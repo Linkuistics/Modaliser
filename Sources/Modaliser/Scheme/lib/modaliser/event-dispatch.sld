@@ -105,8 +105,17 @@
 ;; Create a leader key handler for a specific mode. `mode` is always
 ;; 'global or 'local — set-leader! requires it.
 ;; 'global → always uses the "global" tree
-;; 'local  → uses the app-specific tree for the focused app; if that app
-;;           has no tree, nothing opens — no fallback to the global tree.
+;; 'local  → resolves through the FSM entry table (dispatch-cutover-k11,
+;;           docs/specs/fsm-graph.md "Lowering and the façade"): among the
+;;           focused app's own entries — its plain bundle-id row and any
+;;           bundle-id/suffix variants — the most specific one whose gate
+;;           passes wins (resolve-entry-for-bundle, state-machine.sld),
+;;           the suffix variants' gates having been wired at registration
+;;           time to local-context-suffix's answer. Reproduces resolve-
+;;           app-tree's try-variant-then-fall-back exactly, just derived
+;;           from the entry table instead of two lookup-tree calls; if
+;;           that app has no tree at all, nothing opens — no fallback to
+;;           the global tree.
 ;;
 ;; Pass-and-arm passthrough is implemented entirely in Swift (see
 ;; KeyboardHandlerRegistry). When the focused app is in arm-bundle-ids,
@@ -126,7 +135,10 @@
        (let* ((bundle-id (focused-app-bundle-id))
               (tree (cond
                       ((eq? mode 'global) (lookup-tree "global"))
-                      ((eq? mode 'local)  (resolve-app-tree bundle-id))
+                      ((eq? mode 'local)
+                       (and bundle-id
+                            (let ((name (resolve-entry-for-bundle bundle-id)))
+                              (and name (lookup-tree name)))))
                       (else (error "make-leader-handler: invalid mode" mode)))))
          (when tree
            (modal-enter tree leader-kc)))))))
@@ -134,5 +146,15 @@
 ;; Install modal-key-handler into the state-machine library's dispatch cell.
 ;; Runs at library-load time, after modal-key-handler is defined above.
 (set-modal-key-handler! modal-key-handler)
+
+;; Install the local-context-suffix hook so a suffix-variant entry's gate
+;; (register-tree-entry!, state-machine.sld) can ask "does this variant's
+;; suffix match what local-context-suffix currently answers for its base
+;; bundle-id" without state-machine.sld importing this (higher) library.
+;; local-context-suffix itself is a live indirection through
+;; local-context-suffix-impl (above), so passing the procedure — not its
+;; current value — keeps this reading through to whatever a user config
+;; installs later via set-local-context-suffix!.
+(set-local-context-suffix-hook! local-context-suffix)
 
 )) ;; end begin / define-library

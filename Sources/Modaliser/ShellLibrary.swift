@@ -171,9 +171,12 @@ final class ShellLibrary: NativeLibrary {
             .pair(.makeString(stdout),
                   .pair(.makeString(stderr), .null))
         )
+        let context = self.context
         DispatchQueue.main.async {
-            _ = evaluator.execute { machine in
-                try machine.apply(callback, to: args)
+            context.withEvalLockNonBlocking {
+                _ = evaluator.execute { machine in
+                    try machine.apply(callback, to: args)
+                }
             }
         }
     }

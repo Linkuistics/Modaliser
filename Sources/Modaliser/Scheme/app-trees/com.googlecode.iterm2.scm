@@ -11,16 +11,22 @@
 ;; …) below is the tree we want, not the library's stock one.
 ;;
 ;; 'install-context-suffix? #f: we compose our OWN suffix hook at the
-;; bottom of this file (herdr replace/augment + the iTerm nvim/zellij
-;; branch). A single global suffix slot is last-write-wins, so herdr must
-;; compose, not install a second hook — see ADR-0013 and the
-;; set-local-context-suffix! call below.
+;; bottom of this file (the iTerm nvim/zellij branch — herdr no longer
+;; routes through it, ADR-0013). A single global suffix slot is last-
+;; write-wins, so a config composing more than one branch must compose,
+;; not install a second hook — see the set-local-context-suffix! call
+;; below.
 (iterm:register! 'install-tree? #f 'install-context-suffix? #f)
 
 ;; Register the herdr mux backend so (terminal:in-chain? 'herdr) resolves
 ;; when the focused iTerm pane runs the herdr client. This is what the
-;; composed suffix hook (bottom of file) gates the herdr variant trees on.
+;; herdr entry point below (ADR-0013) is gated on.
 (herdr:register!)
+
+;; Detection gate shared by the herdr entry point's entry-table row and
+;; the iTerm tree's "." step-in edge below — both must agree on exactly
+;; when herdr is "here", so there is exactly one predicate.
+(define (herdr-detected?) (terminal:in-chain? 'herdr))
 
 ;; Tab rename — clicks iTerm's Window > Tab > Edit Tab Title menu via
 ;; System Events. iTerm opens its inline tab-bar editor; the user types
@@ -117,6 +123,12 @@
   (key "c" "Copy Mode"   (λ () (send-keystroke '(cmd shift) "c")))
   (key "z" "Toggle Zoom" (λ () (send-keystroke '(cmd shift) "return")))
 
+  ;; Step in to the herdr entry node (ADR-0013) — live, and shown, only
+  ;; while the focused pane runs herdr; pressing "." otherwise falls to the
+  ;; ordinary unknown-key policy. Backspace from the herdr entry node
+  ;; returns here via its own up edge (register-tree-up-edge! below).
+  (step-in "." "Herdr" 'com.googlecode.iterm2/herdr herdr-detected?)
+
   ;; One-shot iTerm key-binding setup. Hidden once iTerm is configured.
   (iterm:configure-entry)
 
@@ -164,20 +176,18 @@
   (panel "Panes"
     (iterm:pane-list-block 'chips? #t)))
 
-;; ── herdr variant trees (ADR-0013) ──────────────────────────────────
+;; ── herdr entry point (ADR-0013) ─────────────────────────────────────
 ;;
-;; When the focused iTerm pane runs the herdr client, the composed suffix
-;; hook below swaps in a herdr variant tree. Both splice the same herdr
-;; tree (including the Panes drill), so the pane surface is identical in
-;; both; the augment tree is the replace tree PLUS the iTerm `i`-splits
-;; drill for the other iTerm splits.
-;; Both are skeletons here — the full herdr surface (splits / move / zoom /
-;; digit-jump, tabs, workspaces) is grown alongside the herdr block helpers.
+;; Leader activation lands directly at the herdr entry node whenever the
+;; focused iTerm pane runs herdr — no variant-tree selection, no split-
+;; count classification. Backspace from it walks to the plain iTerm node
+;; above via an ordinary up edge, so that node's full splits/panes/tabs
+;; surface is always reachable — no separate "augment" tree duplicating it.
 
-;; herdr per-pane scrollback, reachable at the herdr tree top level in BOTH
-;; variants (herdr-copy-mode-k16). The replace tree ships zero iTerm controls by
-;; design, so without this there is no way to reach scrollback/copy when herdr
-;; owns the whole window — the gap the user hit.
+;; herdr per-pane scrollback, reachable at the herdr tree top level
+;; (herdr-copy-mode-k16). The herdr tree ships zero iTerm controls by
+;; design, so without this there is no way to reach scrollback/copy while
+;; the herdr entry node is showing — the gap the user hit.
 ;;
 ;; iTerm's own Copy Mode (Cmd+Shift+C) is WRONG here: iTerm sees herdr as a
 ;; SINGLE session and paints selection across the entire herdr canvas, ignoring
@@ -192,10 +202,11 @@
 ;;
 ;; It is a HOST-delivered keystroke, hence host-specific, so it lives HERE at
 ;; the config composition layer, not in the portable host-agnostic
-;; (muxes herdr) build-herdr-tree. In replace mode herdr owns the sole iTerm
-;; session so the sequence lands on it; in augment mode it lands on the focused
-;; (herdr) split (the herdr trees only show when herdr is focused). `c` is free
-;; in build-herdr-tree (top-level keys: p t w g b a q).
+;; (muxes herdr) build-herdr-tree. The keystroke lands on the focused iTerm
+;; session running herdr's client (the herdr tree only shows when herdr is
+;; focused). `c` is free in build-herdr-tree (top-level keys, plane rule:
+;; P T S W b A Q — capitals are the drills/Quit, `b` is the one lowercase
+;; jump kept at this level; top-level-nav-k6).
 ;;
 ;; v1 assumption: the user runs herdr on the DEFAULT prefix (ctrl+b). herdr
 ;; exposes no CLI to query the resolved prefix; if the user rebinds herdr's
@@ -206,36 +217,56 @@
          (send-keystroke '(ctrl) "b")   ; herdr prefix
          (send-keystroke "e"))))        ; edit_scrollback (per-pane)
 
-;; Replace: herdr is the sole current-tab iTerm split, so it owns the whole
-;; window — a herdr-only tree, zero iTerm controls (plus the shared Scrollback).
-(apply screen 'com.googlecode.iterm2/herdr
-  (append (herdr:build-herdr-tree)
-          (list herdr-copy-mode-key)))
-
-;; Augment: the iTerm window carries other splits too, so the herdr tree
-;; gains an `i` drill for the iTerm splits. The drill binds iterm-DIRECT
-;; ops — in augment mode the (modaliser terminal) façade resolves to herdr,
-;; so its shims would drive the wrong layer.
-(apply screen 'com.googlecode.iterm2/herdr+split
+;; The herdr entry node. 'auto-entry #f suppresses the automatic bundle-id/
+;; suffix entry-table row (this scope contains "/", which register-tree-
+;; entry! would otherwise treat as a suffix variant gated on the context-
+;; suffix hook — wrong here, where specificity comes from the up edge
+;; below, not a 'refines stamp); register-tree-entry-gated! registers the
+;; real one, gated directly on herdr-detected?. 'provider wires the jump
+;; space (jump-dispatch-wiring-k26): on every come-to-rest it gathers the
+;; visible panes/spaces/agents/tabs, assigns lowercase jump labels, and
+;; lowers them to live edges — see herdr-jump-provider's own docstring.
+;; 'entry/'exit (jump-chip-entry-cutover-k48, unconditional — CONTEXT.md
+;; Action slots) paint/clear full-size jump-letter chips over the
+;; on-screen panes (full-size-chip-letter-labels-k27), the INSTANT the
+;; leader lands here — never waiting out `modal-overlay-delay` the way the
+;; overlay HTML itself still does. The same pair is wired onto every
+;; narrowing prefix state inside herdr-jump-provider's own lowering, so
+;; chips repaint (never go stale, never lag the overlay) across a narrow
+;; or an un-narrow, not just the initial come-to-rest.
+;;
+;; The Jump legend panel (legend-panel-k44, docs/specs/herdr-jump-
+;; navigation.md "Legend") lands here, an ordinary panel child of this
+;; SAME screen — not inside build-herdr-tree, which only assembles the
+;; P/T/S/W/A drills. It reads *current-jump-assigned* at render time
+;; (herdr:jump-legend-block closes over it), so it always agrees with the
+;; chips this screen's own 'entry just painted. The legend panel itself
+;; still renders only when the (delayed) overlay shows — 'entry/'exit only
+;; moved the CHIPS off that delay, not the overlay HTML.
+(apply screen 'com.googlecode.iterm2/herdr 'auto-entry #f
+  'provider herdr:herdr-jump-provider
+  'entry herdr:paint-jump-chips!
+  'exit herdr:clear-jump-chips!
   (append (herdr:build-herdr-tree)
           (list herdr-copy-mode-key
-                (iterm:build-iterm-splits-drill))))
+                (panel "Jump" (herdr:jump-legend-block)))))
 
-;; The composed context-suffix hook. One global slot, last-write-wins, so
-;; this single handler does both jobs (ADR-0013):
-;;   1. herdr focused in iTerm → classify replace vs augment by the
-;;      CURRENT-TAB split count (tab-scoped iterm-list-session-ids, NOT an
-;;      all-tabs AX count — avoids the multi-tab miscount, R1). The
-;;      (terminal:in-chain? 'herdr) gate short-circuits the AppleScript
-;;      count query when herdr is not focused.
-;;   2. Otherwise delegate to (iterm:context-suffix-handler …) for the
-;;      existing nvim / zellij branches. 'rebuild? #f keeps it from
-;;      clobbering the inline (screen 'com.googlecode.iterm2 …) tree above
-;;      (it still refreshes the pane snapshot the pane-list block reads).
+;; Backspace from the herdr entry node to the plain iTerm node (ADR-0013):
+;; an ordinary up edge, ungated — once you're at the herdr entry node,
+;; backspace always steps outward regardless of how you arrived (leader
+;; activation or the "." step-in edge above).
+(register-tree-up-edge! 'com.googlecode.iterm2/herdr 'com.googlecode.iterm2)
+
+;; The herdr entry point's own entry-table row: leader activation lands
+;; here directly, ahead of the plain iTerm entry, whenever herdr-detected?
+;; passes — fsm-entry-more-specific?'s up-edge-containment check (the edge
+;; just registered) is what ranks it above iTerm's, no 'refines needed.
+(register-tree-entry-gated! 'com.googlecode.iterm2/herdr herdr-detected?)
+
+;; The composed context-suffix hook — now just the nvim / zellij branches
+;; (herdr no longer routes through it, ADR-0013). 'rebuild? #f keeps it
+;; from clobbering the inline (screen 'com.googlecode.iterm2 …) tree above
+;; (it still refreshes the pane snapshot the pane-list block reads).
 (set-local-context-suffix!
  (lambda (bundle-id)
-   (or (and (equal? bundle-id "com.googlecode.iterm2")
-            (terminal:in-chain? 'herdr)
-            (herdr:classify-herdr-variant
-             (length (iterm:iterm-list-session-ids))))
-       (iterm:context-suffix-handler bundle-id 'rebuild? #f))))
+   (iterm:context-suffix-handler bundle-id 'rebuild? #f)))

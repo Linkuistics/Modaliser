@@ -143,18 +143,17 @@
       (display:display-list-block 'chips? #t)))
 
   (panel "Applications"
-    (key "j" "Jump Desktop"     (λ () (launch-app "Jump Desktop")))
-    (key "b" "Browser"          (λ () (launch-app "Dia")))
-    (key "e" "Editor"           (λ () (launch-app "Zed")))
-    (key "t" "Terminal"         (λ () (launch-app "iTerm")))
-    (key "m" "Mail"             (λ () (launch-app "Mail")))
-    (key "n" "Notes"            (λ () (launch-app "Notes")))
-    (key "o" "Obsidian"         (λ () (launch-app "Obsidian")))
-    (key "z" "Zotero"           (λ () (launch-app "Zotero"))))
-
-  (panel "AI"
-    (key "c" "ChatGPT"          (λ () (launch-app "ChatGPT")))
-    (key "C" "Claude Desktop"   (λ () (launch-app "Claude"))))
+    (key "b" "Browser"      (λ () (launch-app "Dia")))
+    (key "c" "ChatGPT"      (λ () (launch-app "ChatGPT")))
+    (key "C" "Claude"       (λ () (launch-app "Claude")))
+    (key "e" "Editor"       (λ () (launch-app "Zed")))
+    (key "j" "Jump Desktop" (λ () (launch-app "Jump Desktop")))
+    (key "k" "Kimi"         (λ () (launch-app "Kimi")))
+    (key "t" "Terminal"     (λ () (launch-app "iTerm")))
+    (key "m" "Mail"         (λ () (launch-app "Mail")))
+    (key "n" "Notes"        (λ () (launch-app "Notes")))
+    (key "o" "Obsidian"     (λ () (launch-app "Obsidian")))
+    (key "z" "Zotero"       (λ () (launch-app "Zotero"))))
 
   (panel "Search"
     (key "g" "Google"       (web-search:google))

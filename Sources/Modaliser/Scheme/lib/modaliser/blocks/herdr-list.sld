@@ -93,6 +93,13 @@
 ;;     v1 limitation (docs/reference/terminal-detection.md). hjkl focus and
 ;;     digit-jump are unaffected; the proper fix (a focused-iTerm-session-frame
 ;;     primitive) is the optional deferred leaf.
+;;   • GRID-CALIBRATED. The AXScrollArea frame is NOT the glyph grid: iTerm
+;;     insets the grid by its side/top margins, and a tiled window whose size
+;;     isn't cell-quantized keeps sub-cell slack at the far edges, so scaling
+;;     cell rects by the raw frame stretches the mapping (~0.3% measured) and
+;;     chips drift proportionally to the coordinate. The live paint paths
+;;     therefore scale against the measured grid frame instead — see
+;;     herdr-grid-frame below (herdr-canvas-pixel-calibration-k42).
 
 (define-library (modaliser blocks herdr-list)
   (export make-herdr-list-block
@@ -112,18 +119,63 @@
           ;; Pure chip-rect synthesis (targets + parsed `pane layout` + host
           ;; frame → labelled chip entries), exported for unit tests.
           herdr-chip-entries
+          ;; Pure host-frame calibration (measured top-left cell + raw
+          ;; AXScrollArea frame + canvas totals → the true grid frame),
+          ;; exported for unit tests (herdr-canvas-pixel-calibration-k42).
+          herdr-grid-frame
+          ;; (result.canvas) of a parsed `ui layout` → (width . height).
+          ;; Lives here (not in muxes/herdr, which imports this library)
+          ;; because the ui.layout paint path below needs the canvas for
+          ;; grid calibration; muxes' geometry extractors import it back.
+          ui-layout-canvas
+          ;; Paint an arbitrary (label . pane_id) TARGETS list as chips —
+          ;; the layout-query + host-frame + hints-show-in glue factored out
+          ;; of paint-pane-chips! (full-size-chip-letter-labels-k27) so a
+          ;; caller painting a DIFFERENT label source over the same panes
+          ;; (the jump-space chips in (modaliser muxes herdr)) reuses it
+          ;; instead of re-deriving the pipeline. Optional 'group/'theme/
+          ;; 'consumed/'dim-color keyword opts (narrowing-dim-state-k30)
+          ;; let a caller paint several independently-themed groups of
+          ;; chips at once — see the definition for the full opts list.
+          herdr-paint-chip-targets!
+          ;; The `ui.layout`-sourced sibling of herdr-paint-chip-targets!
+          ;; (mini-chip-painting-k32): same opts (plus 'font-size/'padding,
+          ;; since mini chips render far smaller than the CSS-resolved
+          ;; full-size chip), but takes a list of (targets . geometry-fn)
+          ;; pairs — one per ui.layout-sourced kind (workspaces/agents/
+          ;; tabs) — instead of one TARGETS list, so all three kinds'
+          ;; chips land via ONE `ui.layout` query/host-frame lookup and ONE
+          ;; hints-show-in call into GROUP rather than three calls that
+          ;; would clobber each other (hints-show-in rebuilds a group's
+          ;; panels wholesale on every call).
+          herdr-paint-ui-layout-chip-targets!
           default-herdr-labels
           ;; Test seam (herdr-fast-key-drops-k8, mirrors current-herdr-query-
           ;; runner in (modaliser muxes herdr)): a test hands back canned
           ;; `herdr <x> list` JSON in place of a live query
           ;; (feedback_no_live_env_mutation_in_tests).
-          current-herdr-list-runner)
+          current-herdr-list-runner
+          ;; Test seam (herdr-jump-tests-live-ax-k50): the calibrated grid
+          ;; host-frame source behind herdr-grid-host-frame — the paint
+          ;; pipeline's ONE live-AX dependency. A test exercising a paint
+          ;; path parameterises it (typically to (lambda (w h) #f), "iTerm
+          ;; unreachable") so no ax-* call reaches the live desktop; see
+          ;; the definition for why the canvas short-circuit alone is not
+          ;; enough.
+          current-herdr-host-frame)
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
           (modaliser shell)
           (modaliser json)
-          (only (modaliser terminal) modaliser-tool-path)
+          ;; backend-tool-missing?/note-backend-query-result!: ADR-0017
+          ;; Layer 2 — this block's own query wrapper feeds the same
+          ;; shared 'herdr health entry (modaliser muxes herdr) does, and
+          ;; snapshot! consults it to render the missing-tool message row.
+          (only (modaliser terminal)
+                modaliser-tool-path
+                backend-tool-missing?
+                note-backend-query-result!)
           ;; Chip overlay: AX host frame + hint painting + resolved chip theme.
           ;; Same set the iTerm panes block leans on; all (modaliser …)
           ;; libraries, so the portable-surface contract holds (nothing from
@@ -184,7 +236,10 @@
                 #f
                 (guard (e (#t #f)) (json-parse out)))))))
 
-    (define (herdr-list-json subcmd) ((current-herdr-list-runner) subcmd))
+    (define (herdr-list-json subcmd)
+      (let ((result ((current-herdr-list-runner) subcmd)))
+        (note-backend-query-result! 'herdr (and result #t))
+        result))
 
     ;; Per-kind spec: (cli-subcommand result-array-key id-key title-key).
     ;; The result envelope is {"result":{"<array-key>":[ … ]}} for every
@@ -456,16 +511,39 @@
                                  base))
                            rows))))))))
 
+    ;; A single blank-label row carrying MESSAGE in place of real entries
+    ;; (ADR-0017 Layer 2). The "entry past the label supply still renders
+    ;; with a blank key, no dispatch" convention (herdr-list-extract's
+    ;; docstring) already covers this shape, so the JS renderer needs no
+    ;; change: a blank label draws no keycap and the row maps to no digit.
+    (define (missing-tool-row message)
+      (list (cons 'label "") (cons 'title message)
+            (cons 'detail "") (cons 'focused #f)))
+
     ;; Query herdr, extract, store into the shared cell. Returns targets.
     ;; scope-id is threaded straight into herdr-list-extract — see its
     ;; docstring; only a scoped kind (panes, tabs) uses it.
+    ;;
+    ;; herdr-list-json's health side-effect lands before this checks
+    ;; backend-tool-missing? — a #f PARSED here is ambiguous (unreachable
+    ;; vs. genuinely nothing to list), and the health table is exactly
+    ;; what resolves that ambiguity: herdr-list-extract stays pure and
+    ;; parsed-JSON-driven (it cannot tell the two cases apart), so the
+    ;; missing-tool branch lives here instead, reading the SAME 'herdr
+    ;; entry (modaliser muxes herdr)'s herdr-json also feeds.
     (define (snapshot! kind labels scope-id)
       (let* ((spec   (kind-spec kind))
-             (parsed (herdr-list-json (list-ref spec 0)))
-             (pair   (herdr-list-extract kind labels parsed scope-id)))
-        (set! current-targets (car pair))
-        (set! current-data    (cdr pair))
-        (set! current-kind    kind)
+             (parsed (herdr-list-json (list-ref spec 0))))
+        (if (backend-tool-missing? 'herdr)
+            (begin
+              (set! current-targets '())
+              (set! current-data
+                    (list (missing-tool-row "herdr not found on the tool path")))
+              (set! current-kind kind))
+            (let ((pair (herdr-list-extract kind labels parsed scope-id)))
+              (set! current-targets (car pair))
+              (set! current-data    (cdr pair))
+              (set! current-kind    kind)))
         current-targets))
 
     ;; On-demand refresh for the digit key-range: a leader-then-digit press
@@ -495,6 +573,16 @@
                     (> w 0) (> h 0)
                     (list x y w h))))))
 
+    ;; (herdr-layout-canvas layout) → (total-w . total-h) cells, or #f —
+    ;; the FULL canvas inferred from `pane layout`'s area as
+    ;; (area.x + area.width) × (area.y + area.height); see
+    ;; herdr-chip-entries' doc comment for why the total, not the area.
+    (define (herdr-layout-canvas layout)
+      (let ((area (and layout (herdr-layout-area layout))))
+        (and area
+             (cons (+ (list-ref area 0) (list-ref area 2))
+                   (+ (list-ref area 1) (list-ref area 3))))))
+
     ;; (result.layout.panes) → ((pane_id . (x y width height)) …). Panes
     ;; without a well-formed rect are dropped rather than raising.
     (define (herdr-layout-rects layout)
@@ -520,8 +608,9 @@
 
     ;; (herdr-chip-entries targets layout host) → labelled chip entries ready
     ;; for ax-target-hints. targets = ((label . pane_id) …) from the row
-    ;; snapshot; layout = parsed `pane layout`; host = the iTerm AXScrollArea
-    ;; frame alist ((x)(y)(w)(h)). Each entry is (label . ((handle . #f)
+    ;; snapshot; layout = parsed `pane layout`; host = the host pixel frame
+    ;; alist ((x)(y)(w)(h)) — at runtime the calibrated grid frame
+    ;; (herdr-grid-host-frame). Each entry is (label . ((handle . #f)
     ;; (x)(y)(w)(h))) — same shape ax-find-elements rows have, so
     ;; ax-target-hints consumes it unchanged (it places the chip inset from the
     ;; entry's top-left and sizes it from the theme; w/h ride along for parity).
@@ -538,16 +627,27 @@
     ;; not by area.width/area.height alone — dividing by area.width alone
     ;; over-widens each cell (it pretends the sidebar's columns don't exist),
     ;; which combined with the offset subtraction shifted every chip left of
-    ;; its pane. quotient (multiply-then-divide) keeps integer precision,
-    ;; exactly as tmux's chip-entries does. A target whose pane is absent from
-    ;; this (current-tab) layout is skipped.
+    ;; its pane. round-div (multiply-then-round-to-nearest, (modaliser util))
+    ;; keeps integer precision without plain quotient's floor-toward-zero
+    ;; bias — each entry's position/size is computed independently (not as a
+    ;; running cumulative sum), so an unrounded floor's error, while small
+    ;; per entry, showed up as visible drift across a long row/column of
+    ;; entries once the real per-cell pixel size wasn't a whole number
+    ;; (mini-chip-size-and-label-anchor-k38's live dogfooding). A target
+    ;; whose pane is absent from this (current-tab) layout is skipped.
+    ;;
+    ;; The mapping itself is agnostic about HOST: it linearly maps
+    ;; canvas-cell space onto whatever pixel rect it is given. Since
+    ;; herdr-canvas-pixel-calibration-k42 the live paint path passes the
+    ;; CALIBRATED grid frame (herdr-grid-frame below), not the raw
+    ;; AXScrollArea frame — the raw frame also spans iTerm's margins and
+    ;; sub-cell slack, which stretched this mapping ~0.3% and drifted
+    ;; chips proportionally to the coordinate.
     (define (herdr-chip-entries targets layout host)
-      (let ((area (and layout (herdr-layout-area layout))))
-        (if (not (and area host))
+      (let ((canvas (herdr-layout-canvas layout)))
+        (if (not (and canvas host))
             '()
-            (let* ((ax (list-ref area 0)) (ay (list-ref area 1))
-                   (aw (list-ref area 2)) (ah (list-ref area 3))
-                   (total-w (+ ax aw)) (total-h (+ ay ah))
+            (let* ((total-w (car canvas)) (total-h (cdr canvas))
                    (hx (cdr (assoc 'x host))) (hy (cdr (assoc 'y host)))
                    (hw (cdr (assoc 'w host))) (hh (cdr (assoc 'h host)))
                    (rects (herdr-layout-rects layout)))
@@ -562,10 +662,19 @@
                      (if r
                          (let* ((rx (list-ref r 0)) (ry (list-ref r 1))
                                 (rw (list-ref r 2)) (rh (list-ref r 3))
-                                (x (+ hx (quotient (* rx hw) total-w)))
-                                (y (+ hy (quotient (* ry hh) total-h)))
-                                (w (quotient (* rw hw) total-w))
-                                (h (quotient (* rh hh) total-h)))
+                                ;; Round BOTH edges of the cell span, derive
+                                ;; size as their difference — not position
+                                ;; and size independently — so two cells
+                                ;; that touch in cell-space (one's bottom
+                                ;; edge is the next's top edge) round to the
+                                ;; identical pixel boundary and never gap or
+                                ;; overlap (mini-chip-size-and-label-
+                                ;; anchor-k38's live dogfooding).
+                                (x1 (+ hx (round-div (* rx hw) total-w)))
+                                (x2 (+ hx (round-div (* (+ rx rw) hw) total-w)))
+                                (y1 (+ hy (round-div (* ry hh) total-h)))
+                                (y2 (+ hy (round-div (* (+ ry rh) hh) total-h)))
+                                (x x1) (y y1) (w (- x2 x1)) (h (- y2 y1)))
                            (loop (cdr ts)
                                  (cons (cons label
                                              (list (cons 'handle #f)
@@ -577,24 +686,188 @@
     ;; Focused iTerm AXScrollArea pixel frame — the tmux host-frame source.
     ;; Replace mode: herdr owns the sole scroll area, so the first match is
     ;; correct. Augment mode: the first may be the wrong split (documented
-    ;; limitation). #f when iTerm isn't reachable.
+    ;; limitation). #f when iTerm isn't reachable. NOTE this is the RAW
+    ;; frame — margins and slack included, not the glyph grid; the live
+    ;; paint paths refine it via herdr-grid-host-frame below.
     (define (herdr-host-frame)
       (let ((areas (ax-find-elements-named
                      "com.googlecode.iterm2" "AXScrollArea" "AXStaticText")))
         (and (pair? areas) (car areas))))
 
-    ;; on-render side-effect for the chips path: read the current-tab layout
-    ;; and host frame, synthesise chips for the just-snapshotted pane targets,
-    ;; and surface them via hints-show. Skips hints-show when there is nothing
-    ;; to paint (no host, no layout, no on-tab pane) so the overlay isn't shown
-    ;; empty — digit dispatch still works off current-targets. Assumes
-    ;; snapshot! has already run this render pass (so current-targets is set).
-    (define (paint-pane-chips!)
-      (let* ((layout  (herdr-list-json "pane layout"))
-             (host    (herdr-host-frame))
-             (entries (herdr-chip-entries current-targets layout host)))
+    ;; (result.canvas) of a parsed `ui layout` → (width . height), or #f
+    ;; when missing/malformed — width/height must be positive (they
+    ;; divide). Relocated from (modaliser muxes herdr) — which imports it
+    ;; back — so the ui.layout paint path below can read the canvas for
+    ;; grid calibration without an upward import.
+    (define (ui-layout-canvas parsed)
+      (let* ((result (and parsed (json-ref parsed "result")))
+             (canvas (and result (json-ref result "canvas")))
+             (w (and canvas (json-ref canvas "width")))
+             (h (and canvas (json-ref canvas "height"))))
+        (and (number? w) (number? h) (> w 0) (> h 0) (cons w h))))
+
+    ;; (herdr-grid-frame cell raw total-w total-h) → host-frame alist.
+    ;; Calibrate the host frame to the REAL glyph grid (herdr-canvas-
+    ;; pixel-calibration-k42). RAW — the AXScrollArea frame — is not the
+    ;; grid: iTerm insets the grid by its side/top margins (5pt/2pt by
+    ;; default), and a tiled/zoomed window whose size isn't a whole number
+    ;; of cells keeps sub-cell slack at the right/bottom. Measured live
+    ;; (2026-07-19, AXBoundsForRange): raw (1706,64,3410,2096) held a grid
+    ;; whose top-left cell sat at (1711,66) with exact 8×18pt cells — a
+    ;; 425×116 canvas really spans 3400×2088, and dividing by the raw
+    ;; frame instead stretched every coordinate ~0.3%, the drift's root
+    ;; cause. CELL is the measured screen rect of the canvas's top-left
+    ;; character (ax-first-visible-char-bounds): its origin is the grid
+    ;; origin and its size the true cell size, so the grid frame is
+    ;; origin + TOTAL×cell — under which the callers' divide-by-total
+    ;; arithmetic becomes exact. Extents round once at the frame level
+    ;; (< 0.5px over the whole span) so the frame stays integral for
+    ;; round-div. Falls back to RAW unchanged (including #f) when CELL is
+    ;; missing/degenerate or the derived grid doesn't fit inside RAW
+    ;; (±1pt tolerance) — e.g. a double-width first glyph would report a
+    ;; two-cell width and double the extent — so calibration is never
+    ;; worse than the uncalibrated behaviour it replaces.
+    (define (herdr-grid-frame cell raw total-w total-h)
+      (let ((cx (and cell (alist-ref cell 'x #f)))
+            (cy (and cell (alist-ref cell 'y #f)))
+            (cw (and cell (alist-ref cell 'w #f)))
+            (ch (and cell (alist-ref cell 'h #f))))
+        (if (not (and raw (number? cx) (number? cy)
+                      (number? cw) (number? ch) (> cw 0) (> ch 0)))
+            raw
+            (let ((gx (exact (round cx)))
+                  (gy (exact (round cy)))
+                  (gw (exact (round (* total-w cw))))
+                  (gh (exact (round (* total-h ch))))
+                  (rx (cdr (assoc 'x raw))) (ry (cdr (assoc 'y raw)))
+                  (rw (cdr (assoc 'w raw))) (rh (cdr (assoc 'h raw))))
+              (if (and (>= gx (- rx 1)) (>= gy (- ry 1))
+                       (<= (+ gx gw) (+ rx rw 1))
+                       (<= (+ gy gh) (+ ry rh 1)))
+                  (list (cons 'x gx) (cons 'y gy)
+                        (cons 'w gw) (cons 'h gh))
+                  raw)))))
+
+    ;; Live composition of the calibration: measured top-left cell bounds
+    ;; + raw scroll-area frame → the grid frame for a TOTAL-W×TOTAL-H-cell
+    ;; canvas. #f when iTerm is unreachable (same degradation as
+    ;; herdr-host-frame; the paint paths already skip on no host).
+    ;; Parameterised (herdr-jump-tests-live-ax-k50) because this is the ONE
+    ;; place the paint pipeline reads the live desktop's AX tree: the walk
+    ;; behind ax-find-elements-named is slow (>1s against a live iTerm) and
+    ;; recursion-heavy enough to overflow a cooperative-pool test thread's
+    ;; small stack, so a test driving the pipeline MUST swap it out — the
+    ;; canvas-before-host short-circuit in the two paint functions below is
+    ;; an optimisation, not a hermeticity guarantee.
+    (define current-herdr-host-frame
+      (make-parameter
+        (lambda (total-w total-h)
+          (herdr-grid-frame
+            (ax-first-visible-char-bounds "com.googlecode.iterm2")
+            (herdr-host-frame)
+            total-w total-h))))
+
+    (define (herdr-grid-host-frame total-w total-h)
+      ((current-herdr-host-frame) total-w total-h))
+
+    ;; Paint TARGETS ((label . pane_id) …) as chip hints over the on-screen
+    ;; herdr panes: read the current-tab layout and host frame, synthesise
+    ;; chips, and surface them via hints-show-in. Skips painting when there
+    ;; is nothing to paint (no host, no layout, no on-tab pane) so the
+    ;; overlay isn't shown empty.
+    ;;
+    ;; Optional keyword opts (narrowing-dim-state-k30 — a caller painting
+    ;; TWO groups at once, e.g. narrowing's surviving-vs-dimmed split, calls
+    ;; this twice with different opts rather than threading per-entry style
+    ;; overrides through herdr-chip-entries/ax-target-hints):
+    ;;   'group    — hints-show-in's group symbol/string (default 'default,
+    ;;               same group hints-show itself manages — an opts-free
+    ;;               call behaves exactly as before).
+    ;;   'theme    — the (current-chip-theme VARIANT) variant to resolve
+    ;;               (default 'normal).
+    ;;   'consumed — stamped onto every painted chip via ax-target-hints'
+    ;;               own 'consumed passthrough (default 0 — no per-char dim).
+    ;;   'dim-color — the consumed-char text colour (default: the theme's
+    ;;               own 'color, ax-target-hints' own fallback).
+    ;;   'font-size/'padding — override the resolved theme's own values
+    ;;               (mini-chip-painting-k32: mini chips render far smaller
+    ;;               than the CSS-resolved full-size chip). Absent by
+    ;;               default — every caller before mini-chips-k7 gets the
+    ;;               theme's own size unchanged. PREPENDED ahead of the
+    ;;               theme alist below so hint-opt's assoc (first match
+    ;;               wins) picks them up — the theme alist already carries
+    ;;               its own font-size/padding, so appending after would
+    ;;               never be seen.
+    ;;
+    ;; Factored into two layers: herdr-paint-chip-entries! (the opts →
+    ;; theme resolution + hints-show-in call, shared with herdr-paint-
+    ;; ui-layout-chip-targets! below) and this function (which adds the
+    ;; pane-layout query + geometry synthesis on top).
+    (define (herdr-paint-chip-entries! entries . opts)
+      (let* ((alist     (apply props->alist opts))
+             (group     (alist-ref alist 'group 'default))
+             (variant   (alist-ref alist 'theme 'normal))
+             (consumed  (alist-ref alist 'consumed 0))
+             (dim-color (alist-ref alist 'dim-color #f))
+             (font-size (alist-ref alist 'font-size #f))
+             (padding   (alist-ref alist 'padding #f))
+             (anchor    (alist-ref alist 'anchor #f))
+             (theme (append
+                      (if font-size (list (cons 'font-size font-size)) '())
+                      (if padding   (list (cons 'padding padding))     '())
+                      (if anchor    (list (cons 'anchor anchor))       '())
+                      (if (> consumed 0)
+                          (append (current-chip-theme variant)
+                                  (list (cons 'consumed consumed))
+                                  (if dim-color (list (cons 'dim-color dim-color)) '()))
+                          (current-chip-theme variant)))))
         (when (pair? entries)
-          (hints-show (ax-target-hints entries (current-chip-theme 'normal))))))
+          (hints-show-in group (ax-target-hints entries theme)))))
+
+    (define (herdr-paint-chip-targets! targets . opts)
+      (let* ((layout  (herdr-list-json "pane layout"))
+             (canvas  (herdr-layout-canvas layout))
+             ;; No canvas → no chips regardless of host (herdr-chip-entries
+             ;; degrades to empty), so skip the AX queries entirely.
+             (host    (and canvas (herdr-grid-host-frame (car canvas)
+                                                         (cdr canvas)))))
+        (apply herdr-paint-chip-entries! (herdr-chip-entries targets layout host) opts)))
+
+    ;; The ui.layout-sourced sibling (mini-chip-painting-k32): TARGETS-BY-KIND
+    ;; is a list of (targets . geometry-fn) pairs — one per mini-chip kind
+    ;; (workspaces/agents/tabs), each already reshaped to that kind
+    ;; (jump-targets-of-kind in (modaliser muxes herdr)) and paired with its
+    ;; matching mini-chip-geometry-k31 extractor (ui-layout-workspace-chip-
+    ;; entries etc.). ONE `ui.layout` query and ONE host-frame lookup serve
+    ;; every kind — all three read the SAME response and the SAME
+    ;; calibrated grid frame pane chips use (herdr-grid-host-frame;
+    ;; mini-chip-geometry-k31's Notes) — and the per-kind entries are
+    ;; concatenated into ONE
+    ;; ax-target-hints/hints-show-in call rather than one call per kind:
+    ;; hints-show-in REBUILDS (replaces) a group's panels wholesale on every
+    ;; call, so three per-kind calls sharing one group would clobber each
+    ;; other's chips, and three per-kind groups would each need their own
+    ;; stale-vs-legitimately-empty bookkeeping whenever one kind's split is
+    ;; empty (e.g. a narrowing leader with no surviving tab targets) — one
+    ;; combined call sidesteps both. Same opts as herdr-paint-chip-targets!.
+    (define (herdr-paint-ui-layout-chip-targets! targets-by-kind . opts)
+      (let* ((parsed  (herdr-list-json "ui layout"))
+             (canvas  (ui-layout-canvas parsed))
+             ;; No canvas → every extractor degrades to empty anyway, so
+             ;; skip the AX queries entirely (mirrors the pane path above).
+             (host    (and canvas (herdr-grid-host-frame (car canvas)
+                                                         (cdr canvas))))
+             (entries (apply append
+                        (map (lambda (p) ((cdr p) (car p) parsed host))
+                             targets-by-kind))))
+        (apply herdr-paint-chip-entries! entries opts)))
+
+    ;; on-render side-effect for the chips path: paint the just-snapshotted
+    ;; pane targets — digit dispatch still works off current-targets
+    ;; regardless. Assumes snapshot! has already run this render pass (so
+    ;; current-targets is set).
+    (define (paint-pane-chips!)
+      (herdr-paint-chip-targets! current-targets))
 
     ;; Constructor. on-render-fn snapshots the live list and merges the rows
     ;; into the block JSON so the rendered rows match the just-captured state.

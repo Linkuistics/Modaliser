@@ -24,6 +24,7 @@
           tty-foreground-command
           focused-terminal-foreground-command
           modaliser-tool-path
+          merge-tool-path
           list-nvim-sockets
           nvim-server-focused?
           focused-nvim-socket
@@ -38,6 +39,15 @@
           active-backend
           focused-terminal-path
           in-chain?
+
+          ;; Backend tool health (ADR-0017 Layer 2). backend-tool-missing?
+          ;; is what a block consults to render a "tool not found" message
+          ;; instead of an empty list; note-backend-query-result! is what a
+          ;; backend's own query wrapper calls after every query, so a #f
+          ;; result triggers the lazily-memoized re-probe.
+          backend-tool-missing?
+          note-backend-query-result!
+          current-tool-probe-runner
 
           ;; 14 op shims.
           focus-pane-left focus-pane-right focus-pane-up focus-pane-down
@@ -59,7 +69,11 @@
   (import (scheme base)
           (modaliser app)
           (modaliser shell)
-          (modaliser util))
+          (modaliser util)
+          ;; log-line: the one Scheme-facing diagnostic primitive
+          ;; (ADR-0017 Layer 2) — a missing backend tool logs here, never
+          ;; raises through a leader press.
+          (modaliser log))
   (begin
 
     ;; ─── Legacy detection ───────────────────────────────────────────
@@ -93,10 +107,48 @@
              (trimmed (string-trim out)))
         (if (string=? trimmed "") #f trimmed)))
 
-    ;; PATH prefix for subprocesses that need Homebrew/usr/sbin tools.
-    ;; GUI-launched Modaliser inherits a minimal path_helper PATH.
+    ;; PATH prefix for subprocesses that need tools the user's login shell
+    ;; resolves but GUI-launched Modaliser's minimal path_helper PATH
+    ;; doesn't. Derived once at load (ADR-0017): spawn the login shell,
+    ;; capture its $PATH, and merge it with the previous hardcoded floor —
+    ;; so a tool that moves off the floor but stays on the user's shell
+    ;; PATH needs no Modaliser change. Any spawn failure degrades to the
+    ;; floor alone.
+
+    ;; STR's ":"-separated segments, trimmed and with empty segments
+    ;; dropped — a trailing newline from `echo $PATH`, or an empty string
+    ;; outright, must not become a "" entry (which PATH treats as ".").
+    (define (tool-path-segments str)
+      (remove (lambda (seg) (string=? seg ""))
+              (string-split (string-trim str) ":")))
+
+    ;; LST with later duplicates dropped, first occurrence kept in place.
+    (define (dedupe-preserving-first lst)
+      (let loop ((rest lst) (seen '()) (acc '()))
+        (cond
+          ((null? rest) (reverse acc))
+          ((member (car rest) seen) (loop (cdr rest) seen acc))
+          (else (loop (cdr rest)
+                      (cons (car rest) seen)
+                      (cons (car rest) acc))))))
+
+    ;; Pure merge: LOGIN-PATH (a raw, possibly empty/malformed $PATH
+    ;; string captured from the user's login shell) union FLOOR (the
+    ;; previous hardcoded constant), login entries first so a relocated
+    ;; tool resolves there before falling through to the floor. Entries
+    ;; shared between the two collapse to their first occurrence, so the
+    ;; floor's entries always survive even when the login PATH repeats
+    ;; them.
+    (define (merge-tool-path login-path floor)
+      (string-join
+        (dedupe-preserving-first
+          (append (tool-path-segments login-path) (tool-path-segments floor)))
+        ":"))
+
     (define modaliser-tool-path
-      "/opt/homebrew/bin:/usr/local/bin:/usr/sbin")
+      (merge-tool-path
+        (guard (e (#t "")) (run-shell "/bin/zsh -lc 'echo $PATH' 2>/dev/null"))
+        "/opt/homebrew/bin:/usr/local/bin:/usr/sbin"))
 
     ;; ─── Backend façade ─────────────────────────────────────────────
     ;;
@@ -117,7 +169,7 @@
     ;; façade export of the same name resolves it at fire time (see
     ;; below) rather than dispatching-and-calling it like the other 13.
     (define-record-type <terminal-backend>
-      (make-terminal-backend symbol name kind match-key
+      (make-terminal-backend symbol name kind match-key tool-name
                              detect-foreground-command
                              focused-pane-id
                              focus-pane-left focus-pane-right
@@ -134,6 +186,12 @@
       (name                      terminal-backend-name)
       (kind                      terminal-backend-kind)        ;; 'host or 'mux
       (match-key                 terminal-backend-match-key)   ;; bundle-id or fg-cmd
+      ;; The CLI binary this backend's shell-outs depend on (e.g. "herdr",
+      ;; "tmux"), or #f for a backend with no separate tool (AppleScript-
+      ;; driven iTerm/Ghostty, the tool-less Alacritty). Distinct from
+      ;; match-key: a 'host backend's match-key is a bundle-id, not
+      ;; necessarily its CLI tool's name (kitty/wezterm: both).
+      (tool-name                 terminal-backend-tool-name)
       (detect-foreground-command terminal-backend-detect-fg)
       (focused-pane-id           terminal-backend-focused-pane-id)
       (focus-pane-left           terminal-backend-focus-pane-left)
@@ -166,7 +224,88 @@
                     (remove
                       (lambda (b)
                         (eq? (terminal-backend-symbol b) sym))
-                      *backend-registry*)))))
+                      *backend-registry*)))
+        ;; Configure-entry probe (ADR-0017 Layer 2): catches a broken tool
+        ;; path at every relaunch, before any op fires. A backend with no
+        ;; separate CLI tool (tool-name #f) has nothing to probe.
+        (let ((tool (terminal-backend-tool-name backend)))
+          (when tool (probe-backend-tool! sym tool)))))
+
+    ;; ─── Backend tool health (ADR-0017 Layer 2) ─────────────────────
+    ;;
+    ;; Two detection points, both driven off the SAME per-symbol health
+    ;; table: register-backend! above (configure-entry — eager, once) and
+    ;; note-backend-query-result! below (lazy — fired by a backend's own
+    ;; query wrapper whenever a query returns #f). A successful query is
+    ;; itself proof the tool exists (a genuinely-missing binary can never
+    ;; produce real output through run-shell), so the success branch just
+    ;; clears the flag — no probe, no extra subprocess spawn on the
+    ;; healthy path. Only the ambiguous #f moment ("tool gone" vs
+    ;; "nothing running") re-probes, which is also what lets a restored
+    ;; tool clear its flag without a relaunch.
+    ;;
+    ;; *backend-health* is a symbol -> 'ok | 'missing alist, rebuilt via
+    ;; set! (no set-cdr!, [[feedback_lispkit_no_mutable_pairs]]). A symbol
+    ;; absent from the table (not yet probed, or tool-name-less) reads as
+    ;; 'ok — the fail-open default a leader press needs.
+
+    ;; (command -v TOOL) through the derived tool path, #t if resolvable.
+    ;; Test seam mirroring current-herdr-query-runner (muxes/herdr.sld):
+    ;; a test hands back a canned present/absent verdict instead of
+    ;; shelling out (feedback_no_live_env_mutation_in_tests).
+    (define current-tool-probe-runner
+      (make-parameter
+        (lambda (tool)
+          (not (string=? ""
+                 (string-trim
+                   (run-shell
+                     (string-append "export PATH=" modaliser-tool-path ":$PATH; "
+                                    "command -v " tool " 2>/dev/null"))))))))
+
+    (define *backend-health* '())
+
+    (define (set-backend-health! sym status)
+      (set! *backend-health*
+            (cons (cons sym status)
+                  (remove (lambda (kv) (eq? (car kv) sym)) *backend-health*))))
+
+    (define (backend-tool-missing? sym)
+      (let ((kv (assq sym *backend-health*)))
+        (and kv (eq? (cdr kv) 'missing))))
+
+    ;; Probe TOOL for backend SYM, update the health table, and log —
+    ;; once per transition into 'missing, not on every repeated probe —
+    ;; so a backend stuck missing doesn't spam `log show` on every op.
+    (define (probe-backend-tool! sym tool)
+      (let ((present? ((current-tool-probe-runner) tool))
+            (was-missing? (backend-tool-missing? sym)))
+        (set-backend-health! sym (if present? 'ok 'missing))
+        (when (and (not present?) (not was-missing?))
+          (log-line
+            (string-append "(modaliser terminal): backend '"
+                           (symbol->string sym) "' tool \"" tool
+                           "\" not found on the tool path")))))
+
+    ;; The registered backend's own tool-name, or #f if none is
+    ;; registered under SYM (nothing to probe).
+    (define (registered-backend-tool sym)
+      (let loop ((bs *backend-registry*))
+        (cond
+          ((null? bs) #f)
+          ((eq? (terminal-backend-symbol (car bs)) sym)
+           (terminal-backend-tool-name (car bs)))
+          (else (loop (cdr bs))))))
+
+    ;; A backend's query wrapper calls this with its raw result's success/
+    ;; failure (OK? — #t for a real result, #f for the query's own "empty
+    ;; or unparseable" sentinel). Success clears any stale 'missing flag
+    ;; with no probe; failure re-probes (the ambiguous moment) unless this
+    ;; backend has no tracked tool at all.
+    (define (note-backend-query-result! sym ok?)
+      (if ok?
+          (set-backend-health! sym 'ok)
+          (let ((tool (registered-backend-tool sym)))
+            (when tool (probe-backend-tool! sym tool)))))
 
     ;; Frontmost bundle-id source. Parameterizable so tests can stub the
     ;; OS query without registering a backend at the real frontmost app.

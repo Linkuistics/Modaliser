@@ -37,6 +37,20 @@ import LispKit
 ///       corresponds to walk-idx 0). 'name' is retained for diagnostic
 ///       comparison against the scripting side's own labels.
 ///
+///   (ax-first-visible-char-bounds bundle-id)
+///       Screen bounds of the FIRST VISIBLE character of the focused
+///       window's first AXTextArea descendant, read via the parameterized
+///       text attributes (AXVisibleCharacterRange → AXBoundsForRange) —
+///       the only AX surface that reports where glyphs actually rasterise.
+///       For a terminal this is exactly the top-left character cell: its
+///       origin is the glyph grid's origin and its size the true cell
+///       size — which the enclosing AXScrollArea frame does NOT give
+///       (that frame also spans the app's margins plus any sub-cell slack
+///       left when the window isn't cell-quantized). Returns
+///         ((x . fl) (y . fl) (w . fl) (h . fl))
+///       as flonums (cells may be fractional points), or #f when the app,
+///       window, text area, or either attribute is unavailable.
+///
 ///   (ax-focus-handle handle)
 ///       Activate the handle's owning app and set the application's
 ///       AXFocusedUIElement to the target — the standard sub-element
@@ -74,6 +88,7 @@ final class AccessibilityLibrary: NativeLibrary {
     public override func declarations() {
         self.define(Procedure("ax-find-elements", axFindElementsFunction))
         self.define(Procedure("ax-find-elements-named", axFindElementsNamedFunction))
+        self.define(Procedure("ax-first-visible-char-bounds", axFirstVisibleCharBoundsFunction))
         self.define(Procedure("ax-focus-handle", axFocusHandleFunction))
         self.define(Procedure("ax-click-handle", axClickHandleFunction))
     }
@@ -143,6 +158,23 @@ final class AccessibilityLibrary: NativeLibrary {
             return lhs.frame.minX < rhs.frame.minX
         }
         return makeNamedFrameList(indexed, symbols: self.context.symbols)
+    }
+
+    private func axFirstVisibleCharBoundsFunction(_ bundleIdExpr: Expr) throws -> Expr {
+        let bundleId = try bundleIdExpr.asString()
+        guard let app = runningApp(forBundleId: bundleId) else { return .false }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        guard let window = focusedWindow(of: appElement),
+              let text = findFirstByRole(window, role: "AXTextArea"),
+              let visible = axRangeValue(text, kAXVisibleCharacterRangeAttribute),
+              let bounds = axBoundsForRange(text, location: visible.location, length: 1)
+        else { return .false }
+        return SchemeAlistLookup.makeAlist([
+            ("x", .flonum(Double(bounds.origin.x))),
+            ("y", .flonum(Double(bounds.origin.y))),
+            ("w", .flonum(Double(bounds.size.width))),
+            ("h", .flonum(Double(bounds.size.height))),
+        ], symbols: self.context.symbols)
     }
 
     private func axFocusHandleFunction(_ handleExpr: Expr) throws -> Expr {
@@ -297,6 +329,51 @@ final class AccessibilityLibrary: NativeLibrary {
                 collectByRoleNamed(child, role: role, nameRole: nameRole, into: &acc)
             }
         }
+    }
+
+    /// First descendant (pre-order, self included) whose AXRole equals
+    /// `role`. Depth-capped like the collectors are implicitly by the AX
+    /// tree's own shallowness; the cap only guards a pathological cycle.
+    private func findFirstByRole(_ element: AXUIElement,
+                                 role: String,
+                                 depth: Int = 0) -> AXUIElement? {
+        if axString(element, kAXRoleAttribute) == role { return element }
+        guard depth < 16, let children = axChildren(element) else { return nil }
+        for child in children {
+            if let hit = findFirstByRole(child, role: role, depth: depth + 1) {
+                return hit
+            }
+        }
+        return nil
+    }
+
+    private func axRangeValue(_ element: AXUIElement, _ attribute: String) -> CFRange? {
+        var value: AnyObject?
+        guard AXUIElementCopyAttributeValue(
+                element, attribute as CFString, &value) == .success,
+              let v = value, CFGetTypeID(v) == AXValueGetTypeID()
+        else { return nil }
+        var range = CFRange(location: 0, length: 0)
+        guard AXValueGetValue(v as! AXValue, .cfRange, &range) else { return nil }
+        return range
+    }
+
+    /// Parameterized read: the screen rect covering the character range —
+    /// where the glyphs actually rasterise, not where the enclosing
+    /// container's frame is.
+    private func axBoundsForRange(_ element: AXUIElement,
+                                  location: Int, length: Int) -> CGRect? {
+        var range = CFRange(location: location, length: length)
+        guard let param = AXValueCreate(.cfRange, &range) else { return nil }
+        var value: AnyObject?
+        guard AXUIElementCopyParameterizedAttributeValue(
+                element, kAXBoundsForRangeParameterizedAttribute as CFString,
+                param, &value) == .success,
+              let v = value, CFGetTypeID(v) == AXValueGetTypeID()
+        else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(v as! AXValue, .cgRect, &rect) else { return nil }
+        return rect
     }
 
     private func axString(_ element: AXUIElement, _ attribute: String) -> String? {

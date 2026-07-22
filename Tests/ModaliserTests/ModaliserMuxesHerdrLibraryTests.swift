@@ -43,7 +43,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate("""
           (define stub-host
             (make-terminal-backend
-              'stub-host "Stub" 'host "test.bundle"
+              'stub-host "Stub" 'host "test.bundle" #f
               (lambda () "herdr")      ; foreground command → descend into herdr
               (lambda () "host-1")
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
@@ -96,7 +96,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate("""
           (define h
             (make-terminal-backend
-              'sh "H" 'host "t.b"
+              'sh "H" 'host "t.b" #f
               (lambda () "herdr") (lambda () "p")
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
@@ -133,7 +133,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate("""
           (define other-host
             (make-terminal-backend
-              'other "Other" 'host "other.bundle"
+              'other "Other" 'host "other.bundle" #f
               (lambda () "bash") (lambda () "p")
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
@@ -150,77 +150,47 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(inChain == .false)
     }
 
-    // MARK: - herdr-in-iTerm variant wiring (leaf 3, ADR-0013)
+    // MARK: - herdr-in-iTerm entry-point wiring (leaf 3, ADR-0013)
 
-    /// The replace/augment classifier (R1). Keyed on the CURRENT-TAB iTerm
-    /// split count: the sole split → replace ("/herdr"); any others →
-    /// augment ("/herdr+split"). A 0 count (an AppleScript hiccup while
-    /// herdr is confirmed focused) degrades to replace — the safe default.
-    @Test func classifierMapsCurrentTabSplitCount() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser muxes herdr))")
-        func suffix(_ n: Int) throws -> String {
-            let v = try engine.evaluate("(classify-herdr-variant \(n))")
-            if case .string(let s) = v { return s as String }
-            Issue.record("expected string, got \(v)")
-            return ""
-        }
-        #expect(try suffix(1) == "/herdr")           // sole split → replace
-        #expect(try suffix(2) == "/herdr+split")     // + other splits → augment
-        #expect(try suffix(5) == "/herdr+split")
-        #expect(try suffix(0) == "/herdr")           // defensive → replace
-    }
-
-    /// The tree-builders are shape-correct and the iTerm exports the config
-    /// composes with are reachable. `iterm-list-session-ids` is the
-    /// tab-scoped classifier count source (`sessions of current tab of
-    /// current window`) — the fix for the multi-tab trap (R1) — asserted
-    /// exported but NOT called (it would auto-launch iTerm via AppleScript;
-    /// the config wires it as the count source, gated on herdr being
-    /// focused, i.e. iTerm already frontmost). `build-iterm-splits-drill` is
-    /// pure (builds a node), so it is exercised here.
+    /// The tree-builder is shape-correct. `iterm-list-session-ids` (used
+    /// internally by apps/iterm's rebuild-tree! for pane-UUID resolution)
+    /// stays exported but is asserted only, not called (it would
+    /// auto-launch iTerm via AppleScript).
     @Test func treeBuildersAndItermExportsAreShapeCorrect() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser muxes herdr)
-                  (only (modaliser apps iterm)
-                        iterm-list-session-ids build-iterm-splits-drill))
+                  (only (modaliser apps iterm) iterm-list-session-ids))
         """)
         #expect(try engine.evaluate("(procedure? iterm-list-session-ids)") == .true)
         // Skeleton herdr tree: a non-empty list of nodes (herdr owns hjkl).
         #expect(try engine.evaluate("(pair? (build-herdr-tree))") == .true)
-        // The augment iTerm-splits drill builds a node (pure, no AppleScript).
-        #expect(try engine.evaluate("(pair? (build-iterm-splits-drill))") == .true)
     }
 
-    /// R4 — the context-suffix variant path of `resolve-app-tree` was
-    /// implemented but NEVER exercised in production (no /nvim or /zellij
-    /// screen ships in the bundled config); herdr is its first real user.
-    /// This asserts the variant actually RESOLVES rather than silently
-    /// falling back to the plain tree. Registers the base + both variant
-    /// screens + the herdr backend + a stub iTerm host whose focused pane
-    /// runs herdr, installs the composed suffix hook (current-tab count
-    /// injected so no live iTerm is touched), and checks all three outcomes.
-    @Test func variantTreeResolvesReplaceAugmentAndFallback() throws {
+    /// ADR-0013's nested-context cutover: the herdr entry node's up edge
+    /// (register-tree-up-edge!) makes fsm-entry-more-specific?'s up-edge-
+    /// containment check rank a detection-gated herdr entry (register-
+    /// tree-entry-gated!) above the plain iTerm entry — no 'refines/suffix-
+    /// hook needed. Mirrors exactly how the config wires the two screens
+    /// together. Registers the iTerm base + the herdr entry point, the
+    /// herdr backend, and a stub iTerm host whose focused pane may or may
+    /// not run herdr, then checks leader resolution both ways.
+    @Test func herdrEntryPointOutranksItermEntryWhenDetected() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser muxes herdr) (modaliser terminal)
-                  (only (modaliser event-dispatch)
-                        set-local-context-suffix! resolve-app-tree))
+                  (modaliser muxes herdr) (modaliser terminal))
         """)
-        // Base tree + both variant screens (skeletons).
         try engine.evaluate("""
           (screen 'com.googlecode.iterm2 (panel "Base" (key "x" "X" (lambda () #f))))
-          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
-          (apply screen 'com.googlecode.iterm2/herdr+split (build-herdr-tree))
+          (apply screen 'com.googlecode.iterm2/herdr 'auto-entry #f (build-herdr-tree))
+          (register-tree-up-edge! 'com.googlecode.iterm2/herdr 'com.googlecode.iterm2)
         """)
-        // herdr backend + a stub iTerm host whose focused pane runs herdr.
-        try engine.evaluate("(register!)")
+        try engine.evaluate("(register!)") // the herdr backend
         try engine.evaluate("""
           (define (stub-iterm fg)
             (make-terminal-backend
-              'iterm "iTerm" 'host "com.googlecode.iterm2"
+              'iterm "iTerm" 'host "com.googlecode.iterm2" #f
               (lambda () fg) (lambda () "sess-1")
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
@@ -228,43 +198,58 @@ struct ModaliserMuxesHerdrLibraryTests {
               (lambda () 'x) (lambda () 'x)
               (lambda () #t)))
           (register-backend! (stub-iterm "herdr"))
+          (register-tree-entry-gated! 'com.googlecode.iterm2/herdr
+            (lambda () (in-chain? 'herdr)))
         """)
-        // Composed hook: herdr focused → classify by the injected current-tab
-        // split count; otherwise #f (fall back to the plain tree).
-        try engine.evaluate("""
-          (define *ct-count* 1)
-          (set-local-context-suffix!
-            (lambda (bundle-id)
-              (and (equal? bundle-id "com.googlecode.iterm2")
-                   (in-chain? 'herdr)
-                   (classify-herdr-variant *ct-count*))))
-        """)
-        func resolvesTo(_ variant: String) throws -> Bool {
+        func resolvesTo(_ entryName: String) throws -> Bool {
             try engine.evaluate("""
               (parameterize ((current-frontmost-bundle-id
                                (lambda () "com.googlecode.iterm2")))
-                (eq? (resolve-app-tree "com.googlecode.iterm2")
-                     (lookup-tree "\(variant)")))
+                (equal? (resolve-entry-for-bundle "com.googlecode.iterm2") "\(entryName)"))
             """) == .true
         }
-        // Replace: sole current-tab split → the /herdr variant resolves.
+        // herdr focused → the nested entry wins, not the base iTerm entry.
         #expect(try resolvesTo("com.googlecode.iterm2/herdr"))
-        // Augment: >1 current-tab split → the /herdr+split variant resolves.
-        try engine.evaluate("(set! *ct-count* 2)")
-        #expect(try resolvesTo("com.googlecode.iterm2/herdr+split"))
-        // Fall-through: herdr NOT focused → the plain tree, no variant.
+        // herdr NOT focused → falls back to the plain iTerm entry, no variant.
         try engine.evaluate("(register-backend! (stub-iterm \"zsh\"))")
         #expect(try resolvesTo("com.googlecode.iterm2"))
+    }
+
+    /// Backspace from the herdr entry node walks to the plain iTerm node
+    /// via its own up edge — an ordinary move (ADR-0013), not a return-
+    /// stack pop: modal-stack stays empty throughout.
+    @Test func herdrEntryNodeBackspaceReachesItermNode() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("""
+          (screen 'com.googlecode.iterm2 (panel "Base" (key "x" "X" (lambda () #f))))
+          (apply screen 'com.googlecode.iterm2/herdr 'auto-entry #f (build-herdr-tree))
+          (register-tree-up-edge! 'com.googlecode.iterm2/herdr 'com.googlecode.iterm2)
+        """)
+        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"com.googlecode.iterm2/herdr\"))") == .true)
+        #expect(try engine.evaluate("(null? modal-stack)") == .true)
+
+        try engine.evaluate("(modal-step-back)")
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate(
+            "(eq? modal-root-node (lookup-tree \"com.googlecode.iterm2\"))") == .true)
+        #expect(try engine.evaluate("(null? modal-stack)") == .true)
     }
 
     // MARK: - herdr control surface (leaf herdr-controls-k9)
 
     /// `build-herdr-tree` returns the full herdr surface, not the hjkl
-    /// skeleton: a `p` Panes drill (Focus panel, n New / m Move groups, z/d
-    /// pane keys, the Panes list panel), the t Tabs / w Workspaces /
-    /// g Worktrees drills, the b Jump-to-Blocked key, a Agents drill (agents
-    /// surface, k13), and the q Quit group (herdr-quit-group-k2) — seven
-    /// top-level nodes (herdr-pane-group grove). It must build without
+    /// skeleton: a `P` Panes drill (Focus panel, n New / m Move groups, z/d
+    /// pane keys, the Panes list panel), the T Tabs / S Spaces /
+    /// W Worktrees drills, the b Jump-to-Blocked key, an A Agents drill (agents
+    /// surface, k13), and the Q Quit group (herdr-quit-group-k2) — seven
+    /// top-level nodes (herdr-pane-group grove), following the plane rule
+    /// (capitals for drills/Quit, lowercase `b` the one jump kept at this
+    /// level — top-level-nav-k6). It must build without
     /// touching herdr (all shell-outs live in
     /// on-render thunks / key actions, never at construction time).
     @Test func buildHerdrTreeIsFullSurface() throws {
@@ -288,7 +273,7 @@ struct ModaliserMuxesHerdrLibraryTests {
     }
 
     /// ADR-0015 live smoke: dispatching through the REAL build-herdr-tree's
-    /// `p` Panes drill, "m" Move group. Each hjkl carries 'next 'self (a
+    /// `P` Panes drill, "m" Move group. Each hjkl carries 'next 'self (a
     /// cyclic edge), so repeat presses re-arm in place — no exit, no
     /// modal-stack growth — and an unrelated key still exits per
     /// 'exit-on-unknown.
@@ -301,21 +286,21 @@ struct ModaliserMuxesHerdrLibraryTests {
           (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
         """)
         try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
-        try engine.evaluate("(modal-handle-key \"p\")")
+        try engine.evaluate("(modal-handle-key \"P\")")
         try engine.evaluate("(modal-handle-key \"m\")")
-        #expect(try engine.evaluate("(equal? modal-current-path '(\"p\" \"m\"))") == .true)
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"P\" \"m\"))") == .true)
 
         try engine.evaluate("(modal-handle-key \"h\")")
         try engine.evaluate("(modal-handle-key \"j\")")
         #expect(try engine.evaluate("modal-active?") == .true)
-        #expect(try engine.evaluate("(equal? modal-current-path '(\"p\" \"m\"))") == .true)
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"P\" \"m\"))") == .true)
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
 
-        try engine.evaluate("(modal-handle-key \"q\")") // unbound in Move
+        try engine.evaluate("(modal-handle-key \"q\")") // unbound in Move (lowercase; Quit is capital `Q`)
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
-    /// ADR-0015 live smoke: the `p` Panes drill's Focus panel's hjkl carry
+    /// ADR-0015 live smoke: the `P` Panes drill's Focus panel's hjkl carry
     /// 'next 'herdr-panes-focus (a cross edge) — the first press pushes the
     /// caller (the herdr tree, inside the Panes drill) and switches into
     /// the Walk; subsequent hjkl inside it cycle via 'next 'self with no
@@ -330,7 +315,7 @@ struct ModaliserMuxesHerdrLibraryTests {
           (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
         """)
         try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
-        try engine.evaluate("(modal-handle-key \"p\")") // Panes drill
+        try engine.evaluate("(modal-handle-key \"P\")") // Panes drill
         try engine.evaluate("(modal-handle-key \"h\")") // Focus panel
         #expect(try engine.evaluate(
             "(eq? modal-root-node (lookup-tree \"herdr-panes-focus\"))") == .true)
@@ -347,8 +332,10 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
     }
 
-    /// herdr-fast-key-drops-k8: reproduces the reported "leader, w, <digit>
-    /// typed fast doesn't work" bug and proves the fix.
+    /// herdr-fast-key-drops-k8: reproduces the reported "leader, S, <digit>
+    /// typed fast doesn't work" bug and proves the fix. (Spaces was `w` at
+    /// the time this bug was fixed; top-level-nav-k6 moved it to capital
+    /// `S` — the guard itself is unaffected by which key reaches the drill.)
     ///
     /// current-targets / current-kind is ONE cell shared by every herdr-list
     /// kind (the single-render invariant, blocks/herdr-list.sld). A group
@@ -356,12 +343,12 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// (modal-handle-key's group? branch, state-machine.sld) — never true in
     /// this hermetic harness, which installs no overlay backend, exactly
     /// mirroring a real press faster than modal-overlay-delay. So pressing
-    /// "w" then a digit here reaches the digit key-range without Workspaces
+    /// "S" then a digit here reaches the digit key-range without Spaces
     /// ever having snapshotted.
     ///
     /// Simulates a Panes render earlier in the session (current-kind =
-    /// 'panes, label "1" → a pane id), then presses "w" "1" with no
-    /// Workspaces render in between: the digit must not accept the stale
+    /// 'panes, label "1" → a pane id), then presses "S" "1" with no
+    /// Spaces render in between: the digit must not accept the stale
     /// Panes entry just because it happens to sit under the same label — it
     /// must detect the kind mismatch, force a fresh `workspace list`
     /// snapshot, and resolve "1" against THAT data. Before the kind guard,
@@ -394,8 +381,8 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(cdr (assoc \"1\" (herdr-list-current-targets)))")
                 == .string("STALE-PANE"))
 
-        // Fast leader→w→1: the overlay never opens in this harness, so "w"'s
-        // descent does not render Workspaces before "1" fires.
+        // Fast leader→S→1: the overlay never opens in this harness, so "S"'s
+        // descent does not render Spaces before "1" fires.
         try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
         try engine.evaluate(#"""
           (parameterize
@@ -405,11 +392,11 @@ struct ModaliserMuxesHerdrLibraryTests {
                    ((string=? subcmd "workspace list")
                     (json-parse "{\"result\":{\"workspaces\":[{\"focused\":true,\"label\":\"work\",\"workspace_id\":\"REAL-WORKSPACE\"}]}}"))
                    (else #f)))))
-            (modal-handle-key "w")
+            (modal-handle-key "S")
             (modal-handle-key "1"))
         """#)
 
-        // The digit forced a real Workspaces snapshot instead of trusting
+        // The digit forced a real Spaces snapshot instead of trusting
         // the stale Panes entry under the same label.
         #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'workspaces)") == .true)
         #expect(try engine.evaluate("(cdr (assoc \"1\" (herdr-list-current-targets)))")
@@ -771,6 +758,118 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(null? (herdr-chip-entries TS #f HOST))") == .true)
     }
 
+    // MARK: - Grid calibration (leaf herdr-canvas-pixel-calibration-k42)
+
+    /// The AXScrollArea frame is NOT the character grid. Measured live
+    /// (2026-07-19, via AXBoundsForRange on iTerm's text area): raw scroll
+    /// frame (1706,64,3410,2096) vs a glyph grid whose top-left cell sits at
+    /// (1711,66) — iTerm's default 5pt side / 2pt top margins — with exactly
+    /// 8×18pt cells, so a 425×116-cell canvas really spans 3400×2088 and the
+    /// frame's remaining 4pt is sub-cell slack (a tiled window's height isn't
+    /// cell-quantized). Scaling cell rects by the RAW frame stretched the
+    /// mapping ~0.3%, drifting chips proportionally to the coordinate (the
+    /// k42 symptom). herdr-grid-frame swaps the raw frame for the true grid:
+    /// origin = the measured top-left cell, extent = canvas × cell size.
+    @Test func herdrGridFrameCalibratesHostToMeasuredCells() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list))")
+        try engine.evaluate(#"""
+          (define CELL (list (cons 'x 1711.0) (cons 'y 66.0)
+                             (cons 'w 8.0) (cons 'h 18.0)))
+          (define RAW  (list (cons 'x 1706) (cons 'y 64)
+                             (cons 'w 3410) (cons 'h 2096)))
+          (define GRID (herdr-grid-frame CELL RAW 425 116))
+          (define (g key) (cdr (assoc key GRID)))
+        """#)
+        #expect(try engine.evaluate("(g 'x)") == .fixnum(1711))
+        #expect(try engine.evaluate("(g 'y)") == .fixnum(66))
+        #expect(try engine.evaluate("(g 'w)") == .fixnum(3400))
+        #expect(try engine.evaluate("(g 'h)") == .fixnum(2088))
+    }
+
+    /// End-to-end against the live-captured `ui layout` response from the
+    /// same session: with the CALIBRATED grid frame, the agents mini-chip
+    /// entries land exactly on the rows AXBoundsForRange measured — wC:p1
+    /// (cell y=61) at pixel y = 66 + 61·18 = 1164, wF:p1 (y=63) at 1200 —
+    /// where the raw scroll frame used to put them at 1166/1202 (the live
+    /// drift this leaf was opened on).
+    @Test func uiLayoutChipEntriesLandOnMeasuredCellPositions() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate(
+            "(import (modaliser muxes herdr) (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define PARSED (json-parse "{\"id\":\"cli:ui:layout\",\"result\":{\"canvas\":{\"height\":116,\"width\":425},\"layout\":\"desktop\",\"obscured\":false,\"sidebar\":{\"agents\":[{\"pane_id\":\"wC:p1\",\"rect\":{\"height\":2,\"width\":25,\"x\":0,\"y\":61}},{\"pane_id\":\"wF:p1\",\"rect\":{\"height\":2,\"width\":25,\"x\":0,\"y\":63}}],\"mode\":\"expanded\",\"rect\":{\"height\":116,\"width\":26,\"x\":0,\"y\":0},\"workspaces\":[{\"focused\":true,\"rect\":{\"height\":2,\"width\":25,\"x\":0,\"y\":2},\"workspace_id\":\"wC\"},{\"focused\":false,\"rect\":{\"height\":2,\"width\":25,\"x\":0,\"y\":4},\"workspace_id\":\"wF\"}]},\"tab_bar\":{\"rect\":{\"height\":0,\"width\":0,\"x\":0,\"y\":0},\"tabs\":[],\"workspace_id\":\"wC\"},\"type\":\"ui_layout\"}}"))
+          (define CELL (list (cons 'x 1711.0) (cons 'y 66.0)
+                             (cons 'w 8.0) (cons 'h 18.0)))
+          (define RAW  (list (cons 'x 1706) (cons 'y 64)
+                             (cons 'w 3410) (cons 'h 2096)))
+          (define HOST (herdr-grid-frame CELL RAW 425 116))
+          (define ES (ui-layout-agent-chip-entries
+                       (list (cons "h" "wC:p1") (cons "i" "wF:p1"))
+                       PARSED HOST))
+          (define (chip lab key) (cdr (assoc key (cdr (assoc lab ES)))))
+        """#)
+        #expect(try engine.evaluate("(length ES)") == .fixnum(2))
+        // Row 61 → 66 + 61·18 = 1164 (AXBoundsForRange measured 1164.00).
+        #expect(try engine.evaluate("(chip \"h\" 'y)") == .fixnum(1164))
+        // Row 63 → 66 + 63·18 = 1200 (measured 1200.00).
+        #expect(try engine.evaluate("(chip \"i\" 'y)") == .fixnum(1200))
+        // Col 0 starts at the grid origin (1711, NOT the frame's 1706); the
+        // 25-cell-wide entry spans exactly 25·8 = 200px, 2 rows = 36px.
+        #expect(try engine.evaluate("(chip \"h\" 'x)") == .fixnum(1711))
+        #expect(try engine.evaluate("(chip \"h\" 'w)") == .fixnum(200))
+        #expect(try engine.evaluate("(chip \"h\" 'h)") == .fixnum(36))
+    }
+
+    /// Calibration degrades, never breaks: a missing/degenerate measured
+    /// cell, or one whose derived grid can't fit inside the raw frame (a
+    /// double-width first glyph would double the extent), falls back to the
+    /// RAW frame unchanged; no raw frame at all stays #f (the paint path's
+    /// existing no-host degradation).
+    @Test func herdrGridFrameFallsBackToRawFrame() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-list))")
+        try engine.evaluate(#"""
+          (define RAW (list (cons 'x 1706) (cons 'y 64)
+                            (cons 'w 3410) (cons 'h 2096)))
+          (define (raw? v) (equal? v RAW))
+        """#)
+        // No measured cell → raw unchanged.
+        #expect(try engine.evaluate("(raw? (herdr-grid-frame #f RAW 425 116))") == .true)
+        // Degenerate cell (zero width) → raw.
+        #expect(try engine.evaluate(#"""
+          (raw? (herdr-grid-frame
+                  (list (cons 'x 1711.0) (cons 'y 66.0)
+                        (cons 'w 0.0) (cons 'h 18.0))
+                  RAW 425 116))
+        """#) == .true)
+        // A 16pt-wide "cell" (double-width first glyph) puts the derived
+        // grid outside the scroll frame → rejected, raw kept.
+        #expect(try engine.evaluate(#"""
+          (raw? (herdr-grid-frame
+                  (list (cons 'x 1711.0) (cons 'y 66.0)
+                        (cons 'w 16.0) (cons 'h 18.0))
+                  RAW 425 116))
+        """#) == .true)
+        // No raw frame (iTerm unreachable) → #f, as today.
+        #expect(try engine.evaluate(#"""
+          (not (herdr-grid-frame
+                 (list (cons 'x 1711.0) (cons 'y 66.0)
+                       (cons 'w 8.0) (cons 'h 18.0))
+                 #f 425 116))
+        """#) == .true)
+    }
+
+    /// The measuring primitive itself degrades to #f for an app that isn't
+    /// running (and, transitively, for any AX failure along the chain) —
+    /// the paint path must never raise on a headless/AX-less run.
+    @Test func axFirstVisibleCharBoundsDegradesToFalse() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser accessibility))")
+        #expect(try engine.evaluate(
+            "(not (ax-first-visible-char-bounds \"com.example.not-running\"))") == .true)
+    }
+
     // MARK: - Agents tree wiring (leaf agents-tree-wiring-k13)
 
     /// The pure jump-to-blocked ring helper. From a parsed `agent list`, the
@@ -831,9 +930,9 @@ struct ModaliserMuxesHerdrLibraryTests {
     }
 
     /// The agents surface is wired into `build-herdr-tree`: a top-level `b`
-    /// (Jump to Blocked, one keystroke) and an `a` Agents drill (open), both
-    /// riding into the replace AND augment variant screens for free (the config
-    /// already splices build-herdr-tree into both). Tree-shape assertion, no
+    /// (Jump to Blocked, one keystroke — lowercase, per the plane rule it is
+    /// a jump, not a drill) and an `A` Agents drill (open), spliced into the
+    /// herdr entry-point screen (ADR-0013). Tree-shape assertion, no
     /// live herdr.
     @Test func buildHerdrTreeWiresJumpAndAgents() throws {
         let engine = try SchemeEngine()
@@ -853,10 +952,10 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("""
           (eq? 'command (cdr (assoc 'kind (node-with-key "b" TREE))))
         """) == .true)
-        // Top-level `a` present and is a drill group (the Agents open).
-        #expect(try engine.evaluate("(if (node-with-key \"a\" TREE) #t #f)") == .true)
+        // Top-level `A` present and is a drill group (the Agents open).
+        #expect(try engine.evaluate("(if (node-with-key \"A\" TREE) #t #f)") == .true)
         #expect(try engine.evaluate("""
-          (eq? 'group (cdr (assoc 'kind (node-with-key "a" TREE))))
+          (eq? 'group (cdr (assoc 'kind (node-with-key "A" TREE))))
         """) == .true)
     }
 
@@ -893,11 +992,10 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(worktree-switch-command #f \"w9\")") == .false)
     }
 
-    /// The worktrees surface is wired into `build-herdr-tree`: a top-level `g`
-    /// Worktrees drill (open), riding into the replace AND augment variant
-    /// screens for free (the config already splices build-herdr-tree into both).
-    /// Its inner `n` New and `d` Remove keys are present. Tree-shape assertion,
-    /// no live herdr.
+    /// The worktrees surface is wired into `build-herdr-tree`: a top-level `W`
+    /// Worktrees drill (open), spliced into the herdr entry-point screen
+    /// (ADR-0013). Its inner `n` New and `d` Remove keys are present.
+    /// Tree-shape assertion, no live herdr.
     @Test func buildHerdrTreeWiresWorktrees() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
@@ -911,14 +1009,14 @@ struct ModaliserMuxesHerdrLibraryTests {
                   ((equal? (node-key (car lst)) k) (car lst))
                   (else (node-with-key k (cdr lst)))))
         """)
-        // Top-level `g` present and is a drill group (the Worktrees open).
-        #expect(try engine.evaluate("(if (node-with-key \"g\" TREE) #t #f)") == .true)
+        // Top-level `W` present and is a drill group (the Worktrees open).
+        #expect(try engine.evaluate("(if (node-with-key \"W\" TREE) #t #f)") == .true)
         #expect(try engine.evaluate("""
-          (eq? 'group (cdr (assoc 'kind (node-with-key "g" TREE))))
+          (eq? 'group (cdr (assoc 'kind (node-with-key "W" TREE))))
         """) == .true)
         // The drill holds `n` (New) and `d` (Remove) among its children.
         try engine.evaluate("""
-          (define G (node-with-key "g" TREE))
+          (define G (node-with-key "W" TREE))
           (define KIDS (cdr (assoc 'children G)))
         """)
         #expect(try engine.evaluate("(if (node-with-key \"n\" KIDS) #t #f)") == .true)
@@ -1037,7 +1135,7 @@ struct ModaliserMuxesHerdrLibraryTests {
             (rename-focused-workspace!)
             (captured-submit "it's mine"))
         """#)
-        #expect(try engine.evaluate("captured-prompt").asString() == "Rename workspace…")
+        #expect(try engine.evaluate("captured-prompt").asString() == "Rename Space…")
         #expect(try engine.evaluate("captured-initial").asString() == "work")
         #expect(try engine.evaluate("captured-cmd").asString()
                 == "workspace rename w9 'it'\\''s mine'")
@@ -1073,7 +1171,7 @@ struct ModaliserMuxesHerdrLibraryTests {
 
     // MARK: - Quit group (leaf herdr-quit-group-k2)
 
-    /// Tree-shape only: top-level `q` is a group holding `d` Detach and `s`
+    /// Tree-shape only: top-level `Q` is a group holding `d` Detach and `s`
     /// Stop Server. Detach's keystroke-emission body stays untested by
     /// design (same trust level as the config's untested copy-mode key) —
     /// no new keystroke test seam, per the grilled decision.
@@ -1090,14 +1188,14 @@ struct ModaliserMuxesHerdrLibraryTests {
                   ((equal? (node-key (car lst)) k) (car lst))
                   (else (node-with-key k (cdr lst)))))
         """)
-        // Top-level `q` present and is a plain group (not a Walk/drill).
-        #expect(try engine.evaluate("(if (node-with-key \"q\" TREE) #t #f)") == .true)
+        // Top-level `Q` present and is a plain group (not a Walk/drill).
+        #expect(try engine.evaluate("(if (node-with-key \"Q\" TREE) #t #f)") == .true)
         #expect(try engine.evaluate("""
-          (eq? 'group (cdr (assoc 'kind (node-with-key "q" TREE))))
+          (eq? 'group (cdr (assoc 'kind (node-with-key "Q" TREE))))
         """) == .true)
         // Its children hold `d` (Detach) and `s` (Stop Server).
         try engine.evaluate("""
-          (define Q (node-with-key "q" TREE))
+          (define Q (node-with-key "Q" TREE))
           (define KIDS (cdr (assoc 'children Q)))
         """)
         #expect(try engine.evaluate("(if (node-with-key \"d\" KIDS) #t #f)") == .true)
@@ -1192,7 +1290,7 @@ struct ModaliserMuxesHerdrLibraryTests {
           (define (children n) (cdr (assoc 'children n)))
           (define (next-is-self? n) (eq? (cdr (assoc 'next n)) 'self))
         """)
-        for drillKey in ["p", "t", "w", "a"] {
+        for drillKey in ["P", "T", "S", "A"] {
             try engine.evaluate("(define KIDS (children (node-with-key \"\(drillKey)\" TREE)))")
             #expect(try engine.evaluate("(if (node-with-key \"[\" KIDS) #t #f)") == .true,
                     "drill \(drillKey) missing [")
@@ -1204,7 +1302,7 @@ struct ModaliserMuxesHerdrLibraryTests {
                     "drill \(drillKey) ] not 'next 'self")
         }
         // Worktrees deliberately excluded.
-        try engine.evaluate("(define GKIDS (children (node-with-key \"g\" TREE)))")
+        try engine.evaluate("(define GKIDS (children (node-with-key \"W\" TREE)))")
         #expect(try engine.evaluate("(if (node-with-key \"[\" GKIDS) #t #f)") == .false)
         #expect(try engine.evaluate("(if (node-with-key \"]\" GKIDS) #t #f)") == .false)
     }
@@ -1242,7 +1340,7 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// the cycling action before THIS kind's on-render-fn ever snapshotted,
     /// so a bare read of the shared current-targets/current-data cell
     /// could silently ring-step another kind's leftover rows. Simulates a
-    /// prior Panes render this session, then presses "a" "]" with no
+    /// prior Panes render this session, then presses "A" "]" with no
     /// Agents render in between (this harness never opens the overlay): the
     /// kind mismatch must force a fresh `agent list` snapshot before
     /// cycling, exactly like list-digit-range's guard.
@@ -1269,7 +1367,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'panes)") == .true)
 
         try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
-        try engine.evaluate("(modal-handle-key \"a\")") // Agents drill — no render yet here
+        try engine.evaluate("(modal-handle-key \"A\")") // Agents drill — no render yet here
 
         try engine.evaluate(#"""
           (parameterize
@@ -1285,9 +1383,1084 @@ struct ModaliserMuxesHerdrLibraryTests {
         // The kind mismatch forced a fresh Agents snapshot before cycling —
         // the shared cell no longer belongs to the stale Panes render.
         #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'agents)") == .true)
-        // 'next 'self: firing never pushes/pops — still inside "a".
+        // 'next 'self: firing never pushes/pops — still inside "A".
         #expect(try engine.evaluate("modal-active?") == .true)
-        #expect(try engine.evaluate("(equal? modal-current-path '(\"a\"))") == .true)
+        #expect(try engine.evaluate("(equal? modal-current-path '(\"A\"))") == .true)
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
+    }
+
+    // MARK: - Jump-target gathering (leaf jump-target-gathering-k25)
+
+    /// jump-pane-target-ids filters a parsed `pane list` fixture to TAB-ID,
+    /// preserving JSON (visual) order, and drops non-matching rows.
+    @Test func jumpPaneTargetIdsScopesToTabIdPreservingOrder() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"},{\"pane_id\":\"w1:p2\",\"tab_id\":\"w1:t2\"},{\"pane_id\":\"w1:p3\",\"tab_id\":\"w1:t1\"}]}}"))
+        """#)
+        #expect(try engine.evaluate("(jump-pane-target-ids J \"w1:t1\")")
+                == .pair(.string("w1:p1"), .pair(.string("w1:p3"), .null)))
+        // #f tab-id degrades to unfiltered (global) — every pane, JSON order.
+        #expect(try engine.evaluate("(jump-pane-target-ids J #f)")
+                == .pair(.string("w1:p1"),
+                         .pair(.string("w1:p2"), .pair(.string("w1:p3"), .null))))
+    }
+
+    /// A #f parse (herdr unreachable) or a result with no `panes` array
+    /// degrades to '() rather than erroring — the same non-negotiable a
+    /// render-path extractor needs everywhere else in this file.
+    @Test func jumpPaneTargetIdsDegradesToEmptyOnMissingInput() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        #expect(try engine.evaluate("(null? (jump-pane-target-ids #f \"w1:t1\"))") == .true)
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{}}"))
+        """#)
+        #expect(try engine.evaluate("(null? (jump-pane-target-ids J \"w1:t1\"))") == .true)
+    }
+
+    /// parse-ui-layout over a fixture built from docs/specs/herdr-ui-layout.md's
+    /// own worked example (extended with a second entry per axis to prove
+    /// order preservation, not just single-element extraction): the three
+    /// ui.layout-sourced axes come back as id lists in JSON (visual) order,
+    /// keyed on the same public ids the list methods use.
+    @Test func parseUiLayoutExtractsThreeAxesInVisualOrder() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"type\":\"ui_layout\",\"layout\":\"desktop\",\"obscured\":false,\"canvas\":{\"width\":273,\"height\":74},\"sidebar\":{\"mode\":\"expanded\",\"rect\":{\"x\":0,\"y\":0,\"width\":36,\"height\":74},\"workspaces\":[{\"workspace_id\":\"w_1\",\"focused\":true,\"rect\":{\"x\":0,\"y\":2,\"width\":35,\"height\":2}},{\"workspace_id\":\"w_2\",\"focused\":false,\"rect\":{\"x\":0,\"y\":4,\"width\":35,\"height\":2}}],\"agents\":[{\"pane_id\":\"w_1:p7\",\"rect\":{\"x\":0,\"y\":40,\"width\":35,\"height\":1}},{\"pane_id\":\"w_2:p3\",\"rect\":{\"x\":0,\"y\":41,\"width\":35,\"height\":1}}]},\"tab_bar\":{\"rect\":{\"x\":36,\"y\":0,\"width\":237,\"height\":1},\"workspace_id\":\"w_1\",\"tabs\":[{\"tab_id\":\"w_1:t2\",\"focused\":true,\"rect\":{\"x\":36,\"y\":0,\"width\":14,\"height\":1}},{\"tab_id\":\"w_1:t3\",\"focused\":false,\"rect\":{\"x\":50,\"y\":0,\"width\":14,\"height\":1}}]}}}"))
+          (define R (parse-ui-layout J))
+        """#)
+        #expect(try engine.evaluate("(cdr (assoc 'workspaces R))")
+                == .pair(.string("w_1"), .pair(.string("w_2"), .null)))
+        #expect(try engine.evaluate("(cdr (assoc 'agents R))")
+                == .pair(.string("w_1:p7"), .pair(.string("w_2:p3"), .null)))
+        #expect(try engine.evaluate("(cdr (assoc 'tabs R))")
+                == .pair(.string("w_1:t2"), .pair(.string("w_1:t3"), .null)))
+    }
+
+    /// Degradation is explicit (docs/specs/herdr-ui-layout.md "Sidebar modes" /
+    /// "Tab bar absence"): a hidden sidebar (empty workspace/agent arrays) and
+    /// an absent tab bar (zero rect, empty tabs) both drop their axes to '()
+    /// with no error — mirroring the mobile-layout / no-ui.layout-support
+    /// case, not just a genuinely empty desktop UI. A totally #f parse (the
+    /// "any error means not supported" contract) degrades every axis too.
+    @Test func parseUiLayoutDegradesHiddenSectionsToEmpty() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"layout\":\"desktop\",\"sidebar\":{\"mode\":\"hidden\",\"rect\":{\"x\":0,\"y\":0,\"width\":0,\"height\":74},\"workspaces\":[],\"agents\":[]},\"tab_bar\":{\"rect\":{\"x\":0,\"y\":0,\"width\":0,\"height\":0},\"workspace_id\":\"w_1\",\"tabs\":[]}}}"))
+          (define R (parse-ui-layout J))
+        """#)
+        #expect(try engine.evaluate("(null? (cdr (assoc 'workspaces R)))") == .true)
+        #expect(try engine.evaluate("(null? (cdr (assoc 'agents R)))") == .true)
+        #expect(try engine.evaluate("(null? (cdr (assoc 'tabs R)))") == .true)
+
+        // No ui.layout support at all — a #f query result.
+        try engine.evaluate("(define R2 (parse-ui-layout #f))")
+        #expect(try engine.evaluate("(null? (cdr (assoc 'workspaces R2)))") == .true)
+        #expect(try engine.evaluate("(null? (cdr (assoc 'agents R2)))") == .true)
+        #expect(try engine.evaluate("(null? (cdr (assoc 'tabs R2)))") == .true)
+    }
+
+    // MARK: - Mini-chip geometry (leaf mini-chip-geometry-k31)
+
+    /// The three ui-layout-*-chip-entries functions over the SAME worked
+    /// example fixture as parseUiLayoutExtractsThreeAxesInVisualOrder — canvas
+    /// 273×74 against a 2730×740 host frame is an exact ×10 cell→pixel scale
+    /// with no rounding, so every expected pixel value is a clean multiple of
+    /// the cell's (x y width height). Host offset (1000, 2000) proves the
+    /// translation, not just the scale. A bogus extra workspace target
+    /// ("w_9", not drawn — scrolled away or folded) is dropped rather than
+    /// erroring, mirroring herdr-chip-entries' off-tab-pane behaviour.
+    @Test func uiLayoutChipEntriesSynthesisesCanvasRelativeRects() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"type\":\"ui_layout\",\"layout\":\"desktop\",\"obscured\":false,\"canvas\":{\"width\":273,\"height\":74},\"sidebar\":{\"mode\":\"expanded\",\"rect\":{\"x\":0,\"y\":0,\"width\":36,\"height\":74},\"workspaces\":[{\"workspace_id\":\"w_1\",\"focused\":true,\"rect\":{\"x\":0,\"y\":2,\"width\":35,\"height\":2}},{\"workspace_id\":\"w_2\",\"focused\":false,\"rect\":{\"x\":0,\"y\":4,\"width\":35,\"height\":2}}],\"agents\":[{\"pane_id\":\"w_1:p7\",\"rect\":{\"x\":0,\"y\":40,\"width\":35,\"height\":1}},{\"pane_id\":\"w_2:p3\",\"rect\":{\"x\":0,\"y\":41,\"width\":35,\"height\":1}}]},\"tab_bar\":{\"rect\":{\"x\":36,\"y\":0,\"width\":237,\"height\":1},\"workspace_id\":\"w_1\",\"tabs\":[{\"tab_id\":\"w_1:t2\",\"focused\":true,\"rect\":{\"x\":36,\"y\":0,\"width\":14,\"height\":1}},{\"tab_id\":\"w_1:t3\",\"focused\":false,\"rect\":{\"x\":50,\"y\":0,\"width\":14,\"height\":1}}]}}}"))
+          (define HOST (list (cons 'x 1000) (cons 'y 2000) (cons 'w 2730) (cons 'h 740)))
+          (define WS (ui-layout-workspace-chip-entries
+                       (list (cons "a" "w_1") (cons "b" "w_2") (cons "c" "w_9")) J HOST))
+          (define AG (ui-layout-agent-chip-entries
+                       (list (cons "a" "w_1:p7") (cons "b" "w_2:p3")) J HOST))
+          (define TB (ui-layout-tab-chip-entries
+                       (list (cons "a" "w_1:t2") (cons "b" "w_1:t3")) J HOST))
+          (define (rect entries lab key) (cdr (assoc key (cdr (assoc lab entries)))))
+        """#)
+        // The undrawn "w_9" target yields no chip — only the two real ones.
+        #expect(try engine.evaluate("(length WS)") == .fixnum(2))
+        #expect(try engine.evaluate("(rect WS \"a\" 'x)") == .fixnum(1000))
+        #expect(try engine.evaluate("(rect WS \"a\" 'y)") == .fixnum(2020))
+        #expect(try engine.evaluate("(rect WS \"a\" 'w)") == .fixnum(350))
+        #expect(try engine.evaluate("(rect WS \"a\" 'h)") == .fixnum(20))
+        #expect(try engine.evaluate("(rect WS \"b\" 'y)") == .fixnum(2040))
+
+        #expect(try engine.evaluate("(rect AG \"a\" 'y)") == .fixnum(2400))
+        #expect(try engine.evaluate("(rect AG \"b\" 'y)") == .fixnum(2410))
+        #expect(try engine.evaluate("(rect AG \"a\" 'w)") == .fixnum(350))
+        #expect(try engine.evaluate("(rect AG \"a\" 'h)") == .fixnum(10))
+
+        #expect(try engine.evaluate("(rect TB \"a\" 'x)") == .fixnum(1360))
+        #expect(try engine.evaluate("(rect TB \"b\" 'x)") == .fixnum(1500))
+        #expect(try engine.evaluate("(rect TB \"a\" 'y)") == .fixnum(2000))
+        #expect(try engine.evaluate("(rect TB \"a\" 'w)") == .fixnum(140))
+
+        // Same (label . ((handle . #f)(x)(y)(w)(h))) shape herdr-chip-entries
+        // produces — feedable straight into ax-target-hints.
+        #expect(try engine.evaluate("(cdr (assoc 'handle (cdr (assoc \"a\" WS))))") == .false)
+    }
+
+    /// Two rows that touch in cell-space (one's bottom edge is the next's
+    /// top edge — the common case for a packed sidebar list) must touch in
+    /// pixel-space too, for ANY host size, not just ones where the cell-to-
+    /// pixel ratio happens to land on a whole number
+    /// (mini-chip-size-and-label-anchor-k38's live dogfooding: visible
+    /// mini-chip collisions at the real live host size). Rounding each
+    /// edge separately and deriving size as their difference guarantees
+    /// this by construction — rounding position and size independently
+    /// does not: several of the host heights swept here (100, 150, 200,
+    /// 250) are verified (by direct calculation) to gap/overlap under the
+    /// old independent-rounding approach, so this is a real regression
+    /// guard, not a vacuously-true property.
+    @Test func uiLayoutChipEntriesAdjacentRowsNeverGapOrOverlap() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define J (json-parse "{\"result\":{\"canvas\":{\"width\":425,\"height\":116},\"sidebar\":{\"agents\":[{\"pane_id\":\"a1\",\"rect\":{\"x\":0,\"y\":61,\"width\":25,\"height\":2}},{\"pane_id\":\"a2\",\"rect\":{\"x\":0,\"y\":63,\"width\":25,\"height\":2}}]}}}"))
+          (define (row1-bottom-meets-row2-top host-h)
+            (let* ((host (list (cons 'x 0) (cons 'y 0) (cons 'w 200) (cons 'h host-h)))
+                   (entries (ui-layout-agent-chip-entries
+                              (list (cons "a" "a1") (cons "b" "a2")) J host))
+                   (r1 (cdr (assoc "a" entries)))
+                   (r2 (cdr (assoc "b" entries))))
+              (= (+ (cdr (assoc 'y r1)) (cdr (assoc 'h r1))) (cdr (assoc 'y r2)))))
+        """#)
+        for hostHeight in [100, 150, 200, 201, 250, 299, 300, 301, 333, 400, 512, 1000] {
+            #expect(
+                try engine.evaluate("(row1-bottom-meets-row2-top \(hostHeight))") == .true,
+                "adjacent agent rows gap/overlap at host height \(hostHeight)"
+            )
+        }
+    }
+
+    /// Degrade-to-empty (docs/specs/herdr-ui-layout.md "Compatibility and
+    /// probing" — any error means "not supported"): a totally #f parse (no
+    /// ui.layout support), a response missing the `canvas` field entirely, a
+    /// malformed canvas (non-positive width), and a missing host frame (no
+    /// live iTerm AXScrollArea) all degrade to '() rather than raising.
+    @Test func uiLayoutChipEntriesDegradesToEmptyOnMissingOrMalformedInput() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define TARGETS (list (cons "a" "w_1")))
+          (define HOST (list (cons 'x 0) (cons 'y 0) (cons 'w 2730) (cons 'h 740)))
+          (define NO-CANVAS (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_1\",\"rect\":{\"x\":0,\"y\":2,\"width\":35,\"height\":2}}]}}}"))
+          (define BAD-CANVAS (json-parse "{\"result\":{\"canvas\":{\"width\":0,\"height\":74},\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_1\",\"rect\":{\"x\":0,\"y\":2,\"width\":35,\"height\":2}}]}}}"))
+          (define OK (json-parse "{\"result\":{\"canvas\":{\"width\":273,\"height\":74},\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_1\",\"rect\":{\"x\":0,\"y\":2,\"width\":35,\"height\":2}}]}}}"))
+        """#)
+        // No ui.layout support at all.
+        #expect(try engine.evaluate("(null? (ui-layout-workspace-chip-entries TARGETS #f HOST))") == .true)
+        // canvas key absent.
+        #expect(try engine.evaluate("(null? (ui-layout-workspace-chip-entries TARGETS NO-CANVAS HOST))") == .true)
+        // canvas present but non-positive (would divide by zero).
+        #expect(try engine.evaluate("(null? (ui-layout-workspace-chip-entries TARGETS BAD-CANVAS HOST))") == .true)
+        // Valid response, but no host frame (iTerm AX query returned nothing).
+        #expect(try engine.evaluate("(null? (ui-layout-workspace-chip-entries TARGETS OK #f))") == .true)
+    }
+
+    /// gather-jump-targets orders entries in stable-axis order (spaces →
+    /// agents → tabs → panes, jump-label-axis-pools-k43 — revised from the
+    /// original panes-first global priority so the volatile current-tab
+    /// pane count can never shift a space/agent label), visual order
+    /// preserved within each axis, each entry carrying (kind . id) enough
+    /// to identify the target and later dispatch its focus verb.
+    @Test func gatherJumpTargetsOrdersByAxisPriority() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        try engine.evaluate(#"""
+          (define R (gather-jump-targets
+                       (list "w1:p1" "w1:p2")
+                       (list "w_1" "w_2")
+                       (list "w1:p9")
+                       (list "w1:t2")))
+          (define (entry-kind i) (cdr (assoc 'kind (list-ref R i))))
+          (define (entry-id i)   (cdr (assoc 'id   (list-ref R i))))
+        """#)
+        #expect(try engine.evaluate("(length R)") == .fixnum(6))
+        // Kind comparison stays inside Scheme (equal? over a quoted symbol
+        // list) rather than reconstructing symbol Exprs on the Swift side.
+        #expect(try engine.evaluate("""
+          (equal? (list (entry-kind 0) (entry-kind 1) (entry-kind 2)
+                         (entry-kind 3) (entry-kind 4) (entry-kind 5))
+                  '(workspaces workspaces agents tabs panes panes))
+          """) == .true)
+        #expect(try engine.evaluate("(list (entry-id 0) (entry-id 1) (entry-id 2) (entry-id 3) (entry-id 4) (entry-id 5))")
+                == .pair(.string("w_1"),
+                         .pair(.string("w_2"),
+                         .pair(.string("w1:p9"),
+                         .pair(.string("w1:t2"),
+                         .pair(.string("w1:p1"),
+                         .pair(.string("w1:p2"), .null)))))))
+    }
+
+    /// No same-destination collapsing (docs/specs/herdr-jump-navigation.md
+    /// "Jump space scope", include-focused-targets-for-stability-k39): an
+    /// agent whose pane is already listed under panes still gets its OWN
+    /// entry — every target from every axis survives, even when two name
+    /// the same underlying pane_id. Stable-axis order is preserved
+    /// (agents before panes).
+    @Test func gatherJumpTargetsKeepsEveryTargetAcrossPanesAndAgents() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        try engine.evaluate(#"""
+          (define R (gather-jump-targets
+                       (list "w1:p1")
+                       '()
+                       (list "w1:p1" "w1:p9")
+                       '()))
+        """#)
+        #expect(try engine.evaluate("(length R)") == .fixnum(3))
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'kind (car R))) 'agents)") == .true)
+        #expect(try engine.evaluate("(cdr (assoc 'id (car R)))") == .string("w1:p1"))
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'kind (cadr R))) 'agents)") == .true)
+        #expect(try engine.evaluate("(cdr (assoc 'id (cadr R)))") == .string("w1:p9"))
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'kind (caddr R))) 'panes)") == .true)
+        #expect(try engine.evaluate("(cdr (assoc 'id (caddr R)))") == .string("w1:p1"))
+    }
+
+    /// All four axes empty degrades to an empty target list, no error.
+    @Test func gatherJumpTargetsAllAxesEmptyYieldsEmptyList() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        #expect(try engine.evaluate("(null? (gather-jump-targets '() '() '() '()))") == .true)
+    }
+
+    /// No ui.layout support (or a herdr without it) drops workspaces/agents/
+    /// tabs to '() while the panes axis — which needs no ui.layout at all —
+    /// still produces a valid, panes-only target list. This is the
+    /// degradation docs/specs/herdr-jump-navigation.md "Geometry" promises:
+    /// jump keys still work with no ui.layout, only mini-chips don't paint.
+    @Test func gatherJumpTargetsPanesOnlyStillValidWithoutUiLayout() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        try engine.evaluate(#"""
+          (define AXES (parse-ui-layout #f))
+          (define R (gather-jump-targets
+                       (list "w1:p1" "w1:p2")
+                       (cdr (assoc 'workspaces AXES))
+                       (cdr (assoc 'agents AXES))
+                       (cdr (assoc 'tabs AXES))))
+        """#)
+        #expect(try engine.evaluate("(length R)") == .fixnum(2))
+        #expect(try engine.evaluate("""
+          (equal? (map (lambda (e) (cdr (assoc 'kind e))) R) '(panes panes))
+          """) == .true)
+    }
+
+    // MARK: - Jump dispatch wiring (leaf jump-dispatch-wiring-k26)
+
+    /// herdr-jump-provider assigns each axis's single-key label from its
+    /// OWN reserved pool (jump-label-axis-pools-k43,
+    /// docs/specs/herdr-jump-navigation.md "Jump labels"): panes from
+    /// `a s d f g`, spaces from `q w e r t`, agents first from the shared
+    /// remainder `h i j k l m n o p u v x y z`, tabs from whatever that
+    /// leaves (here, one agent target consumes "h", so the sole tab target
+    /// gets "i" — the next letter in the shared pool). Each assigned label
+    /// dispatches through the kind-appropriate focus verb, captured here
+    /// via current-herdr-jump-focus-runner (the test seam standing in for
+    /// a real herdr-cmd shell-out — see its own docstring, mirroring
+    /// current-herdr-query-runner/current-herdr-async-runner's rationale).
+    /// Firing is Terminal: the modal exits (docs/specs/herdr-jump-
+    /// navigation.md "Narrowing"), so each kind is exercised in its own
+    /// fresh modal-enter round.
+    @Test func herdrJumpProviderDispatchesEachAxisKindsSingleKeyFocusVerb() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr) (modaliser json)
+                  (only (modaliser blocks herdr-list) current-herdr-list-runner current-herdr-host-frame))
+        """)
+        try engine.evaluate("""
+          (apply screen 'com.googlecode.iterm2/herdr 'provider herdr-jump-provider (build-herdr-tree))
+          (define captured '())
+        """)
+        // current-herdr-list-runner + current-herdr-host-frame close the
+        // PAINT pipeline's own seams (herdr-jump-tests-live-ax-k50):
+        // modal-enter can reach herdr-paint-chip-targets!/herdr-paint-ui-
+        // layout-chip-targets!, whose `pane layout`/`ui layout` queries run
+        // through current-herdr-list-runner (NOT the query runner stubbed
+        // below) and whose geometry runs a live-AX iTerm scan that
+        // SIGBUS-es a cooperative-pool test thread. Both stubbed to
+        // "unreachable" — these tests exercise dispatch, never painting.
+        try engine.evaluate(#"""
+          (parameterize
+            ((current-herdr-query-runner
+               (lambda (args)
+                 (cond
+                   ((string=? args "pane current")
+                    (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                   ((string=? args "pane list")
+                    (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
+                   ((string=? args "ui layout")
+                    (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_2\"}],\"agents\":[{\"pane_id\":\"w1:p9\"}]},\"tab_bar\":{\"tabs\":[{\"tab_id\":\"w1:t3\"}]}}}"))
+                   (else #f))))
+             (current-herdr-list-runner (lambda (subcmd) #f))
+             (current-herdr-host-frame (lambda (total-w total-h) #f))
+             (current-herdr-jump-focus-runner
+               (lambda (kind id) (set! captured (cons (cons kind id) captured)))))
+            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
+            (modal-handle-key "a")
+            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
+            (modal-handle-key "q")
+            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
+            (modal-handle-key "h")
+            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
+            (modal-handle-key "i"))
+        """#)
+        #expect(try engine.evaluate("(length captured)") == .fixnum(4))
+        #expect(try engine.evaluate("(if (member (cons 'panes \"w1:p1\") captured) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (member (cons 'workspaces \"w_2\") captured) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (member (cons 'agents \"w1:p9\") captured) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (member (cons 'tabs \"w1:t3\") captured) #t #f)") == .true)
+    }
+
+    /// Two-key narrowing end to end: 25 tab-scoped panes exceed the panes
+    /// pool's ("a" "s" "d" "f" "g", jump-label-axis-pools-k43) 5 single-key
+    /// slots, so jump-labels-assign escalates leader "a" (the pool's own
+    /// first letter — escalation never borrows another axis's pool) to
+    /// two-key duty: p1..p4 keep the remaining singles "s" "d" "f" "g" in
+    /// order, p5 gets "aa", p6 gets "ad" (leader "a", second-alphabet order
+    /// "a" then "d" — the shared full alphabet). Pressing "a" narrows
+    /// (modal stays active, modal-current-path becomes ("a")); a second
+    /// key fires the matching target (Terminal); backspace after the
+    /// leader un-narrows back to the top level (modal-current-path empty,
+    /// modal still active), and the root's OWN single-key edges work again
+    /// (here "d" -> p2, the second remaining single) — proving the herdr
+    /// entry node's provider re-runs (a fresh Visit, not stale state) on
+    /// return, per docs/specs/fsm-graph.md "Runtime semantics".
+    @Test func herdrJumpProviderTwoKeyLabelNarrowsThenFiresAndBackspaceUnNarrows() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr) (modaliser json)
+                  (only (modaliser blocks herdr-list) current-herdr-list-runner current-herdr-host-frame))
+        """)
+        try engine.evaluate("""
+          (apply screen 'com.googlecode.iterm2/herdr 'provider herdr-jump-provider (build-herdr-tree))
+          (define captured '())
+        """)
+        let paneEntries = (1...25).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
+        let paneListEscaped = "{\"result\":{\"panes\":[\(paneEntries)]}}"
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        // Every mutating action below runs inside its own `parameterize` +
+        // `engine.evaluate` call, and every subsequent state check
+        // (modal-current-path / modal-active?) runs in a LATER, separate
+        // `engine.evaluate` call — reading a plain exported mutable global
+        // (not a thunk) back-to-back with the action that just mutated it,
+        // in the SAME evaluate call, sees a stale pre-call snapshot under
+        // LispKit (mirrors this library's own modal-stack doc comment:
+        // "reading … directly from .scm files loaded outside any library
+        // captures a stale binding"); splitting into separate calls is
+        // exactly how every other test in this file already reads
+        // modal-current-path/modal-active? after a modal-handle-key call.
+        //
+        // current-herdr-list-runner + current-herdr-host-frame close the
+        // PAINT pipeline's own seams (herdr-jump-tests-live-ax-k50): the
+        // narrowing prefix state's 'entry runs paint-jump-chips-narrowed!
+        // synchronously inside modal-handle-key, and its `pane layout`/
+        // `ui layout` queries run through current-herdr-list-runner (NOT
+        // the query runner stubbed below) — against a live herdr those
+        // return a real canvas, whose host-frame lookup then scans the
+        // live desktop's AX tree and SIGBUS-es the cooperative-pool test
+        // thread. Both stubbed to "unreachable" — this test exercises
+        // narrowing dispatch, never painting.
+        func act(_ body: String) throws {
+            try engine.evaluate(#"""
+              (parameterize
+                ((current-herdr-query-runner
+                   (lambda (args)
+                     (cond
+                       ((string=? args "pane current")
+                        (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                       ((string=? args "pane list")
+                        (json-parse "\#(paneListEscaped)"))
+                       (else #f))))
+                 (current-herdr-list-runner (lambda (subcmd) #f))
+                 (current-herdr-host-frame (lambda (total-w total-h) #f))
+                 (current-herdr-jump-focus-runner
+                   (lambda (kind id) (set! captured (cons (cons kind id) captured)))))
+            """# + body + ")")
+        }
+
+        // Round 1: leader "a" narrows; a second "a" fires p5 ("aa").
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "a")"#)
+        #expect(try engine.evaluate("(equal? modal-current-path (list \"a\"))") == .true)
+        #expect(try engine.evaluate("modal-active?") == .true)
+        try act(#"(modal-handle-key "a")"#)
+        #expect(try engine.evaluate("modal-active?") == .false)
+
+        // Round 2: leader "a" then second key "d" fires p6 ("ad").
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "a") (modal-handle-key "d")"#)
+        #expect(try engine.evaluate("modal-active?") == .false)
+
+        // Round 3: leader "a" then backspace un-narrows back to the top
+        // level; the root's OWN single-key edge ("d" -> p2, the pool's
+        // second remaining single) still fires afterward — proving the
+        // provider re-ran (a fresh Visit), not stale state left over from
+        // before narrowing.
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "a") (modal-step-back)"#)
+        #expect(try engine.evaluate("(null? modal-current-path)") == .true)
+        #expect(try engine.evaluate("modal-active?") == .true)
+        try act(#"(modal-handle-key "d")"#)
+
+        #expect(try engine.evaluate("(length captured)") == .fixnum(3))
+        #expect(try engine.evaluate("(if (member (cons 'panes \"w1:p5\") captured) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (member (cons 'panes \"w1:p6\") captured) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (member (cons 'panes \"w1:p2\") captured) #t #f)") == .true)
+    }
+
+    /// No same-destination collapsing, through the FULL provider pipeline
+    /// (not just gather-jump-targets' own pure-function tests above):
+    /// an agent whose pane_id duplicates an already-listed pane still gets
+    /// its OWN target and its OWN label before label assignment runs. With
+    /// 3 resulting targets — "a" panes/w1:p1 (panes' own pool), "h"
+    /// agents/w1:p1 (a redundant path to the SAME pane, shared-pool order),
+    /// "i" agents/w1:p9 (shared-pool order) — all three are independently
+    /// live keys.
+    @Test func herdrJumpProviderKeepsEveryTargetAsIndependentLiveKey() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr) (modaliser json)
+                  (only (modaliser blocks herdr-list) current-herdr-list-runner current-herdr-host-frame))
+        """)
+        try engine.evaluate("""
+          (apply screen 'com.googlecode.iterm2/herdr 'provider herdr-jump-provider (build-herdr-tree))
+          (define captured '())
+        """)
+        // Paint-pipeline seams stubbed to "unreachable" — see
+        // herdrJumpProviderDispatchesEachAxisKindsSingleKeyFocusVerb's
+        // comment (herdr-jump-tests-live-ax-k50).
+        func act(_ body: String) throws {
+            try engine.evaluate(#"""
+              (parameterize
+                ((current-herdr-query-runner
+                   (lambda (args)
+                     (cond
+                       ((string=? args "pane current")
+                        (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                       ((string=? args "pane list")
+                        (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
+                       ((string=? args "ui layout")
+                        (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[],\"agents\":[{\"pane_id\":\"w1:p1\"},{\"pane_id\":\"w1:p9\"}]},\"tab_bar\":{\"tabs\":[]}}}"))
+                       (else #f))))
+                 (current-herdr-list-runner (lambda (subcmd) #f))
+                 (current-herdr-host-frame (lambda (total-w total-h) #f))
+                 (current-herdr-jump-focus-runner
+                   (lambda (kind id) (set! captured (cons (cons kind id) captured)))))
+            """# + body + ")")
+        }
+
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "a")"#)
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "h")"#)
+        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "i")"#)
+
+        #expect(try engine.evaluate("(length captured)") == .fixnum(3))
+        #expect(try engine.evaluate("(if (member (cons 'panes \"w1:p1\") captured) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (member (cons 'agents \"w1:p1\") captured) #t #f)") == .true)
+        #expect(try engine.evaluate("(if (member (cons 'agents \"w1:p9\") captured) #t #f)") == .true)
+    }
+
+    /// Stability contract (jump-label-axis-pools-k43, docs/specs/herdr-
+    /// jump-navigation.md "Jump labels"): an axis's labels are a pure
+    /// function of its OWN visible list. Panes and spaces each own a
+    /// dedicated pool, so growing EITHER of the other two axes must never
+    /// shift their labels. Agents and tabs share the remainder pool with a
+    /// ONE-DIRECTIONAL coupling: growing agents shifts tabs' labels
+    /// (agents assigns first, from the front of the shared pool), but
+    /// growing tabs never shifts agents'. Exercised directly through
+    /// herdr-jump-provider (fixture-only, no modal-enter) with small counts
+    /// so no axis escalates past a single key, keeping every assigned
+    /// label a direct edge this test can read straight off the RESULT.
+    @Test func herdrJumpProviderLabelsAreStablePerAxisWithOneWayAgentsToTabsCoupling() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr)
+                  (modaliser json) (modaliser util))
+        """)
+        try engine.evaluate(#"""
+          (define (label-for id edges)
+            (let ((e (find (lambda (e) (equal? (cdr (assoc 'target e)) id)) edges)))
+              (and e (cdr (assoc 'trigger e)))))
+          (define (edges-of result) (cdr (assoc 'edges result)))
+        """#)
+
+        // Scenario A: 1 space, 2 agents, 1 tab, 1 pane.
+        try engine.evaluate(#"""
+          (define RESULT-A
+            (parameterize
+              ((current-herdr-query-runner
+                 (lambda (args)
+                   (cond
+                     ((string=? args "pane current")
+                      (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                     ((string=? args "pane list")
+                      (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
+                     ((string=? args "ui layout")
+                      (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_1\"}],\"agents\":[{\"pane_id\":\"w1:p1\"},{\"pane_id\":\"w1:p2\"}]},\"tab_bar\":{\"tabs\":[{\"tab_id\":\"w1:t1\"}]}}}"))
+                     (else #f)))))
+              (herdr-jump-provider)))
+        """#)
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/panes/w1:p1\" (edges-of RESULT-A))") == .string("a"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/workspaces/w_1\" (edges-of RESULT-A))") == .string("q"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p1\" (edges-of RESULT-A))") == .string("h"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p2\" (edges-of RESULT-A))") == .string("i"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t1\" (edges-of RESULT-A))") == .string("j"))
+
+        // Scenario B: SAME space/agents, tabs grown 1 -> 3. Panes/spaces/
+        // agents must be untouched; w1:t1 keeps "j" (agents unchanged, so
+        // the shared pool still hands tabs the same starting letter), the
+        // two new tabs continue "k" "l".
+        try engine.evaluate(#"""
+          (define RESULT-B
+            (parameterize
+              ((current-herdr-query-runner
+                 (lambda (args)
+                   (cond
+                     ((string=? args "pane current")
+                      (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                     ((string=? args "pane list")
+                      (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
+                     ((string=? args "ui layout")
+                      (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_1\"}],\"agents\":[{\"pane_id\":\"w1:p1\"},{\"pane_id\":\"w1:p2\"}]},\"tab_bar\":{\"tabs\":[{\"tab_id\":\"w1:t1\"},{\"tab_id\":\"w1:t2\"},{\"tab_id\":\"w1:t3\"}]}}}"))
+                     (else #f)))))
+              (herdr-jump-provider)))
+        """#)
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/panes/w1:p1\" (edges-of RESULT-B))") == .string("a"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/workspaces/w_1\" (edges-of RESULT-B))") == .string("q"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p1\" (edges-of RESULT-B))") == .string("h"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p2\" (edges-of RESULT-B))") == .string("i"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t1\" (edges-of RESULT-B))") == .string("j"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t2\" (edges-of RESULT-B))") == .string("k"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t3\" (edges-of RESULT-B))") == .string("l"))
+
+        // Scenario C: SAME space, agents grown 2 -> 3, tabs back to 1.
+        // Panes/spaces stay untouched; agents claim one more shared-pool
+        // letter ("j"), so w1:t1's label shifts from "j" (Scenarios A/B) to
+        // "k" — the one coupling this leaf's pools deliberately keep
+        // (agents → tabs, never tabs → agents, never touching panes/spaces).
+        try engine.evaluate(#"""
+          (define RESULT-C
+            (parameterize
+              ((current-herdr-query-runner
+                 (lambda (args)
+                   (cond
+                     ((string=? args "pane current")
+                      (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                     ((string=? args "pane list")
+                      (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
+                     ((string=? args "ui layout")
+                      (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_1\"}],\"agents\":[{\"pane_id\":\"w1:p1\"},{\"pane_id\":\"w1:p2\"},{\"pane_id\":\"w1:p3\"}]},\"tab_bar\":{\"tabs\":[{\"tab_id\":\"w1:t1\"}]}}}"))
+                     (else #f)))))
+              (herdr-jump-provider)))
+        """#)
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/panes/w1:p1\" (edges-of RESULT-C))") == .string("a"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/workspaces/w_1\" (edges-of RESULT-C))") == .string("q"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p1\" (edges-of RESULT-C))") == .string("h"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p2\" (edges-of RESULT-C))") == .string("i"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/agents/w1:p3\" (edges-of RESULT-C))") == .string("j"))
+        #expect(try engine.evaluate("(label-for \"herdr-jump-target/tabs/w1:t1\" (edges-of RESULT-C))") == .string("k"))
+    }
+
+    // MARK: - Full-size chip painting (leaf full-size-chip-letter-labels-k27)
+
+    /// jump-panes-chip-targets is the pure reshape at the heart of this
+    /// leaf: jump-labels-assign's ASSIGNED list ((label . target) …,
+    /// target = ((kind . KIND) (id . ID))) filtered to the panes-kind
+    /// subset only and reshaped to herdr-chip-entries' (label . pane-id)
+    /// shape. Non-panes kinds (workspaces/agents/tabs — mini-chips-k7's
+    /// job) and an unassigned (#f label) target are both dropped; order
+    /// is preserved.
+    @Test func jumpPanesChipTargetsFiltersToPanesKindReshaped() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        try engine.evaluate(#"""
+          (define ASSIGNED
+            (list (cons "a" (list (cons 'kind 'panes) (cons 'id "w1:p1")))
+                  (cons "d" (list (cons 'kind 'workspaces) (cons 'id "w_2")))
+                  (cons "e" (list (cons 'kind 'panes) (cons 'id "w1:p2")))
+                  (cons #f  (list (cons 'kind 'panes) (cons 'id "w1:p3")))
+                  (cons "f" (list (cons 'kind 'agents) (cons 'id "w1:p9")))))
+          (define R (jump-panes-chip-targets ASSIGNED))
+        """#)
+        #expect(try engine.evaluate(
+            "(equal? R (list (cons \"a\" \"w1:p1\") (cons \"e\" \"w1:p2\")))") == .true)
+    }
+
+    // MARK: - Mini-chip painting (leaf mini-chip-painting-k32)
+
+    /// jump-targets-of-kind generalises jump-panes-chip-targets by KIND
+    /// (mini-chip-painting-k32) so the three ui.layout-sourced kinds reuse
+    /// the SAME reshape rather than three near-identical copies — proved
+    /// here against 'workspaces; jump-panes-chip-targets (tested above) is
+    /// this function's 'panes specialisation and is unchanged.
+    @Test func jumpTargetsOfKindFiltersToGivenKindReshaped() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        try engine.evaluate(#"""
+          (define ASSIGNED
+            (list (cons "a" (list (cons 'kind 'panes) (cons 'id "w1:p1")))
+                  (cons "d" (list (cons 'kind 'workspaces) (cons 'id "w_2")))
+                  (cons "e" (list (cons 'kind 'workspaces) (cons 'id "w_3")))
+                  (cons #f  (list (cons 'kind 'workspaces) (cons 'id "w_4")))
+                  (cons "f" (list (cons 'kind 'agents) (cons 'id "w1:p9")))))
+          (define R (jump-targets-of-kind 'workspaces ASSIGNED))
+        """#)
+        #expect(try engine.evaluate(
+            "(equal? R (list (cons \"d\" \"w_2\") (cons \"e\" \"w_3\")))") == .true)
+    }
+
+    // MARK: - Narrowing-dim chip painting (leaf narrowing-dim-state-k30)
+
+    /// jump-narrow-chip-targets is the pure dim-vs-survivor split at the
+    /// heart of this leaf: starting from jump-panes-chip-targets' own
+    /// reshaped ((label . pane-id) …) list, a "aa"/"ad" two-key label
+    /// survives under leader "a" (leader-prefix match, exactly the pairs
+    /// jump-prefix-state minted this Visit's second-key edges from); a
+    /// "bd" two-key label under a DIFFERENT leader and a bare single-key
+    /// "e" label both dim, same as a non-panes kind ("ae"/workspaces) and
+    /// an unassigned (#f) target both drop out entirely (jump-panes-chip-
+    /// targets' own tail) — order is preserved within each group.
+    @Test func jumpNarrowChipTargetsSplitsSurvivorsFromDimByLeader() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        try engine.evaluate(#"""
+          (define ASSIGNED
+            (list (cons "aa" (list (cons 'kind 'panes) (cons 'id "w1:p1")))
+                  (cons "ad" (list (cons 'kind 'panes) (cons 'id "w1:p2")))
+                  (cons "bd" (list (cons 'kind 'panes) (cons 'id "w1:p3")))
+                  (cons "e"  (list (cons 'kind 'panes) (cons 'id "w1:p4")))
+                  (cons "ae" (list (cons 'kind 'workspaces) (cons 'id "w_9")))
+                  (cons #f   (list (cons 'kind 'panes) (cons 'id "w1:p5")))))
+          (define R (jump-narrow-chip-targets ASSIGNED "a"))
+        """#)
+        #expect(try engine.evaluate(
+            "(equal? (cdr (assoc 'survivors R)) (list (cons \"aa\" \"w1:p1\") (cons \"ad\" \"w1:p2\")))") == .true)
+        #expect(try engine.evaluate(
+            "(equal? (cdr (assoc 'dim R)) (list (cons \"bd\" \"w1:p3\") (cons \"e\" \"w1:p4\")))") == .true)
+    }
+
+    /// A leader with no survivors at all (every panes chip dims) is a
+    /// legitimate shape — not an error — e.g. between the leader keypress
+    /// firing the provider re-mint and the FSM settling, or a future caller
+    /// probing a leader no live target currently uses.
+    @Test func jumpNarrowChipTargetsEmptySurvivorsWhenLeaderUnused() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        try engine.evaluate(#"""
+          (define ASSIGNED
+            (list (cons "bd" (list (cons 'kind 'panes) (cons 'id "w1:p1")))
+                  (cons "e"  (list (cons 'kind 'panes) (cons 'id "w1:p2")))))
+          (define R (jump-narrow-chip-targets ASSIGNED "a"))
+        """#)
+        #expect(try engine.evaluate("(null? (cdr (assoc 'survivors R)))") == .true)
+        #expect(try engine.evaluate("(= (length (cdr (assoc 'dim R))) 2)") == .true)
+    }
+
+    /// jump-narrow-chip-targets-of-kind generalises jump-narrow-chip-targets
+    /// by KIND (mini-chip-painting-k32): the SAME leader-prefix survivor/dim
+    /// split applies unchanged once jump-targets-of-kind has already
+    /// filtered to one kind — proved here against 'tabs; jump-narrow-chip-
+    /// targets (tested above) is this function's 'panes specialisation and
+    /// is unchanged.
+    @Test func jumpNarrowChipTargetsOfKindSplitsSurvivorsFromDimByLeader() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        try engine.evaluate(#"""
+          (define ASSIGNED
+            (list (cons "aa" (list (cons 'kind 'tabs) (cons 'id "w1:t1")))
+                  (cons "ad" (list (cons 'kind 'tabs) (cons 'id "w1:t2")))
+                  (cons "bd" (list (cons 'kind 'tabs) (cons 'id "w1:t3")))
+                  (cons "e"  (list (cons 'kind 'tabs) (cons 'id "w1:t4")))
+                  (cons "ae" (list (cons 'kind 'panes) (cons 'id "w1:p9")))
+                  (cons #f   (list (cons 'kind 'tabs) (cons 'id "w1:t5")))))
+          (define R (jump-narrow-chip-targets-of-kind 'tabs ASSIGNED "a"))
+        """#)
+        #expect(try engine.evaluate(
+            "(equal? (cdr (assoc 'survivors R)) (list (cons \"aa\" \"w1:t1\") (cons \"ad\" \"w1:t2\")))") == .true)
+        #expect(try engine.evaluate(
+            "(equal? (cdr (assoc 'dim R)) (list (cons \"bd\" \"w1:t3\") (cons \"e\" \"w1:t4\")))") == .true)
+    }
+
+    /// The narrowing prefix state must carry a live 'entry/'exit pair
+    /// (jump-chip-entry-cutover-k48; config's app-trees/
+    /// com.googlecode.iterm2.scm wires the SAME pair onto the root
+    /// screen) — unconditional slots, so chips repaint the INSTANT a
+    /// narrow/un-narrow lands, never waiting out `modal-overlay-delay`,
+    /// and never leaving the chips cleared by the root's own 'exit
+    /// (fired at end-old-visit! when descending INTO the prefix state)
+    /// with nothing to repaint them — violating docs/specs/herdr-jump-
+    /// navigation.md "Narrowing" ("ALL chips remain visible"). 'exit is
+    /// still literally clear-jump-chips! (hints-hide unconditionally
+    /// clears every group, narrowed or not); 'entry is a LEADER-closing
+    /// lambda around paint-jump-chips-narrowed! (narrowing-dim-state-k30),
+    /// not the bare paint-jump-chips! the root itself uses — it needs to
+    /// know which leader this Visit narrowed into (see
+    /// jumpNarrowChipTargetsSplitsSurvivorsFromDimByLeader for the
+    /// leader-split logic itself). The payload must carry NEITHER
+    /// 'on-enter NOR 'on-leave — the double-fire trap: leaving those
+    /// alongside 'entry/'exit would let the delayed overlay callback's
+    /// run-on-enter/run-on-leave paint/clear a second time. 25 tab-scoped
+    /// panes (mirroring herdrJumpProviderTwoKeyLabelNarrows... above)
+    /// force leader "a" to escalate to two-key duty, minting a real
+    /// prefix state to inspect. Calling herdr-jump-provider directly (not
+    /// through modal-enter/modal-handle-key) keeps this fixture-only;
+    /// structural only — never invokes the hooks, so no AX/hints-show
+    /// dependency.
+    @Test func jumpPrefixStateWiresChipPaintEntryExit() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json) (modaliser util))")
+        let paneEntries = (1...25).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
+        let paneListEscaped = "{\"result\":{\"panes\":[\(paneEntries)]}}"
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        try engine.evaluate(#"""
+          (define RESULT
+            (parameterize
+              ((current-herdr-query-runner
+                 (lambda (args)
+                   (cond
+                     ((string=? args "pane current")
+                      (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                     ((string=? args "pane list")
+                      (json-parse "\#(paneListEscaped)"))
+                     (else #f)))))
+              (herdr-jump-provider)))
+          (define STATES (cdr (assoc 'states RESULT)))
+          (define PREFIX
+            (find (lambda (s) (equal? (cdr (assoc 'id s)) "com.googlecode.iterm2/herdr/a")) STATES))
+          (define PAYLOAD (cdr (assoc 'payload PREFIX)))
+        """#)
+        #expect(try engine.evaluate("(procedure? (cdr (assoc 'entry PREFIX)))") == .true)
+        #expect(try engine.evaluate("(not (eq? (cdr (assoc 'entry PREFIX)) paint-jump-chips!))") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'exit PREFIX)) clear-jump-chips!)") == .true)
+        #expect(try engine.evaluate("(assoc 'on-enter PAYLOAD)") == .false)
+        #expect(try engine.evaluate("(assoc 'on-leave PAYLOAD)") == .false)
+    }
+
+    /// Mirrors the wiring check above at the herdr entry node's own root
+    /// — config's app-trees/com.googlecode.iterm2.scm sets 'entry/'exit
+    /// to the same pair (jump-chip-entry-cutover-k48), so every
+    /// non-narrowed Visit boundary (leader activation, backspace out of a
+    /// capital drill) paints/clears instantly too, not just narrowing.
+    /// Unlike 'on-enter/'on-leave (composed through (modaliser dsl)'s
+    /// compose-hooks even with no block hooks to merge), 'entry/'exit
+    /// ride straight through uncomposed (panel-grid-head's own doc
+    /// comment) — so the root's node-entry/node-exit ARE eq? to
+    /// paint-jump-chips!/clear-jump-chips! directly, a stronger check
+    /// than the old on-enter/on-leave wiring ever supported. Structural
+    /// only (mirrors defaultItermTreeRendersAsPanelGrid in ConfigDslTests):
+    /// never invokes the hooks, so no AX/hints-show dependency.
+    @Test func herdrEntryNodeRootWiresChipPaintEntryExit() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+        """)
+        try engine.evaluate("""
+          (apply screen 'com.googlecode.iterm2/herdr
+            'provider herdr-jump-provider
+            'entry paint-jump-chips! 'exit clear-jump-chips!
+            (build-herdr-tree))
+          (define root (lookup-tree "com.googlecode.iterm2/herdr"))
+        """)
+        #expect(try engine.evaluate("(eq? (node-entry root) paint-jump-chips!)") == .true)
+        #expect(try engine.evaluate("(eq? (node-exit root) clear-jump-chips!)") == .true)
+    }
+
+    // MARK: - Jump legend (leaf legend-panel-k44)
+
+    /// Test seam 5 (docs/specs/herdr-jump-navigation.md "Test seams"):
+    /// herdr-jump-legend-rows takes the snapshotted ASSIGNED list plus
+    /// three canned `<x> list` envelopes and builds legend rows in the
+    /// SAME gather order (spaces -> agents -> tabs -> panes) ASSIGNED is
+    /// already in — label, joined name, kind. Agents and panes both read
+    /// pane_id-keyed names off the SAME (unscoped) `pane list` envelope
+    /// (row-title's "agent" field convention) — the agent's pane_id here
+    /// ("w1:p9") is deliberately absent from any tab, proving name lookup
+    /// doesn't depend on tab-scoping.
+    @Test func herdrJumpLegendRowsBuildsRowsForEveryKindInGatherOrder() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-jump-legend) (modaliser json))")
+        try engine.evaluate(#"""
+          (define ASSIGNED
+            (list (cons "q" (list (cons 'kind 'workspaces) (cons 'id "w_1")))
+                  (cons "h" (list (cons 'kind 'agents)     (cons 'id "w1:p9")))
+                  (cons "j" (list (cons 'kind 'tabs)       (cons 'id "w1:t1")))
+                  (cons "a" (list (cons 'kind 'panes)      (cons 'id "w1:p1")))))
+          (define WORKSPACES (json-parse "{\"result\":{\"workspaces\":[{\"workspace_id\":\"w_1\",\"label\":\"Alpha\"}]}}"))
+          (define TABS (json-parse "{\"result\":{\"tabs\":[{\"tab_id\":\"w1:t1\",\"label\":\"Editor\"}]}}"))
+          (define PANES (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"agent\":\"claude\"},{\"pane_id\":\"w1:p9\",\"agent\":\"gpt\"}]}}"))
+          (define ROWS (herdr-jump-legend-rows ASSIGNED WORKSPACES TABS PANES))
+        """#)
+        #expect(try engine.evaluate("(length ROWS)") == .fixnum(4))
+        #expect(try engine.evaluate("(cdr (assoc 'label (list-ref ROWS 0)))") == .string("q"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (list-ref ROWS 0)))") == .string("Alpha"))
+        #expect(try engine.evaluate("(cdr (assoc 'detail (list-ref ROWS 0)))") == .string("Space"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (list-ref ROWS 1)))") == .string("gpt"))
+        #expect(try engine.evaluate("(cdr (assoc 'detail (list-ref ROWS 1)))") == .string("Agent"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (list-ref ROWS 2)))") == .string("Editor"))
+        #expect(try engine.evaluate("(cdr (assoc 'detail (list-ref ROWS 2)))") == .string("Tab"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (list-ref ROWS 3)))") == .string("claude"))
+        #expect(try engine.evaluate("(cdr (assoc 'detail (list-ref ROWS 3)))") == .string("Pane"))
+    }
+
+    /// An unlabelled (#f) target — past a pool's exhaustion, jump-
+    /// provider-result's own tail — is dropped: the legend can never show
+    /// a row with no live chip behind it. A target whose id has no match
+    /// in the name JSON (a gap, or #f envelopes when herdr degrades)
+    /// falls back to the raw id rather than dropping the row
+    /// (docs/specs/herdr-jump-navigation.md "Legend": "missing name ->
+    /// raw id").
+    @Test func herdrJumpLegendRowsDropsUnlabelledAndFallsBackToRawId() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser blocks herdr-jump-legend) (modaliser json))")
+        try engine.evaluate(#"""
+          (define ASSIGNED
+            (list (cons #f  (list (cons 'kind 'workspaces) (cons 'id "w_2")))
+                  (cons "a" (list (cons 'kind 'panes) (cons 'id "w1:p1")))))
+          (define ROWS (herdr-jump-legend-rows ASSIGNED #f #f #f))
+        """#)
+        #expect(try engine.evaluate("(length ROWS)") == .fixnum(1))
+        #expect(try engine.evaluate("(cdr (assoc 'label (car ROWS)))") == .string("a"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (car ROWS)))") == .string("w1:p1"))
+        #expect(try engine.evaluate("(cdr (assoc 'detail (car ROWS)))") == .string("Pane"))
+    }
+
+    /// jump-legend-block's block-spec carries no cursor-targets-fn / no
+    /// block-children digit range — the legend is display-only, its jump
+    /// label is never itself a dispatch key (dispatch lives in the FSM
+    /// provider edges). The block's on-render-fn queries `workspace list`/
+    /// `tab list`/`pane list` through current-herdr-list-runner (the SAME
+    /// test seam the live-list blocks use, feedback_no_live_env_mutation_
+    /// in_tests) — stubbed here to #f envelopes, which herdr-jump-legend-
+    /// rows degrades gracefully; an empty *current-jump-assigned* (no
+    /// modal-enter in this test) yields an empty legend.
+    @Test func jumpLegendBlockIsNonInteractiveAndRendersEmptyWithNoAssignment() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser blocks herdr-list))")
+        try engine.evaluate("(define B (jump-legend-block))")
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type B)) 'herdr-jump-legend)") == .true)
+        #expect(try engine.evaluate("(assoc 'cursor-targets-fn B)") == .false)
+        #expect(try engine.evaluate("(assoc 'block-children B)") == .false)
+        try engine.evaluate("""
+          (define RENDERED
+            (parameterize ((current-herdr-list-runner (lambda (subcmd) #f)))
+              ((cdr (assoc 'on-render-fn B)))))
+        """)
+        #expect(try engine.evaluate("(null? (cdr (assoc 'rows RENDERED)))") == .true)
+    }
+
+    // MARK: - Narrowed jump legend (leaf narrowed-legend-k45)
+
+    /// The narrowed variant reuses herdr-jump-legend-rows unchanged
+    /// (blocks/herdr-jump-legend.sld): narrowed-jump-legend-block's
+    /// 'assigned-fn returns the PREFIX state's own (second-char . target)
+    /// survivor PAIRS directly — already the (label . target) shape the
+    /// rows extractor takes, its "label" here being the remaining second
+    /// key rather than a full jump label. No new rows extractor, no
+    /// re-query: names still come from current-herdr-list-runner (the
+    /// SAME seam jump-legend-block uses), fixture-tested here with no
+    /// live herdr.
+    @Test func narrowedJumpLegendBlockRendersSurvivorRowsFromGivenPairs() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate(#"""
+          (define PAIRS
+            (list (cons "a" (list (cons 'kind 'panes) (cons 'id "w1:p5")))
+                  (cons "d" (list (cons 'kind 'panes) (cons 'id "w1:p6")))))
+          (define B (narrowed-jump-legend-block PAIRS))
+        """#)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type B)) 'herdr-jump-legend)") == .true)
+        #expect(try engine.evaluate("(assoc 'cursor-targets-fn B)") == .false)
+        try engine.evaluate(#"""
+          (define RENDERED
+            (parameterize
+              ((current-herdr-list-runner
+                 (lambda (subcmd)
+                   (if (string=? subcmd "pane list")
+                       (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p5\",\"agent\":\"claude\"},{\"pane_id\":\"w1:p6\",\"agent\":\"gpt\"}]}}")
+                       #f))))
+              ((cdr (assoc 'on-render-fn B)))))
+          (define ROWS (cdr (assoc 'rows RENDERED)))
+        """#)
+        #expect(try engine.evaluate("(length ROWS)") == .fixnum(2))
+        #expect(try engine.evaluate("(cdr (assoc 'label (list-ref ROWS 0)))") == .string("a"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (list-ref ROWS 0)))") == .string("claude"))
+        #expect(try engine.evaluate("(cdr (assoc 'detail (list-ref ROWS 0)))") == .string("Pane"))
+        #expect(try engine.evaluate("(cdr (assoc 'label (list-ref ROWS 1)))") == .string("d"))
+        #expect(try engine.evaluate("(cdr (assoc 'title (list-ref ROWS 1)))") == .string("gpt"))
+    }
+
+    /// The prefix state's payload carries 'renderer 'panel-grid + a
+    /// 'children category (narrowed-legend-k45) — the SAME shape `screen`
+    /// lowers a registered root's payload into (dsl.sld's panel-grid-head),
+    /// so ui/overlay.scm's UNCHANGED panel-grid renderer draws this
+    /// survivor legend: fsm-resolved-payload (fsm.sld) hands the provided
+    /// state's payload straight through as modal-current-node, "so a
+    /// provided RESTING state ... must present the same way a permanent
+    /// one does" (its own doc comment) — no fsm.sld/state-machine.sld/
+    /// overlay.scm change needed, only this payload shape. 6 tab-scoped
+    /// panes exceed the panes pool's 5 single-key slots by exactly one,
+    /// so jump-labels-assign's escalation (jump-labels.sld's
+    /// compute-escalation) promotes ONLY leader "a" (its own pool's first
+    /// letter) to two-key duty — p1..p4 keep the remaining singles
+    /// "s" "d" "f" "g", p5/p6 escalate to "aa"/"ad" — minting a real
+    /// prefix state with EXACTLY two survivors (p5, p6) to inspect. A
+    /// larger pane count (e.g. 25, as
+    /// herdrJumpProviderTwoKeyLabelNarrowsThenFiresAndBackspaceUnNarrows
+    /// above uses) still promotes only leader "a" but escalates every
+    /// pane past p4 under it, so this test deliberately stays small
+    /// enough that leader "a"'s survivor set is small and exhaustively
+    /// checkable. Structural only: never invokes entry/exit, no
+    /// AX/hints-show dependency; the panel's embedded block's
+    /// on-render-fn IS invoked (parameterized) to prove the survivor rows
+    /// are exactly p5/p6, in second-key order, reading names through
+    /// current-herdr-list-runner.
+    @Test func jumpPrefixStatePayloadCarriesNarrowedLegendPanel() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser muxes herdr) (modaliser blocks herdr-list)
+                  (modaliser state-machine) (modaliser json) (modaliser util))
+        """)
+        let paneEntries = (1...6).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
+        let paneListEscaped = "{\"result\":{\"panes\":[\(paneEntries)]}}"
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        try engine.evaluate(#"""
+          (define RESULT
+            (parameterize
+              ((current-herdr-query-runner
+                 (lambda (args)
+                   (cond
+                     ((string=? args "pane current")
+                      (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                     ((string=? args "pane list")
+                      (json-parse "\#(paneListEscaped)"))
+                     (else #f)))))
+              (herdr-jump-provider)))
+          (define STATES (cdr (assoc 'states RESULT)))
+          (define PREFIX
+            (find (lambda (s) (equal? (cdr (assoc 'id s)) "com.googlecode.iterm2/herdr/a")) STATES))
+          (define PAYLOAD (cdr (assoc 'payload PREFIX)))
+          (define CHILDREN (node-children PAYLOAD))
+          (define JUMP-PANEL (car CHILDREN))
+          (define BLOCK (cdr (assoc 'list JUMP-PANEL)))
+        """#)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'renderer PAYLOAD)) 'panel-grid)") == .true)
+        #expect(try engine.evaluate("(length CHILDREN)") == .fixnum(1))
+        #expect(try engine.evaluate("(equal? (node-label JUMP-PANEL) \"Jump\")") == .true)
+        try engine.evaluate(#"""
+          (define RENDERED
+            (parameterize
+              ((current-herdr-list-runner
+                 (lambda (subcmd)
+                   (if (string=? subcmd "pane list")
+                       (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p5\",\"agent\":\"claude\"},{\"pane_id\":\"w1:p6\",\"agent\":\"gpt\"}]}}")
+                       #f))))
+              ((cdr (assoc 'on-render-fn BLOCK)))))
+          (define ROWS (cdr (assoc 'rows RENDERED)))
+        """#)
+        #expect(try engine.evaluate("(length ROWS)") == .fixnum(2))
+        #expect(try engine.evaluate(
+            "(equal? (map (lambda (r) (cdr (assoc 'label r))) ROWS) (list \"a\" \"d\"))") == .true)
+        #expect(try engine.evaluate(
+            "(equal? (map (lambda (r) (cdr (assoc 'title r))) ROWS) (list \"claude\" \"gpt\"))") == .true)
+    }
+
+    // MARK: - Backend tool health (ADR-0017 Layer 2)
+
+    /// End-to-end: a missing herdr tool is flagged at configure-entry
+    /// (register!, routed through current-tool-probe-runner — no live
+    /// shell-out), and the affected block (blocks/herdr-list.sld) renders
+    /// a message row instead of an empty list. Recovery — the tool coming
+    /// back mid-run, no relaunch — clears the flag and restores real rows
+    /// on the very next render: a successful query is itself proof of
+    /// presence, so no re-probe is even needed.
+    @Test func herdrListRendersMissingToolMessageAndRecoversWithoutRelaunch() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine)
+                  (modaliser muxes herdr) (modaliser blocks herdr-list)
+                  (modaliser terminal) (modaliser json))
+        """)
+        try engine.evaluate("""
+          (parameterize ((current-tool-probe-runner (lambda (tool) #f)))
+            (register!))
+          """)
+        #expect(try engine.evaluate("(backend-tool-missing? 'herdr)") == .true)
+
+        try engine.evaluate("(define B (make-herdr-list-block 'kind 'panes))")
+        // The #f query below is itself the ambiguous moment: it fires a
+        // lazy re-probe (note-backend-query-result!), so current-tool-
+        // probe-runner must stay parameterized here too — otherwise the
+        // re-probe would escape to the REAL `command -v herdr`, which may
+        // find a genuinely-installed herdr on the machine running this
+        // test (feedback_no_live_env_mutation_in_tests).
+        try engine.evaluate(#"""
+          (define RENDERED
+            (parameterize ((current-herdr-list-runner (lambda (subcmd) #f))
+                           (current-tool-probe-runner (lambda (tool) #f)))
+              ((cdr (assoc 'on-render-fn B)))))
+          (define ROWS (cdr (assoc 'rows RENDERED)))
+        """#)
+        #expect(try engine.evaluate("(length ROWS)") == .fixnum(1))
+        #expect(try engine.evaluate("(cdr (assoc 'label (car ROWS)))") == .string(""))
+        #expect(try engine.evaluate("(cdr (assoc 'title (car ROWS)))")
+                == .string("herdr not found on the tool path"))
+        #expect(try engine.evaluate("(null? (herdr-list-current-targets))") == .true)
+
+        // The tool comes back mid-run; the next render's own query
+        // succeeds, which alone clears the flag and restores real rows.
+        try engine.evaluate(#"""
+          (define RENDERED2
+            (parameterize
+              ((current-herdr-list-runner
+                 (lambda (subcmd)
+                   (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"agent\":\"claude\",\"focused\":true,\"tab_id\":\"w1:t1\"}]}}"))))
+              ((cdr (assoc 'on-render-fn B)))))
+          (define ROWS2 (cdr (assoc 'rows RENDERED2)))
+        """#)
+        #expect(try engine.evaluate("(backend-tool-missing? 'herdr)") == .false)
+        #expect(try engine.evaluate("(length ROWS2)") == .fixnum(1))
+        #expect(try engine.evaluate("(cdr (assoc 'title (car ROWS2)))") == .string("claude"))
+        #expect(try engine.evaluate("(length (herdr-list-current-targets))") == .fixnum(1))
+    }
+
+    /// With the herdr tool present and queries succeeding, no probe fires
+    /// beyond the one configure-entry check — the healthy path pays no
+    /// extra subprocess spawn per op.
+    @Test func healthyHerdrToolPaysNoExtraProbesAcrossQueries() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser state-machine)
+                  (modaliser muxes herdr) (modaliser blocks herdr-list)
+                  (modaliser terminal) (modaliser json))
+        """)
+        try engine.evaluate("""
+          (define probe-count 0)
+          (parameterize ((current-tool-probe-runner
+                           (lambda (tool) (set! probe-count (+ probe-count 1)) #t)))
+            (register!))
+          """)
+        #expect(try engine.evaluate("probe-count") == .fixnum(1))
+
+        try engine.evaluate("(define B (make-herdr-list-block 'kind 'panes))")
+        try engine.evaluate(#"""
+          (parameterize
+            ((current-herdr-list-runner
+               (lambda (subcmd)
+                 (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"agent\":\"claude\",\"focused\":true,\"tab_id\":\"w1:t1\"}]}}"))))
+            ((cdr (assoc 'on-render-fn B)))
+            ((cdr (assoc 'on-render-fn B)))
+            ((cdr (assoc 'on-render-fn B))))
+        """#)
+        #expect(try engine.evaluate("probe-count") == .fixnum(1))
+        #expect(try engine.evaluate("(backend-tool-missing? 'herdr)") == .false)
     }
 }

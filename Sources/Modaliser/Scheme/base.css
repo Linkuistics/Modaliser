@@ -973,3 +973,21 @@ body {
 .chip.display {
   background: #2ca58d;
 }
+
+/* Narrowing-dim variant — a two-key jump label's leader key press dims every
+ * chip that doesn't share it (docs/specs/herdr-jump-navigation.md
+ * "Narrowing"). Distinct from .chip.faded (window-occlusion — a solid
+ * slate-blue) and from opacity (footer-hint--disabled's mechanism, unusable
+ * here since chips are native NSPanels, not DOM nodes): a translucent black
+ * background lets the desktop show through, reading as "switched off"
+ * rather than just recoloured. The SAME resolved value doubles as the
+ * surviving chips' consumed-first-char text colour (dark-on-dodgerblue —
+ * legible, clearly receded next to the bright pending second char) — one
+ * CSS-resolved "this part is inactive" colour, two renderings of it. The
+ * 'dim variant of (current-chip-theme) resolves this through the boot-time
+ * probe; CSS alpha round-trips end to end (probe _hex emits #rrggbbaa,
+ * HintsLibrary.parseHexColor accepts it), so background-only is enough —
+ * text stays legible, mirroring .chip.faded's shape. */
+.chip.dim {
+  background: rgba(0, 0, 0, 0.55);
+}

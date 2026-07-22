@@ -32,6 +32,15 @@ primitive (process running in the focused/only pane) but not the
 splitting op surface. Used for host terminals without native splits;
 users add a mux inside for splits.
 
+**Tool path** — the search path backend shell-outs resolve their tools
+(herdr, tmux, …) through: the user's login-shell PATH union'd with a
+hardcoded floor, derived once at startup. Exists because GUI-launched
+Modaliser inherits a minimal PATH lacking the user's tool locations. A
+configured backend whose tool is absent from it surfaces contextually
+(overlay message + log), never silently (ADR-0017). _Avoid_: treating a
+backend's empty query result as proof no session is running — tool
+absence is a distinct, detectable state.
+
 **Focused-terminal path** — alist keyed by backend symbol with
 `#(pane <id> fg <cmd>)` vector values, representing the chain from
 the host terminal down through any mux to the innermost foreground
@@ -60,7 +69,8 @@ surface (`herdr pane|tab|workspace|worktree|agent …`) rather than keystrokes.
 **Workspace (herdr)** — herdr's top-level grouping, one level *above* tabs; a
 set of tabs (each holding panes) for a body of work. Modaliser's own overlay
 _screen_ and OS _window_ are unrelated senses — qualify as "herdr workspace"
-when ambiguous.
+when ambiguous. Displayed as **Spaces** in herdr's UI and in Modaliser's
+herdr-tree labels; "workspace" remains the API/code term (`workspace_id`).
 
 **Worktree (herdr)** — a git worktree that herdr can create/switch/manage; herdr
 ties a workspace to a worktree for agent work. Distinct from Modaliser's grove
@@ -81,17 +91,6 @@ pane/agent running for a later re-attach (`herdr`). A client-side keybinding
 every pane and agent terminates; the host terminal returns to the shell.
 "Quit" unqualified is ambiguous between detach and stop — name which one.
 
-**Replace tree / Augment tree** — the two herdr variant trees selected by the
-suffix hook when the frontmost iTerm pane runs herdr. **Replace** (`/herdr`):
-herdr is the *sole* iTerm split in the current tab, so the tree is herdr-only
-(no iTerm controls). **Augment** (`/herdr+split`): the current tab has *other*
-iTerm splits too, so the tree is the herdr tree *plus* an iTerm-splits drill.
-Distinguished by the iTerm split count in the **current tab** — not the whole
-window; a second background tab must not miscount (ADR-0013). Both splice the
-same herdr tree, so the surface — including the **Panes drill** — is identical
-in both. _Avoid_: "herdr owns the top-level hjkl" — the retired pre-drill
-contract; pane focus now lives under the Panes drill.
-
 **Panes drill (herdr)** — the `p` drill row in the herdr tree holding the
 *entire* pane surface: focus (hjkl, crossing into the focus walk), split, move,
 `[`/`]` prev/next cycling, zoom, close, and the panes live-list (chips +
@@ -109,25 +108,170 @@ each carries `'next 'self` directly in the drill body, so pressing one
 re-arms in place and the drill's live list re-renders with the new focus
 (prev-next-nav-k4).
 
+## Jump-navigation domain (herdr tree)
+
+**FSM graph** — the explicit dispatch model: a graph of **states** with
+labelled **edges**, held as first-class printable s-expr data built by its
+own construction DSL and introspectable by tooling and renderers — replacing
+the implicit tree-walk + `'next`-edge machinery. Flat Moore: actions attach
+to states via **Action slots**, never to node kinds; authored nesting is
+edges only (no statechart hierarchy). "Firing a command" = transition into
+its state, run its entry action, follow its **auto edge** (halt if terminal).
+The layout spec remains the authoring surface and lowers to this graph.
+Runtime configuration is (current state, **Return stack**) — an RTN, not a
+pure FSM. See `docs/specs/fsm-graph.md`.
+
+**State class (resting / transient / terminal)** — derived from a state's
+outgoing edges, never declared: key edges = **resting** (awaits input); an
+auto edge = **transient** (a command: entry action runs, then the edge is
+followed); none = **terminal** (the machine halts, releasing capture
+*before* the entry action runs). _Avoid_: declaring terminality — it is
+always structural.
+
+**Visit** — the span from the machine coming to rest in a resting state
+until it rests elsewhere or halts; the unit presentation and snapshots
+belong to. A transient excursion returning on a cyclic auto edge
+*continues* the visit — entry/show do not re-fire (re-arm in place), though
+the snapshot refreshes.
+
+**Up-edge** — a state's backspace edge: implicit to its lowering parent, or
+declared explicitly (the herdr entry node's outward edge to the iTerm node,
+ADR-0013). Backspace is one rule: follow the up-edge, else pop the Return
+stack, else (walk root → halt; otherwise no-op).
+
+**Call edge / Return stack** — a cross edge into a Walk is a **call**: it
+pushes a return frame; backspace at the target region's root pops it
+(return-to-caller, callers vary per entry site). Escape clears the whole
+stack. The stack is runtime configuration, not graph structure.
+
+**Action slots** — a state's two action pairs with distinct timing
+contracts: **entry/exit** run unconditionally at a Visit's boundaries
+(command bodies live in entry; so does jump-space chip paint/clear — the
+primary fast-jump aid never waits out the show delay); **show/hide** are
+presentation-paired — show fires when the overlay actually displays the
+state (possibly never, under the show delay), hide only if show fired.
+Overlay-tied side effects live in show/hide; the no-flash and pairing
+guarantees are the contract. Authoring: `'entry`/`'exit` name the
+unconditional pair; `'on-enter`/`'on-leave` lower onto show/hide —
+they are NOT the entry/exit slots, despite the name.
+
+**Edge gate** — a predicate on an edge (detection — e.g. the `.` step-in
+edge). Gates snapshot when the machine comes to rest (Visit start, and
+refreshed on cyclic re-arm); the snapshot is the Visit's edge set, shared
+by overlay and dispatch, so rows shown ≡ keys live. A gated-out edge is
+simply absent (the key falls to the unknown-key policy).
+
+**Edge provider** — a resting state's per-visit edge source: a procedure
+run at the gate-snapshot instant returning extra edges and synthetic states
+(jump labels, narrowing prefix states), valid for that Visit only.
+Narrowing needs no bespoke machinery: a prefix state is an ordinary
+provided resting state whose up-edge un-narrows.
+
+**Entry table** — the graph-carried activation registry: named entries
+pointing at states, each optionally gated by detection; leader activation
+picks the most specific passing entry, specificity derived from up-edge
+containment or lowering-stamped scope refinement (a `bundle/suffix` variant
+outranks its base; ties: declaration order). Retires scope lookup outright;
+the context-suffix hook survives for genuine variant trees (nvim, zellij)
+but a nested entry point (herdr, ADR-0013) no longer routes through it —
+its specificity comes from up-edge containment instead.
+
+**Entry point** — a named state at which the FSM can be activated directly.
+Leader activation selects an entry point via detection (a gating function —
+e.g. "focused iTerm pane runs herdr" → the herdr entry node); backspace from
+an inner entry node walks to the outer context's node because an edge says
+so, not because trees were merged. Replaces the merged-variant-tree model
+for a nested context (ADR-0013 — herdr's former replace/augment distinction
+dissolves into one entry node plus its outward edge). _Avoid_: "subtree" for
+the inner context — the herdr region is graph nodes reachable from an entry
+point, not a contained copy.
+
+**Jump space** — the herdr top level's unified navigation surface: one flat
+key space covering every *visibly drawn* target across four axes — the
+current tab's panes, the focused workspace's tab bar, the sidebar Spaces
+entries, the sidebar Agents entries (Worktrees excluded; they have no screen
+presence). One jump label = one destination; two visible targets with the
+same destination (an agent whose pane is in the current tab) share one label.
+Scrolled-away entries get no label — the capital drills cover them.
+
+**Jump label** — the one- or two-key lowercase sequence assigned to a jump
+target: a prefix-free code, assigned deterministically **per axis from a
+reserved letter pool** (panes and spaces each own a fixed pool; agents then
+tabs share the remainder), visual order within an axis. Stability contract:
+an axis's labels depend only on that axis's own visible list — a changed
+axis reassigns only itself (and, for the shared pool, the axis after it).
+No cross-invocation persistence — same list, same labels. Produced by
+per-axis calls to the general parameterised assignment utility
+(restrictable single-key alphabet, valid-leader set, valid-second-key set);
+disjoint first-char pools keep the combined space prefix-free. _Avoid_:
+"axis-priority order (panes → spaces → agents → tabs)" — the retired
+global-assignment spelling.
+
+**Jump legend** — the overlay panel listing the jump space's full
+label → target-name mapping, kind-tagged, in stable-axis order
+(spaces → agents → tabs → panes), read from the Visit's snapshotted
+assignment so it always agrees with the chips; its narrowed variant on a
+prefix state lists only survivors with their remaining key.
+
+**Plane rule** — the herdr top level's key discipline: lowercase letters
+belong to the jump space (plus `b` Jump-to-Blocked — itself a jump); every
+named operation or drill moves to a capital (`P` Panes, `T` Tabs, `S` Spaces,
+`W` Worktrees, `A` Agents, `Q` Quit). Digits stay list-row selectors inside
+drills, out of the jump space.
+
+**Mini-chip** — the compact chip variant painted over a herdr sidebar entry
+(at the end of the entry's row) or a tab title (just above it); sibling of
+the pane **Chip** and **Window chip**, same `hints-show` native-overlay
+machinery. Carries a letter jump label, never digits. Pane targets keep
+full-size chips.
+
+**Narrowing (vimium-style)** — the two-key jump state after the first key:
+ALL chips remain visible; chips whose label doesn't start with the typed key
+dim; surviving chips dim their consumed first char, leaving the remaining
+key prominent. Backspace returns second-key state to first-key state
+(un-narrows); Escape exits and clears chips. A jump firing is Terminal —
+focus moves, the modal exits.
+
+**ui.layout** — the herdr socket-API surface (Modaliser-side name for the
+fork-added method) reporting the *drawn* cell-rects of sidebar entries and
+tab titles, keyed by `workspace_id` / `pane_id` / `tab_id`; the geometry
+source for mini-chips. Pane rects stay with `pane.layout`. Against a herdr
+without it, mini-chips don't paint (jump keys and drills still work).
+See `docs/specs/herdr-ui-layout.md` for the wire contract.
+
+**Grid frame** — the calibrated pixel rect the herdr canvas maps onto for
+chip placement: origin = the measured top-left character cell, extent =
+canvas × true cell size (via the AX text interface's bounds-for-range).
+Distinct from the **AXScrollArea frame** (the raw host frame), which also
+spans the terminal's margins and sub-cell slack — scaling against the raw
+frame stretches positions proportionally to the coordinate. _Avoid_:
+using "host frame" for both; the raw frame is only the calibration
+fallback.
+
 ## Modal-dispatch domain
 
-**`'next` edge** — a command leaf's declared post-action transition target:
-a registered collection's id, or `'self` (the leaf's own containing group —
-the cycle case). The navigation tree's only transition mechanism; a leaf
-without one is **Terminal**. _Avoid_: "sticky-target" — the retired flag-era
-spelling.
+**`'next` edge** — the DSL-authored keyword on `(key …)` declaring a
+command leaf's post-action transition: a registered collection's id (a
+**cross** edge), `'self` (a **cyclic** edge — the leaf's own containing
+group), or a 0-arg procedure (a **dynamic** edge). The config-authoring
+surface for what lowers to the FSM graph's **auto edge**
+(Jump-navigation domain); a leaf without one is **Terminal**. _Avoid_:
+"sticky-target" — the retired flag-era spelling.
 
-**Terminal** — a node with no outgoing edge: no children, no `'next`. Firing
-a terminal node releases the modal key capture *before* its action runs, so
+**Terminal** — a leaf with no outgoing edge: no `'next`, no children.
+Firing one releases the modal key capture *before* its action runs, so
 the action may freely hand the keyboard elsewhere (an external prompt, a
-chooser). Terminality is static — knowable from the tree alone, never from
-what an action's body does.
+chooser). Terminality is static — knowable from the declaration alone,
+never from what an action's body does. The FSM graph's **terminal**
+state class (Jump-navigation domain) is exactly this, derived from a
+state's edges rather than declared.
 
 **Walk** — a registered collection whose member leaves cycle back to it via
-`'next` (latched UX: fire a row, stay in the collection). Authored with the
-`walk` DSL form. What the flag era called a "sticky mode"; stickiness is now
-*derived* from the members' edges, never declared on the group. _Avoid_:
-"sticky", "sticky-set" — retired; a group carries no latch flag.
+`'next 'self` (latched UX: fire a row, stay in the collection). Authored
+with the `walk` DSL form. What the flag era called a "sticky mode";
+stickiness is now *derived* from the members' edges, never declared on
+the group. _Avoid_: "sticky", "sticky-set" — retired; a group carries no
+latch flag.
 
 **Dialog command** — a command leaf whose action needs the user's keyboard
 outside modal key-capture: it fires a command whose UI prompts the user
@@ -239,11 +383,13 @@ model is *extracted* from it (ADR-0011). _Avoid_: calling it the "command tree" 
 that's the derived IR below, not what the user writes.
 
 **Operational node-tree (IR)** — the internal `(kind . group)` / `(kind .
-command)` node-alist tree the state machine dispatches. Since ADR-0011 it is a
-**compile target / intermediate representation**, not authored by hand: the
-layout spec *lowers* to it, annotating nodes with presentation metadata
-(`panel`, `span`, `screen`). The dispatch engine (`state-machine.sld`) consumes
-it unchanged.
+command)` node-alist tree lowered from the **layout spec**. Since ADR-0011 it
+is a **compile target / intermediate representation**, not authored by hand,
+annotated with presentation metadata (`panel`, `span`, `screen`) the layout
+lowering adds. `register-tree!` lowers it a second time into the **FSM
+graph** (Jump-navigation domain) — the graph, not this tree, is what
+dispatch runs on; the tree survives as each state's carried presentation
+payload (`modal-current-node` / `modal-root-node`).
 
 **Screen** — one navigable level of the overlay: a **loose region** above a
 **grid of panels**. A top-level screen is *registered* under a scope **symbol**

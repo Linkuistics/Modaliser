@@ -31,6 +31,21 @@ struct ModaliserThemingLibraryTests {
         #expect(try engine.evaluate("(= (cdr (assoc 'font-size t)) 56)") == .true)
     }
 
+    @Test func currentChipThemeDimReturnsTranslucentBlackBackground() throws {
+        // The 'dim variant resolves .chip + .chip.dim — narrowing's
+        // whole-chip fade (narrowing-dim-state-k30), distinct from 'faded's
+        // solid slate-blue (window occlusion, a different concept). Before
+        // the probe runs (never, in unit tests), it returns the seed
+        // default mirroring `rgba(0, 0, 0, 0.55)`.
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser theming))")
+        try engine.evaluate("(define t (current-chip-theme 'dim))")
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'background t)) \"#0000008c\")") == .true)
+        #expect(try engine.evaluate("(= (cdr (assoc 'font-size t)) 56)") == .true)
+        #expect(try engine.evaluate("(= (cdr (assoc 'padding t)) 16)") == .true)
+        #expect(try engine.evaluate("(= (cdr (assoc 'border-width t)) 1)") == .true)
+    }
+
     @Test func currentChipThemeUnknownVariantRaises() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser theming))")

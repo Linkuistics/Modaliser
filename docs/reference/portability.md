@@ -38,9 +38,9 @@ user-shipped `.sld` file may import from:
    - *Pure-Scheme* libraries (`dsl`, `keymap`, `state-machine`,
      `event-dispatch`, `util`, `ax-hints`, `terminal`, `leader`,
      `window-actions`, `apps/iterm`, `apps/safari`, `apps/chrome`,
-     `launchers`, `web-search`, `settings-menu`,
-     `blocks/window-list`, `blocks/window-diagram`, `blocks/iterm-panes`,
-     `blocks/iterm-tabs`)
+     `launchers`, `web-search`, `settings-menu`, `list-cursor`,
+     `jump-labels`, `blocks/window-list`, `blocks/window-diagram`,
+     `blocks/iterm-panes`, `blocks/iterm-tabs`)
      port verbatim across hosts.
    - *Native* libraries (`shell`, `app`, `keyboard`, `window`,
      `webview`, `input`, `accessibility`, `hints`, `fuzzy`,
@@ -92,6 +92,30 @@ the right answer is one of:
   (as the portability slice did for the hashtable primitives via SRFI 69).
 - Expose it as a *new* `(modaliser …)` native library on the Swift
   side, with the contract that future hosts will re-implement it.
+
+## Semantic constraints (beyond imports)
+
+A clean import section is necessary but not sufficient: the portable
+tree also has to run on the *current* host, so anything R7RS specifies
+but LispKit omits is off-limits too. Two constraints shape real code:
+
+1. **No mutable pairs.** LispKit excludes `set-car!` / `set-cdr!` — a
+   reference to them parses cleanly and errors only at call time.
+   Structure that needs in-place mutation (graph nodes and back-edges,
+   caches, registries) lives in SRFI 69 hashtables, never in list
+   structure; pure list code returns new lists (return-and-merge)
+   instead of splicing in place. The FSM graph in `state-machine.sld`
+   is the worked example: nodes, edges, and back-references are
+   hashtable entries keyed by name.
+
+2. **Read shared mutable state through procedures, not variables.**
+   When one library exposes mutable state to another, it exports an
+   accessor procedure (often paired with a `set-…!` installer the host
+   calls at boot) rather than the variable itself, so every read
+   observes the current value instead of an import-time snapshot.
+   `overlay-open?` / `set-overlay-open!` in `state-machine.sld` is the
+   worked example — its comments describe reading "through the
+   procedure so the mutation is always seen, never snapshotted".
 
 ## How to audit
 

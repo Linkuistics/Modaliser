@@ -55,13 +55,13 @@ varies between hosts.
 `(in-chain? backend-sym)`
 : `#t` when `backend-sym` appears in the current path. The
   predicate users reach for when writing suffix hooks
-  (`(in-chain? 'tmux)`, `(in-chain? 'iterm)`). Registered
-  backend symbols today: `'iterm`, `'wezterm`, `'kitty`,
-  `'ghostty`, `'alacritty`, `'tmux`, `'zellij`, and `'herdr`
-  (the last registered by the config's `(herdr:register!)`, not
-  the library default set — it is the gate the herdr
-  replace/augment classifier keys on, `(in-chain? 'herdr)`; see
-  [herdr](#herdr) below).
+  (`(in-chain? 'tmux)`, `(in-chain? 'iterm)`) or a nested-context
+  entry point's detection gate. Registered backend symbols today:
+  `'iterm`, `'wezterm`, `'kitty`, `'ghostty`, `'alacritty`, `'tmux`,
+  `'zellij`, and `'herdr` (the last registered by the config's
+  `(herdr:register!)`, not the library default set — it is the gate
+  the herdr entry point's detection keys on, `(in-chain? 'herdr)`;
+  see [herdr](#herdr) below).
 
 `(list-nvim-sockets)`
 : Returns a list of Unix-socket paths bound by all running nvim
@@ -90,10 +90,69 @@ varies between hosts.
   string, or `#f` if no focused nvim is found.
 
 `modaliser-tool-path`
-: The PATH prefix `/opt/homebrew/bin:/usr/local/bin:/usr/sbin`.
-  GUI-launched Modaliser inherits a minimal `path_helper` PATH
-  that omits Homebrew and `/usr/sbin`; prepend this before calling
-  tools like `nvim`, `tmux`, or `pgrep` from `run-shell`.
+: The PATH prefix to prepend before calling tools like `nvim`, `tmux`,
+  or `pgrep` from `run-shell`. GUI-launched Modaliser inherits a
+  minimal `path_helper` PATH that omits Homebrew and `/usr/sbin`.
+  Derived once at `(modaliser terminal)` load time (ADR-0017): the
+  user's login shell is spawned (`/bin/zsh -lc 'echo $PATH'`) and its
+  `$PATH` is unioned with the hardcoded floor
+  `/opt/homebrew/bin:/usr/local/bin:/usr/sbin` via `merge-tool-path`,
+  login-shell entries first so a relocated tool resolves there before
+  falling through to the floor. Any spawn failure degrades to the
+  floor alone. `merge-tool-path` is a pure function (login PATH
+  string, floor PATH string) → merged PATH string, exported and unit
+  tested independently of the load-time spawn.
+
+## Backend tool health
+
+Layer 2 of ADR-0017. Deriving `modaliser-tool-path` (above) fixes *most*
+tool-resolution breakage, but a tool can still go missing entirely — moved,
+uninstalled, or never installed on this machine. Every backend guard
+degrades that to `#f` (a leader press must never raise), which makes "tool
+not on the path" indistinguishable from "nothing running right now." Backend
+tool health closes that gap by tracking, per backend symbol, whether its CLI
+tool last resolved — and surfacing the difference instead of staying silent.
+
+`(register-backend! backend)`
+: Beyond registering the backend record, this is also the **configure-entry
+  probe**: if the backend's `tool-name` field (a string, or `#f` for a
+  backend with no separate CLI tool — iTerm2, Ghostty, and Alacritty are all
+  driven without one) is non-`#f`, it runs `command -v <tool-name>` through
+  the derived tool path immediately and records the result. This catches a
+  broken tool path at every relaunch, before any op fires.
+
+`(note-backend-query-result! symbol ok?)`
+: The **lazy, memoized re-probe**. A backend's own query wrapper (e.g.
+  `herdr-json` in `(modaliser muxes herdr)`, `display-message` in
+  `(modaliser muxes tmux)`, `list-panes-raw` in the zellij/kitty/wezterm
+  backends) calls this after every query, passing whether the raw result
+  was real (`#t`) or the query's own empty/unparseable sentinel (`#f`). A
+  successful result is itself proof the tool exists — a genuinely-missing
+  binary can never produce real output through `run-shell` — so success
+  just clears a stale flag with **no probe, no extra subprocess spawn**. A
+  failure is the ambiguous moment ("tool gone" vs. "nothing running"), so
+  it re-probes; if the tool is truly gone, the backend is flagged and a
+  `log-line` fires (`(modaliser log)`, readable via `log show --predicate
+  'subsystem == "dev.antony.Modaliser"'`). The same re-probe is what lets a
+  tool that comes back mid-run clear its flag without a relaunch.
+
+`(backend-tool-missing? symbol)`
+: What a block consults to render state instead of silence. E.g.
+  `blocks/herdr-list.sld`'s `snapshot!` checks this after every query and,
+  when true, replaces the normal row list with a single message row
+  ("herdr not found on the tool path") instead of an empty list — targets
+  stay empty too, so no digit dispatches into it. A backend with no
+  matching entry (never probed, or `tool-name` `#f`) reads as healthy — the
+  fail-open default a leader press needs.
+
+`current-tool-probe-runner`
+: Test seam (a `make-parameter`, mirroring `current-herdr-query-runner`)
+  wrapping the `command -v` probe — a test hands back a canned
+  present/absent verdict instead of shelling out.
+
+Memoization is per app run: a relaunch re-probes every tracked backend at
+configure-entry regardless of prior state, so there's no persisted "missing"
+verdict to go stale across restarts.
 
 ## Native splits — the primary case
 
@@ -309,7 +368,7 @@ herdr is running, and herdr's socket API resolves focus *inside* it:
   generic step-2 `ps` probe resolves it and the mux match-key
   `"herdr"` matches, exactly like any mux. So `(in-chain? 'herdr)`
   is `#t` whenever the focused iTerm split runs herdr; that
-  predicate is the gate the replace/augment classifier keys on.
+  predicate is the herdr entry point's detection gate (ADR-0013).
 - **Focused pane (global focus, per socket).** herdr's socket API
   scopes **per session** (one default session = one socket) with a
   single **global** focus — *not* per client / tty. `herdr pane
@@ -338,11 +397,10 @@ façade descends one level further (herdr → nvim) exactly as it does
 through tmux/zellij; a plain shell pane reports `zsh`, which matches
 no mux and leaves herdr the leaf backend.
 
-For wiring herdr's replace/augment variant trees into the iTerm
-tree, see the [worked example](../how-to/terminal-pane-aware-tree.md#worked-example-herdr-replaceaugment-variant-trees)
-and [ADR-0013](../adr/0013-herdr-replace-vs-augment-tree.md). For the
-pane-chip caveat, see [herdr pane chips](#herdr-pane-chips-replace-mode-only)
-below.
+For wiring herdr's nested entry point into the iTerm tree, see the
+[worked example](../how-to/terminal-pane-aware-tree.md#worked-example-the-herdr-nested-entry-point)
+and [ADR-0013](../adr/0013-nested-context-entry-points.md). For the
+pane-chip caveat, see [herdr pane chips](#herdr-pane-chips) below.
 
 ### The nvim RPC route
 
@@ -415,7 +473,7 @@ shows the capability-predicate pattern).
 |-------------|-----------------|-----------------------------------------------------------------------------|-----------------------------------------------------------|
 | tmux        | `muxes/tmux`    | Yes — `tmux display-message -p '#{pane_current_command}'` / `#{pane_tty}` | Finest granularity; host-terminal-independent              |
 | zellij      | `muxes/zellij`  | `zellij action` drives ops; no `#{pane_current_command}` equivalent       | Ops work; mid-pane command detection needs the nvim RPC route |
-| herdr       | `muxes/herdr`   | Yes — `herdr pane current` (JSON socket-API, global focus per session)    | Agent multiplexer; single-client v1; registered by config `(herdr:register!)`; drives iTerm replace/augment variant trees |
+| herdr       | `muxes/herdr`   | Yes — `herdr pane current` (JSON socket-API, global focus per session)    | Agent multiplexer; single-client v1; registered by config `(herdr:register!)`; drives the herdr nested entry point |
 
 ## Limits
 
@@ -431,7 +489,7 @@ nvim is always resolvable via the RPC route regardless of host
 terminal or multiplexer, as long as the `FocusGained`/`FocusLost`
 autocmds are in place.
 
-### herdr pane chips: replace mode only
+### herdr pane chips
 
 The herdr panes list block paints digit chips over the on-screen
 herdr panes. Rects are synthesised tmux-style: `herdr pane layout`
@@ -445,19 +503,20 @@ the total canvas (`area.x + area.width` × `area.y + area.height`),
 not by `area.width`/`area.height` alone — verified live (2026-07-14,
 herdr 0.7.3) against the session's own column/row count.
 
-This is correct in **replace** mode, where herdr owns the sole
-iTerm scroll area. In **augment** mode (herdr shares its iTerm tab
-with other iTerm splits) the host-frame heuristic takes the *first*
-`AXScrollArea`, which may be the wrong split — so chips can land on
-the wrong pixels. `hjkl` focus and digit-jump are unaffected
-(digit-jump focuses by `pane_id` via `herdr agent focus`, not by
-chip position); only the chip *overlay* may be misplaced. The
-proper fix — a focused-iTerm-session-frame primitive that returns
-the herdr split's frame directly — is a deferred follow-up.
+This is correct when herdr owns the sole iTerm scroll area in its
+tab. When the iTerm tab holds other splits too, the host-frame
+heuristic takes the *first* `AXScrollArea`, which may be the wrong
+split — so chips can land on the wrong pixels. `hjkl` focus and
+digit-jump are unaffected (digit-jump focuses by `pane_id` via `herdr
+agent focus`, not by chip position); only the chip *overlay* may be
+misplaced — a plain pane-chip-pipeline geometry concern (ADR-0013's
+Consequences), not a tree-model one now that there is only one herdr
+tree. The proper fix — a focused-iTerm-session-frame primitive that
+returns the herdr split's frame directly — is a deferred follow-up.
 
 ### herdr tab reorder: not exposed (upstream gap)
 
-The herdr `t` Tabs drill offers New / Rename / Close plus digit-jump
+The herdr `T` Tabs drill offers New / Rename / Close plus digit-jump
 focus, but **no Move Tab** affordance — deliberately, not by
 oversight. herdr 0.7.1's `tab` socket-API CLI exposes only `list ·
 create · get · focus · rename · close`; `tab list` / `tab get` report

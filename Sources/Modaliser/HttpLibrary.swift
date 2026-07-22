@@ -49,9 +49,11 @@ final class HttpLibrary: NativeLibrary {
                 result = .false
             }
             DispatchQueue.main.async {
-                guard let evaluator = context.evaluator else { return }
-                _ = evaluator.execute { machine in
-                    try machine.apply(callbackExpr, to: .pair(result, .null))
+                context.withEvalLockNonBlocking {
+                    guard let evaluator = context.evaluator else { return }
+                    _ = evaluator.execute { machine in
+                        try machine.apply(callbackExpr, to: .pair(result, .null))
+                    }
                 }
             }
         }.resume()

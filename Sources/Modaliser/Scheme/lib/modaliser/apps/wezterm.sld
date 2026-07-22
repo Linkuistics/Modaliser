@@ -65,7 +65,10 @@
                 make-terminal-backend
                 register-backend!
                 tty-foreground-command
-                modaliser-tool-path))
+                modaliser-tool-path
+                ;; note-backend-query-result!: ADR-0017 Layer 2 — see
+                ;; list-panes-raw below.
+                note-backend-query-result!))
   (begin
 
     ;; ─── Shell preamble ─────────────────────────────────────────────
@@ -147,31 +150,37 @@
 
     ;; Each pane record: (id active left top cols rows pixel-w pixel-h tty)
     ;; id/active/tty as strings; coords/dims as numbers (or #f).
+    ;; ADR-0017 Layer 2: an empty result feeds the shared 'wezterm health
+    ;; entry as a failure — a live WezTerm window always has at least one
+    ;; pane, so empty is the same ambiguous signal a #f query is elsewhere.
     (define (list-panes-raw)
       (let* ((cmd (string-append
                     path-prefix
                     "wezterm cli list --format json 2>/dev/null | "
                     parse-script))
-             (out (run-shell cmd)))
-        (let loop ((lines (string-split out "\n")) (acc '()))
-          (cond
-            ((null? lines) (reverse acc))
-            (else
-              (let* ((line (string-trim (car lines)))
-                     (parts (string-split line " ")))
-                (if (or (string=? line "") (< (length parts) 9))
-                    (loop (cdr lines) acc)
-                    (loop (cdr lines)
-                          (cons (list (list-ref parts 0)
-                                      (list-ref parts 1)
-                                      (string->number (list-ref parts 2))
-                                      (string->number (list-ref parts 3))
-                                      (string->number (list-ref parts 4))
-                                      (string->number (list-ref parts 5))
-                                      (string->number (list-ref parts 6))
-                                      (string->number (list-ref parts 7))
-                                      (list-ref parts 8))
-                                acc)))))))))
+             (out (run-shell cmd))
+             (result
+               (let loop ((lines (string-split out "\n")) (acc '()))
+                 (cond
+                   ((null? lines) (reverse acc))
+                   (else
+                     (let* ((line (string-trim (car lines)))
+                            (parts (string-split line " ")))
+                       (if (or (string=? line "") (< (length parts) 9))
+                           (loop (cdr lines) acc)
+                           (loop (cdr lines)
+                                 (cons (list (list-ref parts 0)
+                                             (list-ref parts 1)
+                                             (string->number (list-ref parts 2))
+                                             (string->number (list-ref parts 3))
+                                             (string->number (list-ref parts 4))
+                                             (string->number (list-ref parts 5))
+                                             (string->number (list-ref parts 6))
+                                             (string->number (list-ref parts 7))
+                                             (list-ref parts 8))
+                                       acc)))))))))
+        (note-backend-query-result! 'wezterm (pair? result))
+        result))
 
     (define (pane-id p)     (list-ref p 0))
     (define (pane-act p)    (list-ref p 1))
@@ -362,7 +371,7 @@
 
     (define backend
       (make-terminal-backend
-        'wezterm "WezTerm" 'host "com.github.wez.wezterm"
+        'wezterm "WezTerm" 'host "com.github.wez.wezterm" "wezterm"
         detect-fg-command
         focused-pane-id
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down

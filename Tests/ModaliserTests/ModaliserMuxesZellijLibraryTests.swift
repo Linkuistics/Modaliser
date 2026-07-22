@@ -41,7 +41,7 @@ struct ModaliserMuxesZellijLibraryTests {
         try engine.evaluate("""
           (define stub-host
             (make-terminal-backend
-              'stub-host "Stub" 'host "test.bundle"
+              'stub-host "Stub" 'host "test.bundle" #f
               (lambda () "zellij")     ; foreground command → descend into zellij
               (lambda () "host-1")
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
@@ -94,7 +94,7 @@ struct ModaliserMuxesZellijLibraryTests {
         try engine.evaluate("""
           (define h
             (make-terminal-backend
-              'sh "H" 'host "t.b"
+              'sh "H" 'host "t.b" #f
               (lambda () "zellij") (lambda () "p")
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)

@@ -12,6 +12,26 @@ struct ModaliserUtilLibraryTests {
         #expect(try engine.evaluate("(alist-ref '() 'x 42)") == .fixnum(42))
     }
 
+    // MARK: - round-div (mini-chip-size-and-label-anchor-k38)
+
+    @Test func roundDivExactDivisionMatchesQuotient() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        #expect(try engine.evaluate("(round-div 10 5)") == .fixnum(2))
+        #expect(try engine.evaluate("(round-div 0 7)") == .fixnum(0))
+    }
+
+    @Test func roundDivRoundsUpAtOrPastHalf() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        // 7/2 = 3.5 — round-half-up goes to 4, unlike (quotient 7 2) = 3.
+        #expect(try engine.evaluate("(round-div 7 2)") == .fixnum(4))
+        // 82.35/1 scaled: 823/10 = 82.3 — rounds down to 82.
+        #expect(try engine.evaluate("(round-div 823 10)") == .fixnum(82))
+        // 825/10 = 82.5 — round-half-up goes to 83.
+        #expect(try engine.evaluate("(round-div 825 10)") == .fixnum(83))
+    }
+
     @Test func stringJoinHandlesEmptyAndSingle() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser util))")

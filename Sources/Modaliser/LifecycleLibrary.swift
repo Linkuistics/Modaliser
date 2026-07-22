@@ -245,9 +245,11 @@ final class LifecycleLibrary: NativeLibrary {
         }
         let context = self.context
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-            guard let evaluator = context.evaluator else { return }
-            _ = evaluator.execute { machine in
-                try machine.apply(callbackExpr, to: .null)
+            context.withEvalLockNonBlocking {
+                guard let evaluator = context.evaluator else { return }
+                _ = evaluator.execute { machine in
+                    try machine.apply(callbackExpr, to: .null)
+                }
             }
         }
         return .void
@@ -289,11 +291,13 @@ final class LifecycleLibrary: NativeLibrary {
         let key = ObjectIdentifier(sender)
         guard let handler = menuActionHandlers[key] else { return }
 
-        let result = self.context.evaluator.execute { machine in
-            try machine.apply(handler, to: .null)
-        }
-        if case .error(let err) = result {
-            NSLog("LifecycleLibrary: menu action error: %@", "\(err)")
+        self.context.withEvalLockNonBlocking { [context = self.context] in
+            let result = context.evaluator.execute { machine in
+                try machine.apply(handler, to: .null)
+            }
+            if case .error(let err) = result {
+                NSLog("LifecycleLibrary: menu action error: %@", "\(err)")
+            }
         }
     }
 }

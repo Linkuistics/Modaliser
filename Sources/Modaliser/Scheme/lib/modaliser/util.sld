@@ -9,6 +9,7 @@
           string-join
           read-file-text
           log
+          round-div
           ;; SRFI 69 hashtable surface (re-exported for callers that
           ;; import (modaliser util) and don't want to depend on
           ;; (srfi 69) by name).
@@ -94,6 +95,20 @@
     (define (log . args)
       (for-each display args)
       (newline))
+
+    ;; Rounds A/B to the nearest integer (round-half-up), using only exact
+    ;; integer arithmetic — no floats, no rational-number dependence. A and
+    ;; B must both be non-negative (every current caller scales a pixel/
+    ;; cell coordinate, never a signed delta). Plain `quotient` truncates
+    ;; toward zero, which is a systematic floor bias: scaling a long list
+    ;; of coordinates by an independent `(quotient (* n scale) total)` per
+    ;; entry (rather than a running cumulative sum) lets that bias show up
+    ;; as visible position/size drift growing across the list once the
+    ;; true per-unit size isn't a whole number of pixels — found via
+    ;; mini-chip-size-and-label-anchor-k38's live dogfooding, scaling herdr
+    ;; ui.layout's cell-grid coordinates to real screen pixels.
+    (define (round-div a b)
+      (quotient (+ a (quotient b 2)) b))
 
     ;; ─── Local string ops ───────────────────────────────────────
     ;; Implemented on (scheme base) only; no SRFI 13 needed.

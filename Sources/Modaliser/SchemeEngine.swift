@@ -55,23 +55,93 @@ private func locateLispKitLibrariesFallback() -> String? {
     return nil
 }
 
+/// The engine's LispKit context, extended with a per-engine evaluation
+/// fence.
+///
+/// In the app every evaluation reaches the evaluator on the main thread
+/// (key events, menu actions, timer/completion callbacks all dispatch to
+/// the main queue), so the run loop serializes them. Under `swift test`,
+/// Swift Testing runs @Test bodies on cooperative-pool threads while the
+/// process main thread keeps draining the main queue — so a main-queue
+/// callback (e.g. `after-delay`) can re-enter a VirtualMachine that is
+/// mid-evaluation on a test thread, tripping LispKit's `assertTopLevel`
+/// precondition and killing the process. The fence restores the
+/// one-evaluation-at-a-time guarantee per engine.
+///
+/// Recursive so a same-thread nested entry can never self-deadlock at the
+/// fence (LispKit's own precondition still guards genuine reentrancy).
+final class ModaliserContext: Context {
+    let evalLock = NSRecursiveLock()
+
+    init(delegate: ContextDelegate,
+         implementationName: String,
+         implementationVersion: String) {
+        super.init(delegate: delegate,
+                   implementationName: implementationName,
+                   implementationVersion: implementationVersion,
+                   commandLineArguments: [],
+                   initialHomePath: nil,
+                   includeInternalResources: true,
+                   includeDocumentPath: nil,
+                   assetPath: nil,
+                   gcDelay: 5.0,
+                   features: [],
+                   limitStack: 10000000)
+    }
+}
+
+extension Context {
+    /// Run `body` holding the per-engine evaluation fence, blocking until
+    /// it is free. For synchronous evaluator entries (SchemeEngine's
+    /// evaluate/evaluateFile). Must NOT be used on the main thread for
+    /// callback re-entries — see `withEvalLockNonBlocking`.
+    func withEvalLock<T>(_ body: () throws -> T) rethrows -> T {
+        guard let lock = (self as? ModaliserContext)?.evalLock else {
+            return try body()
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+
+    /// Run `body` under the evaluation fence without ever blocking the
+    /// calling thread: on contention, re-enqueue on the main queue and try
+    /// again shortly. Every evaluator re-entry from a main-queue callback
+    /// must use this — blocking the main thread on the fence can deadlock
+    /// against an off-main evaluation that synchronously hops to the main
+    /// thread (HintsLibrary.onMain does `DispatchQueue.main.sync`).
+    /// Contention only exists under `swift test`; in the app all
+    /// evaluation is main-thread and the try always succeeds immediately.
+    func withEvalLockNonBlocking(_ body: @escaping () -> Void) {
+        guard let lock = (self as? ModaliserContext)?.evalLock else {
+            body()
+            return
+        }
+        if lock.try() {
+            defer { lock.unlock() }
+            body()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                self.withEvalLockNonBlocking(body)
+            }
+        }
+    }
+}
+
 /// Wraps a LispKit context for evaluating Scheme code.
 /// Provides the bridge between Swift and the Scheme configuration layer.
 final class SchemeEngine {
-    let context: LispKitContext
+    let context: ModaliserContext
 
     /// The resolved path to the Scheme directory, if found.
     private(set) var schemeDirectoryPath: String?
 
     init(userConfigDir: String? = nil) throws {
         let delegate = ModaliserContextDelegate()
-        context = LispKitContext(
+        context = ModaliserContext(
             delegate: delegate,
             implementationName: "Modaliser",
-            implementationVersion: "0.1",
-            commandLineArguments: [],
-            includeInternalResources: true,
-            includeDocumentPath: nil
+            implementationVersion: "0.1"
         )
         try context.environment.import(BaseLibrary.name)
         // Import standard libraries needed by Scheme files
@@ -148,6 +218,8 @@ final class SchemeEngine {
         try context.environment.import(PasteboardLibrary.name)
         try context.libraries.register(libraryType: ShellLibrary.self)
         try context.environment.import(ShellLibrary.name)
+        try context.libraries.register(libraryType: LogLibrary.self)
+        try context.environment.import(LogLibrary.name)
         try context.libraries.register(libraryType: AppLibrary.self)
         try context.environment.import(AppLibrary.name)
         try context.libraries.register(libraryType: WindowLibrary.self)
@@ -171,12 +243,14 @@ final class SchemeEngine {
     /// Evaluate a string of Scheme code and return the result.
     @discardableResult
     func evaluate(_ code: String) throws -> Expr {
-        let result = context.evaluator.execute { machine in
-            try machine.eval(
-                str: code,
-                sourceId: SourceManager.consoleSourceId,
-                in: self.context.global
-            )
+        let result = context.withEvalLock {
+            context.evaluator.execute { machine in
+                try machine.eval(
+                    str: code,
+                    sourceId: SourceManager.consoleSourceId,
+                    in: self.context.global
+                )
+            }
         }
         if case .error(let err) = result {
             throw err
@@ -186,8 +260,10 @@ final class SchemeEngine {
 
     /// Load and evaluate a Scheme file.
     func evaluateFile(_ path: String) throws {
-        let result = context.evaluator.execute { machine in
-            try machine.eval(file: path, in: self.context.global)
+        let result = context.withEvalLock {
+            context.evaluator.execute { machine in
+                try machine.eval(file: path, in: self.context.global)
+            }
         }
         if case .error(let err) = result {
             throw err

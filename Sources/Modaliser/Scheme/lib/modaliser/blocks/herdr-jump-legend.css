@@ -1,0 +1,51 @@
+/* herdr-jump-legend.css — the herdr Jump legend panel
+   (jump-space-legend-overlay-k40). Mirrors herdr-list.css's row grid;
+   a display-only sibling — no .current marker, no selection cursor. */
+
+.block-herdr-jump-legend {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-separator);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Four columns: key · arrow · kind badge (auto-width, never squeezed) ·
+ * title (1fr, ellipsis). The badge sits AHEAD of the title (unlike
+ * herdr-list's trailing dimmed detail column) so the title always owns
+ * the panel's remaining width rather than splitting it with a competing
+ * trailing column — a trailing column truncated to a single character on
+ * a narrow panel before this change. */
+.block-herdr-jump-legend .jl-row {
+  display: grid;
+  grid-template-columns: 3ch auto auto 1fr;
+  column-gap: 4px;
+  align-items: center;
+}
+
+.block-herdr-jump-legend .jl-row .entry-key { color: var(--color-key); font-weight: 600; }
+.block-herdr-jump-legend .jl-row .entry-arrow { color: var(--color-arrow); }
+.block-herdr-jump-legend .jl-row .entry-label {
+  color: var(--color-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Kind badge — a small uppercase pill, mirroring herdr-list.css's
+ * .hl-badge shape but neutral (kind is not a status, so no per-value
+ * color coding). */
+.block-herdr-jump-legend .jl-badge {
+  justify-self: start;
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: #5b6472;
+  background: #eef0f3;
+}

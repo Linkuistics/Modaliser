@@ -82,7 +82,10 @@
           (only (modaliser terminal)
                 make-terminal-backend
                 register-backend!
-                modaliser-tool-path))
+                modaliser-tool-path
+                ;; note-backend-query-result!: ADR-0017 Layer 2 — see
+                ;; list-panes-raw below.
+                note-backend-query-result!))
   (begin
 
     ;; ─── Shell preamble ─────────────────────────────────────────────
@@ -186,31 +189,37 @@
 
     ;; Each pane record: (id focused lines cols lefts rights tops bottoms fg)
     ;; id/lefts/.../fg as strings; focused/lines/cols as numbers (or #f).
+    ;; ADR-0017 Layer 2: an empty result feeds the shared 'kitty health
+    ;; entry as a failure — a live kitty window always has at least one
+    ;; pane, so empty is the same ambiguous signal a #f query is elsewhere.
     (define (list-panes-raw)
       (let* ((cmd (string-append
                     path-prefix
                     "kitty @ --to=" kitty-socket " ls 2>/dev/null | "
                     parse-script))
-             (out (run-shell cmd)))
-        (let loop ((lines (string-split out "\n")) (acc '()))
-          (cond
-            ((null? lines) (reverse acc))
-            (else
-              (let* ((line (string-trim (car lines)))
-                     (parts (string-split line "\t")))
-                (if (or (string=? line "") (< (length parts) 9))
-                    (loop (cdr lines) acc)
-                    (loop (cdr lines)
-                          (cons (list (list-ref parts 0)
-                                      (string->number (list-ref parts 1))
-                                      (string->number (list-ref parts 2))
-                                      (string->number (list-ref parts 3))
-                                      (list-ref parts 4)
-                                      (list-ref parts 5)
-                                      (list-ref parts 6)
-                                      (list-ref parts 7)
-                                      (list-ref parts 8))
-                                acc)))))))))
+             (out (run-shell cmd))
+             (result
+               (let loop ((lines (string-split out "\n")) (acc '()))
+                 (cond
+                   ((null? lines) (reverse acc))
+                   (else
+                     (let* ((line (string-trim (car lines)))
+                            (parts (string-split line "\t")))
+                       (if (or (string=? line "") (< (length parts) 9))
+                           (loop (cdr lines) acc)
+                           (loop (cdr lines)
+                                 (cons (list (list-ref parts 0)
+                                             (string->number (list-ref parts 1))
+                                             (string->number (list-ref parts 2))
+                                             (string->number (list-ref parts 3))
+                                             (list-ref parts 4)
+                                             (list-ref parts 5)
+                                             (list-ref parts 6)
+                                             (list-ref parts 7)
+                                             (list-ref parts 8))
+                                       acc)))))))))
+        (note-backend-query-result! 'kitty (pair? result))
+        result))
 
     (define (pane-id p)       (list-ref p 0))
     (define (pane-focused p)  (list-ref p 1))
@@ -675,7 +684,7 @@
 
     (define backend
       (make-terminal-backend
-        'kitty "Kitty" 'host "net.kovidgoyal.kitty"
+        'kitty "Kitty" 'host "net.kovidgoyal.kitty" "kitty"
         detect-fg-command
         focused-pane-id
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down

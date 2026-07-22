@@ -320,7 +320,9 @@
 
     (define backend
       (make-terminal-backend
-        'ghostty "Ghostty" 'host "com.mitchellh.ghostty"
+        ;; tool-name #f: Ghostty is entirely AppleScript-driven — no CLI
+        ;; tool binary to resolve.
+        'ghostty "Ghostty" 'host "com.mitchellh.ghostty" #f
         detect-fg-command
         focused-pane-id
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down

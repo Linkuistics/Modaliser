@@ -12,6 +12,7 @@
 (import (modaliser util)
         (modaliser keymap)
         (modaliser state-machine)
+        (modaliser fsm)
         (modaliser event-dispatch)
         (modaliser dsl)
         (modaliser dom)
@@ -23,6 +24,15 @@
 ;; host's real arity predicate here (procedure-arity-includes? is a LispKit
 ;; primitive); the library's portable default assumes nullary until this runs.
 (set-on-leave-accepts-reason! (lambda (thunk) (procedure-arity-includes? thunk 1)))
+
+;; (modaliser fsm) stays host-portable too, so it can't introspect a raw
+;; entry/exit hook's arity either — same pattern, one host-injected predicate
+;; serving both slots (fsm.sld's fsm-accepts-arg?). dispatch-cutover-k11's own
+;; Terminal-leaf wrapping never depends on this being installed (it always
+;; wraps as 0-arg and forwards the matched key through a captured cell
+;; instead — see state-machine.sld), but a transient (non-Terminal) leaf's
+;; raw action still goes through this dispatch, so install it for real here.
+(set-fsm-accepts-arg! (lambda (proc) (procedure-arity-includes? proc 1)))
 
 ;; ─── Plain .scm modules (Phase D will library-ize the remaining ones) ────────
 

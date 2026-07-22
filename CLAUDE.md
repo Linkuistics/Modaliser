@@ -58,6 +58,16 @@ window geometry (`WindowManipulator`, `WindowEnumerator`, `ChipPlacement`), keyb
 capture (`KeyboardCapture`, `KeystrokeEmitter`, `KeyCode`), fuzzy matching
 (`FuzzyMatcher`), WebView panels (`WebViewManager`), clipboard, app scanning, etc.
 
+**Evaluation threading contract.** All evaluation of one engine must be serialized;
+in the app the main run loop provides that (every callback dispatches to the main
+queue), and a per-engine fence (`ModaliserContext.evalLock` in `SchemeEngine.swift`)
+enforces it where the run loop can't — under `swift test`, @Test bodies evaluate on
+cooperative-pool threads while the main queue keeps draining callbacks. Any native
+callback that re-enters the evaluator (timers, async completions, event handlers)
+must dispatch to the main queue and wrap the `evaluator.execute` call in
+`context.withEvalLockNonBlocking` — never block the main thread on the fence (see
+the doc comments on `ModaliserContext` for the deadlock reasoning).
+
 ### The Scheme layer (two tiers, deliberately separated)
 
 - `Sources/Modaliser/Scheme/lib/modaliser/**.sld` — the **portable library tree**.

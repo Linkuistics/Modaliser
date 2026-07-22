@@ -51,7 +51,10 @@
                 register-backend!
                 focused-iterm-tty
                 correlate-mux-client-to-host-tty
-                modaliser-tool-path))
+                modaliser-tool-path
+                ;; note-backend-query-result!: ADR-0017 Layer 2 — see
+                ;; list-panes-raw below.
+                note-backend-query-result!))
   (begin
 
     ;; ─── Shell preamble ─────────────────────────────────────────────
@@ -161,6 +164,9 @@
     ;; with id/foc/plug/flot/cmd as strings and the four coords as numbers
     ;; (or #f on missing). Empty on query failure (zellij not running,
     ;; session resolution failed in a way zellij rejects, etc.).
+    ;; ADR-0017 Layer 2: an empty result feeds the shared 'zellij health
+    ;; entry as a failure — a live session always has at least one pane,
+    ;; so empty is the same ambiguous signal a #f query is elsewhere.
     (define (list-panes-raw)
       (let* ((session (session-for-host-tty))
              (cmd (string-append
@@ -168,26 +174,29 @@
                     "zellij " (session-flag session)
                     "action list-panes -j -a 2>/dev/null | "
                     parse-script))
-             (out (run-shell cmd)))
-        (let loop ((lines (string-split out "\n")) (acc '()))
-          (cond
-            ((null? lines) (reverse acc))
-            (else
-              (let* ((line (string-trim (car lines)))
-                     (parts (string-split line " ")))
-                (if (or (string=? line "") (< (length parts) 9))
-                    (loop (cdr lines) acc)
-                    (loop (cdr lines)
-                          (cons (list (list-ref parts 0)
-                                      (list-ref parts 1)
-                                      (list-ref parts 2)
-                                      (list-ref parts 3)
-                                      (list-ref parts 4)
-                                      (string->number (list-ref parts 5))
-                                      (string->number (list-ref parts 6))
-                                      (string->number (list-ref parts 7))
-                                      (string->number (list-ref parts 8)))
-                                acc)))))))))
+             (out (run-shell cmd))
+             (result
+               (let loop ((lines (string-split out "\n")) (acc '()))
+                 (cond
+                   ((null? lines) (reverse acc))
+                   (else
+                     (let* ((line (string-trim (car lines)))
+                            (parts (string-split line " ")))
+                       (if (or (string=? line "") (< (length parts) 9))
+                           (loop (cdr lines) acc)
+                           (loop (cdr lines)
+                                 (cons (list (list-ref parts 0)
+                                             (list-ref parts 1)
+                                             (list-ref parts 2)
+                                             (list-ref parts 3)
+                                             (list-ref parts 4)
+                                             (string->number (list-ref parts 5))
+                                             (string->number (list-ref parts 6))
+                                             (string->number (list-ref parts 7))
+                                             (string->number (list-ref parts 8)))
+                                       acc)))))))))
+        (note-backend-query-result! 'zellij (pair? result))
+        result))
 
     (define (pane-id p)     (list-ref p 0))
     (define (pane-foc p)    (list-ref p 1))
@@ -425,7 +434,7 @@
 
     (define backend
       (make-terminal-backend
-        'zellij "zellij" 'mux "zellij"
+        'zellij "zellij" 'mux "zellij" "zellij"
         detect-fg-command
         focused-pane-id
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down

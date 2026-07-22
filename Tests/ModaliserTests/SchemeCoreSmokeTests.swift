@@ -397,9 +397,9 @@ struct SchemeCoreSmokeTests {
 
     @Test func crossEdgePushesCallerAndSwitchesRoot() throws {
         // A 'next edge naming a DIFFERENT registered tree is a cross
-        // edge: push the caller context and switch into the target, the
-        // same mechanics enter-mode! implements internally — but declared
-        // on the leaf instead of called imperatively from the action.
+        // edge: push the caller context and switch into the target — what
+        // the old enter-mode! primitive did imperatively, now declared on
+        // the leaf and followed by the engine itself after the action.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try loadCore(engine, schemePath)
@@ -581,13 +581,15 @@ struct SchemeCoreSmokeTests {
     }
 
     // enter-mode! is no longer exported (ADR-0015 / digit-jump-facade-async-k7):
-    // it's the cross-edge primitive `follow-next!` calls internally after a
-    // leaf's action, never something these tests — or a leaf's action — call
-    // directly. Every test below drives it the same way production does: a
-    // leaf declaring 'next TARGET, fired via modal-handle-key from an already-
-    // active modal (modal-key-handler, enter-mode!'s only route in, is itself
-    // only installed while a modal is active, so a "no modal active" entry is
-    // not a reachable production path and isn't tested here).
+    // the cross-edge mechanics — pushing a return frame, switching state —
+    // now live inside (modaliser fsm)'s move-to! (dispatch-cutover-k11),
+    // driven by fsm-step! after a leaf's 'next auto edge, never something
+    // these tests — or a leaf's action — call directly. Every test below
+    // drives it the same way production does: a leaf declaring 'next TARGET,
+    // fired via modal-handle-key from an already-active modal (modal-key-
+    // handler, enter-mode!'s only route in historically, is itself only
+    // installed while a modal is active, so a "no modal active" entry is not
+    // a reachable production path and isn't tested here).
 
     @Test func enterModeByIdEntersRegisteredTree() throws {
         let engine = try SchemeEngine()

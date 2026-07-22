@@ -30,6 +30,51 @@ the vocabulary you use everywhere.
 
 ---
 
+## Dispatch core
+
+### `(modaliser fsm)`
+
+The explicit FSM graph — the graph model and step engine dispatch
+actually runs on (ADR-0015). `(modaliser state-machine)` derives its
+whole `modal-*` surface from this library by lowering registered trees
+into it; most configs never import `(modaliser fsm)` directly — reach
+for it only when introspecting the graph (tooling, a future renderer)
+or driving the engine below the DSL. Full semantics:
+[state-machine.md](state-machine.md) and
+[docs/specs/fsm-graph.md](../specs/fsm-graph.md). Portable, like
+`(modaliser dsl)` — no host-specific imports.
+
+**Construction** (used internally by `register-tree!`'s lowering;
+rarely called directly from a config):
+
+| Export | Signature | Description |
+|---|---|---|
+| `fsm-state!` | `(fsm-state! id [keyword value]... edge...)` | Register a state. Keywords: `'label`, `'payload`, `'entry`, `'exit`, `'show`, `'hide`, `'provider`, `'exit-on-unknown`. |
+| `edge` | `(edge trigger target [keyword value]...)` | Build an edge spec — `trigger` is a key string, `'up`, or `'auto`; keywords `'gate` and `'call`. |
+| `fsm-edge!` | `(fsm-edge! from trigger target [keyword value]...)` | Standalone edge declaration (vs. inline in `fsm-state!`). |
+| `fsm-entry!` | `(fsm-entry! name state-id [keyword value]...)` | Register an entry-table row. Keywords `'gate`, `'refines`. |
+| `named` | `(named symbol-name procedure)` | Wrap a behaviour-slot procedure with a display name for `fsm-print`. |
+
+**Queries:**
+
+| Export | Description |
+|---|---|
+| `fsm-state-ids`, `fsm-state-ref`, `fsm-state-label`, `fsm-state-payload` | State lookups. |
+| `fsm-state-edges`, `fsm-up-edge`, `fsm-ancestors`, `fsm-state-class` | Edge/class introspection — `fsm-state-class` returns `'resting`, `'transient`, or `'terminal`. |
+| `fsm-entry-rows`, `fsm-entry-ref`, `fsm-entry-more-specific?` | Entry-table introspection — the leader-activation specificity ranking. |
+| `fsm-graph->alist`, `fsm-print` | The whole graph as printable data — every state and entry row, what a renderer or debugging tool would walk. |
+
+**Step engine** (what `(modaliser state-machine)`'s `modal-*` bindings
+derive from after every call):
+
+| Export | Description |
+|---|---|
+| `fsm-activate!`, `fsm-activate-via-entry-table!` | Direct activation by state id, or leader activation through the entry table. |
+| `fsm-step!`, `fsm-step-back!`, `fsm-halt!` | Key dispatch, backspace, global halt (Escape). |
+| `fsm-active?`, `fsm-current-state`, `fsm-return-stack`, `fsm-live-edges` | Configuration queries — the current visit owner, the return stack, and its live (gate-filtered, provider-extended) edge set. |
+
+---
+
 ## Tree wiring
 
 ### `(modaliser leader)`
@@ -501,6 +546,11 @@ source for the full API; the most common entry point is
 Terminal-introspection helpers used by `iterm`'s context-suffix
 handler. Notable export: `focused-terminal-foreground-command` — the
 command line of the foregrounded process in the focused terminal pane.
+Also exports `modaliser-tool-path` (the derived PATH prefix every
+mux/app backend prepends before shelling out) and the pure
+`merge-tool-path` function behind it — see
+[terminal-detection.md](terminal-detection.md) and
+[ADR-0017](../adr/0017-tool-path-resolution.md).
 
 ### `(modaliser event-dispatch)`
 
@@ -527,6 +577,26 @@ while the dialog is up never stalls the keyboard tap.
 Used by `(modaliser apps iterm)`, `(modaliser apps kitty)`, and
 `(modaliser apps alacritty)` for their configure-entry confirm dialogs.
 
+### `(modaliser jump-labels)`
+
+General parameterised jump-label assignment (jump-labels-k4) — the pure
+function behind the herdr jump space's lowercase labels
+([docs/specs/herdr-jump-navigation.md](../specs/herdr-jump-navigation.md)).
+Ordered targets in, prefix-free one- or two-key labels out; the library
+knows nothing about axes — the caller's target order encodes axis/visual
+priority.
+
+| Export | Signature | Description |
+|---|---|---|
+| `jump-labels-assign` | `(jump-labels-assign targets single-alphabet leader-alphabet second-alphabet)` | Assigns each target (in order) a label drawn from `single-alphabet`, escalating into `leader-alphabet` × `second-alphabet` two-key combinations only as needed — the minimum leaders promoted, in the order given. Returns a list of `(label . target)` pairs, same length/order as `targets`; `label` is `#f` once both pools are exhausted (the unlabelled tail). |
+
+Each alphabet is an ordered list of distinct one-char strings, honoured as a
+priority order (never re-sorted). `single-alphabet` and `leader-alphabet`
+may overlap (a restricted single alphabet doubling as the leader
+preference order — e.g. home-row-only) or be disjoint (dedicated
+leader-only keys that never cost a single slot); both are handled
+correctly and deterministically.
+
 ---
 
 ## Native primitives
@@ -541,7 +611,8 @@ the same names).
 | `(modaliser app)` | Process / app management: `launch-app`, `activate-app`, `find-installed-apps`, `app-display-name`, `reveal-in-finder`, `open-with`, etc. |
 | `(modaliser keyboard)` | Keycode constants (`F18`, `F17`, …), modifier symbols. |
 | `(modaliser input)` | Keystroke synthesis: `send-keystroke`, `send-key-down`, `send-key-up`. |
-| `(modaliser shell)` | Shell execution: `run-shell`, `run-shell-async` (non-blocking; ADR-0014), `modaliser-tool-path`. |
+| `(modaliser shell)` | Shell execution: `run-shell`, `run-shell-async` (non-blocking; ADR-0014). |
+| `(modaliser log)` | Diagnostic logging: `log-line`, an os.Logger line readable via `log show` (ADR-0017). |
 | `(modaliser pasteboard)` | Clipboard: `set-clipboard!`, `read-clipboard`. |
 | `(modaliser http)` | HTTP requests used by web-search. |
 | `(modaliser lifecycle)` | `relaunch!`, `after-delay`. |

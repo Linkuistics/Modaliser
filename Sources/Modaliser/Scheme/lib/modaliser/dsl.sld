@@ -11,14 +11,17 @@
 
 (define-library (modaliser dsl)
   (export key key-range keys group selector action
-          walk fragment
+          walk fragment step-in
           screen panel open
           λ
           set-theme!
           modifier-symbols->mask set-leader!
           ;; Re-exported from (modaliser state-machine) so user configs
           ;; can do a single (import (modaliser dsl)) for the common case.
-          set-overlay-delay!)
+          set-overlay-delay!
+          ;; Nested-context entry points (ADR-0013): pair with a
+          ;; (screen scope 'auto-entry #f …) registration — see step-in above.
+          register-tree-up-edge! register-tree-entry-gated!)
   (import (scheme base)
           (scheme bitwise)
           (modaliser util)
@@ -286,6 +289,28 @@
 ;;                            Useful for cyclic focus-movement modes (a
 ;;                            Walk) where typing a non-binding key should
 ;;                            hand control back to the underlying app.
+;;   'provider PROC         — an FSM edge provider (CONTEXT.md "Edge
+;;                            provider"): a 0-arg procedure run each time
+;;                            the group comes to rest, returning an alist
+;;                            of extra 'edges / 'states for that Visit
+;;                            only (docs/specs/fsm-graph.md). Lowers
+;;                            straight onto the state's 'provider slot —
+;;                            unlike on-enter/on-leave, it is not
+;;                            presentation-gated.
+;;   'entry THUNK / 'exit THUNK — the unconditional action-slot pair
+;;                            (CONTEXT.md "Action slots"): 'entry fires at
+;;                            come-to-rest of a Visit (including
+;;                            fsm-activate! at leader press), 'exit at the
+;;                            Visit's end (navigate-away or modal-exit) —
+;;                            BOTH regardless of whether the overlay ever
+;;                            displays, unlike on-enter/on-leave (gated
+;;                            onto show/hide, fired only if/when the
+;;                            delayed overlay show elapses). Lower straight
+;;                            onto the state's 'entry/'exit slots.
+;;                            Author-only: block hooks (screen/open's
+;;                            embedded live-list on-enter-fn/on-leave-fn)
+;;                            never compose into these — they are
+;;                            presentation and belong on the gated pair.
 ;;
 ;; A group has no latching flag of its own (ADR-0015) — a command leaf
 ;; at or below it cycles only if it individually declares 'next 'self
@@ -300,6 +325,8 @@
   (let loop ((args rest)
              (on-enter #f) (on-leave #f)
              (exit-unk #f)
+             (provider #f)
+             (entry #f) (exit #f)
              (extras '())            ; reverse-accumulated alist of unknown kw/val pairs
              (children '()))
     (cond
@@ -309,24 +336,30 @@
                           (cons 'label label)
                           (cons 'children (expand-splices (reverse children)))))
                (acc (if exit-unk    (cons (cons 'exit-on-unknown exit-unk) acc) acc))
+               (acc (if provider    (cons (cons 'provider provider)        acc) acc))
+               (acc (if entry       (cons (cons 'entry entry)              acc) acc))
+               (acc (if exit        (cons (cons 'exit exit)                acc) acc))
                (acc (if on-leave    (cons (cons 'on-leave on-leave)        acc) acc))
                (acc (if on-enter    (cons (cons 'on-enter on-enter)        acc) acc))
                (acc (append (reverse extras) acc)))   ; extras carried through as-is
           acc))
       ((and (symbol? (car args)) (not (null? (cdr args))))
        (case (car args)
-         ((on-enter)        (loop (cddr args) (cadr args) on-leave exit-unk extras children))
-         ((on-leave)        (loop (cddr args) on-enter (cadr args) exit-unk extras children))
-         ((exit-on-unknown) (loop (cddr args) on-enter on-leave (cadr args) extras children))
+         ((on-enter)        (loop (cddr args) (cadr args) on-leave exit-unk provider entry exit extras children))
+         ((on-leave)        (loop (cddr args) on-enter (cadr args) exit-unk provider entry exit extras children))
+         ((exit-on-unknown) (loop (cddr args) on-enter on-leave (cadr args) provider entry exit extras children))
+         ((provider)        (loop (cddr args) on-enter on-leave exit-unk (cadr args) entry exit extras children))
+         ((entry)           (loop (cddr args) on-enter on-leave exit-unk provider (cadr args) exit extras children))
+         ((exit)            (loop (cddr args) on-enter on-leave exit-unk provider entry (cadr args) extras children))
          (else
            ;; Unknown keyword — accumulate as opaque alist entry.
            ;; Used by renderer extensions like 'renderer 'blocks 'blocks (...).
-           (loop (cddr args) on-enter on-leave exit-unk
+           (loop (cddr args) on-enter on-leave exit-unk provider entry exit
                  (cons (cons (car args) (cadr args)) extras)
                  children))))
       (else
        ;; Positional child node.
-       (loop (cdr args) on-enter on-leave exit-unk extras
+       (loop (cdr args) on-enter on-leave exit-unk provider entry exit extras
              (cons (car args) children))))))
 
 ;; (walk MODE-ID DISPLAY-NAME ['order 'keys|'declared] key …) → splice node
@@ -402,6 +435,31 @@
 (define (fragment . children)
   (list (cons 'kind 'splice)
         (cons 'children children)))
+
+;; (step-in key label target-scope gate) → step-in alist node
+;;
+;; A gated cross-tree key edge (CONTEXT.md "Edge gate" — "e.g. the `.`
+;; step-in edge", ADR-0013): pressing KEY moves directly to an already-
+;; registered tree's root — an ordinary key edge, not a call (no return-
+;; stack push, unlike a (key … 'next TARGET) cross edge), so the target's
+;; OWN up edge (register-tree-up-edge!, state-machine.sld) is what
+;; backspace follows back out, and the move lands and shows immediately
+;; like any other group descent, with no intermediate command state.
+;;
+;; Live only while GATE (a 0-arg predicate) holds: gate-filtered out of
+;; dispatch exactly like any other edge gate, and the row is hidden from
+;; the overlay via a 'hidden thunk derived from the SAME gate, so "no
+;; inner context detected" means both no edge and no overlay row.
+;;
+;;   (step-in "." "Herdr" "com.googlecode.iterm2/herdr" herdr-detected?)
+(define (step-in key label target-scope gate)
+  (let ((target (if (symbol? target-scope) (symbol->string target-scope) target-scope)))
+    (list (cons 'kind 'step-in)
+          (cons 'key key)
+          (cons 'label label)
+          (cons 'target target)
+          (cons 'gate gate)
+          (cons 'hidden (lambda () (not (gate)))))))
 
 ;; Collect the procedure values of `tag` across `blocks`, preserving order.
 (define (filter-fns blocks tag)
@@ -630,7 +688,16 @@
 ;; ORDER ('keys | 'declared | #f) is the screen/open-wide default row-ordering
 ;; mode each panel inherits unless it sets its own 'order; #f (no marker) leaves
 ;; the renderer's ultimate 'keys default (manual-panel-order-k24).
-(define (panel-grid-head blocks on-enter on-leave display-name exit-unk cols layout order loose)
+;; PROVIDER (a procedure, or #f) is an FSM edge provider (see `group`'s
+;; docstring) riding straight through to the registered root's/group's
+;; 'provider slot — #f from `open` (no caller needs it there yet; see
+;; `open`'s own docstring).
+;; ENTRY / EXIT (procedures, or #f) are the unconditional action-slot pair
+;; (CONTEXT.md "Action slots") — riding straight through, UNLIKE on-enter/
+;; on-leave, never composed with a block's on-enter-fn/on-leave-fn: blocks
+;; are presentation, so their hooks belong only on the gated show/hide
+;; pair, never on entry/exit (see `group`'s docstring).
+(define (panel-grid-head blocks on-enter on-leave display-name exit-unk provider entry exit cols layout order loose)
   (let* ((composed-on-enter (compose-hooks on-enter (filter-fns blocks 'on-enter-fn)))
          (composed-on-leave (compose-hooks on-leave (filter-fns blocks 'on-leave-fn))))
     (append
@@ -638,6 +705,9 @@
       (if composed-on-leave (list 'on-leave composed-on-leave) '())
       (if display-name      (list 'display-name display-name)  '())
       (if exit-unk          (list 'exit-on-unknown exit-unk)   '())
+      (if provider          (list 'provider provider)          '())
+      (if entry              (list 'entry entry)                '())
+      (if exit                (list 'exit exit)                  '())
       (if cols              (list 'cols cols)                  '())
       (if layout            (list 'layout layout)              '())
       (if order             (list 'order order)               '())
@@ -654,73 +724,112 @@
 ;; (default 'masonry: shortest-lane packing; 'grid: aligned deterministic
 ;; placement). The registered root carries 'renderer 'panel-grid (+ 'cols /
 ;; 'layout) for the panel-grid renderer.
+;;
+;; 'auto-entry BOOL (default #t) — #f suppresses the automatic register-
+;; tree-entry! call below. For a genuinely nested entry point (ADR-0013)
+;; whose scope contains "/", the automatic call would otherwise treat it
+;; as a bundle-id/suffix variant gated on the suffix hook — wrong once its
+;; specificity is instead derived structurally from an explicit up edge
+;; (register-tree-up-edge!, state-machine.sld). Pass 'auto-entry #f and
+;; call register-tree-entry-gated! directly with the real detection gate.
+;; (Named 'auto-entry, not 'entry, to stay distinct from the unconditional
+;; 'entry/'exit hook pair below — same word, different axis: this one
+;; controls entry-TABLE registration, that one an action slot's timing.)
+;;
+;; 'provider PROC — an FSM edge provider (see `group`'s docstring), lowered
+;; onto the registered root's own state (register-tree!'s 'provider
+;; keyword). The natural home for a per-visit dynamic edge source declared
+;; at a tree's root — e.g. the herdr entry node's jump-space targets.
+;;
+;; 'entry THUNK / 'exit THUNK — the unconditional action-slot pair (CONTEXT.md
+;; "Action slots"), lowered onto the registered root's own state alongside
+;; 'on-enter/'on-leave's show/hide (see `group`'s docstring for the full
+;; contract — same keywords, same semantics, just at the tree root).
 (define (screen scope . args)
   (let loop ((rest args)
              (on-enter #f) (on-leave #f)
-             (display-name #f) (exit-unk #f) (cols #f) (layout #f) (order #f))
+             (display-name #f) (exit-unk #f) (provider #f) (cols #f) (layout #f) (order #f)
+             (auto-entry? #t) (entry #f) (exit #f))
     (cond
       ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave display-name exit-on-unknown cols layout order)))
+            (memq (car rest) '(on-enter on-leave display-name exit-on-unknown provider cols layout order auto-entry entry exit)))
        (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave display-name exit-unk cols layout order))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) display-name exit-unk cols layout order))
-         ((display-name)    (loop (cddr rest) on-enter on-leave (cadr rest) exit-unk cols layout order))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave display-name (cadr rest) cols layout order))
-         ((cols)            (loop (cddr rest) on-enter on-leave display-name exit-unk (cadr rest) layout order))
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave display-name exit-unk provider cols layout order auto-entry? entry exit))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) display-name exit-unk provider cols layout order auto-entry? entry exit))
+         ((display-name)    (loop (cddr rest) on-enter on-leave (cadr rest) exit-unk provider cols layout order auto-entry? entry exit))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave display-name (cadr rest) provider cols layout order auto-entry? entry exit))
+         ((provider)        (loop (cddr rest) on-enter on-leave display-name exit-unk (cadr rest) cols layout order auto-entry? entry exit))
+         ((cols)            (loop (cddr rest) on-enter on-leave display-name exit-unk provider (cadr rest) layout order auto-entry? entry exit))
+         ((auto-entry)      (loop (cddr rest) on-enter on-leave display-name exit-unk provider cols layout order (cadr rest) entry exit))
+         ((entry)           (loop (cddr rest) on-enter on-leave display-name exit-unk provider cols layout order auto-entry? (cadr rest) exit))
+         ((exit)            (loop (cddr rest) on-enter on-leave display-name exit-unk provider cols layout order auto-entry? entry (cadr rest)))
          ((layout)
           (let ((v (cadr rest)))
             (unless (valid-layout? v)
               (error "screen: 'layout must be 'masonry or 'grid" v))
-            (loop (cddr rest) on-enter on-leave display-name exit-unk cols v order)))
+            (loop (cddr rest) on-enter on-leave display-name exit-unk provider cols v order auto-entry? entry exit)))
          ((order)
           (let ((v (cadr rest)))
             (unless (valid-order? v)
               (error "screen: 'order must be 'keys or 'declared" v))
-            (loop (cddr rest) on-enter on-leave display-name exit-unk cols layout v)))))
+            (loop (cddr rest) on-enter on-leave display-name exit-unk provider cols layout v auto-entry? entry exit)))))
       (else
        (let* ((lowered  (lower-panel-grid-body rest))
               (children (car lowered))
               (loose    (cadr lowered))
               (blocks   (caddr lowered))
               (head     (panel-grid-head blocks on-enter on-leave
-                                         display-name exit-unk cols layout order loose)))
-         (apply register-tree! scope (append head children)))))))
+                                         display-name exit-unk provider entry exit cols layout order loose)))
+         (apply register-tree! scope (append head children))
+         ;; `screen` is the ONE entry-point-declaring surface (fsm-graph.md
+         ;; "Lowering and the façade" — "A (screen 'bundle-id …) registration
+         ;; auto-adds its gated entry-table row"); `walk`'s internal mode-id
+         ;; registration (below) calls register-tree! directly and stays a
+         ;; call-edge-only target, never an entry point.
+         (when auto-entry? (register-tree-entry! scope)))))))
 
 ;; (open KEY LABEL [keywords…] panel…) → a navigable group drilling into a
 ;; sub-screen — the panel-native replacement for the old (key K L (overlay …))
 ;; idiom. Its children are the lowered sub-grid; it carries 'renderer
 ;; 'panel-grid (+ 'cols / 'layout). Keywords: on-enter / on-leave /
-;; exit-on-unknown / cols / layout — not 'display-name, which is a
-;; breadcrumb-root override that a child group (vs. a registered tree root) has
-;; no use for.
+;; exit-on-unknown / cols / layout / entry / exit — not 'display-name, which
+;; is a breadcrumb-root override that a child group (vs. a registered tree
+;; root) has no use for. No 'provider keyword either (dsl-provider-wiring-
+;; k24): drop to the lower-level `group` form directly if a sub-drill ever
+;; needs one — nothing under `open` does yet. 'entry/'exit (the
+;; unconditional action-slot pair — see `group`'s docstring) ride straight
+;; through to `group`, same as on-enter/on-leave.
 (define (open key label . args)
   (let loop ((rest args)
-             (on-enter #f) (on-leave #f) (exit-unk #f) (cols #f) (layout #f) (order #f))
+             (on-enter #f) (on-leave #f) (exit-unk #f) (cols #f) (layout #f) (order #f)
+             (entry #f) (exit #f))
     (cond
       ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave exit-on-unknown cols layout order)))
+            (memq (car rest) '(on-enter on-leave exit-on-unknown cols layout order entry exit)))
        (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave exit-unk cols layout order))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) exit-unk cols layout order))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave (cadr rest) cols layout order))
-         ((cols)            (loop (cddr rest) on-enter on-leave exit-unk (cadr rest) layout order))
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave exit-unk cols layout order entry exit))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) exit-unk cols layout order entry exit))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave (cadr rest) cols layout order entry exit))
+         ((cols)            (loop (cddr rest) on-enter on-leave exit-unk (cadr rest) layout order entry exit))
+         ((entry)           (loop (cddr rest) on-enter on-leave exit-unk cols layout order (cadr rest) exit))
+         ((exit)            (loop (cddr rest) on-enter on-leave exit-unk cols layout order entry (cadr rest)))
          ((layout)
           (let ((v (cadr rest)))
             (unless (valid-layout? v)
               (error "open: 'layout must be 'masonry or 'grid" v))
-            (loop (cddr rest) on-enter on-leave exit-unk cols v order)))
+            (loop (cddr rest) on-enter on-leave exit-unk cols v order entry exit)))
          ((order)
           (let ((v (cadr rest)))
             (unless (valid-order? v)
               (error "open: 'order must be 'keys or 'declared" v))
-            (loop (cddr rest) on-enter on-leave exit-unk cols layout v)))))
+            (loop (cddr rest) on-enter on-leave exit-unk cols layout v entry exit)))))
       (else
        (let* ((lowered  (lower-panel-grid-body rest))
               (children (car lowered))
               (loose    (cadr lowered))
               (blocks   (caddr lowered))
               (head     (panel-grid-head blocks on-enter on-leave
-                                         #f exit-unk cols layout order loose)))
+                                         #f exit-unk #f entry exit cols layout order loose)))
          (apply group key label (append head children)))))))
 
 ;; (set-theme! . args) → no-op stub for backward compatibility

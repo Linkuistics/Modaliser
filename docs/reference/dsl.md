@@ -17,13 +17,15 @@ is a **layout spec**, a tree of **screens**, each an implicit grid of
 
 That layout **lowers** — at config-load, the moment each form is
 evaluated — to the **operational node-tree**, the `(kind . group)` /
-`(kind . command)` alist the modal state machine dispatches. The
-operational tree is now an **intermediate representation (IR)**, a
-compile target, not a thing you write by hand. The dispatch engine
+`(kind . command)` alist. The operational tree is an **intermediate
+representation (IR)**, a compile target, not a thing you write by hand:
+`register-tree!` lowers it a second time, into the explicit **FSM
+graph** — states and labelled edges — that dispatch actually runs on
+(see [state-machine.md](state-machine.md)). The dispatch behaviour
 (Walks, the `'next` edge, transparent grouping, digit-jump, selectors)
-reads that IR exactly as before; the **panel-grid renderer** reads the
-presentation metadata (`panel`, `span`, `screen`) the lowering annotates
-onto it.
+this page describes is unchanged by that lowering; the **panel-grid
+renderer** reads the presentation metadata (`panel`, `span`, `screen`)
+the layout lowering annotates onto the same IR.
 
 The practical consequence: the four **layout forms** (`screen`, `panel`,
 `open`, `fragment`) shape *presentation*, and the **dispatch atoms**
@@ -178,6 +180,10 @@ Optional leading keywords:
 | `'on-leave` | thunk | Runs when the modal navigates out. |
 | `'exit-on-unknown` | boolean | If `#t`, unrecognised keys exit the modal instead of being swallowed. Inherited by descendants. |
 | `'display-name` | string | Overrides the breadcrumb scope segment. Useful for mode-id scopes (e.g. `'iterm-panes`) where the auto-resolved app name doesn't make sense. |
+| `'auto-entry` | boolean | Default `#t`: `screen` auto-registers the scope's entry-table row. Pass `#f` for a nested-context entry point (ADR-0013) whose scope contains `"/"` — the automatic row would otherwise treat it as a bundle-id/suffix variant gated on the context-suffix hook; call `register-tree-entry-gated!` yourself instead (see [Nested-context entry points](#nested-context-entry-points-adr-0013) below). Distinct from `'entry` below — same word, different axis (entry-*table* registration, not the *action-slot* hook). |
+| `'provider` | procedure | An FSM edge provider on the registered root's own state — see `group`'s `'provider` above and [state-machine.md](state-machine.md#edge-providers-provider). |
+| `'entry` | thunk | The unconditional action-slot pair on the registered root's own state — see `group`'s `'entry`/`'exit` above and [state-machine.md](state-machine.md#unconditional-hooks-entry--exit). |
+| `'exit` | thunk | Pairs with `'entry` above. |
 
 A `screen` lowers to a tree-root group carrying `'renderer 'panel-grid`
 (plus `'cols` / `'layout` / `'order` when authored), so the panel-grid renderer
@@ -282,8 +288,12 @@ Its body lowers the same way a `screen` body does: real panels become
 grid cards, and loose atoms / folded top-level opens / loose blocks render
 bare in the loose region. Keywords: `'on-enter`, `'on-leave`,
 `'exit-on-unknown`, `'cols`, `'layout`, `'order` (the grid-wide row-ordering
-default for this open's panels — see `panel`) — **not** `'display-name` (a
-breadcrumb-root override a child group has no use for). An `open` lowers
+default for this open's panels — see `panel`), `'entry`, `'exit` (the
+unconditional action-slot pair, riding straight through to `group` — see
+`group`'s `'entry`/`'exit` above) — **not** `'display-name` (a
+breadcrumb-root override a child group has no use for) and **not**
+`'provider` (no sub-drill needs one yet; drop to the lower-level `group`
+form directly if one does). An `open` lowers
 to a navigable `group` carrying `'renderer 'panel-grid`.
 
 A nested `(open …)` declared *inside* a `(panel …)` renders as an accent
@@ -389,7 +399,7 @@ Optional trailing keyword:
 
 | Keyword | Type | Description |
 |---|---|---|
-| `'next` | symbol \| `'self` \| procedure | Declares this leaf's post-action transition (ADR-0015). A registered tree's id is a **cross edge** (`(enter-mode! id)` — push the caller, switch into it); the literal `'self` is a **cyclic edge** (re-arm the containing collection in place, no push); a 0-arg procedure is a **dynamic edge**, resolved at fire time to a symbol or `#f`. Declaring `'next` makes the leaf non-Terminal — capture stays live through the action instead of being released before it — and the overlay paints a `↻` marker on the cell. Omitting `'next` makes the leaf **Terminal**: capture releases *before* the action runs, so the action can safely hand the keyboard elsewhere (a dialog, an external prompt). See [state-machine.md](state-machine.md#the-next-edge-and-terminal-nodes). |
+| `'next` | symbol \| `'self` \| procedure | Declares this leaf's post-action transition (ADR-0015) — lowers to the leaf's one **auto edge** in the FSM graph. A registered tree's id is a **cross edge** (push the caller, switch into the target); the literal `'self` is a **cyclic edge** (re-arm the containing collection in place, no push); a 0-arg procedure is a **dynamic edge**, resolved at fire time to a symbol or `#f`. Declaring `'next` makes the leaf non-Terminal — capture stays live through the action instead of being released before it — and the overlay paints a `↻` marker on the cell. Omitting `'next` makes the leaf **Terminal**: capture releases *before* the action runs, so the action can safely hand the keyboard elsewhere (a dialog, an external prompt). See [state-machine.md](state-machine.md#the-next-edge-and-terminal-nodes). |
 
 ```scheme
 (key "p" "Pane Mode" (λ () (if #f #f)) 'next 'iterm-panes-focus)
@@ -458,6 +468,9 @@ overkill — directional split/move clusters, Walks. Keywords:
 | `'on-enter` | thunk | Fires when modal navigates *into* this group (only if the overlay is open). |
 | `'on-leave` | thunk | Fires when modal navigates *out*. |
 | `'exit-on-unknown` | boolean | Unknown keys exit the modal. Inherited by descendants. |
+| `'provider` | procedure | An FSM edge provider — a 0-arg procedure run each time the group comes to rest, returning extra edges/states valid for that Visit only (see [state-machine.md](state-machine.md#edge-providers-provider)). Unlike `'on-enter`/`'on-leave`, not presentation-gated. |
+| `'entry` | thunk | Fires unconditionally at Visit come-to-rest, regardless of whether the overlay ever displays — unlike `'on-enter`, which is presentation-gated (see [state-machine.md](state-machine.md#unconditional-hooks-entry--exit)). |
+| `'exit` | thunk | Fires unconditionally at Visit end (navigate-away or modal-exit) — the `'entry` counterpart to `'exit`, mirroring `'on-leave`'s pairing with `'on-enter`. |
 
 A group carries no latching flag of its own — a command leaf at or
 below it cycles only if it individually declares `'next 'self` (see
@@ -583,6 +596,69 @@ the title reads e.g. `iTerm ▸ Splits` rather than collapsing to `Splits`.
 
 ---
 
+## Nested-context entry points (ADR-0013)
+
+A **nested context** is a second `screen` reachable from inside a first
+one — the herdr entry node reachable from the iTerm node is the shipping
+example (CONTEXT.md "Entry point"). Three pieces wire one together;
+`(modaliser dsl)` re-exports the two state-machine helpers so a single
+`(import (modaliser dsl))` covers all three.
+
+### `(step-in key label target-scope gate)`
+
+A gated cross-tree key edge (CONTEXT.md "Edge gate"): pressing `key`
+moves straight to `target-scope`'s registered root — an ordinary key
+edge, not a call (no return-stack push, unlike a `(key … 'next TARGET)`
+cross edge), so the target's own **outward up edge** (below) is what
+backspace follows back out, and the move lands and shows immediately
+like any other group descent, with no intermediate command state.
+
+`gate` is a 0-arg predicate. Live only while it holds: gate-filtered out
+of dispatch exactly like any other edge gate, and the row is hidden from
+the overlay via a `'hidden` thunk derived from the same `gate` — "no
+inner context detected" means both no edge and no overlay row.
+
+```scheme
+(screen 'com.googlecode.iterm2
+  (step-in "." "Herdr" 'com.googlecode.iterm2/herdr herdr-detected?)
+  …)
+```
+
+### `(register-tree-up-edge! from-scope to-scope)`
+
+Stamps `from-scope`'s root with an explicit **outward up edge** to
+`to-scope`'s root. An ordinary up edge, ungated and never a call —
+backspace at `from-scope`'s root follows it regardless of how
+`from-scope` was entered (direct leader activation or a `step-in` key
+edge). It is also what makes `fsm-entry-more-specific?`'s up-edge-
+containment check rank `from-scope`'s entry above `to-scope`'s, so a
+nested entry point needs no `'refines` stamp. Idempotent — a state may
+carry at most one up edge, so a second call for the same `from-scope` is
+a no-op.
+
+### `(register-tree-entry-gated! scope gate)`
+
+Registers `scope`'s entry-table row directly gated on `gate` (a 0-arg
+detection predicate), bypassing the bundle-id/suffix heuristic
+`screen`'s automatic entry-table registration derives from a `"/"` in
+the scope string. Pair with `(screen scope 'auto-entry #f …)`, which
+suppresses that automatic row. Idempotent, mirroring
+`register-tree-up-edge!`.
+
+```scheme
+;; The herdr entry node: suppress the automatic suffix-gated row,
+;; register the outward up edge, then the real detection-gated one.
+(apply screen 'com.googlecode.iterm2/herdr 'auto-entry #f (herdr:build-herdr-tree))
+(register-tree-up-edge! 'com.googlecode.iterm2/herdr 'com.googlecode.iterm2)
+(register-tree-entry-gated! 'com.googlecode.iterm2/herdr herdr-detected?)
+```
+
+See [terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md#worked-example-the-herdr-nested-entry-point)
+for the full worked example and [ADR-0013](../adr/0013-nested-context-entry-points.md)
+for why nesting works this way rather than as a merged variant tree.
+
+---
+
 ## Helpers
 
 ### `(λ formals body…)`
@@ -615,4 +691,6 @@ lists via their `'modifiers` keyword.
 - How-to guides — task-oriented recipes:
   [add a binding](../how-to/add-a-binding.md),
   [add a per-app tree](../how-to/add-a-per-app-tree.md),
-  [add a fuzzy-finder](../how-to/fuzzy-finder.md).
+  [add a fuzzy-finder](../how-to/fuzzy-finder.md),
+  [vary the tree by what's in the focused pane](../how-to/terminal-pane-aware-tree.md)
+  (context-suffix trees and the nested-context entry point worked example).

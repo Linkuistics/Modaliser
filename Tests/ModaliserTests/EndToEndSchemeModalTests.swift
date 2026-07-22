@@ -47,6 +47,79 @@ struct EndToEndSchemeModalTests {
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
+    /// Regression for narrowing-live-dispatch-anomaly-k35: a confirmed
+    /// two-key jump-label leader (herdr's narrowing prefix state — a
+    /// PROVIDED resting state reached via a provider-supplied key edge,
+    /// muxes/herdr.sld's jump-prefix-state) exited the modal instead of
+    /// narrowing, in real (live keyboard capture) use. Reproduced here
+    /// minimally with a bare provider standing in for herdr-jump-provider,
+    /// exercising the same fsm-key-target-class/fire-terminal-leaf! path
+    /// without herdr's own JSON/query machinery.
+    ///
+    /// Root cause: fsm-key-target-class (state-machine.sld) pre-classified
+    /// the "a" edge's target via fsm-state-class, which only reads the
+    /// PERMANENT graph's edge table — the target here is a PROVIDED
+    /// (visit-scoped) resting state, whose edges live only in this Visit's
+    /// %fsm-visit-provided, so it read back as zero-edges 'terminal. That
+    /// misrouted modal-handle-key into fire-terminal-leaf!, which arms a
+    /// pending capture-release teardown on the assumption that a Terminal
+    /// leaf's wrapped 'entry slot will consume it — but a resting provided
+    /// state has no 'entry slot at all, so the teardown fires
+    /// unconditionally right after fsm-step! returns: unregister-all-keys!
+    /// (the live catch-all deregisters) and hide-overlay (the chip windows
+    /// close) — even though the FSM itself landed correctly on the
+    /// narrowed, still-active provided state.
+    ///
+    /// modal-current-path/modal-active? alone can't catch this — both are
+    /// DERIVED from the FSM's own (correct) state, so they read right
+    /// regardless of whether the capture/overlay teardown wrongly fired
+    /// alongside. Checking the KeyboardHandlerRegistry's catch-all directly
+    /// (as this test does), after dispatch through the real keycode path
+    /// (modal-key-handler, exactly what KeyboardLibrary's installed
+    /// catch-all calls), is what exposes it.
+    @Test func minimalProvidedRestingStateNarrowsWithoutDeregisteringCatchAll() throws {
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine) (modaliser fsm))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        // provided-state needs an explicit 'payload alist (not the default
+        // #f) and its own 'up edge back to the root: while narrowed, this
+        // state IS modal-current-node (node-on-enter/node-on-leave call
+        // `assoc` on it) and modal-current-path's ancestors-within-tree
+        // climbs via 'up edges, not id-prefix stripping — see herdr.sld's
+        // jump-prefix-state for the same two requirements in production.
+        try engine.evaluate("""
+            (define (narrow-provider)
+              (list (cons 'edges (list (edge "a" "test-root/a")))
+                    (cons 'states (list (provided-state "test-root/a" 'payload '()
+                                          (edge 'up "test-root")
+                                          (edge "d" "test-root/a/landed"))))))
+            (register-tree! 'test-root 'provider narrow-provider
+              (key "z" "Zap" (lambda () #t)))
+            """)
+
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+
+        // keycode 0 = "a" (KeyboardLibrary.keyCodeToCharacter), no
+        // modifiers — the exact live path a physical, unmodified "a"
+        // keypress takes: CGEvent tap -> KeyboardHandlerRegistry.dispatch
+        // -> the installed catch-all -> modal-key-handler.
+        try engine.evaluate("(modal-enter (lookup-tree \"test-root\") F18)")
+        try engine.evaluate("(modal-key-handler 0 0)")
+
+        // "a" narrows into the provided resting state — it must not fire
+        // and must not exit.
+        #expect(try engine.evaluate("(equal? modal-current-path (list \"a\"))") == .true)
+        #expect(try engine.evaluate("modal-active?") == .true)
+        // The bug: the wrongly-armed pending teardown deregisters the
+        // catch-all even though the engine stayed active and narrowed
+        // correctly — this is what "zero Modaliser windows remain" in
+        // live use actually was.
+        #expect(kbLib.handlerRegistry.catchAllHandler != nil)
+    }
+
     @Test func shiftedLetterDispatchesToUppercaseBinding() throws {
         // Regression: modal-key-handler upcases via (string-upcase …) when
         // the shift modifier is held. string-upcase lives in (scheme char),
@@ -257,6 +330,92 @@ struct EndToEndSchemeModalTests {
         }
     }
 
+    /// dispatch-cutover-k11: make-leader-handler's 'local mode now resolves
+    /// through resolve-entry-for-bundle (the FSM entry table) instead of
+    /// resolve-app-tree, with the suffix variant's gate wired to
+    /// local-context-suffix at registration time (screen → register-tree-
+    /// entry!). These mirror the resolve-app-tree tests above one layer
+    /// down, exercising the entry-table resolver resolve-app-tree's own
+    /// production caller (make-leader-handler) now uses instead.
+    @Test func resolveEntryForBundleRoutesToTheSuffixedVariantWhenItsGatePasses() throws {
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        try engine.evaluate("""
+            (screen "com.googlecode.iterm2"
+              (key "t" "Tabs" (lambda () 'plain)))
+            (screen "com.googlecode.iterm2/zellij"
+              (key "z" "Zellij" (lambda () 'zellij)))
+            (set-local-context-suffix! (lambda (bundle-id) "/zellij"))
+            """)
+
+        let name = try engine.evaluate("(resolve-entry-for-bundle \"com.googlecode.iterm2\")")
+        if case .string(let ms) = name {
+            #expect((ms as String) == "com.googlecode.iterm2/zellij")
+        } else {
+            Issue.record("Expected string entry name, got \(name)")
+        }
+    }
+
+    @Test func resolveEntryForBundleFallsBackToTheBaseWhenNoSuffixGatePasses() throws {
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        try engine.evaluate("""
+            (screen "com.googlecode.iterm2"
+              (key "t" "Tabs" (lambda () 'plain)))
+            (screen "com.googlecode.iterm2/zellij"
+              (key "z" "Zellij" (lambda () 'zellij)))
+            ;; default local-context-suffix returns #f — no variant's gate passes
+            """)
+
+        let name = try engine.evaluate("(resolve-entry-for-bundle \"com.googlecode.iterm2\")")
+        if case .string(let ms) = name {
+            #expect((ms as String) == "com.googlecode.iterm2")
+        } else {
+            Issue.record("Expected string entry name, got \(name)")
+        }
+    }
+
+    @Test func resolveEntryForBundleReturnsFalseForAnUnregisteredBundle() throws {
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        #expect(try engine.evaluate("(resolve-entry-for-bundle \"com.example.unregistered\")") == .false)
+    }
+
+    @Test func resolveEntryForBundleNeverMatchesGlobalOrAnUnrelatedApp() throws {
+        // The bundle-id prefix filter excludes 'global (and any other app's
+        // entries) outright — an always-passing gate elsewhere in the table
+        // must never leak into a different bundle's resolution.
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        try engine.evaluate("""
+            (screen 'global (key "s" "Safari" (lambda () 'ok)))
+            (screen "com.apple.Safari" (key "t" "Tab" (lambda () 'ok)))
+            """)
+
+        let name = try engine.evaluate("(resolve-entry-for-bundle \"com.apple.Safari\")")
+        if case .string(let ms) = name {
+            #expect((ms as String) == "com.apple.Safari")
+        } else {
+            Issue.record("Expected string entry name, got \(name)")
+        }
+    }
+
     @Test func itermZellijPredicateMatchesBothCommands() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser terminal))")
@@ -435,7 +594,7 @@ struct EndToEndSchemeModalTests {
                 (lambda (k) (set! focused k))))
             (define host
               (make-terminal-backend
-                'stub-host "Stub Host" 'host "test.bundle"
+                'stub-host "Stub Host" 'host "test.bundle" #f
                 (lambda () #f) (lambda () "p")
                 (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
                 (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)

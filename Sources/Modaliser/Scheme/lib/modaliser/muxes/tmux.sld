@@ -50,7 +50,10 @@
                 make-terminal-backend
                 register-backend!
                 focused-iterm-tty
-                modaliser-tool-path))
+                modaliser-tool-path
+                ;; note-backend-query-result!: ADR-0017 Layer 2 — see
+                ;; display-message below.
+                note-backend-query-result!))
   (begin
 
     ;; ─── Shell preamble ─────────────────────────────────────────────
@@ -126,6 +129,9 @@
     ;; is %N (stable across the session's lifetime — see
     ;; done/.../notes/tmux.md "Pane IDs use %N"). Empty output (no
     ;; client, query failed) collapses to #f rather than empty string.
+    ;; ADR-0017 Layer 2: the result feeds the shared 'tmux health entry —
+    ;; a #f here (session correlation failed, or the tmux binary itself
+    ;; is gone) is the ambiguous moment that triggers a re-probe.
     (define (display-message field)
       (let* ((session (session-for-host-tty))
              (cmd     (string-append
@@ -133,8 +139,10 @@
                         "tmux display-message"
                         (target-flag session)
                         " -p '" field "' 2>/dev/null"))
-             (out     (string-trim (run-shell cmd))))
-        (if (string=? out "") #f out)))
+             (out     (string-trim (run-shell cmd)))
+             (result  (if (string=? out "") #f out)))
+        (note-backend-query-result! 'tmux (and result #t))
+        result))
 
     (define (focused-pane-id)
       (display-message "#{pane_id}"))
@@ -383,7 +391,7 @@
 
     (define backend
       (make-terminal-backend
-        'tmux "tmux" 'mux "tmux"
+        'tmux "tmux" 'mux "tmux" "tmux"
         detect-fg-command
         focused-pane-id
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down

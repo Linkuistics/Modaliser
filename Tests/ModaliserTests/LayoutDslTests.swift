@@ -272,6 +272,38 @@ struct LayoutDslTests {
         #expect(try engine.evaluate("(node-exit-on-unknown? \(root))") == .true)
     }
 
+    // entry-exit-slot-wiring-k47: 'entry/'exit ride through `screen` onto
+    // the node alongside 'on-enter/'on-leave, distinct from the pre-
+    // existing boolean 'auto-entry keyword (renamed from 'entry to make
+    // room for this pair — a naming collision found while wiring it).
+    @Test func screenAcceptsEntryExitKeywords() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("""
+            (screen 'scr-entry-exit 'entry (lambda () 'e) 'exit (lambda () 'x)
+              (panel "P" (key "c" "C" (lambda () 'ok))))
+            """)
+        let root = "(lookup-tree \"scr-entry-exit\")"
+        #expect(try engine.evaluate("(procedure? (node-entry \(root)))") == .true)
+        #expect(try engine.evaluate("(procedure? (node-exit \(root)))") == .true)
+    }
+
+    @Test func screenAutoEntryFalseStillSuppressesTheEntryTableRowIndependentlyOfEntryExit() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("(import (modaliser fsm))")
+        try engine.evaluate("""
+            (screen 'scr-auto-entry-off 'auto-entry #f
+              'entry (lambda () 'e) 'exit (lambda () 'x)
+              (panel "P" (key "c" "C" (lambda () 'ok))))
+            """)
+        let root = "(lookup-tree \"scr-auto-entry-off\")"
+        // 'auto-entry #f suppressed the automatic entry-table row...
+        #expect(try engine.evaluate("(fsm-entry-ref \"scr-auto-entry-off\")") == .false)
+        // ...independently of the unrelated 'entry/'exit action-slot pair,
+        // which still reached the node.
+        #expect(try engine.evaluate("(procedure? (node-entry \(root)))") == .true)
+        #expect(try engine.evaluate("(procedure? (node-exit \(root)))") == .true)
+    }
+
     @Test func screenComposesEmbeddedListOnLeaveHook() throws {
         let engine = try loadLayout()
         // The embedded list's on-leave-fn (chip clear) must be composed
@@ -326,6 +358,16 @@ struct LayoutDslTests {
               (panel "P" (key "x" "X" (lambda () 'ok)))))
             """)
         #expect(try engine.evaluate("(= (node-renderer-payload o 'cols) 2)") == .true)
+    }
+
+    @Test func openAcceptsEntryExitKeywords() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("""
+            (define o (open "s" "Splits" 'entry (lambda () 'e) 'exit (lambda () 'x)
+              (panel "P" (key "x" "X" (lambda () 'ok)))))
+            """)
+        #expect(try engine.evaluate("(procedure? (node-entry o))") == .true)
+        #expect(try engine.evaluate("(procedure? (node-exit o))") == .true)
     }
 
     @Test func openCarriesLayoutWhenGiven() throws {

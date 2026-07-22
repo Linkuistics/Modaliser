@@ -178,6 +178,15 @@ final class HintsLibrary: NativeLibrary {
         let borderColor = SchemeAlistLookup.lookupString(alist, key: "border-color")
             .flatMap { Self.parseCSSColor($0) } ?? color
 
+        // Narrowing's per-character styling (vimium-style): the label's
+        // leading `consumed` characters (the key(s) already typed) render in
+        // `dim-color` instead of `color`, leaving the untyped remainder
+        // prominent. Absent or zero (every caller before this key existed)
+        // renders exactly as before — the plain single-colour path below.
+        let consumed = SchemeAlistLookup.lookupFixnum(alist, key: "consumed").map(Int.init) ?? 0
+        let dimColor = SchemeAlistLookup.lookupString(alist, key: "dim-color")
+            .flatMap { Self.parseCSSColor($0) } ?? color
+
         // AX coords use top-left origin; Cocoa NSPanel uses bottom-left of the
         // primary screen. Flip y here so callers can pass AX rects unchanged.
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
@@ -208,13 +217,19 @@ final class HintsLibrary: NativeLibrary {
             content.layer?.borderColor = borderColor.cgColor
         }
 
+        let font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
         let textField = NSTextField(labelWithString: label)
-        textField.font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-        textField.textColor = color
+        textField.font = font
         textField.alignment = .center
         textField.isBezeled = false
         textField.drawsBackground = false
         textField.translatesAutoresizingMaskIntoConstraints = false
+        if consumed > 0 {
+            textField.attributedStringValue = Self.styledLabel(
+                label, font: font, color: color, dimColor: dimColor, consumed: consumed)
+        } else {
+            textField.textColor = color
+        }
         content.addSubview(textField)
         // Padding is the inset between the panel rim and the text bbox.
         // For a chip that hugs its glyph, callers size w/h = font +
@@ -232,6 +247,29 @@ final class HintsLibrary: NativeLibrary {
         panel.contentView = content
         panel.orderFrontRegardless()
         return panel
+    }
+
+    /// Build LABEL as centred attributed text whose leading CONSUMED
+    /// characters render in `dimColor`, the rest in `color` — the
+    /// vimium-style narrowing look (the typed prefix recedes, the key still
+    /// needed stays prominent). CONSUMED is clamped to the string's actual
+    /// (UTF-16) length so an over-large count never raises.
+    private static func styledLabel(
+        _ label: String, font: NSFont, color: NSColor, dimColor: NSColor, consumed: Int
+    ) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let attributed = NSMutableAttributedString(string: label, attributes: [
+            .font: font,
+            .foregroundColor: color,
+            .paragraphStyle: paragraph,
+        ])
+        let dimLength = min(consumed, attributed.length)
+        if dimLength > 0 {
+            attributed.addAttribute(.foregroundColor, value: dimColor,
+                                    range: NSRange(location: 0, length: dimLength))
+        }
+        return attributed
     }
 
     /// Close and forget one group's panels.

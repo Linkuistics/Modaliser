@@ -253,7 +253,7 @@ struct ConfigDslTests {
         // "w" — so this render fires no on-render side effects.)
         let json = try engine.evaluate("(panel-grid-payload-json (lookup-tree \"global\"))").asString()
         #expect(json.contains("\"type\":\"panel-grid\""))
-        for label in ["Applications", "AI", "Search"] {
+        for label in ["Applications", "Search"] {
             #expect(json.contains("\"label\":\"\(label)\""), "missing panel \(label)")
         }
         // No "General" card — those keys moved to the loose region.
@@ -350,27 +350,24 @@ struct ConfigDslTests {
         #expect(try engine.evaluate("(group? (find-child it \"t\"))") == .true)
     }
 
-    /// herdr-copy-mode-k16 — the replace tree ships zero iTerm controls by
+    /// herdr-copy-mode-k16 — the herdr entry node ships zero iTerm controls by
     /// design, so scrollback is unreachable there without an explicit binding.
     /// The config composition layer appends a top-level `c` "Scrollback" (herdr's
     /// native per-pane edit_scrollback, sent as the `ctrl+b e` host keystroke
-    /// sequence) to BOTH variant screens so replace and augment have identical
-    /// muscle memory. iTerm's own copy mode is unsuitable — it selects across the
+    /// sequence). iTerm's own copy mode is unsuitable — it selects across the
     /// whole herdr canvas, ignoring per-pane layout. Loads the real bundled
-    /// config and asserts both variants expose the binding, guarding against a
-    /// future refactor dropping it. (The keystroke sequence is host-specific, so
-    /// it lives in the config, not in the portable build-herdr-tree — asserted
+    /// config and asserts the binding is exposed, guarding against a future
+    /// refactor dropping it. (The keystroke sequence is host-specific, so it
+    /// lives in the config, not in the portable build-herdr-tree — asserted
     /// structurally, no live iTerm.)
-    @Test func herdrVariantScreensExposeTopLevelScrollback() throws {
+    @Test func herdrEntryNodeExposesTopLevelScrollback() throws {
         let engine = try loadAllModules()
         guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
         try engine.evaluateFile(schemePath + "/default-config.scm")
 
-        for variant in ["com.googlecode.iterm2/herdr", "com.googlecode.iterm2/herdr+split"] {
-            try engine.evaluate("(define v (lookup-tree \"\(variant)\"))")
-            #expect(try engine.evaluate("(command? (find-child v \"c\"))") == .true)
-            #expect(try engine.evaluate("(equal? (node-label (find-child v \"c\")) \"Scrollback\")") == .true)
-        }
+        try engine.evaluate("(define v (lookup-tree \"com.googlecode.iterm2/herdr\"))")
+        #expect(try engine.evaluate("(command? (find-child v \"c\"))") == .true)
+        #expect(try engine.evaluate("(equal? (node-label (find-child v \"c\")) \"Scrollback\")") == .true)
     }
 
     // MARK: - Config-like pattern

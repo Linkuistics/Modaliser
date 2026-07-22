@@ -185,14 +185,17 @@ final class KeyboardLibrary: NativeLibrary {
         // Step 2: dispatch Scheme work asynchronously on the main thread.
         // Even if Scheme spends seconds shelling out to AppleScript probes,
         // the tap (on its own thread) keeps buffering keystrokes meanwhile.
+        let context = self.context
         DispatchQueue.main.async { [weak self] in
-            let result = evaluator.execute { machine in
-                try machine.apply(handler, to: .null)
+            context.withEvalLockNonBlocking {
+                let result = evaluator.execute { machine in
+                    try machine.apply(handler, to: .null)
+                }
+                if case .error(let err) = result {
+                    NSLog("KeyboardLibrary: hotkey handler error: %@", "\(err)")
+                }
+                self?.finalizeCapture(buffer: buffer, registry: registry)
             }
-            if case .error(let err) = result {
-                NSLog("KeyboardLibrary: hotkey handler error: %@", "\(err)")
-            }
-            self?.finalizeCapture(buffer: buffer, registry: registry)
         }
     }
 
@@ -281,6 +284,7 @@ final class KeyboardLibrary: NativeLibrary {
         }
         let evaluator = self.context.evaluator!
         let registry = self.handlerRegistry
+        let context = self.context
         handlerRegistry.catchAllHandler = { keyCode, modifiers in
             // Cmd+anything passes through without evaluation
             if modifiers.contains(.maskCommand) {
@@ -288,18 +292,20 @@ final class KeyboardLibrary: NativeLibrary {
             }
             // All other keys: suppress immediately, evaluate asynchronously
             DispatchQueue.main.async {
-                let args: Expr = .pair(
-                    .fixnum(Int64(keyCode)),
-                    .pair(.fixnum(Int64(modifiers.rawValue)), .null)
-                )
-                let result = evaluator.execute { machine in
-                    try machine.apply(handler, to: args)
-                }
-                if case .error(let err) = result {
-                    NSLog("KeyboardLibrary: catch-all handler error: %@", "\(err)")
-                    // Safety: deregister catch-all on error to prevent stuck modal
-                    registry.catchAllHandler = nil
-                    NSLog("KeyboardLibrary: catch-all deregistered after error (safety recovery)")
+                context.withEvalLockNonBlocking {
+                    let args: Expr = .pair(
+                        .fixnum(Int64(keyCode)),
+                        .pair(.fixnum(Int64(modifiers.rawValue)), .null)
+                    )
+                    let result = evaluator.execute { machine in
+                        try machine.apply(handler, to: args)
+                    }
+                    if case .error(let err) = result {
+                        NSLog("KeyboardLibrary: catch-all handler error: %@", "\(err)")
+                        // Safety: deregister catch-all on error to prevent stuck modal
+                        registry.catchAllHandler = nil
+                        NSLog("KeyboardLibrary: catch-all deregistered after error (safety recovery)")
+                    }
                 }
             }
             return true
