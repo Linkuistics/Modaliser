@@ -33,6 +33,38 @@ read_version() {
   git -C "$REPO_ROOT" describe --tags --abbrev=0 | sed 's/^v//'
 }
 
+repo_is_jj() {
+  command -v jj >/dev/null 2>&1 \
+    && jj --ignore-working-copy -R "$REPO_ROOT" root >/dev/null 2>&1
+}
+
+# jj keeps git HEAD detached by design — branch identity lives in a bookmark,
+# not in HEAD — so `git symbolic-ref HEAD` finds nothing and the git branch
+# push below cannot run. Push the bookmark(s) pointing at the released commit
+# through jj instead. Deriving the revset from git HEAD rather than `@-` keeps
+# this honest about *which* commit is being released: HEAD is the commit
+# release-build.sh verified is tagged, and it is what `gh release create` must
+# find on origin. Tags stay on git either way — jj creates only lightweight
+# tags and `jj git push` does not push tags at all.
+push_bookmark_via_jj() {
+  local head_sha names
+  head_sha="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+  names="$(jj --ignore-working-copy -R "$REPO_ROOT" bookmark list -r "$head_sha" \
+    -T 'if(remote, "", name ++ "\n")')"
+  [[ -n "$names" ]] \
+    || die "no jj bookmark points at the released commit ($head_sha); run 'jj bookmark set <name> -r @-'"
+  echo "release-publish: pushing bookmark(s) ${names//$'\n'/ } to origin via jj"
+  jj -R "$REPO_ROOT" git push -r "$head_sha"
+}
+
+push_git_branch() {
+  local branch
+  branch="$(git -C "$REPO_ROOT" symbolic-ref --quiet --short HEAD)" \
+    || die "HEAD is detached; release from a branch"
+  echo "release-publish: pushing $branch to origin"
+  git -C "$REPO_ROOT" push origin "$branch"
+}
+
 verify_tag_matches_artifacts() {
   local version="$1"
   local sample
@@ -50,12 +82,13 @@ verify_tag_matches_artifacts() {
 push_branch_and_tag() {
   local version="$1"
   local tag="v${version}"
-  local remote_tag_sha local_tag_sha branch
-  branch="$(git -C "$REPO_ROOT" symbolic-ref --quiet --short HEAD)" \
-    || die "HEAD is detached; release from a branch"
+  local remote_tag_sha local_tag_sha
 
-  echo "release-publish: pushing $branch to origin"
-  git -C "$REPO_ROOT" push origin "$branch"
+  if repo_is_jj; then
+    push_bookmark_via_jj
+  else
+    push_git_branch
+  fi
 
   local_tag_sha="$(git -C "$REPO_ROOT" rev-parse "$tag")"
   remote_tag_sha="$(git -C "$REPO_ROOT" ls-remote --tags origin "$tag" | awk '{print $1}')"
