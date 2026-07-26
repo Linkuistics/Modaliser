@@ -20,9 +20,16 @@
           label-pairs
           ax-find-labelled
           ax-target-bindings
-          ax-target-hints)
+          ax-target-hints
+          ;; Pure cell-grid frame calibration (host-neutral — relocated
+          ;; from the herdr list block by library-fragments-k11 so a HOST
+          ;; app's canvas-frame capability can compose it without
+          ;; importing a herdr block; see apps/iterm).
+          calibrated-grid-frame)
   (import (scheme base)
           (modaliser dsl)
+          ;; alist-ref: calibrated-grid-frame's tolerant field reads.
+          (only (modaliser util) alist-ref)
           (modaliser accessibility)
           (modaliser theming))
   (begin
@@ -56,6 +63,52 @@
             (cons 'background "#ffffff")
             (cons 'border-width 1)
             (cons 'border-color "#000000")))
+
+    ;; ─── Grid-frame calibration ────────────────────────────────────
+    ;;
+    ;; (calibrated-grid-frame cell raw total-w total-h) → frame alist
+    ;; ((x)(y)(w)(h)), or RAW unchanged (including #f) when calibration
+    ;; can't improve on it.
+    ;;
+    ;; Calibrate a terminal-style host frame to the REAL glyph grid
+    ;; (herdr-canvas-pixel-calibration-k42). RAW — typically an
+    ;; AXScrollArea frame — is not the grid: terminals inset the grid by
+    ;; side/top margins, and a tiled/zoomed window whose size isn't a
+    ;; whole number of cells keeps sub-cell slack at the right/bottom, so
+    ;; dividing canvas coordinates by the raw frame stretches every
+    ;; position proportionally to the coordinate. CELL is the measured
+    ;; screen rect of the canvas's top-left character (the host's
+    ;; bounds-for-range AX probe): its origin is the grid origin and its
+    ;; size the true cell size, so the grid frame is origin + TOTAL×cell
+    ;; — under which the callers' divide-by-total arithmetic becomes
+    ;; exact. Extents round once at the frame level (< 0.5px over the
+    ;; whole span) so the frame stays integral for round-div. Falls back
+    ;; to RAW when CELL is missing/degenerate or the derived grid doesn't
+    ;; fit inside RAW (±1pt tolerance) — e.g. a double-width first glyph
+    ;; would report a two-cell width and double the extent — so
+    ;; calibration is never worse than the uncalibrated behaviour it
+    ;; replaces. Pure; hosts compose it into their 'canvas-frame
+    ;; capability (CONTEXT.md "Grid frame").
+    (define (calibrated-grid-frame cell raw total-w total-h)
+      (let ((cx (and cell (alist-ref cell 'x #f)))
+            (cy (and cell (alist-ref cell 'y #f)))
+            (cw (and cell (alist-ref cell 'w #f)))
+            (ch (and cell (alist-ref cell 'h #f))))
+        (if (not (and raw (number? cx) (number? cy)
+                      (number? cw) (number? ch) (> cw 0) (> ch 0)))
+            raw
+            (let ((gx (exact (round cx)))
+                  (gy (exact (round cy)))
+                  (gw (exact (round (* total-w cw))))
+                  (gh (exact (round (* total-h ch))))
+                  (rx (cdr (assoc 'x raw))) (ry (cdr (assoc 'y raw)))
+                  (rw (cdr (assoc 'w raw))) (rh (cdr (assoc 'h raw))))
+              (if (and (>= gx (- rx 1)) (>= gy (- ry 1))
+                       (<= (+ gx gw) (+ rx rw 1))
+                       (<= (+ gy gh) (+ ry rh 1)))
+                  (list (cons 'x gx) (cons 'y gy)
+                        (cons 'w gw) (cons 'h gh))
+                  raw)))))
 
     ;; ─── Helpers ──────────────────────────────────────────────────
 

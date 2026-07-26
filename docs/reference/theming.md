@@ -78,7 +78,7 @@ Panel-grid layout knobs (set on `.panel-grid`; the renderer pins
 
 | Variable | Default | Role |
 |---|---|---|
-| `--panel-grid-cols` | `auto-fit` | Track count. Default flows panels into as many tracks as fit; an authored `'cols` pins an explicit count. |
+| `--panel-grid-cols` | `auto-fit` | Track count. `overlay.js` sets it inline: aspect-balanced by measurement, or the authored `'cols` when given. The `auto-fit` default in CSS is the pre-JS first-paint fallback. |
 | `--panel-min-width` | `184px` | Minimum panel track width (the auto-fit `minmax`). |
 | `--panel-grid-max-width` | `760px` | Caps the grid width so it wraps rather than stretching to one row. |
 | `--panel-gap` | `10px` | Gap between panels. |
@@ -245,7 +245,7 @@ unlike the host header.
 | `.overlay.walk` | Modifier on `.overlay` when navigation is inside a Walk (the current node or an ancestor on the path is a Walk). |
 | `.overlay-header` | Breadcrumb / app-context band at the card top. |
 | `.overlay-header .breadcrumb-sep` | `›` separator between breadcrumb segments. |
-| `.overlay-custom-body` | Container for a custom-renderer body. `data-renderer` attribute = `"panel-grid"` or `"blocks"`. The `panel-grid` variant carries the tinted `--overlay-body-bg`. |
+| `.overlay-custom-body` | Container for a custom-renderer body. `data-renderer` attribute = `"panel-grid"` (the only one); also carries `data-root-id` / `data-active-section` for the embed restyle protocol. Carries the tinted `--overlay-body-bg`. |
 | `.overlay-footer` | Separated footer strip (tinted background + top rule). |
 | `.overlay-footer-root` | Modifier at the root of a tree (no back-hint shown). |
 | `.footer-hint` | One footer command hint (sigil + label). Shared by the overlay and chooser footers. |

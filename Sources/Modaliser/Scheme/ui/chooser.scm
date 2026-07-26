@@ -15,7 +15,7 @@
 ;; ─── Chooser State ──────────────────────────────────────────
 
 (define chooser-webview-id "modaliser-chooser")
-;; chooser-open? is now a thunk exported from (modaliser state-machine).
+;; chooser-open? is now a thunk exported from (modaliser fsm).
 ;; Use (set-chooser-open! v) to mutate and (chooser-open?) to read.
 (define chooser-items '())           ;; raw items from source (list of alists)
 (define chooser-item-texts '())      ;; display texts extracted from items
@@ -336,7 +336,7 @@
 
 ;; (chooser-close-impl) — close the chooser and reset state.
 ;; Installed via (set-close-chooser! chooser-close-impl) at load time;
-;; close-chooser in (modaliser state-machine) delegates here.
+;; close-chooser in (modaliser fsm) delegates here.
 (define (chooser-close-impl)
   (when (chooser-open?)
     (webview-close chooser-webview-id)
@@ -432,7 +432,7 @@
 ;; the continuation never fires. Reuses chooser-open?/close-chooser (set
 ;; via set-chooser-open!/chooser-close-impl above) so a leader press while
 ;; the prompt is up closes it exactly like the list chooser (see
-;; make-leader-handler in event-dispatch.sld).
+;; make-configured-leader-handler in handoff.sld).
 
 ;; (render-chooser-prompt-html prompt value) → HTML document string
 ;;
@@ -491,7 +491,7 @@
 
 ;; (chooser-prompt-impl prompt initial-value on-submit) — open the prompt
 ;; panel. Installed via (set-open-chooser-prompt! chooser-prompt-impl);
-;; herdr.sld (portable tree) calls it through the (modaliser state-machine)
+;; herdr.sld (portable tree) calls it through the (modaliser fsm)
 ;; open-chooser-prompt hook, the same shape open-chooser uses.
 (define (chooser-prompt-impl prompt initial-value on-submit)
   (set-chooser-open! #t)
@@ -632,7 +632,7 @@
           act
           (loop (cdr acts)))))))
 
-;; Install chooser implementation into the state-machine.
+;; Install chooser implementation into the modal engine ((modaliser fsm)).
 (set-open-chooser! chooser-open-impl)
 (set-close-chooser! chooser-close-impl)
 (set-open-chooser-prompt! chooser-prompt-impl)

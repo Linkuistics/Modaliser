@@ -1,10 +1,14 @@
 ;; (modaliser blocks herdr-list) — one block constructor for herdr's five
 ;; live lists (panes / tabs / workspaces / agents / worktrees). herdr's
-;; socket-API CLI hands us the id, focused flag and label of every
+;; socket hands us the id, focused flag and label of every
 ;; pane/tab/workspace/agent directly as JSON, so — unlike the iTerm blocks —
 ;; there is NO AX walk, no UUID correlation and no empty-title fallback. The
-;; lists differ mostly in which `herdr <x> list` to run and how to read each
+;; lists differ mostly in which `<x>.list` method to call and how to read each
 ;; row, so a single `kind`-parameterised block covers all five.
+;;
+;; Every query here goes over the socket through the shared `herdr-query`
+;; seam ((modaliser muxes herdr-socket), ADR-0020) — this library shells out
+;; nowhere, and holds no herdr-specific transport of its own.
 ;;
 ;; The agents kind is the odd one out: its rows carry a `status` (from each
 ;; agent's `agent_status`) that the JS renders as a color-coded badge, and it
@@ -18,7 +22,7 @@
 ;; "br:<branch>" to open a dormant one) that (modaliser muxes herdr) parses at
 ;; key-press — and the CURRENT row is computed cross-field (a row is current
 ;; when its open_workspace_id equals result.source.source_workspace_id, both
-;; riding in the same `worktree list` payload). Both are pure over the JSON, so
+;; riding in the same `worktree.list` payload). Both are pure over the JSON, so
 ;; no re-query. No status badge; the open/dormant state is folded into the
 ;; dimmed detail text (● open / ○ dormant), reusing the renderer unchanged.
 ;;
@@ -42,9 +46,9 @@
 ;; worktrees kind the cdr is the computed tagged target, not a bare id — so the
 ;; parent group can build a hidden (key-range "1.." …) that dispatches each
 ;; digit to the matching target. The focus/switch ACTION lives in (modaliser
-;; muxes herdr) — `agent focus <pane_id>` / `tab focus <id>` / `workspace focus
-;; <id>` / the worktree smart-switch — not here, keeping this module UI-only
-;; (it never shells a mutating op).
+;; muxes herdr) — `pane.focus` / `tab.focus` / `workspace.focus` / the worktree
+;; smart-switch — not here, keeping this module UI-only (it issues no mutating
+;; method).
 ;;
 ;; ── Single-render invariant ──
 ;; State (current-targets / current-data / current-kind) is module-level, one
@@ -59,7 +63,7 @@
 ;; A render is NOT guaranteed to have run by the time the digit key-range
 ;; reads the cell, though (herdr-fast-key-drops-k8): a group descent only
 ;; renders synchronously when the overlay is already visible
-;; (modal-handle-key, state-machine.sld) — a fast leader→group→digit press
+;; (modal-handle-key, fsm.sld) — a fast leader→group→digit press
 ;; can reach the digit before that. current-kind exists so a reader can tell
 ;; a genuine snapshot of ITS kind apart from another kind's leftovers still
 ;; sitting in the shared cell, rather than trusting a bare (assoc label
@@ -68,8 +72,11 @@
 ;; ── Pane chips (panes kind, 'chips? #t) ──
 ;; With 'chips? #t the panes block also paints digit chips over the on-screen
 ;; herdr panes (mirroring iterm-panes' paint-and-snapshot! / hints-hide). Rects
-;; come from `herdr pane layout` — per-pane cell rects scaled by the focused
-;; iTerm AXScrollArea pixel frame, tmux-style. Two subtleties:
+;; come from `pane.layout` — per-pane cell rects scaled by the HOST's
+;; calibrated canvas frame, read from the frontmost host backend's
+;; 'canvas-frame capability through the terminal façade
+;; (library-fragments-k11; the probe itself is the host's own glue — see
+;; apps/iterm). Two subtleties:
 ;;   • CANVAS-RELATIVE. herdr paints a left sidebar, so layout.area.x ≥ 26 —
 ;;     but that area is only the pane sub-region, NOT the full canvas the AX
 ;;     host frame maps to. Pane rects are already absolute cells within the
@@ -77,29 +84,28 @@
 ;;     the per-cell pixel size instead divides by (area.x + area.width) ×
 ;;     (area.y + area.height) — the total canvas — not by area.width/height
 ;;     alone. See herdr-chip-entries below for the live verification.
-;;   • SUBSET of rows, historically. `pane layout` covers only the CURRENT
-;;     tab's splits; since pane-list-tab-local-k3, `pane list` (the row
+;;   • SUBSET of rows, historically. `pane.layout` covers only the CURRENT
+;;     tab's splits; since pane-list-tab-local-k3, `pane.list` (the row
 ;;     source) is scoped identically (dropped to the focused tab in the pure
 ;;     extractor, mirroring the tabs kind's workspace-scoping), so a listed
 ;;     pane always has a matching chip. The lookup-by-pane_id keying stays as
 ;;     the mechanism — it still matters for the degraded #f-scope-id case,
 ;;     where the row list reverts to global and an off-tab row again has no
-;;     chip. Digit-jump still focuses such a row by id (via `agent focus`);
+;;     chip. Digit-jump still focuses such a row by id (via `pane.focus`);
 ;;     only the visible chip is absent.
-;;   • REPLACE MODE ONLY is correct. host-frame takes the FIRST iTerm
-;;     AXScrollArea; in replace mode herdr owns the sole one, so the frame is
-;;     right. In augment mode (herdr + other iTerm splits) that first area may
-;;     be the wrong split, so chips can land on the wrong pixels — a documented
-;;     v1 limitation (docs/reference/terminal-detection.md). hjkl focus and
-;;     digit-jump are unaffected; the proper fix (a focused-iTerm-session-frame
-;;     primitive) is the optional deferred leaf.
-;;   • GRID-CALIBRATED. The AXScrollArea frame is NOT the glyph grid: iTerm
-;;     insets the grid by its side/top margins, and a tiled window whose size
-;;     isn't cell-quantized keeps sub-cell slack at the far edges, so scaling
-;;     cell rects by the raw frame stretches the mapping (~0.3% measured) and
-;;     chips drift proportionally to the coordinate. The live paint paths
-;;     therefore scale against the measured grid frame instead — see
-;;     herdr-grid-frame below (herdr-canvas-pixel-calibration-k42).
+;;   • REPLACE MODE ONLY is correct. The host's canvas-frame probe reports
+;;     its focused/sole terminal surface; in replace mode herdr owns it, so
+;;     the frame is right. In augment mode (herdr + other host splits) the
+;;     probed surface may be the wrong split, so chips can land on the wrong
+;;     pixels — a documented v1 limitation of the host's probe
+;;     (docs/reference/terminal-detection.md, and apps/iterm's capability
+;;     docstring). hjkl focus and digit-jump are unaffected.
+;;   • GRID-CALIBRATED. The raw host frame is NOT the glyph grid — margins
+;;     and sub-cell slack stretch the mapping (~0.3% measured), so chips
+;;     drift proportionally to the coordinate. A host's 'canvas-frame
+;;     capability therefore reports the measured grid frame (the
+;;     calibrated-grid-frame composition — see apps/iterm;
+;;     herdr-canvas-pixel-calibration-k42).
 
 (define-library (modaliser blocks herdr-list)
   (export make-herdr-list-block
@@ -114,16 +120,25 @@
           herdr-list-focused-index
           herdr-list-refresh!
           ;; Pure JSON → (targets . rows) extractor, exported for unit tests
-          ;; (fed a parsed `herdr <x> list` fixture, no live herdr needed).
+          ;; (fed a parsed `<x>.list` fixture, no live herdr needed).
           herdr-list-extract
-          ;; Pure chip-rect synthesis (targets + parsed `pane layout` + host
+          ;; Pure chip-rect synthesis (targets + parsed `pane.layout` + host
           ;; frame → labelled chip entries), exported for unit tests.
           herdr-chip-entries
           ;; Pure host-frame calibration (measured top-left cell + raw
           ;; AXScrollArea frame + canvas totals → the true grid frame),
           ;; exported for unit tests (herdr-canvas-pixel-calibration-k42).
+          ;; Since library-fragments-k11 an alias of (modaliser ax-hints)
+          ;; calibrated-grid-frame — the pure function moved there so host
+          ;; apps can compose it into their 'canvas-frame capability.
           herdr-grid-frame
-          ;; (result.canvas) of a parsed `ui layout` → (width . height).
+          ;; The calibrated host-frame lookup the paint paths share —
+          ;; since library-fragments-k11 it reads the frontmost HOST
+          ;; backend's 'canvas-frame capability through the terminal
+          ;; façade (no iTerm knowledge left in this file). Exported so
+          ;; tests can drive the capability seam end-to-end.
+          herdr-grid-host-frame
+          ;; (result.canvas) of a parsed `ui.layout` → (width . height).
           ;; Lives here (not in muxes/herdr, which imports this library)
           ;; because the ui.layout paint path below needs the canvas for
           ;; grid calibration; muxes' geometry extractors import it back.
@@ -150,11 +165,6 @@
           ;; panels wholesale on every call).
           herdr-paint-ui-layout-chip-targets!
           default-herdr-labels
-          ;; Test seam (herdr-fast-key-drops-k8, mirrors current-herdr-query-
-          ;; runner in (modaliser muxes herdr)): a test hands back canned
-          ;; `herdr <x> list` JSON in place of a live query
-          ;; (feedback_no_live_env_mutation_in_tests).
-          current-herdr-list-runner
           ;; Test seam (herdr-jump-tests-live-ax-k50): the calibrated grid
           ;; host-frame source behind herdr-grid-host-frame — the paint
           ;; pipeline's ONE live-AX dependency. A test exercising a paint
@@ -166,21 +176,25 @@
   (import (scheme base)
           (modaliser dsl)
           (modaliser util)
-          (modaliser shell)
           (modaliser json)
-          ;; backend-tool-missing?/note-backend-query-result!: ADR-0017
-          ;; Layer 2 — this block's own query wrapper feeds the same
-          ;; shared 'herdr health entry (modaliser muxes herdr) does, and
-          ;; snapshot! consults it to render the missing-tool message row.
-          (only (modaliser terminal)
-                modaliser-tool-path
-                backend-tool-missing?
-                note-backend-query-result!)
-          ;; Chip overlay: AX host frame + hint painting + resolved chip theme.
-          ;; Same set the iTerm panes block leans on; all (modaliser …)
-          ;; libraries, so the portable-surface contract holds (nothing from
-          ;; the host LispKit tree crosses into lib/modaliser).
-          (modaliser accessibility)
+          ;; herdr-query: the ONE herdr read seam (ADR-0020,
+          ;; list-block-query-cutover-k32). This library cannot reach it
+          ;; through (modaliser muxes herdr) — that file imports THIS one for
+          ;; the chip-paint pipeline — hence the transport's own library.
+          ;; Nothing here shells out any more: no (modaliser shell), no
+          ;; modaliser-tool-path, no ADR-0017 Layer 2 health lookup (herdr
+          ;; left Layer 2 with its tool-name; a #f from herdr-query is itself
+          ;; the reachability verdict — see snapshot! below).
+          (only (modaliser muxes herdr-socket) herdr-query)
+          ;; host-capability: the frontmost host's 'canvas-frame probe —
+          ;; the chip pipeline's host-frame source since
+          ;; library-fragments-k11 (docs/specs/configuration-value.md
+          ;; "Host capabilities, consumed generically").
+          (only (modaliser terminal) host-capability)
+          ;; Chip overlay: hint painting + resolved chip theme. All
+          ;; (modaliser …) libraries, so the portable-surface contract
+          ;; holds (nothing from the host LispKit tree crosses into
+          ;; lib/modaliser).
           (modaliser hints)
           (modaliser ax-hints)
           (modaliser theming)
@@ -213,55 +227,30 @@
           ((let ((f (assoc 'focused (car rows)))) (and f (cdr f))) i)
           (else (loop (cdr rows) (+ i 1))))))
 
-    ;; GUI-launched Modaliser inherits a stripped PATH that omits
-    ;; /opt/homebrew/bin (where herdr lives) — same prefix the herdr backend
-    ;; and the tmux/zellij helpers use.
-    (define path-prefix
-      (string-append "export PATH=" modaliser-tool-path ":$PATH; "))
-
-    ;; Run `herdr <subcmd>`, parse stdout as JSON → alist/vector tree, or #f
-    ;; on empty/non-JSON output. The guard keeps a truncated line from
-    ;; raising through a render pass (herdr output is reliably JSON, even
-    ;; errors, but a render must never break). Routed through
-    ;; current-herdr-list-runner (mirrors current-herdr-query-runner in
-    ;; (modaliser muxes herdr)) so a test can hand back canned JSON without a
-    ;; live herdr session (feedback_no_live_env_mutation_in_tests).
-    (define current-herdr-list-runner
-      (make-parameter
-        (lambda (subcmd)
-          (let ((out (string-trim
-                       (run-shell
-                         (string-append path-prefix "herdr " subcmd " 2>/dev/null")))))
-            (if (string=? out "")
-                #f
-                (guard (e (#t #f)) (json-parse out)))))))
-
-    (define (herdr-list-json subcmd)
-      (let ((result ((current-herdr-list-runner) subcmd)))
-        (note-backend-query-result! 'herdr (and result #t))
-        result))
-
-    ;; Per-kind spec: (cli-subcommand result-array-key id-key title-key).
-    ;; The result envelope is {"result":{"<array-key>":[ … ]}} for every
-    ;; list command; each element carries an id, a `focused` bool and a
-    ;; human label. Panes and agents have no `label`, so their title falls
-    ;; back to the agent name then the id. Agents key their digit target on
-    ;; `pane_id` — `agent focus <pane_id>` is the universal cross-tab focus.
-    ;; The worktrees kind leaves id-key / title-key #f: it computes both its
-    ;; target and its title from several fields (see the worktree helpers), so
-    ;; the extractor bypasses the plain-field path for it.
+    ;; Per-kind spec: (socket-method result-array-key id-key title-key).
+    ;; Every list method takes only optional params, so all five are called
+    ;; with an empty params object; scoping happens in the pure extractor,
+    ;; not on the wire (see scope-field below). The result envelope is
+    ;; {"result":{"<array-key>":[ … ]}} for every one of them; each element
+    ;; carries an id, a `focused` bool and a human label. Panes and agents
+    ;; have no `label`, so their title falls back to the agent name then the
+    ;; id. Agents key their digit target on `pane_id` — `pane.focus` is the
+    ;; universal by-id, cross-tab focus (ADR-0020). The worktrees kind leaves
+    ;; id-key / title-key #f: it computes both its target and its title from
+    ;; several fields (see the worktree helpers), so the extractor bypasses
+    ;; the plain-field path for it.
     (define (kind-spec kind)
       (cond
         ((eq? kind 'panes)
-         (list "pane list" "panes" "pane_id" #f))
+         (list "pane.list" "panes" "pane_id" #f))
         ((eq? kind 'tabs)
-         (list "tab list" "tabs" "tab_id" "label"))
+         (list "tab.list" "tabs" "tab_id" "label"))
         ((eq? kind 'workspaces)
-         (list "workspace list" "workspaces" "workspace_id" "label"))
+         (list "workspace.list" "workspaces" "workspace_id" "label"))
         ((eq? kind 'agents)
-         (list "agent list" "agents" "pane_id" #f))
+         (list "agent.list" "agents" "pane_id" #f))
         ((eq? kind 'worktrees)
-         (list "worktree list" "worktrees" #f #f))
+         (list "worktree.list" "worktrees" #f #f))
         (else (error "herdr-list: unknown kind" kind))))
 
     ;; The JSON field a scoped kind's rows are filtered on, or #f for a kind
@@ -277,7 +266,7 @@
 
     ;; ─── Worktree computed fields ───────────────────────────────────
     ;; The worktrees kind reads no plain id / focused field: its digit target
-    ;; and its current row are both computed over the parsed `worktree list`
+    ;; and its current row are both computed over the parsed `worktree.list`
     ;; payload. Kept pure (JSON → value) so the extractor tests feed fixtures.
 
     ;; Last non-empty "/"-separated segment of a path, e.g.
@@ -393,7 +382,7 @@
                             raw))))
         (append (band 0) (band 1) (band 2) (band 3))))
 
-    ;; Pure extractor: parsed `herdr <x> list` JSON + kind + labels +
+    ;; Pure extractor: parsed `<x>.list` JSON + kind + labels +
     ;; scope-id → (targets . rows). targets = ((label . id) …) for the
     ;; first (length labels) entries; rows = every entry as an alist ((label
     ;; title detail focused) plus, for the agents kind only, status). An
@@ -511,12 +500,12 @@
                                  base))
                            rows))))))))
 
-    ;; A single blank-label row carrying MESSAGE in place of real entries
-    ;; (ADR-0017 Layer 2). The "entry past the label supply still renders
-    ;; with a blank key, no dispatch" convention (herdr-list-extract's
-    ;; docstring) already covers this shape, so the JS renderer needs no
-    ;; change: a blank label draws no keycap and the row maps to no digit.
-    (define (missing-tool-row message)
+    ;; A single blank-label row carrying MESSAGE in place of real entries.
+    ;; The "entry past the label supply still renders with a blank key, no
+    ;; dispatch" convention (herdr-list-extract's docstring) already covers
+    ;; this shape, so the JS renderer needs no change: a blank label draws no
+    ;; keycap and the row maps to no digit.
+    (define (message-row message)
       (list (cons 'label "") (cons 'title message)
             (cons 'detail "") (cons 'focused #f)))
 
@@ -524,21 +513,30 @@
     ;; scope-id is threaded straight into herdr-list-extract — see its
     ;; docstring; only a scoped kind (panes, tabs) uses it.
     ;;
-    ;; herdr-list-json's health side-effect lands before this checks
-    ;; backend-tool-missing? — a #f PARSED here is ambiguous (unreachable
-    ;; vs. genuinely nothing to list), and the health table is exactly
-    ;; what resolves that ambiguity: herdr-list-extract stays pure and
-    ;; parsed-JSON-driven (it cannot tell the two cases apart), so the
-    ;; missing-tool branch lives here instead, reading the SAME 'herdr
-    ;; entry (modaliser muxes herdr)'s herdr-json also feeds.
+    ;; A #f PARSED means herdr did not answer, full stop — unreachable
+    ;; socket, timeout or an unparseable reply, all of which herdr-query has
+    ;; already logged with its reason. It is NOT ambiguous with either
+    ;; neighbouring case, which is what lets this row say something true:
+    ;;   • "nothing to list" — a reachable herdr with an empty list answers a
+    ;;     perfectly good {"result":{"panes":[]}}: truthy, and the extractor
+    ;;     turns it into zero rows.
+    ;;   • "herdr said no" — a structured error (e.g. `worktree.list` →
+    ;;     not_git_worktree when the focused workspace is not in a git work
+    ;;     tree) also comes back truthy, as its envelope; it simply has no
+    ;;     `result`, so the extractor likewise yields zero rows. herdr IS
+    ;;     responding in that case, and the row below would lie about it.
+    ;; The shell-out era's `2>/dev/null` empty string could tell none of the
+    ;; three apart, which is why herdr needed ADR-0017 Layer 2's `command -v`
+    ;; re-probe to guess between them (see the tool-name note on (modaliser
+    ;; muxes herdr)'s backend record). herdr-list-extract stays pure and
+    ;; parsed-JSON-driven, so the unresponsive branch lives here, not in it.
     (define (snapshot! kind labels scope-id)
       (let* ((spec   (kind-spec kind))
-             (parsed (herdr-list-json (list-ref spec 0))))
-        (if (backend-tool-missing? 'herdr)
+             (parsed (herdr-query (list-ref spec 0) '())))
+        (if (not parsed)
             (begin
               (set! current-targets '())
-              (set! current-data
-                    (list (missing-tool-row "herdr not found on the tool path")))
+              (set! current-data (list (message-row "herdr is not responding")))
               (set! current-kind kind))
             (let ((pair (herdr-list-extract kind labels parsed scope-id)))
               (set! current-targets (car pair))
@@ -557,7 +555,7 @@
 
     ;; ─── Pane chips ─────────────────────────────────────────────────
     ;;
-    ;; Rects come from `herdr pane layout`; see the module header for the
+    ;; Rects come from `pane.layout`; see the module header for the
     ;; area-relative / subset-of-rows / replace-mode-only notes. The pure
     ;; synthesis (herdr-chip-entries) is exported so a fixture-fed test needs
     ;; no live herdr or AX.
@@ -574,7 +572,7 @@
                     (list x y w h))))))
 
     ;; (herdr-layout-canvas layout) → (total-w . total-h) cells, or #f —
-    ;; the FULL canvas inferred from `pane layout`'s area as
+    ;; the FULL canvas inferred from `pane.layout`'s area as
     ;; (area.x + area.width) × (area.y + area.height); see
     ;; herdr-chip-entries' doc comment for why the total, not the area.
     (define (herdr-layout-canvas layout)
@@ -608,7 +606,7 @@
 
     ;; (herdr-chip-entries targets layout host) → labelled chip entries ready
     ;; for ax-target-hints. targets = ((label . pane_id) …) from the row
-    ;; snapshot; layout = parsed `pane layout`; host = the host pixel frame
+    ;; snapshot; layout = parsed `pane.layout`; host = the host pixel frame
     ;; alist ((x)(y)(w)(h)) — at runtime the calibrated grid frame
     ;; (herdr-grid-host-frame). Each entry is (label . ((handle . #f)
     ;; (x)(y)(w)(h))) — same shape ax-find-elements rows have, so
@@ -683,18 +681,7 @@
                                        acc)))
                          (loop (cdr ts) acc))))))))))
 
-    ;; Focused iTerm AXScrollArea pixel frame — the tmux host-frame source.
-    ;; Replace mode: herdr owns the sole scroll area, so the first match is
-    ;; correct. Augment mode: the first may be the wrong split (documented
-    ;; limitation). #f when iTerm isn't reachable. NOTE this is the RAW
-    ;; frame — margins and slack included, not the glyph grid; the live
-    ;; paint paths refine it via herdr-grid-host-frame below.
-    (define (herdr-host-frame)
-      (let ((areas (ax-find-elements-named
-                     "com.googlecode.iterm2" "AXScrollArea" "AXStaticText")))
-        (and (pair? areas) (car areas))))
-
-    ;; (result.canvas) of a parsed `ui layout` → (width . height), or #f
+    ;; (result.canvas) of a parsed `ui.layout` → (width . height), or #f
     ;; when missing/malformed — width/height must be positive (they
     ;; divide). Relocated from (modaliser muxes herdr) — which imports it
     ;; back — so the ui.layout paint path below can read the canvas for
@@ -706,66 +693,34 @@
              (h (and canvas (json-ref canvas "height"))))
         (and (number? w) (number? h) (> w 0) (> h 0) (cons w h))))
 
-    ;; (herdr-grid-frame cell raw total-w total-h) → host-frame alist.
-    ;; Calibrate the host frame to the REAL glyph grid (herdr-canvas-
-    ;; pixel-calibration-k42). RAW — the AXScrollArea frame — is not the
-    ;; grid: iTerm insets the grid by its side/top margins (5pt/2pt by
-    ;; default), and a tiled/zoomed window whose size isn't a whole number
-    ;; of cells keeps sub-cell slack at the right/bottom. Measured live
-    ;; (2026-07-19, AXBoundsForRange): raw (1706,64,3410,2096) held a grid
-    ;; whose top-left cell sat at (1711,66) with exact 8×18pt cells — a
-    ;; 425×116 canvas really spans 3400×2088, and dividing by the raw
-    ;; frame instead stretched every coordinate ~0.3%, the drift's root
-    ;; cause. CELL is the measured screen rect of the canvas's top-left
-    ;; character (ax-first-visible-char-bounds): its origin is the grid
-    ;; origin and its size the true cell size, so the grid frame is
-    ;; origin + TOTAL×cell — under which the callers' divide-by-total
-    ;; arithmetic becomes exact. Extents round once at the frame level
-    ;; (< 0.5px over the whole span) so the frame stays integral for
-    ;; round-div. Falls back to RAW unchanged (including #f) when CELL is
-    ;; missing/degenerate or the derived grid doesn't fit inside RAW
-    ;; (±1pt tolerance) — e.g. a double-width first glyph would report a
-    ;; two-cell width and double the extent — so calibration is never
-    ;; worse than the uncalibrated behaviour it replaces.
-    (define (herdr-grid-frame cell raw total-w total-h)
-      (let ((cx (and cell (alist-ref cell 'x #f)))
-            (cy (and cell (alist-ref cell 'y #f)))
-            (cw (and cell (alist-ref cell 'w #f)))
-            (ch (and cell (alist-ref cell 'h #f))))
-        (if (not (and raw (number? cx) (number? cy)
-                      (number? cw) (number? ch) (> cw 0) (> ch 0)))
-            raw
-            (let ((gx (exact (round cx)))
-                  (gy (exact (round cy)))
-                  (gw (exact (round (* total-w cw))))
-                  (gh (exact (round (* total-h ch))))
-                  (rx (cdr (assoc 'x raw))) (ry (cdr (assoc 'y raw)))
-                  (rw (cdr (assoc 'w raw))) (rh (cdr (assoc 'h raw))))
-              (if (and (>= gx (- rx 1)) (>= gy (- ry 1))
-                       (<= (+ gx gw) (+ rx rw 1))
-                       (<= (+ gy gh) (+ ry rh 1)))
-                  (list (cons 'x gx) (cons 'y gy)
-                        (cons 'w gw) (cons 'h gh))
-                  raw)))))
+    ;; Pure calibration, kept under its historical exported name for the
+    ;; unit tests (herdr-canvas-pixel-calibration-k42); the definition —
+    ;; and its full docstring — now lives host-neutrally in (modaliser
+    ;; ax-hints) as calibrated-grid-frame, so a host app can compose it
+    ;; into its own 'canvas-frame capability (apps/iterm does).
+    (define herdr-grid-frame calibrated-grid-frame)
 
-    ;; Live composition of the calibration: measured top-left cell bounds
-    ;; + raw scroll-area frame → the grid frame for a TOTAL-W×TOTAL-H-cell
-    ;; canvas. #f when iTerm is unreachable (same degradation as
-    ;; herdr-host-frame; the paint paths already skip on no host).
-    ;; Parameterised (herdr-jump-tests-live-ax-k50) because this is the ONE
-    ;; place the paint pipeline reads the live desktop's AX tree: the walk
-    ;; behind ax-find-elements-named is slow (>1s against a live iTerm) and
-    ;; recursion-heavy enough to overflow a cooperative-pool test thread's
-    ;; small stack, so a test driving the pipeline MUST swap it out — the
-    ;; canvas-before-host short-circuit in the two paint functions below is
-    ;; an optimisation, not a hermeticity guarantee.
+    ;; The calibrated host frame for a TOTAL-W×TOTAL-H-cell canvas — read
+    ;; from the frontmost HOST backend's 'canvas-frame capability through
+    ;; the terminal façade (library-fragments-k11): which host herdr is
+    ;; running in is runtime state, and the probe behind the frame is that
+    ;; host's own glue, not this block's. #f when no registered host
+    ;; exposes the capability (host unreachable, unregistered, or simply
+    ;; incapable) — the paint paths already skip on no host, so a
+    ;; capability-less host degrades chips exactly as an unreachable iTerm
+    ;; always did.
+    ;; Parameterised (herdr-jump-tests-live-ax-k50) because the capability
+    ;; is the ONE place the paint pipeline reads the live desktop's AX
+    ;; tree: the element walk behind it is slow (>1s against a live iTerm)
+    ;; and recursion-heavy enough to overflow a cooperative-pool test
+    ;; thread's small stack, so a test driving the pipeline MUST swap it
+    ;; out — the canvas-before-host short-circuit in the two paint
+    ;; functions below is an optimisation, not a hermeticity guarantee.
     (define current-herdr-host-frame
       (make-parameter
         (lambda (total-w total-h)
-          (herdr-grid-frame
-            (ax-first-visible-char-bounds "com.googlecode.iterm2")
-            (herdr-host-frame)
-            total-w total-h))))
+          (let ((probe (host-capability 'canvas-frame)))
+            (and probe (probe total-w total-h))))))
 
     (define (herdr-grid-host-frame total-w total-h)
       ((current-herdr-host-frame) total-w total-h))
@@ -825,7 +780,7 @@
           (hints-show-in group (ax-target-hints entries theme)))))
 
     (define (herdr-paint-chip-targets! targets . opts)
-      (let* ((layout  (herdr-list-json "pane layout"))
+      (let* ((layout  (herdr-query "pane.layout" '()))
              (canvas  (herdr-layout-canvas layout))
              ;; No canvas → no chips regardless of host (herdr-chip-entries
              ;; degrades to empty), so skip the AX queries entirely.
@@ -851,7 +806,7 @@
     ;; empty (e.g. a narrowing leader with no surviving tab targets) — one
     ;; combined call sidesteps both. Same opts as herdr-paint-chip-targets!.
     (define (herdr-paint-ui-layout-chip-targets! targets-by-kind . opts)
-      (let* ((parsed  (herdr-list-json "ui layout"))
+      (let* ((parsed  (herdr-query "ui.layout" '()))
              (canvas  (ui-layout-canvas parsed))
              ;; No canvas → every extractor degrades to empty anyway, so
              ;; skip the AX queries entirely (mirrors the pane path above).

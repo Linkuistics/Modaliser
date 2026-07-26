@@ -15,7 +15,7 @@ struct ConfigDslTests {
         try engine.evaluate("""
           (import (modaliser util)
                   (modaliser keymap)
-                  (modaliser state-machine))
+                  (modaliser fsm))
         """)
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
@@ -45,7 +45,10 @@ struct ConfigDslTests {
         try engine.evaluate("""
           (import (modaliser util)
                   (modaliser keymap)
-                  (modaliser state-machine))
+                  (modaliser fsm)
+                  (modaliser configuration)
+                  (modaliser fsm)
+                  (modaliser handoff))
         """)
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
@@ -152,11 +155,13 @@ struct ConfigDslTests {
     @Test func selectorInTreeExitsModalOnSelect() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "f" "Find File"
-                (selector 'prompt "Search…" 'source (lambda () '()))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "f" "Find File"
+                    (selector 'prompt "Search…" 'source (lambda () '()))))))))
             """)
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("modal-active?") == .true)
 
         // Pressing 'f' hits the selector — currently exits modal (chooser is Phase 4)
@@ -168,28 +173,21 @@ struct ConfigDslTests {
     @Test func selectorInGroupNavigationWorks() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (group "f" "Find"
-                (key "a" "Find Apps"
-                  (selector 'prompt "Find app…" 'source (lambda () '())))
-                (key "e" "Emoji" (lambda () 'ok))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (group "f" "Find"
+                    (key "a" "Find Apps"
+                      (selector 'prompt "Find app…" 'source (lambda () '())))
+                    (key "e" "Emoji" (lambda () 'ok))))))))
             """)
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"f\")")
         #expect(try engine.evaluate("modal-active?") == .true)
 
         // Now at "Find" group, pressing 'a' hits selector
         try engine.evaluate("(modal-handle-key \"a\")")
         #expect(try engine.evaluate("modal-active?") == .false)
-    }
-
-    // MARK: - set-theme! backward compatibility
-
-    @Test func setThemeIsNoOp() throws {
-        let engine = try loadDsl()
-        // set-theme! should exist and not error
-        try engine.evaluate("(set-theme! 'background \"#fff\" 'foreground \"#000\")")
-        // No crash = pass
     }
 
     // MARK: - CSS theming
@@ -203,10 +201,10 @@ struct ConfigDslTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (set! user-theme-css ":root { --overlay-bg: #333; }")
-            (register-tree! 'global (key "s" "Safari" (lambda () 'ok)))
+            (define css-root (tree-root 'global (key "s" "Safari" (lambda () 'ok))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html css-root '("Global") '())
             """).asString()
         #expect(html.contains("--overlay-bg: #333"))
     }
@@ -221,10 +219,21 @@ struct ConfigDslTests {
         let configPath = schemePath + "/default-config.scm"
         try engine.evaluateFile(configPath)
 
-        // Verify trees were registered from config
-        #expect(try engine.evaluate("(lookup-tree \"global\")") != .false)
-        #expect(try engine.evaluate("(lookup-tree \"com.apple.Safari\")") != .false)
-        #expect(try engine.evaluate("(lookup-tree \"com.googlecode.iterm2\")") != .false)
+        // Verify the config's trees were lowered into the installed graph.
+        #expect(try engine.evaluate("(fsm-state-ref \"global\")") != .false)
+        #expect(try engine.evaluate("(fsm-state-ref \"com.apple.Safari\")") != .false)
+        #expect(try engine.evaluate("(fsm-state-ref \"com.googlecode.iterm2\")") != .false)
+        // Per-app screens are authored inline (seed-shrink-k17, ADR-0019) —
+        // spot-check one machinery-backed and one pure-preference screen.
+        #expect(try engine.evaluate("(fsm-state-ref \"company.thebrowser.dia\")") != .false)
+        #expect(try engine.evaluate("(fsm-state-ref \"com.apple.finder\")") != .false)
+        // The inner tools' screens are the seed's too (ADR-0021): each
+        // library ships only its wiring, whose context entry names these
+        // scopes, so a seed that stopped authoring them would lower to a
+        // dangling reference rather than to a working install.
+        #expect(try engine.evaluate("(fsm-state-ref \"herdr\")") != .false)
+        #expect(try engine.evaluate("(fsm-state-ref \"zellij\")") != .false)
+        #expect(try engine.evaluate("(fsm-state-ref \"nvim\")") != .false)
 
         // Verify hotkeys registered
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
@@ -232,9 +241,44 @@ struct ConfigDslTests {
         #expect(kbLib.handlerRegistry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f17, modifiers: [])] != nil)
     }
 
+    /// The same seam, extended over `Scheme/examples/*.scm` (ADR-0021).
+    ///
+    /// An example is a complete, working configuration for a setup a
+    /// fresh install does not seed — tmux and Chrome today. It is never loaded at
+    /// runtime, so nothing else would notice it rotting; evaluating each
+    /// one into its OWN fresh engine (a configuration installs once, and
+    /// two examples would collide on scope) turns "an example stopped
+    /// composing" into a red suite instead of silent rot.
+    @Test func exampleConfigsLoadWithoutErrors() throws {
+        guard let schemePath = try SchemeEngine().schemeDirectoryPath else {
+            throw SchemeTestError.noSchemeDir
+        }
+        let examplesDir = joinPath(schemePath, "examples")
+        let names = try FileManager.default
+            .contentsOfDirectory(atPath: examplesDir)
+            .filter { $0.hasSuffix(".scm") }
+            .sorted()
+        // The directory itself is the contract: an empty examples/ would
+        // pass every assertion below vacuously.
+        #expect(!names.isEmpty, "no examples found in \(examplesDir)")
+
+        for name in names {
+            let engine = try loadAllModules()
+            try engine.evaluateFile(joinPath(examplesDir, name))
+            // It installed: the graph carries the example's screens and
+            // both leaders are armed.
+            #expect(try engine.evaluate("(fsm-state-ref \"global\")") != .false,
+                    "\(name): no global screen in the installed graph")
+            let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+            #expect(kbLib.handlerRegistry
+                        .hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f17, modifiers: [])] != nil,
+                    "\(name): local leader not armed")
+        }
+    }
+
     // MARK: - Migrated bundled config renders as panels (config-migration-k8)
 
-    /// The bundled global tree, migrated to the layout DSL, registers as a
+    /// The bundled global tree, migrated to the layout DSL, contributes a
     /// panel-grid SCREEN whose grid is the authored panels — and a command
     /// stays reachable by its original key through the (transparent) panel, so
     /// dispatch is unchanged by the presentation restructure. After
@@ -245,13 +289,16 @@ struct ConfigDslTests {
         guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
         try engine.evaluateFile(schemePath + "/default-config.scm")
 
-        // Registered as a panel-grid screen, not the legacy auto-layout.
-        #expect(try engine.evaluate("(eq? (node-renderer (lookup-tree \"global\")) 'panel-grid)") == .true)
+        // The installed configuration value carries the global screen's root
+        // node; a panel-grid screen (structured display), not the legacy
+        // auto-layout.
+        try engine.evaluate("(define g-root (configuration-tree-ref (modaliser:configuration) \"global\"))")
+        #expect(try engine.evaluate("(pair? (node-display-ref g-root 'panels))") == .true)
 
         // The top-level grid serialises the authored panels. (The top level
         // embeds no live-list block — the windows list lives a level down under
         // "w" — so this render fires no on-render side effects.)
-        let json = try engine.evaluate("(panel-grid-payload-json (lookup-tree \"global\"))").asString()
+        let json = try engine.evaluate("(panel-grid-payload-json g-root)").asString()
         #expect(json.contains("\"type\":\"panel-grid\""))
         for label in ["Applications", "Search"] {
             #expect(json.contains("\"label\":\"\(label)\""), "missing panel \(label)")
@@ -267,9 +314,9 @@ struct ConfigDslTests {
         // Transparent dispatch preserved: "b" (Browser) keeps its path
         // through the Applications panel; "w" is the navigable Windows
         // drill-down (an `open`, lowered to a group).
-        #expect(try engine.evaluate("(command? (find-child (lookup-tree \"global\") \"b\"))") == .true)
-        #expect(try engine.evaluate("(equal? (node-label (find-child (lookup-tree \"global\") \"b\")) \"Browser\")") == .true)
-        #expect(try engine.evaluate("(group? (find-child (lookup-tree \"global\") \"w\"))") == .true)
+        #expect(try engine.evaluate("(command? (find-child g-root \"b\"))") == .true)
+        #expect(try engine.evaluate("(equal? (node-label (find-child g-root \"b\")) \"Browser\")") == .true)
+        #expect(try engine.evaluate("(group? (find-child g-root \"w\"))") == .true)
     }
 
     /// The "w" Windows drill-down renders as a panel grid: a headerless
@@ -283,24 +330,28 @@ struct ConfigDslTests {
         try engine.evaluateFile(schemePath + "/default-config.scm")
 
         try engine.evaluate("""
-          (define win (find-child (lookup-tree "global") "w"))
+          (define win (find-child (configuration-tree-ref (modaliser:configuration) "global") "w"))
+          ;; A panel of ROOT's resolved render plan, by label — panels live
+          ;; in the display value; resolve-display is pure (no on-render).
           (define (grid-panel root lbl)
-            (let loop ((cs (node-children root)))
-              (cond ((null? cs) #f)
-                    ((and (category? (car cs)) (equal? (node-label (car cs)) lbl)) (car cs))
-                    (else (loop (cdr cs))))))
+            (let loop ((ps (cdr (assoc 'panels
+                                       (resolve-display (node-children root)
+                                                        (node-display root))))))
+              (cond ((null? ps) #f)
+                    ((equal? (cdr (assoc 'label (car ps))) lbl) (car ps))
+                    (else (loop (cdr ps))))))
         """)
-        #expect(try engine.evaluate("(eq? (node-renderer win) 'panel-grid)") == .true)
+        #expect(try engine.evaluate("(pair? (node-display-ref win 'panels))") == .true)
 
         // The Select / Windows / Displays panels are present…
-        #expect(try engine.evaluate("(category? (grid-panel win \"Select\"))") == .true)
-        #expect(try engine.evaluate("(category? (grid-panel win \"Windows\"))") == .true)
-        #expect(try engine.evaluate("(category? (grid-panel win \"Displays\"))") == .true)
+        #expect(try engine.evaluate("(pair? (grid-panel win \"Select\"))") == .true)
+        #expect(try engine.evaluate("(pair? (grid-panel win \"Windows\"))") == .true)
+        #expect(try engine.evaluate("(pair? (grid-panel win \"Displays\"))") == .true)
         // …with the live window list under Windows and the display list under Displays.
         #expect(try engine.evaluate(
-            "(eq? (cdr (assoc 'type (node-renderer-payload (grid-panel win \"Windows\") 'list))) 'window-list)") == .true)
+            "(eq? (cdr (assoc 'type (cdr (assoc 'list (grid-panel win \"Windows\"))))) 'window-list)") == .true)
         #expect(try engine.evaluate(
-            "(eq? (cdr (assoc 'type (node-renderer-payload (grid-panel win \"Displays\") 'list))) 'display-list)") == .true)
+            "(eq? (cdr (assoc 'type (cdr (assoc 'list (grid-panel win \"Displays\"))))) 'display-list)") == .true)
 
         // Transparent dispatch preserved: move-window "d" (lifted from the
         // headerless diagram panel) and the Select panel's s/r keep their paths.
@@ -325,6 +376,11 @@ struct ConfigDslTests {
     /// list embedded, and whose commands keep their keys (transparent
     /// dispatch). Asserted structurally so the test never depends on a live
     /// iTerm (the pane block's on-render-fn talks to the app).
+    ///
+    /// Since iterm-owns-its-bindings-k45 the screen is authored in the
+    /// SEED rather than delivered by the library, so this now pins the
+    /// seeded composition (as the herdr tests below do) rather than a
+    /// library constructor's output.
     @Test func defaultItermTreeRendersAsPanelGrid() throws {
         let engine = try loadAllModules()
         guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
@@ -332,81 +388,185 @@ struct ConfigDslTests {
 
         try engine.evaluate("""
           (define (grid-panel root lbl)
-            (let loop ((cs (node-children root)))
-              (cond ((null? cs) #f)
-                    ((and (category? (car cs)) (equal? (node-label (car cs)) lbl)) (car cs))
-                    (else (loop (cdr cs))))))
-          (define it (lookup-tree "com.googlecode.iterm2"))
+            (let loop ((ps (cdr (assoc 'panels
+                                       (resolve-display (node-children root)
+                                                        (node-display root))))))
+              (cond ((null? ps) #f)
+                    ((equal? (cdr (assoc 'label (car ps))) lbl) (car ps))
+                    (else (loop (cdr ps))))))
+          (define it (configuration-tree-ref (modaliser:configuration) "com.googlecode.iterm2"))
         """)
-        #expect(try engine.evaluate("(eq? (node-renderer it) 'panel-grid)") == .true)
-        #expect(try engine.evaluate("(category? (grid-panel it \"Splits\"))") == .true)
-        // Panes panel embeds the live pane list under 'list (no render here,
-        // so the on-render-fn never fires — purely structural).
+        #expect(try engine.evaluate("(pair? (node-display-ref it 'panels))") == .true)
+        #expect(try engine.evaluate("(pair? (grid-panel it \"Splits\"))") == .true)
+        // Panes panel embeds the live pane list in the plan's 'list slot
+        // (resolve-display is pure, so the on-render-fn never fires —
+        // purely structural).
         #expect(try engine.evaluate(
-            "(eq? (cdr (assoc 'type (node-renderer-payload (grid-panel it \"Panes\") 'list))) 'iterm-panes)") == .true)
+            "(eq? (cdr (assoc 'type (cdr (assoc 'list (grid-panel it \"Panes\"))))) 'iterm-panes)") == .true)
         // Transparent dispatch: "c" (Copy Mode) keeps its path; "t" is the
         // navigable Tab drill-down (an `open` → group).
         #expect(try engine.evaluate("(command? (find-child it \"c\"))") == .true)
         #expect(try engine.evaluate("(group? (find-child it \"t\"))") == .true)
     }
 
-    /// herdr-copy-mode-k16 — the herdr entry node ships zero iTerm controls by
-    /// design, so scrollback is unreachable there without an explicit binding.
-    /// The config composition layer appends a top-level `c` "Scrollback" (herdr's
-    /// native per-pane edit_scrollback, sent as the `ctrl+b e` host keystroke
-    /// sequence). iTerm's own copy mode is unsuitable — it selects across the
-    /// whole herdr canvas, ignoring per-pane layout. Loads the real bundled
-    /// config and asserts the binding is exposed, guarding against a future
-    /// refactor dropping it. (The keystroke sequence is host-specific, so it
-    /// lives in the config, not in the portable build-herdr-tree — asserted
-    /// structurally, no live iTerm.)
-    @Test func herdrEntryNodeExposesTopLevelScrollback() throws {
+    /// ADR-0021's seam for iTerm: the library ships (iterm:wiring) — the
+    /// backend record and the digit-jump tree — and the CONFIG authors
+    /// the screen. That split moves one real risk into user space: the
+    /// splits, moves, copy mode and zoom ops all ride on eight iTerm key
+    /// bindings that only `configure!` writes, and nothing in the library
+    /// can surface that action any more. A seed that dropped the row
+    /// would leave a fresh install with ops that silently do nothing, so
+    /// the row — and its self-retiring gate — is pinned here.
+    ///
+    /// Structural only: `configured?` is never called (it shells out to
+    /// `defaults`/PlistBuddy), just checked for identity against the
+    /// node's 'hidden slot. No live iTerm.
+    @Test func seededItermScreenAuthorsTheProvisioningRowAndWiring() throws {
+        let engine = try loadAllModules()
+        guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
+        try engine.evaluateFile(schemePath + "/default-config.scm")
+        try engine.evaluate("""
+          (import (prefix (modaliser apps iterm) iterm:))
+          (define cfg (modaliser:configuration))
+          (define root (configuration-tree-ref cfg "com.googlecode.iterm2"))
+          (define setup (find-child root "C-I"))
+        """)
+        #expect(try engine.evaluate("(command? setup)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'action setup)) iterm:configure!)") == .true)
+        // The gate is the library's probe, passed through the `key`
+        // macro's 'hidden keyword — which is what retires the row on the
+        // next overlay open, with no relaunch.
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'hidden setup)) iterm:configured?)") == .true)
+        // The machinery-named scope the backend record references by key.
+        // Its PRESENCE is what makes the seed a working reference rather
+        // than a nearly-working one.
+        #expect(try engine.evaluate("(pair? (configuration-tree-ref cfg \"iterm-pane-digit\"))") == .true)
+        #expect(try engine.evaluate("(terminal-backend? (configuration-backend-ref cfg 'iterm))") == .true)
+    }
+
+    /// herdr-copy-mode-k16 / herdr-copy-mode-key-k34 — the herdr tree ships
+    /// zero iTerm controls by design, so herdr's own text-inspection surfaces
+    /// are unreachable there without explicit bindings. herdr has TWO, and
+    /// they are distinct ops, not spellings of one: copy mode (per-pane
+    /// selection in the LIVE pane, `copy_mode`, default `prefix [`) and
+    /// scrollback (the focused pane's buffer opened in an editor,
+    /// `edit_scrollback`, default `prefix e`). k16 shipped only the latter, on
+    /// `c`; k34 gave copy mode that `c` and moved scrollback to `C`. iTerm's
+    /// own copy mode is unsuitable for either — it selects across the whole
+    /// herdr canvas, ignoring per-pane layout.
+    ///
+    /// Loads the real bundled config (which authors the 'herdr screen
+    /// inline, ADR-0021) and asserts both bindings are exposed with the
+    /// right labels, guarding against a future edit dropping one or
+    /// collapsing the pair back into a single key. Structural only — the
+    /// keystroke bodies stay untested by design, the same trust level as the
+    /// Quit group's Detach key. (No live iTerm, no live herdr.)
+    @Test func herdrEntryNodeExposesCopyModeAndScrollback() throws {
         let engine = try loadAllModules()
         guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
         try engine.evaluateFile(schemePath + "/default-config.scm")
 
-        try engine.evaluate("(define v (lookup-tree \"com.googlecode.iterm2/herdr\"))")
+        try engine.evaluate("(define v (configuration-tree-ref (modaliser:configuration) \"herdr\"))")
         #expect(try engine.evaluate("(command? (find-child v \"c\"))") == .true)
-        #expect(try engine.evaluate("(equal? (node-label (find-child v \"c\")) \"Scrollback\")") == .true)
+        #expect(try engine.evaluate("(equal? (node-label (find-child v \"c\")) \"Copy Mode\")") == .true)
+        #expect(try engine.evaluate("(command? (find-child v \"C\"))") == .true)
+        #expect(try engine.evaluate("(equal? (node-label (find-child v \"C\")) \"Scrollback\")") == .true)
+
+        // The pair is the plane rule's one exception, so pin BOTH halves of
+        // why it is safe: `c`/`C` are case-distinct children (a case-folding
+        // regression would silently collapse them into one binding), and `C`
+        // does not shadow a drill capital — P T S W A Q all still resolve to
+        // their own navigable nodes.
+        #expect(try engine.evaluate("(eq? (find-child v \"c\") (find-child v \"C\"))") == .false)
+        for capital in ["P", "T", "S", "W", "A", "Q"] {
+            #expect(try engine.evaluate("(group? (find-child v \"\(capital)\"))") == .true)
+        }
+    }
+
+    /// ADR-0021's seam for herdr: the library ships (herdr:wiring) — the
+    /// context entry, the backend record, the digit-jump tree — and the
+    /// CONFIG authors the screen. That split moves one real risk into user
+    /// space: the jump space only works if the screen wires the provider
+    /// and the chip hooks itself, and nothing in the library can do it for
+    /// them. So the seeded composition, which is what every fresh install
+    /// runs AND the reference every user copies from, is pinned here.
+    ///
+    /// `screen` stores both hooks uncomposed (display-dsl-surface-k23
+    /// removed the old compose-hooks detour — block hook fns fire
+    /// structurally from run-on-enter/run-on-leave instead), so the root's
+    /// node-on-enter/node-on-leave are eq? to the library's exports
+    /// directly. The unconditional 'entry/'exit slots must stay unset —
+    /// the double-fire trap. Structural only: never invokes the hooks, so
+    /// no AX / hints-show dependency, and no live herdr.
+    @Test func seededHerdrScreenWiresTheJumpSpaceAndItsWalk() throws {
+        let engine = try loadAllModules()
+        guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
+        try engine.evaluateFile(schemePath + "/default-config.scm")
+        try engine.evaluate("""
+          (import (prefix (modaliser muxes herdr) herdr:))
+          (define cfg (modaliser:configuration))
+          (define root (configuration-tree-ref cfg "herdr"))
+        """)
+        // The jump space's three halves, all config-side wiring now.
+        #expect(try engine.evaluate("(eq? (node-provider root) herdr:herdr-jump-provider)") == .true)
+        #expect(try engine.evaluate("(eq? (node-on-enter root) herdr:paint-jump-chips!)") == .true)
+        #expect(try engine.evaluate("(eq? (node-on-leave root) herdr:clear-jump-chips!)") == .true)
+        #expect(try engine.evaluate("(not (node-entry root))") == .true)
+        #expect(try engine.evaluate("(not (node-exit root))") == .true)
+        // The two machinery-named scopes the wiring and the Focus rows
+        // reference by key. A rename of either is a load-time closure
+        // error, but their PRESENCE is what makes the seed a working
+        // reference rather than a nearly-working one.
+        #expect(try engine.evaluate("(pair? (configuration-tree-ref cfg \"herdr-panes-focus\"))") == .true)
+        #expect(try engine.evaluate("(pair? (configuration-tree-ref cfg \"herdr-pane-digit\"))") == .true)
+        #expect(try engine.evaluate("""
+          (equal? (configuration-context-ref cfg "herdr")
+                  '((tree . herdr) (backend . herdr)))
+        """) == .true)
     }
 
     // MARK: - Config-like pattern
 
     @Test func fullConfigPatternLoads() throws {
         let engine = try loadAllModules()
-        // Simulate a config.scm-like structure with selectors and actions
+        // Simulate a config.scm-like structure with selectors and actions,
+        // composed as one configuration value and installed via the one-shot
+        // handoff (which also arms the leaders).
         try engine.evaluate("""
-            (set-leader! 'global F18)
-            (set-leader! 'local F17)
+            (modaliser:start! (configuration
+              (leaders (leader 'global F18)
+                       (leader 'local F17))
 
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok))
-              (group "f" "Find"
-                (key "a" "Find Apps"
-                  (selector 'prompt "Find app…"
-                            'source (lambda () '())
-                            'on-select (lambda (c) c)
-                            'actions (list
-                              (action "Open" 'description "Launch" 'key 'primary
-                                'run (lambda (c) c))
-                              (action "Reveal" 'description "Show in Finder" 'key 'secondary
-                                'run (lambda (c) c)))))
-                (key "e" "Emoji" (lambda () 'ok)))
-              (group "w" "Windows"
-                (key "c" "Center" (lambda () 'ok))
-                (key "s" "Switch Window"
-                  (selector 'prompt "Select window…"
-                            'source (lambda () '())
-                            'on-select (lambda (c) c)))))
+              (tree 'global
+                (tree-root 'global
+                  (key "s" "Safari" (lambda () 'ok))
+                  (group "f" "Find"
+                    (key "a" "Find Apps"
+                      (selector 'prompt "Find app…"
+                                'source (lambda () '())
+                                'on-select (lambda (c) c)
+                                'actions (list
+                                  (action "Open" 'description "Launch" 'key 'primary
+                                    'run (lambda (c) c))
+                                  (action "Reveal" 'description "Show in Finder" 'key 'secondary
+                                    'run (lambda (c) c)))))
+                    (key "e" "Emoji" (lambda () 'ok)))
+                  (group "w" "Windows"
+                    (key "c" "Center" (lambda () 'ok))
+                    (key "s" "Switch Window"
+                      (selector 'prompt "Select window…"
+                                'source (lambda () '())
+                                'on-select (lambda (c) c))))))
 
-            (register-tree! 'com.apple.Safari
-              (group "t" "Tabs"
-                (key "n" "New Tab" (lambda () 'ok))))
+              (tree 'com.apple.Safari
+                (tree-root 'com.apple.Safari
+                  (group "t" "Tabs"
+                    (key "n" "New Tab" (lambda () 'ok)))))))
             """)
 
-        // Verify trees registered correctly
-        #expect(try engine.evaluate("(lookup-tree \"global\")") != .false)
-        #expect(try engine.evaluate("(lookup-tree \"com.apple.Safari\")") != .false)
+        // Verify the trees lowered into the installed graph
+        #expect(try engine.evaluate("(fsm-state-ref \"global\")") != .false)
+        #expect(try engine.evaluate("(fsm-state-ref \"com.apple.Safari\")") != .false)
 
         // Verify hotkeys registered
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
@@ -414,11 +574,15 @@ struct ConfigDslTests {
         #expect(kbLib.handlerRegistry.hotkeyHandlers[HotkeyKey(keyCode: KeyCode.f17, modifiers: [])] != nil)
     }
 
-    // MARK: - set-leader! keyword args (modifiers, arm-when-frontmost)
+    // MARK: - leader spec keyword args (modifiers, arm-when-frontmost)
 
-    @Test func setLeaderWithModifiersRegistersUnderModifierKey() throws {
+    @Test func leaderWithModifiersRegistersUnderModifierKey() throws {
         let engine = try loadAllModules()
-        try engine.evaluate("(set-leader! 'global F18 'modifiers '(shift))")
+        try engine.evaluate("""
+            (modaliser:start! (configuration
+              (leaders (leader 'global F18 'modifiers '(shift)))
+              (screen 'global (key "s" "Safari" (lambda () #t)))))
+            """)
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
         #expect(kbLib.handlerRegistry.hotkeyHandlers[
             HotkeyKey(keyCode: KeyCode.f18, modifiers: [.maskShift])] != nil)
@@ -426,11 +590,13 @@ struct ConfigDslTests {
             HotkeyKey(keyCode: KeyCode.f18, modifiers: [])] == nil)
     }
 
-    @Test func setLeaderWithArmBundleIdsRegistersBundleIds() throws {
+    @Test func leaderWithArmBundleIdsRegistersBundleIds() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (set-leader! 'global F18
-                         'arm-when-frontmost '("com.jumpdesktop.Jump-Desktop"))
+            (modaliser:start! (configuration
+              (leaders (leader 'global F18
+                               'arm-when-frontmost '("com.jumpdesktop.Jump-Desktop")))
+              (screen 'global (key "s" "Safari" (lambda () #t)))))
             """)
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
         let entry = kbLib.handlerRegistry.hotkeyHandlers[
@@ -438,12 +604,14 @@ struct ConfigDslTests {
         #expect(entry?.armBundleIds == ["com.jumpdesktop.Jump-Desktop"])
     }
 
-    @Test func setLeaderAcceptsBothKeywordsInEitherOrder() throws {
+    @Test func leaderAcceptsBothKeywordsInEitherOrder() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (set-leader! 'global F18
-                         'arm-when-frontmost '("com.foo")
-                         'modifiers '(shift ctrl))
+            (modaliser:start! (configuration
+              (leaders (leader 'global F18
+                               'arm-when-frontmost '("com.foo")
+                               'modifiers '(shift ctrl)))
+              (screen 'global (key "s" "Safari" (lambda () #t)))))
             """)
         let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
         let entry = kbLib.handlerRegistry.hotkeyHandlers[
@@ -452,29 +620,29 @@ struct ConfigDslTests {
         #expect(entry?.armBundleIds == ["com.foo"])
     }
 
-    // MARK: - set-leader! requires an explicit mode
+    // MARK: - leader specs require an explicit mode
 
-    @Test func setLeaderWithoutModeRaisesError() throws {
+    @Test func leaderWithoutModeRaisesError() throws {
         let engine = try loadAllModules()
         // The mode ('global / 'local) is required — a bare keycode
         // must not be accepted.
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(set-leader! F18)")
+            try engine.evaluate("(leader F18)")
         }
     }
 
-    @Test func setLeaderOmittedModeWithKeywordsRaisesError() throws {
+    @Test func leaderOmittedModeWithKeywordsRaisesError() throws {
         let engine = try loadAllModules()
         // A missing mode is an error even when keyword args follow.
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(set-leader! F18 'modifiers '(shift))")
+            try engine.evaluate("(leader F18 'modifiers '(shift))")
         }
     }
 
-    @Test func setLeaderUnknownKeywordRaisesError() throws {
+    @Test func leaderUnknownKeywordRaisesError() throws {
         let engine = try loadAllModules()
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(set-leader! 'global F18 'frob 1)")
+            try engine.evaluate("(leader 'global F18 'frob 1)")
         }
     }
 
@@ -498,28 +666,32 @@ struct ConfigDslTests {
     }
 
     @Test func crossEdgeKeyTransitionsModalIntoNamedMode() throws {
-        // After firing a leaf whose 'next names a different registered
-        // tree (a cross edge), modal-handle-key should leave the modal
-        // active and switch its root to that tree — so subsequent
-        // presses act inside that mode without another leader.
+        // After firing a leaf whose 'next names a different tree in the
+        // installed configuration (a cross edge), modal-handle-key should
+        // leave the modal active and switch its root to that tree — so
+        // subsequent presses act inside that mode without another leader.
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define fired '())
-            (register-tree! 'iterm-focus-test
-              'display-name "Focus"
-              (key "h" "Left" (lambda () (set! fired (cons 'left fired))) 'next 'self))
-            (register-tree! 'transient-test
-              (key "h" "Focus Left"
-                (lambda () (set! fired (cons 'transient-left fired)))
-                'next 'iterm-focus-test))
+            (define cross-cfg (configuration
+              (tree 'iterm-focus-test
+                (tree-root 'iterm-focus-test
+                  'display-name "Focus"
+                  (key "h" "Left" (lambda () (set! fired (cons 'left fired))) 'next 'self)))
+              (tree 'transient-test
+                (tree-root 'transient-test
+                  (key "h" "Focus Left"
+                    (lambda () (set! fired (cons 'transient-left fired)))
+                    'next 'iterm-focus-test)))))
+            (fsm-install-graph! (lower-configuration cross-cfg))
             """)
-        try engine.evaluate("(modal-enter (lookup-tree \"transient-test\") F18)")
+        try engine.evaluate("(modal-activate! \"transient-test\" '() F18)")
         try engine.evaluate("(modal-handle-key \"h\")")
         // The transient action fired
         #expect(try engine.evaluate("(equal? (car fired) 'transient-left)") == .true)
         // Modal is still active, now rooted at the crossed-into tree
         #expect(try engine.evaluate("modal-active?") == .true)
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"iterm-focus-test\"))") == .true)
+        #expect(try engine.evaluate("(eq? modal-root-node (configuration-tree-ref cross-cfg \"iterm-focus-test\"))") == .true)
     }
 
     @Test func twoLiveListBlocksInOnePanelIsRejected() throws {
@@ -541,13 +713,13 @@ struct ConfigDslTests {
 
     @Test func windowAndDisplayListsInSeparatePanelsBuild() throws {
         // The fix shape: each live-list block in its OWN panel builds cleanly
-        // (no error), both as 'category nodes that carry their embedded 'list.
+        // (no error), both as panel-specs that carry their embedded 'list.
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser dsl) (prefix (modaliser window-actions) window:) (prefix (modaliser display-actions) display:))")
         try engine.evaluate("(define pw (panel \"Windows\" (window:list-block 'chips? #t)))")
         try engine.evaluate("(define pd (panel \"Displays\" (display:display-list-block 'chips? #t)))")
-        #expect(try engine.evaluate("(eq? (cdr (assoc 'kind pw)) 'category)") == .true)
-        #expect(try engine.evaluate("(eq? (cdr (assoc 'kind pd)) 'category)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'kind pw)) 'panel-spec)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'kind pd)) 'panel-spec)") == .true)
         #expect(try engine.evaluate("(pair? (assoc 'list pw))") == .true)
         #expect(try engine.evaluate("(pair? (assoc 'list pd))") == .true)
     }

@@ -45,30 +45,41 @@ Building from source requires macOS 14+ and Swift 5.9+ / Xcode 15+ — the Homeb
 
 On first launch, Modaliser presents an onboarding window for Accessibility (with a deep-link button into System Settings, polling for the grant and auto-relaunching when it lands) and then triggers macOS's native Screen Recording prompt. Accessibility is required for global keyboard capture; Screen Recording, for reading window titles. After both are granted, the app runs as an accessory (no Dock icon) with a menu bar icon.
 
-Modaliser also seeds `~/.config/modaliser/config.scm` from a bundled default on first launch. That file is your configuration — edit it, then pick **Relaunch** from the menu bar icon to apply changes (Modaliser does not reload config in place). The menu bar icon provides **Settings** (opens `config.scm` in the default editor), **Relaunch** (restart to apply config changes), and **Quit Modaliser**.
+Modaliser also seeds `~/.config/modaliser/config.scm` from a bundled default on first launch. That file is your configuration — edit it, then pick **Relaunch** from the menu bar icon to apply changes (Modaliser does not reload config in place). The menu bar icon provides **Open Config…**, **Reveal Config in Finder**, **Reset Config to Bundled Default…** (backs yours up first), **Relaunch**, and **Quit Modaliser**.
+
+A config that doesn't load never wedges the app: Modaliser runs the bundled default configuration instead, so leader keys keep working, and puts the error on the menu bar and in a dialog. Every menu item stays live so you can open the config, fix it, and relaunch.
 
 A minimal modern config:
 
 ```scheme
 (import (modaliser dsl)
-        (modaliser app)
-        (modaliser leader)
-        (prefix (modaliser apps safari) safari:))
+        (modaliser configuration)
+        (modaliser handoff)
+        (modaliser keyboard)
+        (modaliser input)
+        (modaliser app))
 
-(set-leaders! 'global-keycode F18
-              'local-keycode  F17)
+(modaliser:start!
+  (configuration
+    (leaders
+      (leader 'global F18)
+      (leader 'local  F17))
+    (overlay-delay 0.3)
 
-(set-overlay-delay! 0.3)
+    (screen 'global
+      (panel "Apps"
+        (key "s" "Safari"   (λ () (launch-app "Safari")))
+        (key "t" "Terminal" (λ () (launch-app "iTerm")))))
 
-(define-tree 'global
-  (category "Apps"
-    (key "s" "Safari"   (λ () (launch-app "Safari")))
-    (key "t" "Terminal" (λ () (launch-app "iTerm")))))
-
-(safari:register!)              ; app-local tree (F17 while Safari is focused)
+    ;; App-local tree — F17 while Safari is focused.
+    (screen 'com.apple.Safari
+      (key "n" "New Tab"      (λ () (send-keystroke '(cmd) "t")))
+      (key "f" "Find on Page" (λ () (send-keystroke '(cmd) "f"))))))
 ```
 
-That's a complete config. `(modaliser dsl)` surfaces the DSL (`key`, `keys`, `group`, `category`, `selector`, `overlay`, `define-tree`, `λ`); `(modaliser leader)` adds `set-leaders!`; the bundled stdlib includes app-specific trees (`safari:`, `chrome:`, `iterm:`) and helpers (`window:`, `launcher:`, `web-search:`, `settings:`).
+That's a complete config — and everything above the `modaliser:start!` call is plain, printable data. Libraries export pure constructors returning **fragments**; ordinary Scheme composes them; `configuration` merges them into one value; the single `modaliser:start!` handoff installs it. `(modaliser dsl)` surfaces the layout forms (`screen`, `panel`, `open`, `splice`) and dispatch atoms (`key`, `keys`, `group`, `selector`, `walk`, `λ`); the bundled stdlib provides host and terminal-tool integration plus the ops a screen binds (`iterm:`, `herdr:`, `tmux:`, `zellij:`, `nvim:`) and helpers (`window:`, `launcher:`, `web-search:`, `settings:`).
+
+**No bundled library ships a screen.** Which operations are surfaced, on which keys, under which labels is preference, and preference lives in your config — libraries hold only what a tool's own behaviour fixes ([ADR-0021](docs/adr/0021-decision-free-libraries.md)). That is why the Safari tree above is six lines of ordinary DSL rather than a factory call.
 
 See the [Quick start](docs/quickstart/index.md) for a guided walkthrough and the [DSL reference](docs/reference/dsl.md) for the full surface.
 
@@ -87,8 +98,8 @@ Swift provides native libraries that Scheme calls into: keyboard capture, window
 
 - **[Quick start](docs/quickstart/index.md)** — install → first launch → edit one binding → relaunch, in five minutes.
 - **Reference**
-  - [DSL](docs/reference/dsl.md) — every form from `(modaliser dsl)`: `key`, `keys`, `group`, `category`, `selector`, `overlay`, `define-tree`, leader setters, …
-  - [Libraries](docs/reference/libraries.md) — bundled `(modaliser …)` libraries: launchers, web-search, settings-menu, window-actions, apps/safari, apps/chrome, apps/iterm, blocks.
+  - [DSL](docs/reference/dsl.md) — every form from `(modaliser dsl)`: `key`, `keys`, `group`, `selector`, `screen`, `panel`, `open`, `walk`, plus the configuration constructors and the `modaliser:start!` handoff.
+  - [Libraries](docs/reference/libraries.md) — bundled `(modaliser …)` libraries: launchers, web-search, settings-menu, window-actions, apps/iterm, muxes, blocks.
   - [State machine](docs/reference/state-machine.md) — modal lifecycle, Terminal vs. Walk, `'next`, `'exit-on-unknown`, hook gating, dispatch precedence.
   - [Renderer protocol](docs/reference/renderer-protocol.md) — block spec shape, `on-render-fn` return-and-merge, chrome envelope, writing a custom block.
   - [Theming](docs/reference/theming.md) — CSS variables, class inventory, worked dark-mode override.

@@ -1,7 +1,7 @@
 ;; (modaliser dialogs) — slim async AppleScript dialog helpers.
 ;;
 ;; The shared home for Modaliser-raised confirm/info dialogs (ADR-0014): the
-;; iTerm / Kitty / Alacritty backends' configure-entry confirmations today,
+;; iTerm / Kitty / Alacritty backends' host-provisioning confirmations today,
 ;; any future dialog site tomorrow. Two invariants:
 ;;
 ;;   - Fires only through `current-dialog-runner` (default the real
@@ -11,7 +11,7 @@
 ;;     Terminal leaf (no `'next`); dispatch has already released modal
 ;;     capture before the action runs (ADR-0015, CONTEXT.md "Dialog
 ;;     command"). This library never calls `modal-exit` and does not
-;;     import `(modaliser state-machine)`.
+;;     import `(modaliser fsm)`'s modal surface.
 ;;
 ;; Quick start:
 ;;

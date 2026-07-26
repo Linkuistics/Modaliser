@@ -20,16 +20,15 @@
 ;;                 over *current-jump-assigned* when it builds the panel.
 ;;                 Default: a thunk returning '() (an empty legend).
 ;;
-;; This block queries `workspace list` / `tab list` / `pane list` itself
-;; (through current-herdr-list-runner, reused from (modaliser blocks
-;; herdr-list) rather than a second shell-out seam) ONLY inside on-render-fn
-;; — the overlay only calls a panel's on-render-fn once it actually renders
-;; (show-delay elapsed), so a fast jump that never shows the overlay pays
-;; nothing for these extra queries.
+;; This block queries `workspace.list` / `tab.list` / `pane.list` itself
+;; (through the shared `herdr-query` seam, (modaliser muxes herdr-socket))
+;; ONLY inside on-render-fn — the overlay only calls a panel's on-render-fn
+;; once it actually renders (show-delay elapsed), so a fast jump that never
+;; shows the overlay pays nothing for these extra queries.
 
 (define-library (modaliser blocks herdr-jump-legend)
   (export make-herdr-jump-legend-block
-          ;; Pure ASSIGNED + three parsed `<x> list` envelopes → legend
+          ;; Pure ASSIGNED + three parsed `<x>.list` envelopes → legend
           ;; rows, exported for unit tests (test seam 5, docs/specs/herdr-
           ;; jump-navigation.md "Test seams") — fed canned fixtures, no
           ;; live herdr needed.
@@ -38,14 +37,14 @@
           (modaliser util)
           (modaliser json)
           (modaliser overlay-assets)
-          ;; current-herdr-list-runner: the existing herdr-JSON test seam
-          ;; (feedback_no_live_env_mutation_in_tests) — reused rather than a
-          ;; second parallel one, since this block queries the exact same
-          ;; `<x> list` commands the live-list blocks already do.
-          (only (modaliser blocks herdr-list) current-herdr-list-runner))
+          ;; herdr-query: the shared herdr read seam, which is also the test
+          ;; seam (feedback_no_live_env_mutation_in_tests). This block asks
+          ;; for the exact same `<x>.list` methods the live-list blocks do,
+          ;; so it goes through the same one rather than a parallel seam.
+          (only (modaliser muxes herdr-socket) herdr-query))
   (begin
 
-    ;; ((id . name) …) from a parsed `<x> list` envelope's result.ARRAY-KEY
+    ;; ((id . name) …) from a parsed `<x>.list` envelope's result.ARRAY-KEY
     ;; array, keyed by ID-KEY, valued by NAME-KEY — falling back to the id
     ;; itself when NAME-KEY is absent/blank (docs/specs/herdr-jump-
     ;; navigation.md "Legend": "missing name → raw id" — a name gap never
@@ -85,14 +84,14 @@
     ;; ASSIGNED — jump-labels-assign's own ((label . target) …) shape,
     ;; already in gather order (spaces → agents → tabs → panes,
     ;; (modaliser muxes herdr)'s *current-jump-assigned* snapshot) — plus
-    ;; the three parsed `<x> list` envelopes → legend rows ((label title
+    ;; the three parsed `<x>.list` envelopes → legend rows ((label title
     ;; detail) …), same order. An unlabelled (#f) target is dropped, the
     ;; same tail convention jump-provider-result/jump-targets-of-kind use
     ;; in (modaliser muxes herdr): the legend can never show a row with no
     ;; live chip behind it. Agents and panes are both pane_id-keyed and
     ;; share the SAME pane-names map (row-title's "agent" field
     ;; convention, blocks/herdr-list.sld) — an agent's pane may be off the
-    ;; current tab, so PANES-PARSED must be the UNSCOPED `pane list`.
+    ;; current tab, so PANES-PARSED must be the UNSCOPED `pane.list`.
     (define (herdr-jump-legend-rows assigned workspaces-parsed tabs-parsed panes-parsed)
       (let ((workspace-names (herdr-jump-legend-name-map
                                 workspaces-parsed "workspaces" "workspace_id" "label"))
@@ -119,8 +118,6 @@
                                   acc))
                           acc)))))))
 
-    (define (herdr-jump-legend-json subcmd) ((current-herdr-list-runner) subcmd))
-
     ;; Constructor. Non-interactive: no 'cursor-targets-fn, no
     ;; 'block-children digit range — dispatch already lives in the FSM
     ;; provider edges, the jump label here is display-only.
@@ -133,9 +130,9 @@
                   (list (cons 'rows
                     (herdr-jump-legend-rows
                       (assigned-fn)
-                      (herdr-jump-legend-json "workspace list")
-                      (herdr-jump-legend-json "tab list")
-                      (herdr-jump-legend-json "pane list")))))))))
+                      (herdr-query "workspace.list" '())
+                      (herdr-query "tab.list" '())
+                      (herdr-query "pane.list" '())))))))))
 
     (add-overlay-asset-file! 'css "lib/modaliser/blocks/herdr-jump-legend.css")
     (add-overlay-asset-file! 'js  "lib/modaliser/blocks/herdr-jump-legend.js")))

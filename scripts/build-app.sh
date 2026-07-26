@@ -13,6 +13,14 @@ echo "Building ${APP_NAME}..."
 swift build -c release
 
 echo "Creating ${APP_NAME}.app..."
+# Wipe first: the bundle must be a pure function of the source tree. `cp -R`
+# into an existing directory MERGES — fresh files overwrite, deleted ones
+# linger forever — so without this the .app (and via SysSync the user's
+# sys/ mirror, ADR-0019) keeps shipping libraries retired months ago.
+# Everything below already rebuilds unconditionally (icon, LispKit libraries,
+# signature), so the wipe costs only the resource re-copy. APP_BUNDLE is a
+# quoted, repo-relative path built from literals under `set -u`.
+rm -rf "${APP_BUNDLE}"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
 cp "${BUILD_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
@@ -24,6 +32,20 @@ if [ -d "$RESOURCE_BUNDLE" ]; then
     cp -R "$RESOURCE_BUNDLE" "${APP_BUNDLE}/Contents/Resources/"
     echo "Copied resource bundle"
 fi
+
+# Invariant: the bundled Scheme tree is a faithful image of the source tree —
+# same membership, same content. SysSync mirrors this tree verbatim into
+# ~/.config/modaliser/sys/scheme/, so anything stale here goes stale in every
+# install (ADR-0019). Fails the build rather than shipping drift; catches both
+# a regression to merge-copy semantics and SPM silently dropping a resource.
+SOURCE_SCHEME="Sources/${APP_NAME}/Scheme"
+BUNDLED_SCHEME="${APP_BUNDLE}/Contents/Resources/${APP_NAME}_${APP_NAME}.bundle/Scheme"
+if ! SCHEME_DRIFT="$(diff -rq "$SOURCE_SCHEME" "$BUNDLED_SCHEME" 2>&1)"; then
+    echo "Error: bundled Scheme tree is not a faithful image of ${SOURCE_SCHEME}:" >&2
+    echo "$SCHEME_DRIFT" >&2
+    exit 1
+fi
+echo "Verified bundled Scheme tree matches ${SOURCE_SCHEME}"
 
 # Copy LispKit's bundled R7RS+SRFI Libraries. LispKit's Package.swift
 # excludes its Resources/ directory from SPM bundling (it's designed to

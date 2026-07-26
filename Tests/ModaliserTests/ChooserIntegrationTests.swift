@@ -42,7 +42,14 @@ struct ChooserIntegrationTests {
               (set! webview-eval-calls (cons (cons id js) webview-eval-calls)))
             """)
 
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("""
+            (import (modaliser util)
+                    (modaliser keymap)
+                    (modaliser fsm)
+                    (modaliser configuration)
+                    (modaliser fsm)
+                    (modaliser handoff))
+            """)
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
         try engine.evaluate("(import (modaliser dom))")
@@ -70,15 +77,17 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Firefox") (cons 'bundleId "org.mozilla.Firefox"))))
             (define (test-source) test-items)
             (define test-selected #f)
-            (register-tree! 'global
-              (key "a" "Find App" (selector
-                'prompt "Find app..."
-                'source test-source
-                'on-select (lambda (item) (set! test-selected item)))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find App" (selector
+                    'prompt "Find app..."
+                    'source test-source
+                    'on-select (lambda (item) (set! test-selected item)))))))))
             """)
 
         // Enter modal
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("modal-active?") == .true)
 
         // Press 'a' for the selector
@@ -99,14 +108,16 @@ struct ChooserIntegrationTests {
               (list (list (cons 'text "Safari") (cons 'bundleId "com.apple.Safari"))
                     (list (cons 'text "Chrome") (cons 'bundleId "com.google.Chrome"))))
             (define (test-source) test-items)
-            (register-tree! 'global
-              (key "a" "Find App" (selector
-                'prompt "Find app..."
-                'source test-source
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find App" (selector
+                    'prompt "Find app..."
+                    'source test-source
+                    'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
         // Chooser should have cached all source items
@@ -124,14 +135,16 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Chrome"))
                     (list (cons 'text "Firefox"))))
             (define (test-source) test-items)
-            (register-tree! 'global
-              (key "a" "Find" (selector
-                'prompt "Find..."
-                'source test-source
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find" (selector
+                    'prompt "Find..."
+                    'source test-source
+                    'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
         // Simulate search message
@@ -154,14 +167,16 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Beta"))
                     (list (cons 'text "Charlie"))))
             (define (test-source) test-items)
-            (register-tree! 'global
-              (key "a" "Find" (selector
-                'prompt "Find..."
-                'source test-source
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find" (selector
+                    'prompt "Find..."
+                    'source test-source
+                    'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
         #expect(try engine.evaluate("chooser-selected-index").asInt64() == 0)
     }
@@ -176,14 +191,16 @@ struct ChooserIntegrationTests {
               (list (list (cons 'text "Safari") (cons 'bundleId "com.apple.Safari"))
                     (list (cons 'text "Chrome") (cons 'bundleId "com.google.Chrome"))))
             (define (test-source) test-items)
-            (register-tree! 'global
-              (key "a" "Find App" (selector
-                'prompt "Find app..."
-                'source test-source
-                'on-select (lambda (item) (set! test-selected item)))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find App" (selector
+                    'prompt "Find app..."
+                    'source test-source
+                    'on-select (lambda (item) (set! test-selected item)))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
         // Select Chrome (originalIndex 1) via message handler
@@ -205,14 +222,16 @@ struct ChooserIntegrationTests {
         try engine.evaluate("""
             (define test-items (list (list (cons 'text "Safari"))))
             (define (test-source) test-items)
-            (register-tree! 'global
-              (key "a" "Find" (selector
-                'prompt "Find..."
-                'source test-source
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find" (selector
+                    'prompt "Find..."
+                    'source test-source
+                    'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
         #expect(try engine.evaluate("(chooser-open?)") == .true)
 
@@ -228,22 +247,25 @@ struct ChooserIntegrationTests {
         try engine.evaluate("""
             (define test-items (list (list (cons 'text "Safari"))))
             (define (test-source) test-items)
-            (set-leader! 'global F18)
-            (register-tree! 'global
-              (key "a" "Find" (selector
-                'prompt "Find..."
-                'source test-source
-                'on-select (lambda (item) #t))))
+            (modaliser:start! (configuration
+              (leaders (leader 'global F18))
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find" (selector
+                    'prompt "Find..."
+                    'source test-source
+                    'on-select (lambda (item) #t)))))))
             """)
 
         // Open chooser via selector
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
         #expect(try engine.evaluate("(chooser-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .false)
 
-        // Invoke the leader handler — should close the chooser, not open modal
-        try engine.evaluate("((make-leader-handler F18 'global))")
+        // Invoke the configured leader handler — should close the chooser,
+        // not open modal.
+        try engine.evaluate("((make-configured-leader-handler F18 'global))")
         #expect(try engine.evaluate("(chooser-open?)") == .false)
         #expect(try engine.evaluate("modal-active?") == .false)
     }
@@ -255,17 +277,19 @@ struct ChooserIntegrationTests {
         try engine.evaluate("""
             (define test-items (list (list (cons 'text "Safari"))))
             (define (test-source) test-items)
-            (register-tree! 'global
-              (key "a" "Find" (selector
-                'prompt "Find..."
-                'source test-source
-                'on-select (lambda (item) #t)
-                'actions (list
-                  (action "Open" 'description "Launch" 'key 'primary)
-                  (action "Copy" 'description "Copy path")))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find" (selector
+                    'prompt "Find..."
+                    'source test-source
+                    'on-select (lambda (item) #t)
+                    'actions (list
+                      (action "Open" 'description "Launch" 'key 'primary)
+                      (action "Copy" 'description "Copy path")))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
         #expect(try engine.evaluate("chooser-actions-visible?") == .false)
 
@@ -285,19 +309,21 @@ struct ChooserIntegrationTests {
             (define test-items
               (list (list (cons 'text "Safari") (cons 'path "/Apps/Safari.app"))))
             (define (test-source) test-items)
-            (register-tree! 'global
-              (key "a" "Find" (selector
-                'prompt "Find..."
-                'source test-source
-                'on-select (lambda (item) #t)
-                'actions (list
-                  (action "Open" 'description "Launch" 'key 'primary
-                    'run (lambda (item) #t))
-                  (action "Reveal" 'description "Show in Finder" 'key 'secondary
-                    'run (lambda (item) (set! secondary-fired #t)))))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find" (selector
+                    'prompt "Find..."
+                    'source test-source
+                    'on-select (lambda (item) #t)
+                    'actions (list
+                      (action "Open" 'description "Launch" 'key 'primary
+                        'run (lambda (item) #t))
+                      (action "Reveal" 'description "Show in Finder" 'key 'secondary
+                        'run (lambda (item) (set! secondary-fired #t)))))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
         // Secondary action on first item (index 0)
@@ -317,14 +343,16 @@ struct ChooserIntegrationTests {
             (define test-items (list (list (cons 'text "Alpha")) (list (cons 'text "Beta"))))
             (define (test-source) test-items)
             (define test-selected #f)
-            (register-tree! 'global
-              (key "a" "Find" (selector
-                'prompt "Find..."
-                'source test-source
-                'on-select (lambda (item) (set! test-selected item)))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find" (selector
+                    'prompt "Find..."
+                    'source test-source
+                    'on-select (lambda (item) (set! test-selected item)))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
         // Test search message updates query state
@@ -348,17 +376,18 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Chrome") (cons 'bundleId "com.google.Chrome"))
                     (list (cons 'text "Firefox") (cons 'bundleId "org.mozilla.Firefox"))))
             (define (test-source) test-items)
-            (set-leader! 'global F18)
-            (register-tree! 'global
-              (group "f" "Find"
-                (key "a" "Find App" (selector
-                  'prompt "Find app..."
-                  'source test-source
-                  'on-select (lambda (item) (set! test-result item))))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (group "f" "Find"
+                    (key "a" "Find App" (selector
+                      'prompt "Find app..."
+                      'source test-source
+                      'on-select (lambda (item) (set! test-result item))))))))))
             """)
 
         // Enter modal directly (simulates hotkey handler)
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("modal-active?") == .true)
 
         // 'f' → navigate into Find group
@@ -390,14 +419,16 @@ struct ChooserIntegrationTests {
                     (list (cons 'text "Beta"))
                     (list (cons 'text "Charlie"))))
             (define (test-source) test-items)
-            (register-tree! 'global
-              (key "a" "Find" (selector
-                'prompt "Find..."
-                'source test-source
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  (key "a" "Find" (selector
+                    'prompt "Find..."
+                    'source test-source
+                    'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
         // Simulate JS having moved selection

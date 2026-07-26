@@ -1,138 +1,214 @@
 # DSL reference
 
-Every form exported from `(modaliser dsl)`, plus the related setters
-from `(modaliser leader)` and the top-level UI helpers. Signatures are
-ground-truthed against
+Every form exported from `(modaliser dsl)` and `(modaliser display-dsl)`,
+plus the configuration
+constructors from `(modaliser configuration)` and the one-shot handoff
+from `(modaliser handoff)` that a config composes them with. Signatures
+are ground-truthed against
 [`dsl.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/dsl.sld),
-[`state-machine.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/state-machine.sld),
-and [`leader.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/leader.sld).
+[`display-dsl.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/display-dsl.sld),
+[`configuration.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/configuration.sld),
+and [`handoff.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/handoff.sld).
 
-## You author a layout, not a command tree
+## A node is dispatch structure plus a display value
 
 Modaliser's overlay is a **dynamic cheat-sheet document** — a grid of
-panels you read like a reference card. You author it directly: a config
-is a **layout spec**, a tree of **screens**, each an implicit grid of
-**panels** ([ADR-0011](../adr/0011-presentation-first-layout-spec-lowers-to-operational-node-tree.md),
-[ADR-0012](../adr/0012-layout-dsl-surface-screen-panel-open-over-unchanged-atoms.md)).
+panels you read like a reference card — and your config is what draws it.
+But drawing and dispatching are separate concerns, and the model keeps
+them that way.
 
-That layout **lowers** — at config-load, the moment each form is
-evaluated — to the **operational node-tree**, the `(kind . group)` /
-`(kind . command)` alist. The operational tree is an **intermediate
-representation (IR)**, a compile target, not a thing you write by hand:
-`register-tree!` lowers it a second time, into the explicit **FSM
-graph** — states and labelled edges — that dispatch actually runs on
-(see [state-machine.md](state-machine.md)). The dispatch behaviour
-(Walks, the `'next` edge, transparent grouping, digit-jump, selectors)
-this page describes is unchanged by that lowering; the **panel-grid
-renderer** reads the presentation metadata (`panel`, `span`, `screen`)
-the layout lowering annotates onto the same IR.
+Every node in a Modaliser tree factors into two **disjoint** layers held
+on the node
+([ADR-0011](../adr/0011-dispatch-structure-with-attached-display.md)):
 
-The practical consequence: the four **layout forms** (`screen`, `panel`,
-`open`, `fragment`) shape *presentation*, and the **dispatch atoms**
-(`key`, `keys`, `key-range`, `group`, `selector`, `walk`) shape
-*behaviour* — and because the atoms *are* the IR, they are unchanged. A
-panel is a transparent visual card: it groups rows without changing the
-keys beneath it.
+- **dispatch structure** — kind, key, label, action, gates, `'next`,
+  providers, splices, and a **flat** `'children` list. This is what the
+  state machine reads.
+- a **Display value** — one `'display` entry, built by the display DSL,
+  saying how the node *renders*: panels referencing the node's own rows
+  **by key**, live-list block placement **by reference**, spans, row
+  order, cols/layout, embeds, the breadcrumb name.
+
+Dispatch reads never consult `'display`, so substituting a display value
+*structurally cannot* change which keys are live. Presentation is one
+value you can print, diff and replace — not metadata smeared through the
+operational tree, and nothing panel-shaped sits among a node's children.
+
+Two surfaces build that same representation:
+
+| Surface | What you write | When to reach for it |
+|---|---|---|
+| **Bare** — canonical | the [dispatch atoms](#dispatch-atoms) compose plain data; [`with-display`](#the-bare-authoring-surface) attaches the display value as a separate explicit step | when you want the layers separable — a generated tree, tooling, a display swapped without touching keys |
+| **Sugar** — ergonomic | [`screen` / `panel` / `open`](#layout-forms) author both layers at once, reading like the cheat sheet they draw | ordinary hand-written config; what `default-config.scm` uses throughout |
+
+The sugar is a **veneer**: it compiles onto the bare surface at
+construction time, and a sugar≡bare equivalence test pins the two
+spellings to identical node output
+([ADR-0012](../adr/0012-layout-dsl-surface-screen-panel-open-over-unchanged-atoms.md)).
+A node with **no** display value renders as plain loose rows in
+declaration order, so the dispatch atoms stand on their own.
+
+**Then it lowers once more.** The node tree — however authored — is an
+**intermediate representation (IR)**, the `(kind . group)` /
+`(kind . command)` alist: the **handoff** (`(modaliser:start! …)`,
+below) lowers it into the explicit **FSM graph** of states and labelled
+edges that dispatch actually runs on (see
+[state-machine.md](state-machine.md)). The dispatch behaviour this page
+describes (Walks, the `'next` edge, transparent grouping, digit-jump,
+selectors) is unchanged by that lowering. The overlay, meanwhile,
+resolves the display value against the node's children through one pure
+function (`resolve-display`) and serializes the resulting render plan —
+it derives the panel-grid render path from the display value's *shape*,
+with no authored renderer marker anywhere
+([renderer-protocol.md](renderer-protocol.md)).
 
 ## Imports
 
-The common case is one import:
+A config pulls in three libraries for its skeleton, plus whatever
+factories it composes:
 
 ```scheme
-(import (modaliser dsl))
+(import (modaliser dsl)            ; screen / panel / open / key / …
+        (modaliser configuration)  ; configuration, leaders, overlay-delay
+        (modaliser handoff))       ; modaliser:start!
 ```
 
-That surfaces the layout forms `screen`, `panel`, `open`, `fragment`;
-the dispatch atoms `key`, `keys`, `key-range`, `group`, `selector`,
-`action`, `walk`; the helper `λ`; and the configuration setters
-`set-leader!`, `set-overlay-delay!`, `set-theme!`,
-`modifier-symbols->mask`. The bundled seed config also pulls
-in `(modaliser leader)` (for `set-leaders!`) and a handful of native
-libraries (`(modaliser app)`, `(modaliser keyboard)`, etc.).
+`(modaliser dsl)` surfaces the layout forms `screen`, `panel`, `open`,
+`splice`; the dispatch atoms `key`, `keys`, `key-range`, `group`,
+`selector`, `action`, `walk`, `step-in`; the pure root builder
+`tree-root`; and the helper `λ`. `(modaliser configuration)` surfaces
+the settings constructors and the `configuration` merge;
+`(modaliser handoff)` the single effectful call. The bundled seed
+config also pulls in factory libraries prefix-style
+(`(prefix (modaliser apps iterm) iterm:)`, `(prefix (modaliser muxes
+herdr) herdr:)`, …) and a handful of native libraries
+(`(modaliser app)`, `(modaliser keyboard)`, etc.).
+
+The bare display surface is imported **prefixed**, because `panel`
+deliberately exists on both surfaces (a config authors through one of
+them at a time):
+
+```scheme
+(import (modaliser dsl)
+        (prefix (modaliser display-dsl) d:))   ; d:with-display, d:panel, …
+```
 
 ---
 
-## Configuration setters
+## Composing the configuration value
 
-### `(set-leaders! [keyword value]...)`
+A config file is pure almost to its last form: everything builds
+data — **fragments** — and exactly one call installs the assembled
+value ([ADR-0018](../adr/0018-configuration-as-one-explicit-value.md),
+[configuration-value spec](../specs/configuration-value.md)):
 
-From `(modaliser leader)`. Registers both global and local leader
-hotkeys in one call.
+```scheme
+(modaliser:start!
+  (configuration
+    (leaders
+      (leader 'global F18)
+      (leader 'local  F17))
+    (overlay-delay 0.3)
+    global-screen           ; a (screen 'global …) tree fragment
+    (iterm:wiring)          ; a wiring fragment: backend + digit-jump tree
+    (terminal-contexts      ; exe → tree map for terminal-like screens
+      (herdr:wiring)
+      (nvim:wiring))
+    iterm-screen            ; every screen is yours to author (ADR-0021)
+    herdr-screen
+    nvim-screen))
+```
 
+### `(configuration fragment…)`
+
+The **pure merge**. Flattens arbitrarily nested fragments into one
+configuration value: trees (keyed by scope), backends (by symbol),
+context-map entries (by exe name), settings (by name). Walk-carried
+mode trees are hoisted into the tree set on the way. Two contributions
+with the same key merge silently **iff they are the identical value**
+(the diamond case — one fragment reached via two composition paths) and
+**error otherwise**: there is no override and no last-wins.
+Customization is composition, not patching — and there is no stock
+tree to patch. No library authors a screen
+([ADR-0021](../adr/0021-decision-free-libraries.md)); libraries export
+wiring, ops, and blocks, and every screen in your configuration is one
+you composed from them. "A different tree for that scope" is not a
+special path, it is the only path — edit the screen already in your
+`config.scm`.
+
+The result is inspectable data: print it, test it, take it apart with
+the `configuration-*` accessors ([libraries.md](libraries.md)) —
+nothing has happened to the engine yet.
+
+### `(leader mode keycode [keyword value]...)` and `(leaders spec…)`
+
+`leader` builds one leader spec — pure data. `mode` is `'global` or
+`'local`. `'global` opens the global tree. `'local` opens the focused
+app's per-app screen, falling back to the global tree if that app has
+none; on a terminal-like screen it consults the Terminal context map
+(see [Nested contexts](#nested-contexts-the-terminal-context-map)).
 Keywords:
 
 | Keyword | Type | Description |
 |---|---|---|
-| `'global-keycode` | integer | Keycode for the global leader (e.g. `F18`). Omit to skip. |
-| `'local-keycode` | integer | Keycode for the app-local leader (e.g. `F17`). Omit to skip. |
-| `'modifiers` | symbol list | Required modifiers, e.g. `'(shift)` or `'(cmd alt)`. |
+| `'modifiers` | symbol list | Required modifiers, e.g. `'(shift ctrl)`. |
 | `'arm-when-frontmost` | string list | Bundle IDs that suppress leader arming while frontmost — useful for remote-desktop viewers whose modifiers should pass through. |
 
-```scheme
-(set-leaders! 'global-keycode F18
-              'local-keycode  F17
-              'arm-when-frontmost '("com.p5sys.jump.mac.viewer"))
-```
-
-For scope-asymmetric options use `(set-global-leader! …)` and
-`(set-local-leader! …)` directly. Both delegate to `set-leader!` below.
-
-### `(set-leader! mode keycode [keyword value]...)`
-
-The single-scope primitive. From `(modaliser dsl)`. `mode` is
-required and must be `'global` or `'local` — there is no modeless
-form. `'global` always opens the global tree. `'local` opens the
-focused app's per-app tree, and does nothing if that app has no
-tree — it does *not* fall back to the global tree. Keywords:
-
-| Keyword | Type | Description |
-|---|---|---|
-| `'modifiers` | symbol list | Required modifiers, e.g. `'(shift ctrl)`. |
-| `'arm-when-frontmost` | string list | Bundle IDs that suppress arming while frontmost. |
+`leaders` wraps the specs into the single `'leaders` setting
+contribution — one `(leaders …)` call per configuration (a second one
+is a merge conflict). The leaders are armed by the handoff, from the
+installed value.
 
 ```scheme
-(set-leader! 'global F18)
-(set-leader! 'local  F17 'modifiers '(shift))
+(leaders
+  (leader 'global F18)
+  (leader 'local  F17 'modifiers '(shift)))
 ```
 
-### `(set-overlay-delay! seconds)`
+### `(overlay-delay seconds)`
 
-How long after leader arm before the overlay appears. Zero shows
-immediately. Typical values 0.3–1.0. Quick muscle-memory keypresses
-produce no UI when the delay is non-zero — the modal still dispatches
-the key.
+The `'overlay-delay` setting: how long after leader arm before the
+overlay appears. Zero shows immediately. Typical values 0.3–1.0. Quick
+muscle-memory keypresses produce no UI when the delay is non-zero — the
+modal still dispatches the key.
 
-```scheme
-(set-overlay-delay! 0.3)
-```
+### `(modaliser:start! config)`
+
+The **Handoff** — the one effectful moment. Validates the value, runs
+the pure lower to the FSM graph (every authored reference must resolve
+— load-time errors, see [state-machine.md](state-machine.md)), installs
+graph + screen set + context map + backends + settings into the engine,
+and arms the leaders. One-shot: a second call is an error — reload is
+relaunch. A config that fails before the handoff leaves the engine
+cleanly empty: nothing was ever installed.
 
 ### Theming
 
 All visual customisation — colours, fonts, spacing, host-theme
 variables (`--color-host-bg`, `--color-host-fg`, …), chip styling —
 lives in `~/.config/modaliser/theme.css`. Modaliser auto-loads that
-file at startup. No Scheme setter for CSS is involved.
+file at startup. No Scheme surface for CSS is involved.
 
 See [theming.md](theming.md) for the full variable inventory and
 worked examples.
-
-### `(set-theme! …)`
-
-Deprecated no-op stub. Theming moved to CSS — edit
-`~/.config/modaliser/theme.css`.
 
 ---
 
 ## Layout forms
 
-The presentation-first surface. Four forms — `screen`, `panel`, `open`,
-`fragment` — that **lower to the operational IR** at config-load. They
-own *layout*; the dispatch atoms they contain own *behaviour*.
+The authoring sugar. Four forms — `screen`, `panel`, `open`, `splice` —
+that build **both layers at once** at config-load, compiling onto the
+[bare surface](#the-bare-authoring-surface): the dispatch atoms they
+contain become the node's flat children, and the layout they describe
+becomes its display value. (`splice` is the exception — it is pure
+dispatch reuse and touches no display.)
 
 ### `(screen scope [keyword value]... . panels)`
 
-Registers a command tree under `scope` and renders it as a **grid of
-panels** — the top-level layout form. `scope`
+Builds the command tree for `scope` and renders it as a **grid of
+panels** — the top-level layout form. Pure: it returns a **tree
+fragment** for the `configuration` merge (nothing installs until the
+handoff). `scope`
 is a symbol (or string) like `'global`, `'com.apple.Safari`, or
 `'iterm-panes-focus`; symbols and strings are equivalent.
 
@@ -156,8 +232,10 @@ atoms are the screen's own inline rows.)
 
 ```scheme
 (screen 'global
-  (key "," "Settings" (settings:actions))   ; loose row — renders bare
-  (key "/" "Help"     (λ () (open-help)))    ; loose row
+  (group "," "Settings"                      ; loose drill row — renders bare
+    (key "r" "Reload" relaunch!))
+  (key "a" "Apps" (launcher:find-application))  ; loose row: a factory node
+  (key "/" "Help" (λ () (open-help)))           ; loose row: a thunk
 
   (open "w" "Windows"           ; folds into the loose region as "w → Windows";
     (window:layout-block …)     ; its FLAT body: a bare diagram,
@@ -173,31 +251,39 @@ Optional leading keywords:
 
 | Keyword | Type | Description |
 |---|---|---|
-| `'cols` | integer | Authored column count. Default is CSS-intrinsic auto-fit (panels flow into as many tracks as fit the width). Pins an explicit track count instead. |
+| `'cols` | integer | Authored column count. Default is aspect-ratio **column balancing**: a JS measurement pass picks the count whose grid shape best fits a target width:height ratio (CSS auto-fit is only the no-JS fallback). Pins an explicit track count instead. |
 | `'layout` | `'masonry` \| `'grid` | Panel packing. Default `'masonry`: each panel drops into the shortest lane, so a short panel tucks up under a shorter neighbour. `'grid` opts into a deterministic aligned grid where panels in a row share a track height. |
 | `'order` | `'keys` \| `'declared` | Grid-wide row-ordering default. `'keys` (the ultimate default) key-sorts each panel's rows alphabetically; `'declared` renders them in declaration order. A panel inherits this unless it sets its own `'order`. |
-| `'on-enter` | thunk | Runs when the modal navigates into this screen. Composed with any embedded live-list hooks. |
-| `'on-leave` | thunk | Runs when the modal navigates out. |
+| `'embed` | string list | The display layer's per-edge **embed** choice (ADR-0011): each listed key's edge target — which must lower to a group child, validated at load time — renders as an in-place **section** of this screen's display root instead of a drill row. Firing the key still genuinely navigates (a real Visit); presentation activates the section in place — it highlights, the rest of the root dims, backspace reverts. Pure display data — dispatch never reads it. See [renderer-protocol.md](renderer-protocol.md#embedded-sections-and-the-restyle-protocol). |
+| `'on-enter` | thunk | Runs when the modal navigates into this screen. Any embedded live-list hooks fire alongside it, structurally (see below). |
+| `'on-leave` | thunk or 1-arg procedure | Runs when the modal navigates out. If it declares an argument it receives the **exit reason** — `'navigate` \| `'confirm` \| `'cancel` \| `'exit` — see [state-machine.md](state-machine.md#the-exit-reason). |
 | `'exit-on-unknown` | boolean | If `#t`, unrecognised keys exit the modal instead of being swallowed. Inherited by descendants. |
 | `'display-name` | string | Overrides the breadcrumb scope segment. Useful for mode-id scopes (e.g. `'iterm-panes`) where the auto-resolved app name doesn't make sense. |
-| `'auto-entry` | boolean | Default `#t`: `screen` auto-registers the scope's entry-table row. Pass `#f` for a nested-context entry point (ADR-0013) whose scope contains `"/"` — the automatic row would otherwise treat it as a bundle-id/suffix variant gated on the context-suffix hook; call `register-tree-entry-gated!` yourself instead (see [Nested-context entry points](#nested-context-entry-points-adr-0013) below). Distinct from `'entry` below — same word, different axis (entry-*table* registration, not the *action-slot* hook). |
-| `'provider` | procedure | An FSM edge provider on the registered root's own state — see `group`'s `'provider` above and [state-machine.md](state-machine.md#edge-providers-provider). |
-| `'entry` | thunk | The unconditional action-slot pair on the registered root's own state — see `group`'s `'entry`/`'exit` above and [state-machine.md](state-machine.md#unconditional-hooks-entry--exit). |
-| `'exit` | thunk | Pairs with `'entry` above. |
+| `'provider` | procedure | An FSM edge provider on the tree root's own state — see `group`'s `'provider` above and [state-machine.md](state-machine.md#edge-providers-provider). |
+| `'entry` | thunk or 1-arg procedure | The unconditional action-slot pair on the tree root's own state — see `group`'s `'entry`/`'exit` above and [state-machine.md](state-machine.md#unconditional-hooks-entry--exit). An argument, if declared, receives the arriving key. |
+| `'exit` | thunk or 1-arg procedure | Pairs with `'entry` above; an argument, if declared, receives the exit reason. |
 
-A `screen` lowers to a tree-root group carrying `'renderer 'panel-grid`
-(plus `'cols` / `'layout` / `'order` when authored), so the panel-grid renderer
-draws it. The live-list `'on-enter-fn` / `'on-leave-fn` of any panel-embedded
-block compose with the user hooks supplied to the `screen`.
+A `screen` lowers to a **tree-root group** whose children are the flat
+dispatch atoms of its whole body — panels contribute their rows in place —
+plus one `'display` entry holding the panel clauses, the loose region, and
+whichever of `'cols` / `'layout` / `'order` / `'embed` / `'display-name`
+were authored. The overlay selects the panel-grid render path from that
+display value's shape; there is no renderer marker. The live-list
+`'on-enter-fn` / `'on-leave-fn` of any block in the body fire alongside the
+user hooks supplied to the `screen` — **structurally**, from the node's own
+children, so a bare `tree-root` holding the same block behaves identically
+(see [Block hooks](renderer-protocol.md#block-hooks)).
 
 ### `(panel label [span value] [order value] . children)`
 
 A **transparent visual card** in a screen's grid — one declared
 grouping of rows, with a banded header carrying `label`. Transparent
 means it **never changes the keys beneath it**: a child `(key "b" …)`
-dispatches at `b` whether or not a panel encloses it. (A panel lowers to
-a `category` node, which the state machine descends through as if its
-children were hoisted into the parent.)
+dispatches at `b` whether or not a panel encloses it. (A panel is not a
+node at all: at construction its rows join the enclosing screen/open's
+flat dispatch children, and the panel survives only as a clause of that
+node's display value, listing those rows by key. The state machine never
+sees it.)
 
 Pass `label` as `#f` for a **headerless panel** — the card renders with no
 header band at all. Idiomatic for a panel whose body reads on its own (e.g. a
@@ -206,7 +292,7 @@ eyebrow). The header is *config-controlled* — the renderer never drops it on
 its own.
 
 `children` are dispatch atoms (`key`/`keys`/`group`/`selector`/…) plus
-**at most one** embedded live-list block. Splices (`fragment` /
+**at most one** embedded live-list block. Splices (`splice` /
 `walk`) hoist in place.
 
 ```scheme
@@ -257,14 +343,17 @@ order before the children.
 (`window:list-block`, `iterm:pane-list-block`, `iterm:tab-list-block`)
 among its children. The panel **auto-promotes to `'wide`** when it holds
 a list (unless you give an explicit `'span`), since lists want
-horizontal room. The block's hidden digit key-range (the `1..` direct-
-jump selectors) is lifted into the panel's dispatch children so the
-digits resolve transparently; the block itself rides under the panel's
-`'list` metadata for the renderer. The embedded list also gains a
+horizontal room. The block itself is a **dispatch atom**: it stays among
+the enclosing node's flat children, where its hidden digit key-range
+(the `1..` direct-jump selectors) expands at dispatch read time, and the
+panel clause *references* it by id — the block's explicit `'id` entry
+if it has one, else its `'type`. The embedded list also gains a
 **selection cursor** (`↑↓` / `k j` to move, `⏎` to activate) — see
 [Live lists & the selection cursor](#live-lists--the-selection-cursor).
 
-It is an error to embed two list blocks in one panel.
+It is an error to embed two list blocks in one panel, or to give two
+blocks in one display the same reference id (add an explicit `'id` to
+one of them).
 
 ### `(open KEY LABEL [keyword value]... . panels)`
 
@@ -286,30 +375,35 @@ folds into the parent's loose region as a single **"→ LABEL" drill row**
 
 Its body lowers the same way a `screen` body does: real panels become
 grid cards, and loose atoms / folded top-level opens / loose blocks render
-bare in the loose region. Keywords: `'on-enter`, `'on-leave`,
+bare in the loose region. Keywords: `'on-enter`, `'on-leave` (which may
+declare an argument to receive the **exit reason** — see `group` below),
 `'exit-on-unknown`, `'cols`, `'layout`, `'order` (the grid-wide row-ordering
-default for this open's panels — see `panel`), `'entry`, `'exit` (the
-unconditional action-slot pair, riding straight through to `group` — see
+default for this open's panels — see `panel`), `'embed` (the per-edge
+in-place-section choice — see `screen`'s `'embed` above), `'entry`, `'exit`
+(the unconditional action-slot pair, riding straight through to `group` — see
 `group`'s `'entry`/`'exit` above) — **not** `'display-name` (a
 breadcrumb-root override a child group has no use for) and **not**
 `'provider` (no sub-drill needs one yet; drop to the lower-level `group`
-form directly if one does). An `open` lowers
-to a navigable `group` carrying `'renderer 'panel-grid`.
+form directly if one does). An `open` lowers to a navigable `group` whose
+children are its flat sub-grid and whose `'display` entry carries that
+sub-grid's panel clauses — the same two-layer shape a `screen` root gets.
 
 A nested `(open …)` declared *inside* a `(panel …)` renders as an accent
 drill-in `›` row in that panel; a top-level `(open …)` directly under a
 `screen` renders as its own single-row cell.
 
-### `(fragment child…)`
+### `(splice child…)`
 
 A reusable, **named chunk of layout** — bind it once to a Scheme
 variable and splice it into any number of screens or panels for DRY.
 `child`s are panels (for screen-level reuse) or command rows (for
-panel-level reuse).
+panel-level reuse). (Formerly `fragment`; renamed when "Fragment"
+became the configuration-value term — a tagged contribution bag, not a
+layout chunk.)
 
 ```scheme
 (define window-ops
-  (fragment
+  (splice
     (key "c" "Center"   center-window)
     (key "m" "Maximise" maximise-window)))
 
@@ -317,18 +411,17 @@ panel-level reuse).
 (screen 'finder (panel "Layout"  window-ops))
 ```
 
-A `fragment` is **fully transparent**: the container forms (`screen` /
-`panel` / `open` / `group`) hoist its children in place at construction
-time via `expand-splices`,
-so the lowered tree is identical to writing the children inline —
-nothing downstream ever sees the fragment. Nested fragments and
-`walk`s compose for free, since `expand-splices` recurses through
-splice children.
+A `splice` is **transparent for dispatch**: the splice node survives
+construction as data, and expansion happens downstream (the dispatch
+walk and the renderer both expand it in place), so the lowered tree is
+identical to writing the children inline. Nested splices and `walk`s
+compose for free, since the expansion recurses through splice
+children.
 
-`fragment` is `walk`'s second half on its own: a transparent
-splice node with **no** mode registration and **no** `'next`
+`splice` is `walk`'s second half on its own: a transparent
+splice node with **no** carried mode tree and **no** `'next`
 decoration — pure structural reuse. Reach for `walk` when you want
-the act-and-latch behaviour, `fragment` when you only want to share
+the act-and-latch behaviour, `splice` when you only want to share
 layout.
 
 ### Live lists & the selection cursor
@@ -395,14 +488,19 @@ explicitly.
 (key "b" "Browser" (launch-app "Safari"))
 ```
 
-Optional trailing keyword:
+Optional trailing keywords:
 
 | Keyword | Type | Description |
 |---|---|---|
-| `'next` | symbol \| `'self` \| procedure | Declares this leaf's post-action transition (ADR-0015) — lowers to the leaf's one **auto edge** in the FSM graph. A registered tree's id is a **cross edge** (push the caller, switch into the target); the literal `'self` is a **cyclic edge** (re-arm the containing collection in place, no push); a 0-arg procedure is a **dynamic edge**, resolved at fire time to a symbol or `#f`. Declaring `'next` makes the leaf non-Terminal — capture stays live through the action instead of being released before it — and the overlay paints a `↻` marker on the cell. Omitting `'next` makes the leaf **Terminal**: capture releases *before* the action runs, so the action can safely hand the keyboard elsewhere (a dialog, an external prompt). See [state-machine.md](state-machine.md#the-next-edge-and-terminal-nodes). |
+| `'next` | symbol \| `'self` \| procedure | Declares this leaf's post-action transition (ADR-0015) — lowers to the leaf's one **auto edge** in the FSM graph. The scope id of a tree in the configuration is a **cross edge** (push the caller, switch into the target); the literal `'self` is a **cyclic edge** (re-arm the containing collection in place, no push); a 0-arg procedure is a **dynamic edge**, resolved at fire time to a symbol or `#f`. Declaring `'next` makes the leaf non-Terminal — capture stays live through the action instead of being released before it — and the overlay paints a `↻` marker on the cell. Omitting `'next` makes the leaf **Terminal**: capture releases *before* the action runs, so the action can safely hand the keyboard elsewhere (a dialog, an external prompt). See [state-machine.md](state-machine.md#the-next-edge-and-terminal-nodes). |
+| `'hidden` | `#t` \| procedure | **Presentation only**: keeps the row out of the overlay while the value holds. `#t` hides it always; a 0-arg predicate is resolved at *render* time, so the row can come and go without a relaunch. Dispatch is untouched — a hidden key still fires when pressed. This is how a configuration authors a one-shot setup row that retires itself once its library-side gate reports done. |
 
 ```scheme
 (key "p" "Pane Mode" (λ () (if #f #f)) 'next 'iterm-panes-focus)
+
+;; Shows only while iTerm lacks the provisioned bindings; disappears on
+;; the next overlay open once `configure!` has written them.
+(key "C-I" "Configure iTerm" iterm:configure! 'hidden iterm:configured?)
 ```
 
 ### `(keys KEYLIST LABEL ACTION-FN [keyword value]...)`
@@ -466,11 +564,11 @@ overkill — directional split/move clusters, Walks. Keywords:
 | Keyword | Type | Description |
 |---|---|---|
 | `'on-enter` | thunk | Fires when modal navigates *into* this group (only if the overlay is open). |
-| `'on-leave` | thunk | Fires when modal navigates *out*. |
+| `'on-leave` | thunk or 1-arg procedure | Fires when modal navigates *out*. If it declares an argument it receives the **exit reason** — `'navigate` (moved elsewhere) \| `'confirm` (Return) \| `'cancel` (Escape, leader, unknown key under `'exit-on-unknown`) \| `'exit` (any other end). See [state-machine.md](state-machine.md#the-exit-reason). |
 | `'exit-on-unknown` | boolean | Unknown keys exit the modal. Inherited by descendants. |
 | `'provider` | procedure | An FSM edge provider — a 0-arg procedure run each time the group comes to rest, returning extra edges/states valid for that Visit only (see [state-machine.md](state-machine.md#edge-providers-provider)). Unlike `'on-enter`/`'on-leave`, not presentation-gated. |
-| `'entry` | thunk | Fires unconditionally at Visit come-to-rest, regardless of whether the overlay ever displays — unlike `'on-enter`, which is presentation-gated (see [state-machine.md](state-machine.md#unconditional-hooks-entry--exit)). |
-| `'exit` | thunk | Fires unconditionally at Visit end (navigate-away or modal-exit) — the `'entry` counterpart to `'exit`, mirroring `'on-leave`'s pairing with `'on-enter`. |
+| `'entry` | thunk or 1-arg procedure | Fires unconditionally at Visit come-to-rest, regardless of whether the overlay ever displays — unlike `'on-enter`, which is presentation-gated (see [state-machine.md](state-machine.md#unconditional-hooks-entry--exit)). An argument, if declared, receives the **arriving key** (a dispatch key string, or `#f` when no keypress led here). |
+| `'exit` | thunk or 1-arg procedure | Fires unconditionally at Visit end (navigate-away or modal-exit) — the `'exit` counterpart to `'entry`, mirroring `'on-leave`'s pairing with `'on-enter`. An argument, if declared, receives the same **exit reason** `'on-leave` gets, on every visit end rather than only the displayed ones. |
 
 A group carries no latching flag of its own — a command leaf at or
 below it cycles only if it individually declares `'next 'self` (see
@@ -479,8 +577,10 @@ members, but that's derived from the leaves, never declared on the
 group itself.
 
 Unknown keyword/value pairs pass through as opaque alist entries on the
-group — this is the pass-through that the layout DSL rides
-(`'renderer 'panel-grid`, `'span`, `'cols`).
+group — an escape hatch for a library that needs to carry its own datum
+on a node. Presentation is *not* one of those: it rides the single
+`'display` entry, attached by
+[`with-display`](#the-bare-authoring-surface) (or by the sugar).
 
 ```scheme
 (group "f" "Files"
@@ -541,23 +641,26 @@ Extra action for a selector's Tab panel. Used in a selector's
 
 Define a reusable **"act + latch"** navigation set once and splice it
 into many parents (DRY) — the DSL-level packaging of a **Walk**
-(CONTEXT.md): a registered collection whose members cycle via `'next
-'self`. It does two things at evaluation time:
+(CONTEXT.md): a collection whose members cycle via `'next 'self`. Pure
+like every other form, it builds two things from the one key list:
 
-1. **Registers a mode tree** under `MODE-ID` (with `'exit-on-unknown
-   #t` and `'display-name DISPLAY-NAME`) holding the SAME keys, each
-   decorated `'next 'self` — a cyclic edge, so firing one re-arms the
-   collection in place. This is the latch target the walk repeats in.
-2. **Returns a splice node** carrying the same keys again, each
-   decorated `'next MODE-ID` — a cross edge.
+1. **A mode tree** under `MODE-ID` (with `'exit-on-unknown #t` and
+   `'display-name DISPLAY-NAME`) holding the SAME keys, each decorated
+   `'next 'self` — a cyclic edge, so firing one re-arms the collection
+   in place. This is the latch target the walk repeats in. The tree is
+   *carried inside* the returned splice node; the `configuration` merge
+   hoists it into the tree set, so the same walk spliced into two
+   screens contributes its mode tree once (identity dedup) — a walk is
+   mentioned only where it is used.
+2. **The splice's children**: the same keys again, each decorated
+   `'next MODE-ID` — a cross edge.
 
-A splice node is **fully transparent**: the container forms (`screen`,
-`panel`, `open`, `group`) hoist its children into their own child list at
-construction time, so the result is identical to writing those entry keys
-inline —
-and nothing downstream ever sees the splice. So one key list supplies
-both the registered mode *and* every entry point, each copy decorated for
-its own edge (cyclic for the registered members, cross for the entry
+A splice node is **fully transparent**: it survives construction as
+data, and the downstream expansions (the dispatch walk, the renderer)
+expand its children in place, so the result is identical to writing
+those entry keys inline. So one key list supplies
+both the mode tree *and* every entry point, each copy decorated for
+its own edge (cyclic for the mode members, cross for the entry
 splice), with no duplication of the key list itself.
 
 Use individual `(key …)` forms — not `(keys …)` / `(key-range …)` —
@@ -565,11 +668,11 @@ because `'next` is a `(key …)`-only keyword.
 
 **Row ordering of the walk.** An optional leading `'order` keyword
 (`'keys` | `'declared`, mirroring `panel` / `screen`) tunes how the
-**registered mode tree** — the list you see *after* a key crosses in —
+**mode tree** — the list you see *after* a key crosses in —
 orders its rows. `'keys` (the default) key-sorts them; `'declared`
 shows them in declaration order, so a paired set reads grouped (e.g. Focus
 `h j k l` then Move `H J K L`) rather than interleaved (`h H j J k K l L`). The
-keyword is forwarded only to the registered mode; it never enters the splice,
+keyword is forwarded only to the mode tree; it never enters the splice,
 because the spliced **entry keys** land in their parent's **loose region**,
 which is already declaration-ordered. Reach for `'order 'declared` when you want
 the walk to match that grouped entry-point order.
@@ -596,20 +699,165 @@ the title reads e.g. `iTerm ▸ Splits` rather than collapsing to `Splits`.
 
 ---
 
-## Nested-context entry points (ADR-0013)
+## The bare authoring surface
 
-A **nested context** is a second `screen` reachable from inside a first
-one — the herdr entry node reachable from the iTerm node is the shipping
-example (CONTEXT.md "Entry point"). Three pieces wire one together;
-`(modaliser dsl)` re-exports the two state-machine helpers so a single
-`(import (modaliser dsl))` covers all three.
+`(modaliser display-dsl)` is the **canonical** display surface: the
+dispatch atoms above compose the structure, then **one explicit step**
+attaches the Display value. It is what the sugar compiles onto, and it is
+what you reach for when the two layers should be separable — a
+programmatically built tree, a display substituted by tooling, a node
+whose keys must provably survive a presentation change.
+
+Import it **prefixed** — `panel` deliberately exists on both surfaces:
+
+```scheme
+(import (modaliser dsl)
+        (prefix (modaliser display-dsl) d:))
+```
+
+### `(with-display NODE clause…)`
+
+Pure. Returns `NODE` with the assembled display value attached as its
+single `'display` entry. Clause order is free — assembly is always
+canonical (`display-name`, `cols`, `layout`, `order`, `embed`, `loose`,
+`panels`), so two spellings of the same display can never differ by entry
+order. Panel clauses accumulate in the order given, which is grid order.
+
+- **Zero clauses attach nothing** — the empty display value is *identical*
+  to no display at all, and the node comes back unchanged.
+- **Attaching is once.** A node that already carries a display value is an
+  error; wholesale replacement is `node-with-display` from
+  `(modaliser fsm)` — the raw accessor tooling uses.
+- **References are validated at attach time.** Every ref must resolve one
+  level deep against the node's *own* (splice-expanded) children; block
+  reference ids must be unique across the value; and an explicit `loose`
+  must leave **no child unplaced** — a display may never silently drop a
+  live row. (With no `loose` clause the loose region defaults to every
+  child no panel references, in declaration order, so nothing can be
+  dropped.)
+
+### Clause constructors
+
+Each returns plain printable data — exactly the entry that lands in the
+display value — and validates its own argument, so a bad value errors at
+the clause, not at render. Where a clause takes **row refs**, a *string*
+names a dispatch row by its binding key and `(block ID)` names a block
+child by its reference id.
+
+| Clause | Signature | Role |
+|---|---|---|
+| `panel` | `(panel LABEL clause-or-ref…)` | One panel of the grid. `LABEL` `#f` is **headerless**. Args mix `(span …)` / `(order …)` (at most one each, position-free) with row refs in row order. Span defaults `'narrow`, auto-`'wide` when a block ref is present. At most one block ref per panel. |
+| `loose` | `(loose ref…)` | The loose region, in render order. |
+| `block` | `(block ID)` | A row ref naming a block child: its explicit `'id` entry, else its `'type`. |
+| `span` | `(span 'narrow \| 'wide \| 'full)` | A panel's width. Panel-only — passing it to `with-display` errors. |
+| `order` | `(order 'keys \| 'declared)` | Row ordering: inside a `panel` it is that panel's mode; at the top level it is the grid-wide default. |
+| `cols` | `(cols N)` | Authored column count (positive exact integer) — pins the track count. |
+| `layout` | `(layout 'masonry \| 'grid)` | Panel packing. |
+| `embed` | `(embed KEY…)` | The per-edge **embed** choice: each key's edge target renders as an in-place section of this node's display root. Each must name a group child. |
+| `display-name` | `(display-name STR)` | Breadcrumb scope override (tree roots). |
+
+### Sugar ≡ bare
+
+The two spellings below produce the *identical* tree contribution — this
+is the equivalence the veneer contract pins (`DisplayDslTests`):
+
+```scheme
+(define kz (key "z" "Z" act))
+(define kc (key "c" "C" act))
+(define kB (key "B" "Big" act))
+
+;; Sugar: both layers at once.
+(screen 'demo 'cols 2
+  kz
+  (panel "W" 'span 'wide kc kB))
+
+;; Bare: dispatch structure, then the display attached.
+(tree 'demo                             ; from (modaliser configuration)
+  (d:with-display (tree-root 'demo kz kc kB)
+    (d:cols 2)
+    (d:loose "z")
+    (d:panel "W" (d:span 'wide) "c" "B")))
+```
+
+Note what the bare spelling makes visible: the children are **flat** —
+the panel's rows are siblings of the loose row — and the grouping exists
+only as a clause naming `"c"` and `"B"`. Blocks work the same way:
+authored as a child atom, placed by `(d:block ID)`.
+
+### For tooling
+
+| Export | Description |
+|---|---|
+| `resolve-display` | `(resolve-display children display)` → render plan. The pure resolution seam: membership, row order, embed-row exclusion and the block partition, resolved to a total alist the overlay only serializes. See [renderer-protocol.md](renderer-protocol.md). |
+| `block-ref-id` | `(block-ref-id block-spec)` → the id a display references that block by. |
+| `sort-rows` | `(sort-rows rows)` → the canonical row-key sort (`"a A b B …"`), shared with the default list renderer so the two paths can never disagree. |
+
+---
+
+## Nested contexts: the Terminal context map
+
+A **nested context** is an inner terminal tool's tree reachable from a
+terminal-like screen — herdr inside iTerm is the shipping example
+(CONTEXT.md "Entry point"). You do not wire one. The configuration's
+**Terminal context map** — the `(terminal-contexts …)` fragment — maps
+the focused pane's foreground exe name to its tree, and activation does
+the rest ([ADR-0013](../adr/0013-nested-context-entry-points.md),
+[configuration-value spec](../specs/configuration-value.md)):
+
+- A `'local` leader press on a terminal-like screen lands in the
+  **innermost mapped** context's tree, with the Return stack seeded one
+  frame per outer context — backspace steps outward one boundary at a
+  time (tool → mux → host), Escape exits from any depth.
+- Every terminal-like screen derives a gated **`.` step-in edge**
+  stepping one mapped context inward, computed per visit from the live
+  chain. Authored by nobody.
+
+The factory libraries ship the map entries, all four now named
+`wiring`: `(herdr:wiring)`, `(tmux:wiring)`, `(zellij:wiring)`,
+`(nvim:wiring)`. An entry is itself a fragment — the map entry, plus its
+mux backend and digit-jump tree when the tool has pane ops — so
+composing an inner tool into *every* terminal-like host at once is one
+call inside `terminal-contexts`. No host names an inner tool; no inner
+tool names a host.
+
+**None of them carries a tree.** A `wiring` is integration only; the
+screen it points at is authored in your configuration, under the scope
+the map entry names — `'herdr`, `'tmux`, `'zellij`, `'nvim`
+([ADR-0021](../adr/0021-decision-free-libraries.md)). Those scope
+symbols are the machinery half of the boundary: rename one and the
+configuration fails reference-closure validation at load, loudly, rather
+than leaving a dead binding.
+
+```scheme
+(configuration
+  …
+  (iterm:wiring)            ; a terminal-like host's backend + digit tree
+  (terminal-contexts        ; works in iTerm, kitty, WezTerm, …
+    (herdr:wiring)
+    (nvim:wiring))
+  iterm-screen              ; (screen 'com.googlecode.iterm2 …)
+  herdr-screen              ; (screen 'herdr …)
+  herdr-focus-walk          ; (tree 'herdr-panes-focus …)
+  nvim-screen)              ; (screen 'nvim …)
+```
+
+Note what is *not* there: no line pairs iTerm with herdr. The host's
+screen is terminal-like because its scope is the backend record's
+match-key; the mux attaches by foreground exe. Adding a second host or a
+second mux adds one line, never one per pair.
+
+See [terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md)
+for the full worked example and [ADR-0013](../adr/0013-nested-context-entry-points.md)
+for why nesting works this way rather than as a merged variant tree.
 
 ### `(step-in key label target-scope gate)`
 
-A gated cross-tree key edge (CONTEXT.md "Edge gate"): pressing `key`
-moves straight to `target-scope`'s registered root — an ordinary key
+The explicit, authored form of a gated cross-tree key edge (CONTEXT.md
+"Edge gate") — for the rare tree that wants its own jump into another
+tree, outside the derived context-map machinery above. Pressing `key`
+moves straight to `target-scope`'s root — an ordinary key
 edge, not a call (no return-stack push, unlike a `(key … 'next TARGET)`
-cross edge), so the target's own **outward up edge** (below) is what
+cross edge), so the target's own up edge is what
 backspace follows back out, and the move lands and shows immediately
 like any other group descent, with no intermediate command state.
 
@@ -619,43 +867,10 @@ the overlay via a `'hidden` thunk derived from the same `gate` — "no
 inner context detected" means both no edge and no overlay row.
 
 ```scheme
-(screen 'com.googlecode.iterm2
-  (step-in "." "Herdr" 'com.googlecode.iterm2/herdr herdr-detected?)
+(screen 'com.example.myterm
+  (step-in "." "Herdr" 'herdr herdr-detected?)
   …)
 ```
-
-### `(register-tree-up-edge! from-scope to-scope)`
-
-Stamps `from-scope`'s root with an explicit **outward up edge** to
-`to-scope`'s root. An ordinary up edge, ungated and never a call —
-backspace at `from-scope`'s root follows it regardless of how
-`from-scope` was entered (direct leader activation or a `step-in` key
-edge). It is also what makes `fsm-entry-more-specific?`'s up-edge-
-containment check rank `from-scope`'s entry above `to-scope`'s, so a
-nested entry point needs no `'refines` stamp. Idempotent — a state may
-carry at most one up edge, so a second call for the same `from-scope` is
-a no-op.
-
-### `(register-tree-entry-gated! scope gate)`
-
-Registers `scope`'s entry-table row directly gated on `gate` (a 0-arg
-detection predicate), bypassing the bundle-id/suffix heuristic
-`screen`'s automatic entry-table registration derives from a `"/"` in
-the scope string. Pair with `(screen scope 'auto-entry #f …)`, which
-suppresses that automatic row. Idempotent, mirroring
-`register-tree-up-edge!`.
-
-```scheme
-;; The herdr entry node: suppress the automatic suffix-gated row,
-;; register the outward up edge, then the real detection-gated one.
-(apply screen 'com.googlecode.iterm2/herdr 'auto-entry #f (herdr:build-herdr-tree))
-(register-tree-up-edge! 'com.googlecode.iterm2/herdr 'com.googlecode.iterm2)
-(register-tree-entry-gated! 'com.googlecode.iterm2/herdr herdr-detected?)
-```
-
-See [terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md#worked-example-the-herdr-nested-entry-point)
-for the full worked example and [ADR-0013](../adr/0013-nested-context-entry-points.md)
-for why nesting works this way rather than as a merged variant tree.
 
 ---
 
@@ -668,13 +883,35 @@ thunks compact: `(key "b" "Browser" (λ () (launch-app "Safari")))`.
 The `key` macro pattern-matches `λ` the same way it matches `lambda`,
 so both forms take the action-thunk fast path.
 
+### `(tree-root scope [keyword value]... . children)`
+
+The pure tree-root builder underneath `screen` and `walk` — what a
+library uses for a mode tree that is *not* a panel-grid screen (a
+walk's latch target, a digit-jump mode), and the dispatch half of the
+[bare surface](#the-bare-authoring-surface). Returns a root node
+alist; wrap it in the `tree` contribution constructor (from
+`(modaliser configuration)`) to put it in a fragment. Keywords mirror
+`group`: `'on-enter` / `'on-leave`, `'entry` / `'exit`, `'provider`,
+`'exit-on-unknown`, `'display-name`, `'order`; unknown keywords pass
+through as opaque alist entries. The optional arguments mirror `group`
+too — `'on-leave` and `'exit` may declare one to receive the **exit
+reason**, `'entry` one to receive the arriving key (see
+[state-machine.md](state-machine.md#the-exit-reason)).
+
+`'display-name` and `'order` are **display** data, so `tree-root` folds
+them into the root's display value rather than leaving them loose on the
+node — the only two keywords that cross the layer boundary, kept for the
+convenience of `walk` and of libraries building a plain list-rendered
+mode. Everything else about presentation goes through
+[`with-display`](#the-bare-authoring-surface).
+
 ### `(modifier-symbols->mask syms)`
 
 Converts a symbol list like `'(shift ctrl)` to the integer bitmask
 expected by native hotkey APIs. Recognised symbols: `'cmd`, `'shift`,
 `'alt`, `'ctrl`. Unknown symbols are silently ignored. Mostly
-internal — `set-leader!` and `set-leaders!` already accept symbol
-lists via their `'modifiers` keyword.
+internal — the `leader` constructor already accepts symbol
+lists via its `'modifiers` keyword.
 
 ---
 
@@ -684,8 +921,11 @@ lists via their `'modifiers` keyword.
   their exports.
 - [state-machine.md](state-machine.md) — modal lifecycle, the `'next`
   edge, Terminal/Walk semantics, navigation hooks.
-- [renderer-protocol.md](renderer-protocol.md) — the panel-grid payload,
-  the two-tier renderer registry, and how to write custom blocks.
+- [renderer-protocol.md](renderer-protocol.md) — the render plan and the
+  panel-grid payload, the block renderer registry, and how to write
+  custom blocks.
+- [configuration-value spec](../specs/configuration-value.md) — the
+  two-layer node model, the lowering contracts, and the test seams.
 - [theming.md](theming.md) — CSS variables and class names consumed by
   the overlay.
 - How-to guides — task-oriented recipes:
@@ -693,4 +933,4 @@ lists via their `'modifiers` keyword.
   [add a per-app tree](../how-to/add-a-per-app-tree.md),
   [add a fuzzy-finder](../how-to/fuzzy-finder.md),
   [vary the tree by what's in the focused pane](../how-to/terminal-pane-aware-tree.md)
-  (context-suffix trees and the nested-context entry point worked example).
+  (the Terminal context map and the pane-detection chain).

@@ -34,7 +34,7 @@ struct ChooserRenderTests {
               (set! webview-on-message-calls (cons (cons id handler) webview-on-message-calls)))
             """)
 
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dom))")
         let files = [

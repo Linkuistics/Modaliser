@@ -8,7 +8,7 @@ import Testing
 /// These tests run without WezTerm being installed or running. The
 /// shell-out helpers cleanly return #f / empty in that case, which is
 /// the contract the façade expects, so we can verify wiring,
-/// registration, and capability shape end-to-end without a real
+/// installation, and capability shape end-to-end without a real
 /// session. Hand-verification of the 13 supported ops against a live
 /// WezTerm window is the leaf's separate "Done when" item.
 @Suite("(modaliser apps wezterm) library")
@@ -18,21 +18,20 @@ struct ModaliserAppsWeztermLibraryTests {
         try engine.evaluate("(import (modaliser apps wezterm))")
         // Public surface mirrors tmux / zellij — ops live on the
         // façade, not here. Both must bind without error.
-        _ = try engine.evaluate("register!")
+        _ = try engine.evaluate("fragment")
         _ = try engine.evaluate("backend")
     }
 
-    /// (register!) installs the backend into the façade's registry,
-    /// keyed by 'wezterm + bundle-id "com.github.wez.wezterm". When
-    /// the frontmost app is WezTerm, the façade walks the path and
-    /// resolves to this backend.
-    @Test func registerInstallsWeztermBackend() throws {
+    /// (terminal-install-backends! (list backend)) installs the backend
+    /// into the façade's registry, keyed by 'wezterm + bundle-id
+    /// "com.github.wez.wezterm". When the frontmost app is WezTerm, the
+    /// façade walks the path and resolves to this backend.
+    @Test func installedBackendResolvesThroughFacade() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser apps wezterm) (modaliser terminal))
+          (import (modaliser apps wezterm) (modaliser terminal))
         """)
-        try engine.evaluate("(register!)")
+        try engine.evaluate("(terminal-install-backends! (list backend))")
 
         let pathLen = try engine.evaluate("""
           (parameterize ((current-frontmost-bundle-id
@@ -51,17 +50,19 @@ struct ModaliserAppsWeztermLibraryTests {
         #expect(inChain == .true)
     }
 
-    /// (register!) also wires the digit-pick mode so that the backend's
+    /// (fragment) also carries the digit-pick mode so that the backend's
     /// focus-pane-by-digit symbol ('wezterm-pane-digit) names a real tree
-    /// for the façade's resolver to hand a procedure-valued 'next.
-    @Test func registerInstallsDigitPickTree() throws {
+    /// in the installed graph for the façade's resolver to hand a
+    /// procedure-valued 'next.
+    @Test func fragmentCarriesDigitPickTree() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
+          (import (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
                   (modaliser apps wezterm))
         """)
-        try engine.evaluate("(register!)")
-        #expect(try engine.evaluate("(lookup-tree \"wezterm-pane-digit\")") != .false)
+        try engine.evaluate("(fsm-install-graph! (lower-configuration (config:configuration (fragment))))")
+        #expect(try engine.evaluate("(fsm-state-ref \"wezterm-pane-digit\")") != .false)
     }
 
     /// Capability matrix: WezTerm is 13/14 — move-pane is the gap.
@@ -74,7 +75,7 @@ struct ModaliserAppsWeztermLibraryTests {
           (import (modaliser apps wezterm) (modaliser terminal))
         """)
         #expect(try engine.evaluate("(terminal-backend? backend)") == .true)
-        try engine.evaluate("(register-backend! backend)")
+        try engine.evaluate("(terminal-install-backends! (list backend))")
 
         // splits? requires all four move-pane ops; WezTerm has none,
         // so the predicate is #f.

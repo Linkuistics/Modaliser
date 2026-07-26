@@ -4,9 +4,10 @@ How Modaliser's modal dispatch works once the explicit-graph refactor lands:
 the graph model, its construction DSL, the runtime semantics, and the compat
 façade. The *decision* and its trade-offs are recorded in ADR-0015
 (`docs/adr/0015-explicit-fsm-graph.md`); nested-context activation is
-ADR-0013. Glossary: FSM graph, State class, Visit, Up-edge, Call edge /
-Return stack, Action slots, Edge gate, Edge provider, Entry table
-(CONTEXT.md, Jump-navigation domain).
+ADR-0013; the configuration value the graph is lowered from is ADR-0018 /
+`docs/specs/configuration-value.md`. Glossary: FSM graph, State class,
+Visit, Up-edge, Call edge / Return stack, Action slots, Edge gate, Edge
+provider (CONTEXT.md, Jump-navigation domain).
 
 ## Problem
 
@@ -20,15 +21,17 @@ and edges in one window), which an implicit machine cannot offer.
 
 ## Solution
 
-A portable core library, `(modaliser fsm)`, owning two things: the **graph
-model** — states and labelled edges as printable, queryable s-expression
-data, built by a construction DSL with a strong homoiconic flavour — and the
-**step engine** that runs it. The layout spec (screens/panels/keys) remains
-the only user authoring surface and lowers to graph registrations.
-`(modaliser state-machine)` survives as a façade deriving its existing
-exports from the FSM runtime, so the overlay's `(node, path)` contract and
-user-visible behaviour are unchanged until the rendering grove consumes the
-graph directly.
+A portable core library, `(modaliser fsm)`, owning three things: the
+**graph model** — states and labelled edges as printable, queryable
+s-expression data — the **step engine** that runs it, and the **modal
+façade** over it (the pure lower function, the node accessors the overlay
+renders through, the modal-* presentation layer derived from the engine's
+configuration, and the overlay/chooser hook cells). The authoring sugar
+(screens/panels/keys) remains the user surface; the pure lower function
+turns the assembled configuration value (ADR-0018) into the closed graph
+the engine consumes. The `(modaliser state-machine)` re-export shim was
+removed once its importers migrated (docs-sweep-k15); `(modaliser fsm)`
+is the one library.
 
 ## Decisions
 
@@ -46,14 +49,18 @@ graph directly.
 - **Behaviour slots take procedures**: lambda literals anywhere; an optional
   naming wrapper attaches a display name. Printing the graph shows all
   structure and every given name; only closure bodies are opaque.
-- The graph is **open**: registrations (from lowering or direct DSL use)
-  accumulate states, edges, and entry-table rows. Construction validates:
-  a state may not carry both key edges and an auto edge; ids are unique;
-  entry rows reference known states (dangling edge targets are deferred to
-  step time — the graph is built incrementally).
-- The **entry table** maps activation names to states, each optionally
-  gated, each carrying derived specificity (below). It is part of the graph
-  and enumerable by tooling ("where can a leader land?").
+- The graph is **closed over its authored references**: it is produced in
+  one pass by the pure lower function from the configuration value
+  (ADR-0018), and every statically declared target — key edges, `'next`
+  cross/call ids, up-edges, embed/drill references — must resolve, as
+  load-time errors. Construction also validates: a state may not carry both
+  key edges and an auto edge; ids are unique. Providers' visit-scoped
+  synthetic states and dynamic `'next` resolvers are the two deliberate
+  runtime mechanisms outside static closure.
+- There is **no entry table**: activation resolves outside the graph
+  (screen-set lookup plus the Terminal context map's chain walk — below),
+  and "where can a leader land?" is answered by the configuration value's
+  screen set and context map.
 
 ### Runtime semantics
 
@@ -99,13 +106,15 @@ step(input):
   disagree. Provided synthetic states (jump-label prefix states) are
   ordinary states scoped to the visit; narrowing's backspace is their `up`
   edge, and a jump firing is an ordinary terminal state.
-- **Activation**: the leader resolves the entry table — the most specific
-  passing entry wins. Specificity is derived, never hand-ranked: up-edge
-  containment (a nested context outranks its container) or **scope
-  refinement** stamped at lowering (a `bundle-id/suffix` variant outranks
-  its base — non-nested siblings today's suffix hook disambiguates); ties
-  fall to declaration order. Any state id is also directly activatable
-  programmatically.
+- **Activation**: `resolve-activation` (pure — chain in, landing out) maps
+  the leader kind to a screen ('global or the frontmost bundle-id), then,
+  on a terminal-like screen, walks the detection chain for context-map
+  entries: the innermost mapped tree is the landing state, and the return
+  stack is seeded with one frame per outer context (ADR-0013). Any state id
+  is also directly activatable programmatically, through the same
+  resolution (outward frames seed when the chain contains that context).
+  Full algorithm and chain-staleness doctrine:
+  `docs/specs/configuration-value.md`.
 - Entry actions of provided shared targets may receive the arriving key —
   how range-commands and digit lists lower. Dispatch precedence (literal
   keys shadow ranges; first range wins) is resolved at lowering into the
@@ -116,52 +125,59 @@ step(input):
 
 ### Lowering and the façade
 
-- `screen`/`open`/`panel`/`key`/`walk` lower to states, edges, and entry
-  rows: groups become resting states with implicit `up` edges; command
-  leaves become transient/terminal states with their body as `entry`;
-  `'next` becomes the auto edge (`'self` = cyclic, registered id = call
-  edge, procedure = dynamic resolver); panels stay dispatch-transparent;
-  inherited `'exit-on-unknown` is stamped per state at lowering.
+- `screen`/`open`/`panel`/`key`/`walk` lower to states and edges: groups
+  become resting states with implicit `up` edges; command leaves become
+  transient/terminal states with their body as `entry`; `'next` becomes
+  the auto edge (`'self` = cyclic, registered id = call edge, procedure =
+  dynamic resolver); panels stay dispatch-transparent; inherited
+  `'exit-on-unknown` is stamped per state at lowering. Lowering runs once,
+  as the pure function from the configuration value to the closed graph
+  (ADR-0018); each state carries its display value's lowered form as the
+  presentation payload (ADR-0011).
 - A resting state's authored hooks split by timing contract, keyword
   naming the slot pair it lowers onto: `'entry`/`'exit` (on `group`/
-  `open`/`screen`/`register-tree!`, author-only — block hooks never
+  `open`/`screen`/`tree-root`, author-only — block hooks never
   compose into them) lower onto the unconditional entry/exit slots,
   firing at come-to-rest and visit end regardless of whether the overlay
-  ever shows — how jump-chip paint/clear escapes the show delay
-  (jump-chip-paint-bypasses-overlay-delay-k46); `'on-enter`/`'on-leave`
-  lower onto the presentation-gated show/hide pair and keep the delayed
-  no-flash behaviour.
-- A `(screen 'bundle-id …)` registration auto-adds its gated entry-table
-  row; a suffix-variant registration (`bundle-id/suffix`) adds an entry
-  gated on the suffix hook's answer, outranking its base by scope
-  refinement — preserving `resolve-app-tree`'s try-variant-then-fall-back
-  semantics until the nested-context cutover (ADR-0013) retires the suffix
-  path in favour of detection-gated entry points. The herdr entry node's
-  detection gate and outward up-edge come from its own registration.
-- `(modaliser state-machine)` keeps its exported names, derived:
-  `modal-current-path` reads the up-edge chain, `modal-root-node` /
-  `modal-current-node` return carried presentation nodes, `register-tree!`
-  lowers to graph registration, `enter-mode!` wraps activation. Callers
-  passing raw inline trees to `modal-enter` (tests do) are lowered on the
-  fly — audit all entry paths at cutover.
-- `(modaliser event-dispatch)` cuts over with it: `make-leader-handler`
-  resolves through the entry table instead of `lookup-tree` /
-  `resolve-app-tree`; `modal-key-handler`'s keycode-level duties (leader
-  toggle, Escape/Delete, Return/arrows with the list cursor, modifier
-  prefixing, Cmd passthrough) are unchanged and feed the engine. The
-  config-facing `set-local-context-suffix!` API keeps working (its answers
-  become gate results) until ADR-0013's cutover retires it; breadcrumb
-  bookkeeping (`modal-root-segments` append-on-cross, deliberate
-  non-reset at exit for the chooser) is preserved verbatim by the façade.
+  ever shows — the escape hatch for a hook that must not wait out the
+  show delay; `'on-enter`/`'on-leave` lower onto the presentation-gated
+  show/hide pair and keep the delayed no-flash behaviour. Every visible
+  side effect in the shipped tree — jump-chip paint/clear included
+  (defer-chips-to-overlay-k33) — rides the gated pair, so the escape
+  hatch currently has no user.
+- Screens land in the configuration value's screen set keyed by scope;
+  inner-tool trees land in the Terminal context map. Activation, the
+  chain-seeded stack, and the derived `.` step-in are
+  `resolve-activation`'s business (`docs/specs/configuration-value.md`) —
+  no per-screen entry wiring exists.
+- The modal façade's names are derived, never hand-tracked:
+  `modal-current-path` reads the up-edge chain (stopping at the graph's
+  recorded tree roots), `modal-root-node` / `modal-current-node` return
+  carried presentation nodes, and `modal-activate!` is the one activation
+  entry (a resolved landing: root state id + seeded return stack).
+  Breadcrumb bookkeeping (`modal-root-segments` append-on-cross,
+  deliberate non-reset at exit for the chooser) is preserved by the
+  derivation.
+- `(modaliser event-dispatch)` owns only the catch-all key handler:
+  `modal-key-handler`'s keycode-level duties (leader toggle,
+  Escape/Delete, Return/arrows with the list cursor, modifier prefixing,
+  Cmd passthrough) feed the engine. Leader activation lives with the
+  handoff: armed handlers call `resolve-activation` on the live chain
+  ((modaliser handoff) / (modaliser activation)); the entry table and the
+  suffix-hook API are deleted — nvim/zellij variants are context-map
+  entries.
 
 ## Test seams
 
-1. **`(modaliser fsm)` unit suite** — the one new seam: graph construction,
-   validation, printing/queries, step semantics, visits, stack, gates,
-   providers, entry resolution, exercised through the library's public API
-   on toy graphs via the existing LispKit-evaluation test pattern.
-2. **Existing state-machine / end-to-end suites** — the regression gate,
+1. **`(modaliser fsm)` unit suite** — graph construction, validation,
+   printing/queries, step semantics, visits, stack, gates, providers,
+   exercised through the library's public API on toy graphs via the
+   existing LispKit-evaluation test pattern.
+2. **Existing modal-façade / end-to-end suites** — the regression gate,
    unchanged, running through the façade's unchanged names.
+
+Configuration assembly, lowering, and activation resolution are the pure
+configuration pipeline's seam — `docs/specs/configuration-value.md`.
 
 ## Out of scope
 
@@ -172,7 +188,9 @@ step(input):
   ADR-0015; flat edges express the needed cases.
 - **Serializable behaviours** (registry-resolved action names) — structure
   prints; closures stay closures.
-- **User-facing authoring changes** — the layout spec surface is untouched;
+- **User-facing authoring changes** — the authoring sugar is untouched;
   the graph DSL is config-visible but not required authoring.
-- **Retiring the suffix-hook API** — deferred to the nested-context
-  cutover (ADR-0013); this refactor only re-plumbs it as gates.
+- **Configuration assembly and activation policy** — the fragment model,
+  merge semantics, the Terminal context map, and the handoff are
+  `docs/specs/configuration-value.md`'s; this spec owns only the graph the
+  value lowers to and the engine that steps it.

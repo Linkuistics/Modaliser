@@ -16,10 +16,11 @@ struct OverlayRenderTests {
             Issue.record("Scheme directory not found")
             throw SchemeTestError.noSchemeDir
         }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
         try engine.evaluate("(import (modaliser dom))")
+        try engine.evaluate("(import (modaliser fsm) (modaliser configuration))")
         let files = [
             "ui/css.scm",
             "ui/overlay.scm",
@@ -71,12 +72,12 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlProducesValidDocument() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
+            (define cfg (configuration (tree 'global (tree-root 'global
               (key "s" "Safari" (lambda () 'ok))
-              (key "f" "Finder" (lambda () 'ok)))
+              (key "f" "Finder" (lambda () 'ok))))))
             """)
         let result = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '())
             """)
         let html = try result.asString()
         #expect(html.hasPrefix("<!DOCTYPE html>"))
@@ -87,12 +88,12 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlShowsEntries() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
+            (define cfg (configuration (tree 'global (tree-root 'global
               (key "s" "Safari" (lambda () 'ok))
-              (key "f" "Finder" (lambda () 'ok)))
+              (key "f" "Finder" (lambda () 'ok))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '())
             """).asString()
         #expect(html.contains("Safari"))
         #expect(html.contains("Finder"))
@@ -118,11 +119,11 @@ struct OverlayRenderTests {
         // Sigils: ⎋ (U+238B) for escape, ⌫ (U+232B) for backspace.
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (define cfg (configuration (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '())
             """).asString()
         let footer = try #require(extractFooter(html))
         #expect(footer.contains("\u{238B}"))
@@ -135,12 +136,12 @@ struct OverlayRenderTests {
     @Test func renderOverlayFooterDeepOmitsRootModifier() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
+            (define cfg (configuration (tree 'global (tree-root 'global
               (group "w" "Windows"
-                (key "c" "Center" (lambda () 'ok))))
+                (key "c" "Center" (lambda () 'ok)))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '("w"))
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '("w"))
             """).asString()
         // Deep footer should have the plain class, not the root modifier.
         #expect(html.contains("class=\"overlay-footer\">"))
@@ -151,12 +152,12 @@ struct OverlayRenderTests {
         // Below the root, backspace navigates back up — surface the hint.
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
+            (define cfg (configuration (tree 'global (tree-root 'global
               (group "w" "Windows"
-                (key "c" "Center" (lambda () 'ok))))
+                (key "c" "Center" (lambda () 'ok)))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '("w"))
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '("w"))
             """).asString()
         let footer = try #require(extractFooter(html))
         #expect(footer.contains("\u{238B}"))
@@ -172,13 +173,13 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlPaintsNextMarkerOnTaggedKeys() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
+            (define cfg (configuration (tree 'global (tree-root 'global
               (key "h" "Focus Left" (lambda () 'ok)
                 'next 'iterm-panes-focus)
-              (key "c" "Copy" (lambda () 'ok)))
+              (key "c" "Copy" (lambda () 'ok))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '())
             """).asString()
         // The leaf carrying 'next gets a marker; plain keys don't.
         #expect(html.contains("entry-next-marker"))
@@ -236,12 +237,12 @@ struct OverlayRenderTests {
         // of the default key-sort (iterm-nav-declared-order-k38). Keys are
         // shuffled so a pass really proves the sort was skipped.
         try engine.evaluate("""
-            (register-tree! 'walk-declared 'order 'declared
+            (define cfg (configuration (tree 'walk-declared (tree-root 'walk-declared 'order 'declared
               (key "z" "Zulu"  (lambda () 'ok))
-              (key "a" "Alpha" (lambda () 'ok)))
+              (key "a" "Alpha" (lambda () 'ok))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "walk-declared") '("Walk") '())
+            (render-overlay-html (configuration-tree-ref cfg "walk-declared") '("Walk") '())
             """).asString()
         // Declaration order: Zulu before Alpha (the default sort would invert).
         let zPos = html.range(of: "Zulu")!.lowerBound
@@ -254,12 +255,12 @@ struct OverlayRenderTests {
         // Control: a registered group with no 'order keeps key-sorting (the
         // default), so 'order 'declared is genuinely opt-in.
         try engine.evaluate("""
-            (register-tree! 'walk-default
+            (define cfg (configuration (tree 'walk-default (tree-root 'walk-default
               (key "z" "Zulu"  (lambda () 'ok))
-              (key "a" "Alpha" (lambda () 'ok)))
+              (key "a" "Alpha" (lambda () 'ok))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "walk-default") '("Walk") '())
+            (render-overlay-html (configuration-tree-ref cfg "walk-default") '("Walk") '())
             """).asString()
         let zPos = html.range(of: "Zulu")!.lowerBound
         let aPos = html.range(of: "Alpha")!.lowerBound
@@ -284,13 +285,13 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlWithPath() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
+            (define cfg (configuration (tree 'global (tree-root 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))
-                (key "m" "Maximize" (lambda () 'ok))))
+                (key "m" "Maximize" (lambda () 'ok)))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '("w"))
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '("w"))
             """).asString()
         // Should show Windows' children, not root
         #expect(html.contains("Center"))
@@ -303,13 +304,13 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlPathRendersLabelsNotKeyChars() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
+            (define cfg (configuration (tree 'global (tree-root 'global
               (group "w" "Windows"
                 (group "x" "Layouts"
-                  (key "c" "Center" (lambda () 'ok)))))
+                  (key "c" "Center" (lambda () 'ok))))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '("w" "x"))
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '("w" "x"))
             """).asString()
         // Specifically inspect the breadcrumb element so we don't pick up the
         // group's `data-key` or single-char fragments anywhere else in the HTML.
@@ -324,11 +325,11 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlIncludesCSS() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (define cfg (configuration (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '())
             """).asString()
         // Should include base.css content in a style tag
         #expect(html.contains("<style>"))
@@ -352,11 +353,11 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlSpaceKeyDisplaysSymbol() throws {
         let engine = try loadOverlay()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key " " "Space action" (lambda () 'ok)))
+            (define cfg (configuration (tree 'global (tree-root 'global
+              (key " " "Space action" (lambda () 'ok))))))
             """)
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '())
             """).asString()
         #expect(html.contains("\u{2423}"))
     }
@@ -409,14 +410,16 @@ struct OverlayRenderTests {
                   == .pair(.makeString("com.example.unknown"), .null))
     }
 
-    @Test func registerTreeStoresScopeOnRoot() throws {
+    @Test func treeRootStoresScopeOnRoot() throws {
         let engine = try loadOverlay()
-        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
-        #expect(try engine.evaluate("(alist-ref (lookup-tree \"global\") 'scope #f)").asString()
+        // tree-root is pure: the built root node carries 'scope (as a string)
+        // — no install needed to observe it.
+        try engine.evaluate("(define r1 (tree-root 'global (key \"s\" \"Safari\" (lambda () 'ok))))")
+        #expect(try engine.evaluate("(alist-ref r1 'scope #f)").asString()
                   == "global")
 
-        try engine.evaluate("(register-tree! 'com.apple.Safari (key \"t\" \"Tabs\" (lambda () 'ok)))")
-        #expect(try engine.evaluate("(alist-ref (lookup-tree \"com.apple.Safari\") 'scope #f)").asString()
+        try engine.evaluate("(define r2 (tree-root 'com.apple.Safari (key \"t\" \"Tabs\" (lambda () 'ok))))")
+        #expect(try engine.evaluate("(alist-ref r2 'scope #f)").asString()
                   == "com.apple.Safari")
     }
 
@@ -436,13 +439,16 @@ struct OverlayRenderTests {
         #expect(result == .pair(.makeString("Safari"), .null))
     }
 
-    @Test func modalEnterPopulatesRootSegments() throws {
+    @Test func modalActivatePopulatesRootSegments() throws {
         let engine = try loadOverlay()
-        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
-        // Stub the keymap registrations (modal-enter calls register-all-keys!).
+        try engine.evaluate("""
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global (key "s" "Safari" (lambda () 'ok)))))))
+            """)
+        // Stub the keymap registrations (modal-activate! calls register-all-keys!).
         try engine.evaluate("(define (register-all-keys! h) #t)")
         try engine.evaluate("(define (unregister-all-keys!) #t)")
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") 0)")
+        try engine.evaluate("(modal-activate! \"global\" '() 0)")
         #expect(try engine.evaluate("(length (modal-root-segments))") == .fixnum(1))
         #expect(try engine.evaluate("(list-ref (modal-root-segments) 0)").asString() == "Global")
     }
@@ -452,10 +458,13 @@ struct OverlayRenderTests {
         // and the chooser reads modal-root-segments to render its breadcrumb.
         // If modal-exit cleared the segments the chooser would lose the scope.
         let engine = try loadOverlay()
-        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("""
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global (key "s" "Safari" (lambda () 'ok)))))))
+            """)
         try engine.evaluate("(define (register-all-keys! h) #t)")
         try engine.evaluate("(define (unregister-all-keys!) #t)")
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") 0)")
+        try engine.evaluate("(modal-activate! \"global\" '() 0)")
         try engine.evaluate("(modal-exit)")
         #expect(try engine.evaluate("(length (modal-root-segments))") == .fixnum(1))
         #expect(try engine.evaluate("(list-ref (modal-root-segments) 0)").asString() == "Global")
@@ -463,9 +472,9 @@ struct OverlayRenderTests {
 
     @Test func renderOverlayHtmlPrependsHostSegment() throws {
         let engine = try loadOverlay()
-        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("(define cfg (configuration (tree 'global (tree-root 'global (key \"s\" \"Safari\" (lambda () 'ok))))))")
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("my-server" "Global") '("w"))
+            (render-overlay-html (configuration-tree-ref cfg "global") '("my-server" "Global") '("w"))
             """).asString()
         #expect(html.contains("my-server"))
         #expect(html.contains("Global"))
@@ -475,9 +484,9 @@ struct OverlayRenderTests {
     @Test func renderOverlayHtmlVariantSegmentsRendered() throws {
         let engine = try loadOverlay()
         try engine.evaluate(
-            "(register-tree! 'com.googlecode.iterm2/nvim (key \"x\" \"X\" (lambda () 'ok)))")
+            "(define cfg (configuration (tree 'com.googlecode.iterm2/nvim (tree-root 'com.googlecode.iterm2/nvim (key \"x\" \"X\" (lambda () 'ok))))))")
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "com.googlecode.iterm2/nvim")
+            (render-overlay-html (configuration-tree-ref cfg "com.googlecode.iterm2/nvim")
                                  '("iTerm" "nvim") '())
             """).asString()
         #expect(html.contains("iTerm"))
@@ -496,10 +505,11 @@ struct OverlayRenderTests {
             (define last-eval-js #f)
             (define (webview-eval id js) (set! last-eval-js js))
             """)
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
         try engine.evaluate("(import (modaliser dom))")
+        try engine.evaluate("(import (modaliser configuration))")
         let files = [
             "ui/css.scm",
             "ui/overlay.scm",
@@ -508,14 +518,14 @@ struct OverlayRenderTests {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
         try engine.evaluate("""
-            (register-tree! 'global
+            (define cfg (configuration (tree 'global (tree-root 'global
               (group "w" "Windows"
-                (key "c" "Center" (lambda () 'ok))))
+                (key "c" "Center" (lambda () 'ok)))))))
             """)
         try engine.evaluate("(set-overlay-open! #t)")
         // push-overlay-update reads modal-root-segments — set it manually for the test.
         try engine.evaluate("(set-modal-root-segments! '(\"my-server\" \"Global\"))")
-        try engine.evaluate("(push-overlay-update (lookup-tree \"global\") '(\"w\"))")
+        try engine.evaluate("(push-overlay-update (configuration-tree-ref cfg \"global\") '(\"w\"))")
         let js = try engine.evaluate("last-eval-js").asString()
         #expect(js.contains("rootSegments"))
         #expect(js.contains("my-server"))
@@ -527,9 +537,9 @@ struct OverlayRenderTests {
 
     @Test func renderOverlayHtmlOmitsHostCssWhenNotSet() throws {
         let engine = try loadOverlay()
-        try engine.evaluate("(register-tree! 'global (key \"s\" \"Safari\" (lambda () 'ok)))")
+        try engine.evaluate("(define cfg (configuration (tree 'global (tree-root 'global (key \"s\" \"Safari\" (lambda () 'ok))))))")
         let html = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html (configuration-tree-ref cfg "global") '("Global") '())
             """).asString()
         // Variables are referenced in base.css with fallbacks, but not assigned when not set
         #expect(!html.contains("--color-host-bg:"))

@@ -6,7 +6,7 @@ import Testing
 struct OverlayHookSetterTests {
     @Test func setShowOverlayReplacesHook() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm))")
 
         try engine.evaluate("""
           (define show-calls '())

@@ -24,7 +24,7 @@ struct ListCursorDispatchTests {
         guard let schemePath = engine.schemeDirectoryPath else {
             Issue.record("Scheme directory not found"); throw SchemeTestError.noSchemeDir
         }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
         try engine.evaluate("(import (modaliser list-cursor))")
         for file in ["ui/css.scm", "ui/overlay.scm"] {
@@ -60,8 +60,8 @@ struct ListCursorDispatchTests {
     @Test func renderActivatesCursorAndPayloadCarriesSelected() throws {
         let engine = try loadCursor()
         try engine.evaluate("""
-          (screen 'cur-render (panel "Live" (fake-list-block)))
-          (define p (renderer-body-json 'panel-grid (lookup-tree "cur-render")))
+          (define cfg (configuration (screen 'cur-render (panel "Live" (fake-list-block)))))
+          (define p (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-render")))
         """)
         #expect(try engine.evaluate("(list-cursor-active?)") == .true)
         #expect(try engine.evaluate("p").asString().contains("\"selected\":0"))
@@ -77,8 +77,8 @@ struct ListCursorDispatchTests {
           (define (focused-list-block)
             (append (fake-list-block)
                     (list (cons 'cursor-initial-index-fn (lambda () 2)))))
-          (screen 'cur-focus (panel "Live" (focused-list-block)))
-          (define p (renderer-body-json 'panel-grid (lookup-tree "cur-focus")))
+          (define cfg (configuration (screen 'cur-focus (panel "Live" (focused-list-block)))))
+          (define p (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-focus")))
         """)
         #expect(try engine.evaluate("(list-cursor-index)") == .fixnum(2))
         #expect(try engine.evaluate("p").asString().contains("\"selected\":2"))
@@ -88,12 +88,13 @@ struct ListCursorDispatchTests {
     @Test func renderWithoutListClearsCursor() throws {
         let engine = try loadCursor()
         try engine.evaluate("""
-          (screen 'cur-list  (panel "Live" (fake-list-block)))
-          (screen 'cur-plain (panel "Cmds" (key "c" "Center" (lambda () 'ok))))
-          (renderer-body-json 'panel-grid (lookup-tree "cur-list"))
+          (define cfg (configuration
+            (screen 'cur-list  (panel "Live" (fake-list-block)))
+            (screen 'cur-plain (panel "Cmds" (key "c" "Center" (lambda () 'ok))))))
+          (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-list"))
         """)
         #expect(try engine.evaluate("(list-cursor-active?)") == .true)
-        try engine.evaluate("(renderer-body-json 'panel-grid (lookup-tree \"cur-plain\"))")
+        try engine.evaluate("(renderer-body-json 'panel-grid (configuration-tree-ref cfg \"cur-plain\"))")
         #expect(try engine.evaluate("(list-cursor-active?)") == .false)
     }
 
@@ -102,9 +103,10 @@ struct ListCursorDispatchTests {
     @Test func kAndJMoveCursor() throws {
         let engine = try loadCursor()
         try engine.evaluate("""
-          (screen 'cur-kj (panel "Live" (fake-list-block)))
-          (modal-enter (lookup-tree "cur-kj") F18)
-          (renderer-body-json 'panel-grid (lookup-tree "cur-kj"))
+          (define cfg (configuration (screen 'cur-kj (panel "Live" (fake-list-block)))))
+          (fsm-install-graph! (lower-configuration cfg))
+          (modal-activate! "cur-kj" '() F18)
+          (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-kj"))
         """)
         try engine.evaluate("(modal-handle-key \"j\")")
         #expect(try engine.evaluate("(list-cursor-index)") == .fixnum(1))
@@ -121,9 +123,10 @@ struct ListCursorDispatchTests {
     @Test func arrowKeysMoveCursor() throws {
         let engine = try loadCursor()
         try engine.evaluate("""
-          (screen 'cur-arrow (panel "Live" (fake-list-block)))
-          (modal-enter (lookup-tree "cur-arrow") F18)
-          (renderer-body-json 'panel-grid (lookup-tree "cur-arrow"))
+          (define cfg (configuration (screen 'cur-arrow (panel "Live" (fake-list-block)))))
+          (fsm-install-graph! (lower-configuration cfg))
+          (modal-activate! "cur-arrow" '() F18)
+          (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-arrow"))
         """)
         #expect(try engine.evaluate("(modal-key-handler DOWN 0)") == .true)
         #expect(try engine.evaluate("(list-cursor-index)") == .fixnum(1))
@@ -139,9 +142,10 @@ struct ListCursorDispatchTests {
     @Test func returnActivatesHighlightedRow() throws {
         let engine = try loadCursor()
         try engine.evaluate("""
-          (screen 'cur-enter (panel "Live" (fake-list-block)))
-          (modal-enter (lookup-tree "cur-enter") F18)
-          (renderer-body-json 'panel-grid (lookup-tree "cur-enter"))
+          (define cfg (configuration (screen 'cur-enter (panel "Live" (fake-list-block)))))
+          (fsm-install-graph! (lower-configuration cfg))
+          (modal-activate! "cur-enter" '() F18)
+          (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-enter"))
           (modal-handle-key "j")
         """)  // move to row index 1 (label "2")
         #expect(try engine.evaluate("(modal-key-handler RETURN 0)") == .true)
@@ -154,9 +158,10 @@ struct ListCursorDispatchTests {
     @Test func returnWithoutCursorConfirmExits() throws {
         let engine = try loadCursor()
         try engine.evaluate("""
-          (screen 'cur-noenter (panel "Cmds" (key "c" "Center" (lambda () 'ok))))
-          (modal-enter (lookup-tree "cur-noenter") F18)
-          (renderer-body-json 'panel-grid (lookup-tree "cur-noenter"))
+          (define cfg (configuration (screen 'cur-noenter (panel "Cmds" (key "c" "Center" (lambda () 'ok))))))
+          (fsm-install-graph! (lower-configuration cfg))
+          (modal-activate! "cur-noenter" '() F18)
+          (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-noenter"))
         """)
         #expect(try engine.evaluate("(list-cursor-active?)") == .false)
         #expect(try engine.evaluate("(modal-key-handler RETURN 0)") == .true)
@@ -170,12 +175,14 @@ struct ListCursorDispatchTests {
         let engine = try loadCursor()
         try engine.evaluate("""
           (define j-fired #f)
-          (screen 'cur-jbound
-            (panel "Live"
-              (key "j" "Jump" (lambda () (set! j-fired #t)))
-              (fake-list-block)))
-          (modal-enter (lookup-tree "cur-jbound") F18)
-          (renderer-body-json 'panel-grid (lookup-tree "cur-jbound"))
+          (define cfg (configuration
+            (screen 'cur-jbound
+              (panel "Live"
+                (key "j" "Jump" (lambda () (set! j-fired #t)))
+                (fake-list-block)))))
+          (fsm-install-graph! (lower-configuration cfg))
+          (modal-activate! "cur-jbound" '() F18)
+          (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-jbound"))
           (modal-handle-key "j")
         """)
         #expect(try engine.evaluate("j-fired") == .true)
@@ -207,8 +214,8 @@ struct ListCursorDispatchTests {
     @Test func footerAdvertisesNavKeysWhenCursorActive() throws {
         let engine = try loadCursor()
         try engine.evaluate("""
-          (screen 'cur-foot (panel "Live" (fake-list-block)))
-          (renderer-body-json 'panel-grid (lookup-tree "cur-foot"))
+          (define cfg (configuration (screen 'cur-foot (panel "Live" (fake-list-block)))))
+          (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-foot"))
           (define f (footer-html-for-path '()))
         """)
         let footer = try engine.evaluate("f").asString()
@@ -222,8 +229,8 @@ struct ListCursorDispatchTests {
     @Test func cursorFooterNavHintsLiveWhenListNonEmpty() throws {
         let engine = try loadCursor()
         try engine.evaluate("""
-          (screen 'cur-foot-live (panel "Live" (fake-list-block)))
-          (renderer-body-json 'panel-grid (lookup-tree "cur-foot-live"))
+          (define cfg (configuration (screen 'cur-foot-live (panel "Live" (fake-list-block)))))
+          (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-foot-live"))
           (define f (footer-html-for-path '()))
         """)
         let footer = try engine.evaluate("f").asString()
@@ -244,8 +251,8 @@ struct ListCursorDispatchTests {
             (list (cons 'type 'window-list)
                   (cons 'on-render-fn (lambda () (list (cons 'windows '()))))
                   (cons 'cursor-targets-fn empty-targets)))
-          (screen 'cur-foot-empty (panel "Live" (empty-list-block)))
-          (renderer-body-json 'panel-grid (lookup-tree "cur-foot-empty"))
+          (define cfg (configuration (screen 'cur-foot-empty (panel "Live" (empty-list-block)))))
+          (renderer-body-json 'panel-grid (configuration-tree-ref cfg "cur-foot-empty"))
           (define f (footer-html-for-path '()))
         """)
         // The cursor is active but owns an empty list.

@@ -13,28 +13,109 @@ import Testing
 /// path itself is covered by ModaliserJsonLibraryTests).
 @Suite("(modaliser muxes herdr) library")
 struct ModaliserMuxesHerdrLibraryTests {
+
+    /// A herdr screen authored the way a configuration authors one
+    /// (ADR-0021) — the library ships ops, blocks and the jump provider;
+    /// every key and label below belongs to this fixture, exactly as
+    /// default-config.scm's belong to the seed.
+    ///
+    /// It is a FIXTURE, not a replica of the stock composition: only the
+    /// paths the dispatch tests below actually press are here. The real
+    /// seed is loaded and lowered for real by
+    /// `ConfigDslTests.defaultConfigSchemeLoadsWithoutErrors`, which is
+    /// the one seam that pins it (ADR-0021's Consequences: library
+    /// tree-shape tests are deleted rather than relocated, because
+    /// asserting `Q d` = Detach asserts preference).
+    ///
+    /// Assumes `(modaliser dsl)`, `(modaliser fsm)`, `(modaliser muxes
+    /// herdr)` and `(prefix (modaliser configuration) config:)` are
+    /// imported, and leaves the graph installed and `cfg` bound.
+    private static let herdrScreenFixture = """
+      (define (fixture-cycle kind focus-fn scope-id-fn)
+        (splice
+          (key "[" "Prev" (cycle-prev-op kind focus-fn scope-id-fn) 'next 'self)
+          (key "]" "Next" (cycle-next-op kind focus-fn scope-id-fn) 'next 'self)))
+      (define cfg (config:configuration
+        (screen 'herdr
+          'display-name "herdr"
+          'provider herdr-jump-provider
+          'on-enter paint-jump-chips!
+          'on-leave clear-jump-chips!
+          (open "P" "Panes"
+            (panel "Focus"
+              (key "h" "Left"  focus-pane-left  'next 'herdr-panes-focus)
+              (key "j" "Down"  focus-pane-down  'next 'herdr-panes-focus)
+              (key "k" "Up"    focus-pane-up    'next 'herdr-panes-focus)
+              (key "l" "Right" focus-pane-right 'next 'herdr-panes-focus))
+            (group "m" "Move"
+              'exit-on-unknown #t
+              (key "h" "Left"  move-pane-left  'next 'self)
+              (key "j" "Down"  move-pane-down  'next 'self)
+              (key "k" "Up"    move-pane-up    'next 'self)
+              (key "l" "Right" move-pane-right 'next 'self))
+            (fixture-cycle 'panes focus-pane-by-id focused-tab-id)
+            (panel "Panes" (pane-list-block 'chips? #t)))
+          (open "S" "Spaces"
+            (fixture-cycle 'workspaces focus-workspace-by-id #f)
+            (panel "Spaces" (workspace-list-block)))
+          (open "A" "Agents"
+            (fixture-cycle 'agents focus-pane-by-id #f)
+            (panel "Agents" (agent-list-block)))
+          (key "c" "Copy Mode" (copy-mode-op herdr-default-prefix))
+          (panel "Jump" (jump-legend-block)))
+        (config:tree 'herdr-panes-focus
+          (tree-root 'herdr-panes-focus
+            'exit-on-unknown #t
+            'display-name "Focus"
+            (key "h" "Left"  focus-pane-left  'next 'self)
+            (key "j" "Down"  focus-pane-down  'next 'self)
+            (key "k" "Up"    focus-pane-up    'next 'self)
+            (key "l" "Right" focus-pane-right 'next 'self)
+            (fixture-cycle 'panes focus-pane-by-id focused-tab-id)))))
+      (fsm-install-graph! (lower-configuration cfg))
+      """
+
     @Test func importsAndExposesProcedures() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser muxes herdr))")
-        // The only public exports are register! and backend; the ops
-        // live on the façade, not here. Both must bind without error.
-        _ = try engine.evaluate("register!")
-        _ = try engine.evaluate("backend")
+        // The public composition surface (ADR-0021): the wiring fragment
+        // and the backend record, plus the op / block / provider names a
+        // config's own (screen 'herdr …) binds. All must bind without
+        // error — a name that vanished here is a broken config, loudly.
+        for name in [
+            "wiring", "backend", "herdr-default-prefix",
+            "focus-pane-left", "split-pane-up", "move-pane-right",
+            "toggle-pane-zoom", "close-pane",
+            "new-tab", "close-focused-tab", "rename-focused-tab!",
+            "new-workspace", "close-focused-workspace", "rename-focused-workspace!",
+            "move-tab-left", "move-space-down",
+            "new-worktree!", "remove-focused-worktree!",
+            "jump-to-next-blocked", "stop-server!",
+            "focus-pane-by-id", "focus-tab-by-id", "focus-workspace-by-id",
+            "focused-tab-id", "focused-workspace-id",
+            "cycle-prev-op", "cycle-next-op",
+            "copy-mode-op", "scrollback-op", "detach-op",
+            "pane-list-block", "tab-list-block", "workspace-list-block",
+            "agent-list-block", "worktree-list-block",
+            "herdr-jump-provider", "paint-jump-chips!", "clear-jump-chips!",
+            "jump-legend-block"
+        ] {
+            _ = try engine.evaluate(name)
+        }
     }
 
-    /// (register!) installs the backend into the façade's registry, keyed
+    /// The backend record installs into the façade's registry, keyed
     /// by 'herdr + match-key "herdr". With a stubbed host reporting
     /// "herdr" as its foreground command, the façade walks the path and
     /// the leaf is this backend — the detection premise validated live
     /// against the herdr-in-iTerm client (an iTerm pane running herdr
     /// reports tty foreground command "herdr").
-    @Test func registerInstallsHerdrBackend() throws {
+    @Test func installedBackendResolvesInTheChainWalk() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
+          (import (modaliser dsl)
                   (modaliser muxes herdr) (modaliser terminal))
         """)
-        try engine.evaluate("(register!)")
 
         // A stub host that claims herdr is in the focused pane. The path
         // walk descends from host into the herdr backend; without a live
@@ -51,7 +132,7 @@ struct ModaliserMuxesHerdrLibraryTests {
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x)
               (lambda () #t)))
-          (register-backend! stub-host)
+          (terminal-install-backends! (list backend stub-host))
         """)
 
         let pathLen = try engine.evaluate("""
@@ -69,17 +150,18 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(inChain == .true)
     }
 
-    /// (register!) also wires the digit-pick mode so that the backend's
-    /// focus-pane-by-digit symbol ('herdr-pane-digit) names a real tree
-    /// for the façade's resolver to hand a procedure-valued 'next.
-    @Test func registerInstallsDigitPickTree() throws {
+    /// The wiring fragment carries the digit-pick mode tree, so the
+    /// backend record's focus-pane-by-digit symbol ('herdr-pane-digit)
+    /// names a real tree for the façade's resolver to hand a
+    /// procedure-valued 'next.
+    @Test func wiringCarriesDigitPickTree() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
+          (import (modaliser dsl) (prefix (modaliser configuration) config:)
                   (modaliser muxes herdr))
         """)
-        try engine.evaluate("(register!)")
-        #expect(try engine.evaluate("(lookup-tree \"herdr-pane-digit\")") != .false)
+        try engine.evaluate("(define cfg (config:configuration (wiring)))")
+        #expect(try engine.evaluate("(config:configuration-tree-ref cfg \"herdr-pane-digit\")") != .false)
     }
 
     /// The exported `backend` record is shape-correct: matches as a mux
@@ -92,7 +174,6 @@ struct ModaliserMuxesHerdrLibraryTests {
           (import (modaliser muxes herdr) (modaliser terminal))
         """)
         #expect(try engine.evaluate("(terminal-backend? backend)") == .true)
-        try engine.evaluate("(register-backend! backend)")
         try engine.evaluate("""
           (define h
             (make-terminal-backend
@@ -103,7 +184,7 @@ struct ModaliserMuxesHerdrLibraryTests {
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x)
               (lambda () #t)))
-          (register-backend! h)
+          (terminal-install-backends! (list backend h))
         """)
         // All four capability predicates should report support: herdr
         // gives the full 14-op surface (12 focus/split/move + digit-jump
@@ -128,7 +209,6 @@ struct ModaliserMuxesHerdrLibraryTests {
     @Test func backendMatchesHerdrForegroundKey() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser muxes herdr) (modaliser terminal))")
-        try engine.evaluate("(register!)")
         // A host reporting some *other* fg command must NOT resolve herdr.
         try engine.evaluate("""
           (define other-host
@@ -140,7 +220,7 @@ struct ModaliserMuxesHerdrLibraryTests {
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x)
               (lambda () #t)))
-          (register-backend! other-host)
+          (terminal-install-backends! (list backend other-host))
         """)
         let inChain = try engine.evaluate("""
           (parameterize ((current-frontmost-bundle-id
@@ -152,140 +232,39 @@ struct ModaliserMuxesHerdrLibraryTests {
 
     // MARK: - herdr-in-iTerm entry-point wiring (leaf 3, ADR-0013)
 
-    /// The tree-builder is shape-correct. `iterm-list-session-ids` (used
-    /// internally by apps/iterm's rebuild-tree! for pane-UUID resolution)
-    /// stays exported but is asserted only, not called (it would
-    /// auto-launch iTerm via AppleScript).
-    @Test func treeBuildersAndItermExportsAreShapeCorrect() throws {
+    /// `iterm-list-session-ids` (apps/iterm's pane-UUID source) stays
+    /// exported but is asserted only, not called (it would auto-launch
+    /// iTerm via AppleScript).
+    @Test func itermSessionIdSourceStaysExported() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser muxes herdr)
                   (only (modaliser apps iterm) iterm-list-session-ids))
         """)
         #expect(try engine.evaluate("(procedure? iterm-list-session-ids)") == .true)
-        // Skeleton herdr tree: a non-empty list of nodes (herdr owns hjkl).
-        #expect(try engine.evaluate("(pair? (build-herdr-tree))") == .true)
     }
 
-    /// ADR-0013's nested-context cutover: the herdr entry node's up edge
-    /// (register-tree-up-edge!) makes fsm-entry-more-specific?'s up-edge-
-    /// containment check rank a detection-gated herdr entry (register-
-    /// tree-entry-gated!) above the plain iTerm entry — no 'refines/suffix-
-    /// hook needed. Mirrors exactly how the config wires the two screens
-    /// together. Registers the iTerm base + the herdr entry point, the
-    /// herdr backend, and a stub iTerm host whose focused pane may or may
-    /// not run herdr, then checks leader resolution both ways.
-    @Test func herdrEntryPointOutranksItermEntryWhenDetected() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser muxes herdr) (modaliser terminal))
-        """)
-        try engine.evaluate("""
-          (screen 'com.googlecode.iterm2 (panel "Base" (key "x" "X" (lambda () #f))))
-          (apply screen 'com.googlecode.iterm2/herdr 'auto-entry #f (build-herdr-tree))
-          (register-tree-up-edge! 'com.googlecode.iterm2/herdr 'com.googlecode.iterm2)
-        """)
-        try engine.evaluate("(register!)") // the herdr backend
-        try engine.evaluate("""
-          (define (stub-iterm fg)
-            (make-terminal-backend
-              'iterm "iTerm" 'host "com.googlecode.iterm2" #f
-              (lambda () fg) (lambda () "sess-1")
-              (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
-              (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
-              (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
-              (lambda () 'x) (lambda () 'x)
-              (lambda () #t)))
-          (register-backend! (stub-iterm "herdr"))
-          (register-tree-entry-gated! 'com.googlecode.iterm2/herdr
-            (lambda () (in-chain? 'herdr)))
-        """)
-        func resolvesTo(_ entryName: String) throws -> Bool {
-            try engine.evaluate("""
-              (parameterize ((current-frontmost-bundle-id
-                               (lambda () "com.googlecode.iterm2")))
-                (equal? (resolve-entry-for-bundle "com.googlecode.iterm2") "\(entryName)"))
-            """) == .true
-        }
-        // herdr focused → the nested entry wins, not the base iTerm entry.
-        #expect(try resolvesTo("com.googlecode.iterm2/herdr"))
-        // herdr NOT focused → falls back to the plain iTerm entry, no variant.
-        try engine.evaluate("(register-backend! (stub-iterm \"zsh\"))")
-        #expect(try resolvesTo("com.googlecode.iterm2"))
-    }
+    // MARK: - Dispatch through an authored herdr screen
+    //
+    // These press keys, so they need a tree. They author their own
+    // (ADR-0021) — see `herdrScreenFixture` — and what they assert is the
+    // MACHINERY the presses reach: cyclic vs cross edges, the live-list
+    // blocks' stale-kind guard, the jump provider's lowering. Which key
+    // carries which op is the fixture's own choice, asserted nowhere.
 
-    /// Backspace from the herdr entry node walks to the plain iTerm node
-    /// via its own up edge — an ordinary move (ADR-0013), not a return-
-    /// stack pop: modal-stack stays empty throughout.
-    @Test func herdrEntryNodeBackspaceReachesItermNode() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
-        """)
-        try engine.evaluate("""
-          (screen 'com.googlecode.iterm2 (panel "Base" (key "x" "X" (lambda () #f))))
-          (apply screen 'com.googlecode.iterm2/herdr 'auto-entry #f (build-herdr-tree))
-          (register-tree-up-edge! 'com.googlecode.iterm2/herdr 'com.googlecode.iterm2)
-        """)
-        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
-        #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"com.googlecode.iterm2/herdr\"))") == .true)
-        #expect(try engine.evaluate("(null? modal-stack)") == .true)
-
-        try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("modal-active?") == .true)
-        #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"com.googlecode.iterm2\"))") == .true)
-        #expect(try engine.evaluate("(null? modal-stack)") == .true)
-    }
-
-    // MARK: - herdr control surface (leaf herdr-controls-k9)
-
-    /// `build-herdr-tree` returns the full herdr surface, not the hjkl
-    /// skeleton: a `P` Panes drill (Focus panel, n New / m Move groups, z/d
-    /// pane keys, the Panes list panel), the T Tabs / S Spaces /
-    /// W Worktrees drills, the b Jump-to-Blocked key, an A Agents drill (agents
-    /// surface, k13), and the Q Quit group (herdr-quit-group-k2) — seven
-    /// top-level nodes (herdr-pane-group grove), following the plane rule
-    /// (capitals for drills/Quit, lowercase `b` the one jump kept at this
-    /// level — top-level-nav-k6). It must build without
-    /// touching herdr (all shell-outs live in
-    /// on-render thunks / key actions, never at construction time).
-    @Test func buildHerdrTreeIsFullSurface() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
-        """)
-        #expect(try engine.evaluate("(length (build-herdr-tree))") == .fixnum(7))
-    }
-
-    /// (register!) wires the Walk top-level focus mode the herdr tree's
-    /// Focus panel crosses into ('next 'herdr-panes-focus), so a
-    /// first hjkl focuses AND keeps moving without another leader press.
-    @Test func registerInstallsWalkFocusMode() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
-        """)
-        try engine.evaluate("(register!)")
-        #expect(try engine.evaluate("(lookup-tree \"herdr-panes-focus\")") != .false)
-    }
-
-    /// ADR-0015 live smoke: dispatching through the REAL build-herdr-tree's
-    /// `P` Panes drill, "m" Move group. Each hjkl carries 'next 'self (a
-    /// cyclic edge), so repeat presses re-arm in place — no exit, no
+    /// ADR-0015 live smoke: a Move group whose hjkl each carry 'next 'self
+    /// (a cyclic edge), so repeat presses re-arm in place — no exit, no
     /// modal-stack growth — and an unrelated key still exits per
     /// 'exit-on-unknown.
     @Test func movePaneWalkReArmsInPlaceAndExitsOnUnknownKey() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+          (import (modaliser dsl) (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
+                  (modaliser muxes herdr))
         """)
-        try engine.evaluate("""
-          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
-        """)
-        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        try engine.evaluate(Self.herdrScreenFixture)
+        try engine.evaluate("(modal-activate! \"herdr\" '() F18)")
         try engine.evaluate("(modal-handle-key \"P\")")
         try engine.evaluate("(modal-handle-key \"m\")")
         #expect(try engine.evaluate("(equal? modal-current-path '(\"P\" \"m\"))") == .true)
@@ -296,29 +275,32 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(equal? modal-current-path '(\"P\" \"m\"))") == .true)
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
 
-        try engine.evaluate("(modal-handle-key \"q\")") // unbound in Move (lowercase; Quit is capital `Q`)
+        try engine.evaluate("(modal-handle-key \"q\")") // unbound in Move
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
-    /// ADR-0015 live smoke: the `P` Panes drill's Focus panel's hjkl carry
+    /// ADR-0015 live smoke: a Focus panel whose hjkl carry
     /// 'next 'herdr-panes-focus (a cross edge) — the first press pushes the
-    /// caller (the herdr tree, inside the Panes drill) and switches into
+    /// caller (the herdr screen, inside the Panes drill) and switches into
     /// the Walk; subsequent hjkl inside it cycle via 'next 'self with no
     /// further push; backspace pops back to the caller.
+    ///
+    /// 'herdr-panes-focus is the one scope symbol here that is NOT the
+    /// fixture's choice: it is machinery-named, and a config that renames
+    /// it fails reference-closure validation at load.
     @Test func focusPanelCrossesIntoWalkThenCyclesInPlace() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+          (import (modaliser dsl) (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
+                  (modaliser muxes herdr))
         """)
-        try engine.evaluate("(register!)") // registers 'herdr-panes-focus
-        try engine.evaluate("""
-          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
-        """)
-        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        try engine.evaluate(Self.herdrScreenFixture)
+        try engine.evaluate("(modal-activate! \"herdr\" '() F18)")
         try engine.evaluate("(modal-handle-key \"P\")") // Panes drill
         try engine.evaluate("(modal-handle-key \"h\")") // Focus panel
         #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"herdr-panes-focus\"))") == .true)
+            "(eq? modal-root-node (config:configuration-tree-ref cfg \"herdr-panes-focus\"))") == .true)
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
 
         try engine.evaluate("(modal-handle-key \"j\")")
@@ -328,7 +310,7 @@ struct ModaliserMuxesHerdrLibraryTests {
 
         try engine.evaluate("(modal-step-back)")
         #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"com.googlecode.iterm2/herdr\"))") == .true)
+            "(eq? modal-root-node (config:configuration-tree-ref cfg \"herdr\"))") == .true)
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
     }
 
@@ -359,20 +341,20 @@ struct ModaliserMuxesHerdrLibraryTests {
     @Test func digitPressBeforeRenderIgnoresStaleOtherKindEntry() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr)
+          (import (modaliser muxes herdr-socket) (modaliser dsl) (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
+                  (modaliser muxes herdr)
                   (modaliser blocks herdr-list) (modaliser json))
         """)
-        try engine.evaluate("""
-          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
-        """)
+        try engine.evaluate(Self.herdrScreenFixture)
 
         // Prior render this session: Panes, label "1" → a stale pane id.
         try engine.evaluate(#"""
           (parameterize
-            ((current-herdr-list-runner
-               (lambda (subcmd)
+            ((current-herdr-query-runner
+               (lambda (method params)
                  (cond
-                   ((string=? subcmd "pane list")
+                   ((string=? method "pane.list")
                     (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"focused\":true,\"pane_id\":\"STALE-PANE\",\"tab_id\":\"w1:t1\"}]}}"))
                    (else #f)))))
             (herdr-list-refresh! 'panes #f))
@@ -383,15 +365,27 @@ struct ModaliserMuxesHerdrLibraryTests {
 
         // Fast leader→S→1: the overlay never opens in this harness, so "S"'s
         // descent does not render Spaces before "1" fires.
-        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        //
+        // The digit ends in a real focus verb, so the WRITE seam is stubbed
+        // alongside the read seam. Stubbing one and not its sibling is the
+        // gap that used to put `workspace.focus REAL-WORKSPACE` on the
+        // developer's live socket (test-live-herdr-contact-k35); capturing
+        // here also lets the test assert the verb, which is the altitude
+        // ADR-0020 says matters.
+        try engine.evaluate("(define FIRED '())")
+        try engine.evaluate("(modal-activate! \"herdr\" '() F18)")
         try engine.evaluate(#"""
           (parameterize
-            ((current-herdr-list-runner
-               (lambda (subcmd)
+            ((current-herdr-query-runner
+               (lambda (method params)
                  (cond
-                   ((string=? subcmd "workspace list")
+                   ((string=? method "workspace.list")
                     (json-parse "{\"result\":{\"workspaces\":[{\"focused\":true,\"label\":\"work\",\"workspace_id\":\"REAL-WORKSPACE\"}]}}"))
-                   (else #f)))))
+                   (else #f))))
+             (current-herdr-command-runner
+               (lambda (method params)
+                 (set! FIRED (cons (cons method params) FIRED))
+                 #f)))
             (modal-handle-key "S")
             (modal-handle-key "1"))
         """#)
@@ -400,6 +394,10 @@ struct ModaliserMuxesHerdrLibraryTests {
         // the stale Panes entry under the same label.
         #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'workspaces)") == .true)
         #expect(try engine.evaluate("(cdr (assoc \"1\" (herdr-list-current-targets)))")
+                == .string("REAL-WORKSPACE"))
+        // …and focused it, by workspace id, over the socket.
+        #expect(try engine.evaluate("(car (car FIRED))") == .string("workspace.focus"))
+        #expect(try engine.evaluate("(cdr (assoc \"workspace_id\" (cdr (car FIRED))))")
                 == .string("REAL-WORKSPACE"))
     }
 
@@ -929,61 +927,193 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(next-blocked-pane-id J \"w9:p9\")") == .string("w9:p3"))
     }
 
-    /// The agents surface is wired into `build-herdr-tree`: a top-level `b`
-    /// (Jump to Blocked, one keystroke — lowercase, per the plane rule it is
-    /// a jump, not a drill) and an `A` Agents drill (open), spliced into the
-    /// herdr entry-point screen (ADR-0013). Tree-shape assertion, no
-    /// live herdr.
-    @Test func buildHerdrTreeWiresJumpAndAgents() throws {
+    // MARK: - The socket transport itself (ADR-0020)
+    //
+    // Every other test in this file stubs current-herdr-query-runner /
+    // current-herdr-command-runner, which is right for exercising dispatch
+    // but leaves the transport underneath them — envelope construction,
+    // reply parsing, error mapping — with no coverage of its own. These
+    // three run the REAL transport against a throwaway responder, so no
+    // herdr need be installed, let alone running.
+
+    /// The request format is a contract with herdr, so pin the exact bytes:
+    /// one compact JSON line, `{"id","method","params"}`, params rendered
+    /// from the alist the callers pass. The primitive owns the trailing
+    /// newline, so the recorded line carries none.
+    @Test func transportPutsAJsonRpcEnvelopeOnTheWireAndParsesTheReply() throws {
+        let responder = try LineResponderSocket(
+            behaviour: .canned(#"{"id":"modaliser","result":{"pane":{"pane_id":"wC:p4"}}}"#))
+        defer { responder.stop() }
+
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser json))")
+        let paneId = try engine.evaluate(#"""
+          (parameterize ((current-herdr-socket-path "\#(responder.path)"))
+            (let ((reply (herdr-socket-request "pane.focus" '(("pane_id" . "wC:p4")))))
+              (json-ref (json-ref (json-ref reply "result") "pane") "pane_id")))
+        """#)
+
+        #expect(paneId == .makeString("wC:p4"))
+        #expect(responder.lastRequest
+                == #"{"id":"modaliser","method":"pane.focus","params":{"pane_id":"wC:p4"}}"#)
+    }
+
+    /// A structured `{"error":…}` reply is an ANSWER, not silence — this is
+    /// the exact response that used to arrive as `agent_not_found` and get
+    /// discarded by `2>/dev/null`. It comes back as its envelope (and is
+    /// logged), because `#f` is reserved for "herdr did not answer": a
+    /// caller reporting herdr's state to the user must not read
+    /// `worktree.list` → `not_git_worktree` as "herdr is not responding".
+    /// Callers need no branch for it — an error envelope has no "result",
+    /// and `json-ref` is total, so it degrades to the same empty a `#f`
+    /// would have produced.
+    @Test func transportReturnsAnErrorReplyAsItsEnvelopeNotFalse() throws {
+        let responder = try LineResponderSocket(
+            behaviour: .canned(#"{"id":"modaliser","error":{"code":"agent_not_found","message":"nope"}}"#))
+        defer { responder.stop() }
+
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define REPLY
+            (parameterize ((current-herdr-socket-path "\#(responder.path)"))
+              (herdr-socket-request "agent.focus" '(("target" . "wC:p4")))))
+        """#)
+        // Answered, not silent…
+        #expect(try engine.evaluate("(if REPLY #t #f)") == .true)
+        #expect(try engine.evaluate("(json-ref (json-ref REPLY \"error\") \"code\")")
+                == .string("agent_not_found"))
+        // …and still nothing for a reader to consume, exactly as before.
+        #expect(try engine.evaluate("(json-ref REPLY \"result\")") == .false)
+    }
+
+    /// An unreachable socket — herdr not running — degrades to #f without
+    /// raising. A leader press must never raise (ADR-0014/0017 spirit).
+    /// This is what #f now means, and the only thing it means.
+    @Test func transportDegradesToFalseWhenHerdrIsUnreachable() throws {
+        let absent = LineResponderSocket.temporarySocketPath()
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr))")
+        #expect(try engine.evaluate(#"""
+          (parameterize ((current-herdr-socket-path "\#(absent)"))
+            (herdr-socket-request "pane.current" '()))
+        """#) == .false)
+    }
+
+    // MARK: - The transport is inert until the host installs a path (k35)
+
+    /// The structural guard that keeps `swift test` off the developer's own
+    /// herdr session: `current-herdr-socket-path` defaults to #f, so a bare
+    /// `SchemeEngine()` has nowhere to dial and every herdr call degrades to
+    /// the #f each caller already handles. Only the app bootstrap (root.scm)
+    /// installs the live path.
+    ///
+    /// Together with the default being #f, these two returns ARE the whole
+    /// guarantee: `current-herdr-socket-path` is the only thing either
+    /// transport dials, so an unconfigured parameter cannot reach a socket by
+    /// any route. That is what makes the safety structural rather than a
+    /// per-test habit — the leak this replaced came from tests with no herdr
+    /// I/O intent at all (a backend-record shape check, the detection chain
+    /// walk, a Move-walk re-arm), which had no reason to stub a seam.
+    @Test func transportIsInertUntilTheHostInstallsASocketPath() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr))")
+
+        #expect(try engine.evaluate("(current-herdr-socket-path)") == .false)
+        #expect(try engine.evaluate("(herdr-socket-request \"pane.current\" '())") == .false)
+        #expect(try engine.evaluate("(herdr-socket-send \"server.stop\" '())") == .false)
+        // And through the seams the ops actually use, unstubbed — the exact
+        // route by which `pane.swap` used to reach a live pane layout.
+        #expect(try engine.evaluate("""
+          ((current-herdr-command-runner) "pane.swap" '(("direction" . "left")))
+        """) == .false)
+        #expect(try engine.evaluate("""
+          ((current-herdr-query-runner) "pane.list" '())
+        """) == .false)
+    }
+
+    /// Installing is the host's job; resolving is still herdr's. The policy
+    /// root.scm hands to the parameter stays here, unchanged from when it was
+    /// a load-time expression: $HERDR_SOCKET_PATH wins when Modaliser is run
+    /// from a shell inside herdr, and the $HOME fallback is what a
+    /// GUI-launched Modaliser (stripped environment) actually uses.
+    @Test func defaultSocketPathResolvesTheHostPolicy() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr-socket))")
+        let resolved = try engine.evaluate("(herdr-default-socket-path)")
+
+        if let exported = ProcessInfo.processInfo.environment["HERDR_SOCKET_PATH"] {
+            #expect(resolved == .makeString(exported))
+        } else {
+            let home = ProcessInfo.processInfo.environment["HOME"] ?? ""
+            #expect(resolved == .makeString(home + "/.config/herdr/herdr.sock"))
+        }
+    }
+
+    /// The distinction end-to-end, at the one place it is user-visible: a
+    /// live-list drill shows the "not responding" row ONLY for silence. An
+    /// `error` envelope — herdr answering with an objection, e.g.
+    /// `worktree.list` → not_git_worktree outside a git work tree — renders
+    /// as an ordinary empty list, which is what the CLI era did too.
+    @Test func anErrorReplyRendersAnEmptyListNotTheUnresponsiveRow() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+          (import (modaliser muxes herdr-socket) (modaliser blocks herdr-list)
+                  (modaliser json))
         """)
-        try engine.evaluate("""
-          (define TREE (build-herdr-tree))
-          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
-          (define (node-with-key k lst)
-            (cond ((null? lst) #f)
-                  ((equal? (node-key (car lst)) k) (car lst))
-                  (else (node-with-key k (cdr lst)))))
-        """)
-        // Top-level `b` present and is a plain command key (Terminal jump, not a Walk).
-        #expect(try engine.evaluate("(if (node-with-key \"b\" TREE) #t #f)") == .true)
-        #expect(try engine.evaluate("""
-          (eq? 'command (cdr (assoc 'kind (node-with-key "b" TREE))))
-        """) == .true)
-        // Top-level `A` present and is a drill group (the Agents open).
-        #expect(try engine.evaluate("(if (node-with-key \"A\" TREE) #t #f)") == .true)
-        #expect(try engine.evaluate("""
-          (eq? 'group (cdr (assoc 'kind (node-with-key "A" TREE))))
-        """) == .true)
+        try engine.evaluate("(define B (make-herdr-list-block 'kind 'worktrees))")
+        try engine.evaluate(#"""
+          (define ROWS
+            (cdr (assoc 'rows
+              (parameterize
+                ((current-herdr-query-runner
+                   (lambda (method params)
+                     (json-parse "{\"id\":\"modaliser\",\"error\":{\"code\":\"not_git_worktree\",\"message\":\"Herdr worktree actions require a workspace inside a Git work tree\"}}"))))
+                ((cdr (assoc 'on-render-fn B)))))))
+        """#)
+        #expect(try engine.evaluate("(null? ROWS)") == .true)
+        #expect(try engine.evaluate("(null? (herdr-list-current-targets))") == .true)
     }
 
     // MARK: - Worktrees tree wiring (leaf worktrees-tree-wiring-k15)
 
     /// The pure smart-switch target parser (W4). k14 hands each worktree row a
-    /// tagged switch target computed over the `worktree list` payload; this
-    /// turns it back into a herdr command. An OPEN worktree ("ws:<id>") maps to
-    /// the clean `workspace focus <id>`; a DORMANT one ("br:<branch>") maps to
-    /// `worktree open --branch <branch> --focus`, source-pinned via --workspace
-    /// when the focused ws-id is known and sq-escaped so an apostrophe in the
-    /// branch is shell-safe. Malformed / empty / non-string targets → #f (never
-    /// dispatched). Fixture-fed — no live herdr.
+    /// tagged switch target computed over the `worktree.list` payload; this
+    /// turns it back into a herdr socket call — a (method . params) pair. An
+    /// OPEN worktree ("ws:<id>") maps to the clean `workspace.focus`; a DORMANT
+    /// one ("br:<branch>") maps to `worktree.open` on that branch, source-pinned
+    /// with `workspace_id` when the focused ws-id is known. Malformed / empty /
+    /// non-string targets → #f (never dispatched). Fixture-fed — no live herdr.
+    ///
+    /// The branch name is no longer sq-escaped: it is a JSON string value now,
+    /// and `json-write` owns escaping for every param of every method (ADR-0020).
+    /// The apostrophe case below therefore asserts the branch arrives VERBATIM —
+    /// that shell quoting is gone, not merely relocated.
     @Test func worktreeSwitchCommandParsesTarget() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser muxes herdr))")
-        // Open worktree → focus its live workspace (no --workspace pin needed).
-        #expect(try engine.evaluate(#"(worktree-switch-command "ws:w12" "w9")"#)
-                == .string("workspace focus w12"))
+        // Open worktree → focus its live workspace (no source pin needed).
+        #expect(try engine.evaluate(#"""
+          (equal? (worktree-switch-command "ws:w12" "w9")
+                  '("workspace.focus" ("workspace_id" . "w12")))
+        """#) == .true)
         // Dormant worktree → open a fresh workspace on the branch, source-pinned.
-        #expect(try engine.evaluate(#"(worktree-switch-command "br:feature-x" "w9")"#)
-                == .string("worktree open --workspace w9 --branch 'feature-x' --focus"))
+        #expect(try engine.evaluate(#"""
+          (equal? (worktree-switch-command "br:feature-x" "w9")
+                  '("worktree.open" ("workspace_id" . "w9")
+                                    ("branch" . "feature-x")
+                                    ("focus" . #t)))
+        """#) == .true)
         // No focused ws-id → degrade to herdr's implicit resolution (no pin).
-        #expect(try engine.evaluate(#"(worktree-switch-command "br:feature-x" #f)"#)
-                == .string("worktree open --branch 'feature-x' --focus"))
-        // A branch with an apostrophe is sq-escaped ('\'' idiom) → shell-safe.
-        #expect(try engine.evaluate(#"(worktree-switch-command "br:it's" "w9")"#)
-                == .string(#"worktree open --workspace w9 --branch 'it'\''s' --focus"#))
+        #expect(try engine.evaluate(#"""
+          (equal? (worktree-switch-command "br:feature-x" #f)
+                  '("worktree.open" ("branch" . "feature-x") ("focus" . #t)))
+        """#) == .true)
+        // An apostrophe in the branch travels verbatim — no shell quoting left.
+        #expect(try engine.evaluate(#"""
+          (equal? (cdr (assoc "branch" (cdr (worktree-switch-command "br:it's" "w9"))))
+                  "it's")
+        """#) == .true)
         // Malformed tag, empty payload, and non-string all → #f (no dispatch).
         #expect(try engine.evaluate(#"(worktree-switch-command "xx:foo" "w9")"#) == .false)
         #expect(try engine.evaluate(#"(worktree-switch-command "ws:" "w9")"#) == .false)
@@ -992,91 +1122,120 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(worktree-switch-command #f \"w9\")") == .false)
     }
 
-    /// The worktrees surface is wired into `build-herdr-tree`: a top-level `W`
-    /// Worktrees drill (open), spliced into the herdr entry-point screen
-    /// (ADR-0013). Its inner `n` New and `d` Remove keys are present.
-    /// Tree-shape assertion, no live herdr.
-    @Test func buildHerdrTreeWiresWorktrees() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
-        """)
-        try engine.evaluate("""
-          (define TREE (build-herdr-tree))
-          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
-          (define (node-with-key k lst)
-            (cond ((null? lst) #f)
-                  ((equal? (node-key (car lst)) k) (car lst))
-                  (else (node-with-key k (cdr lst)))))
-        """)
-        // Top-level `W` present and is a drill group (the Worktrees open).
-        #expect(try engine.evaluate("(if (node-with-key \"W\" TREE) #t #f)") == .true)
-        #expect(try engine.evaluate("""
-          (eq? 'group (cdr (assoc 'kind (node-with-key "W" TREE))))
-        """) == .true)
-        // The drill holds `n` (New) and `d` (Remove) among its children.
-        try engine.evaluate("""
-          (define G (node-with-key "W" TREE))
-          (define KIDS (cdr (assoc 'children G)))
-        """)
-        #expect(try engine.evaluate("(if (node-with-key \"n\" KIDS) #t #f)") == .true)
-        #expect(try engine.evaluate("(if (node-with-key \"d\" KIDS) #t #f)") == .true)
-    }
+    // MARK: - The send seam: ops whose reply is deliberately not awaited
 
-    // MARK: - Async herdr ops (leaf herdr-dialogs-async-k2)
-
-    /// ADR-0014: worktree create/remove fire fire-and-forget async with no
-    /// continuation payload — herdr's own UI, no missing-arg gap (unlike
-    /// the rename ops below, moved off this bare-fire shape at
-    /// herdr-rename-prompt-ownership-k9). Both the id-resolution query and
-    /// the async fire are routed through parameterized test seams so no
-    /// test spawns a real herdr (feedback_no_live_env_mutation_in_tests):
-    /// current-herdr-query-runner hands back canned `pane current` JSON in
-    /// place of a live query; current-herdr-async-runner captures the
-    /// exact verb string in place of firing run-shell-async.
-    @Test func worktreeOpsFireExactAsyncVerbsWithFocusedId() throws {
+    /// worktree create/remove go out through `unix-socket-send`, not
+    /// `unix-socket-request`, because herdr answers them only once a
+    /// `git worktree add`/`remove` subprocess finishes — waiting would block
+    /// the eval thread for the transport's full timeout as a matter of
+    /// routine (ADR-0014's stalled-tap hazard).
+    ///
+    /// What is pinned here is the pair that reaches the socket. `create`
+    /// carries NO `branch`: herdr's socket API never prompts (its
+    /// branch-name dialog belongs to its own TUI key handler, upstream of
+    /// the API), so omitting it means "server, generate a slug" — not "ask
+    /// the user". `remove` carries no `force`, which is the whole safety
+    /// story for that op: git refuses a dirty worktree.
+    ///
+    /// Both the id-resolution query and the send are routed through
+    /// parameterized seams, so no test reaches a real herdr
+    /// (feedback_no_live_env_mutation_in_tests).
+    @Test func worktreeOpsSendExactMethodAndParamsWithFocusedId() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser json))")
         try engine.evaluate(#"""
           (define captured '())
           (parameterize
             ((current-herdr-query-runner
-               (lambda (args)
+               (lambda (method params)
                  (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}")))
-             (current-herdr-async-runner
-               (lambda (args callback) (set! captured (cons args captured)))))
+             (current-herdr-send-runner
+               (lambda (method params)
+                 (set! captured (cons (cons method params) captured)))))
             (new-worktree!)
             (remove-focused-worktree!))
           (set! captured (reverse captured))
+          (define (call-method n) (car (list-ref captured n)))
+          (define (call-param n key)
+            (let ((hit (assoc key (cdr (list-ref captured n))))) (and hit (cdr hit))))
+          (define (has-param? n key) (if (assoc key (cdr (list-ref captured n))) #t #f))
         """#)
-        #expect(try engine.evaluate("(list-ref captured 0)")
-                == .string("worktree create --workspace w9 --focus"))
-        #expect(try engine.evaluate("(list-ref captured 1)")
-                == .string("worktree remove --workspace w9"))
+        #expect(try engine.evaluate("(call-method 0)") == .string("worktree.create"))
+        #expect(try engine.evaluate(#"(call-param 0 "workspace_id")"#) == .string("w9"))
+        #expect(try engine.evaluate(#"(call-param 0 "focus")"#) == .true)
+        // The absence is the assertion: a `branch` here would be Modaliser
+        // naming the user's branch, and a `force` below would be Modaliser
+        // overriding git's refusal to delete a dirty worktree.
+        #expect(try engine.evaluate(#"(has-param? 0 "branch")"#) == .false)
+
+        #expect(try engine.evaluate("(call-method 1)") == .string("worktree.remove"))
+        #expect(try engine.evaluate(#"(call-param 1 "workspace_id")"#) == .string("w9"))
+        #expect(try engine.evaluate(#"(has-param? 1 "force")"#) == .false)
     }
 
-    /// herdr-rename-prompt-ownership-k9: the two rename ops no longer fire
-    /// bare — they open a Modaliser-owned chooser-prompt (via the
-    /// (modaliser state-machine) open-chooser-prompt deferred hook, the
-    /// same shape open-chooser uses) pre-filled with the id's current
-    /// label, read via `tab list` (the same query the live-list blocks
-    /// already use). Only submitting the prompt's continuation fires the
-    /// async verb, with the (possibly edited) label sq-escaped and
-    /// single-quoted exactly like worktree-switch-command's branch-name
-    /// interpolation. open-chooser-prompt is a plain setter (not a
-    /// parameter), so it's stubbed directly rather than parameterized —
-    /// the stub captures the (prompt, initial-value, on-submit) triple
-    /// without a real WebView.
-    @Test func renameFocusedTabOpensPromptPrefilledAndFiresEscapedLabelOnSubmit() throws {
+    /// The send transport's own coverage, mirroring the request transport's
+    /// above: the REAL `herdr-socket-send` against a throwaway responder,
+    /// pinning the same `{"id","method","params"}` envelope. Sharing the
+    /// envelope builder with `herdr-socket-request` is what makes that
+    /// identity structural rather than coincidental, and this is what would
+    /// catch it drifting.
+    @Test func sendTransportPutsTheSameJsonRpcEnvelopeOnTheWire() throws {
+        let responder = try LineResponderSocket(behaviour: .canned(#"{"id":"modaliser"}"#))
+        defer { responder.stop() }
+
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr))")
+        #expect(try engine.evaluate(#"""
+          (parameterize ((current-herdr-socket-path "\#(responder.path)"))
+            (herdr-socket-send "worktree.create" '(("workspace_id" . "w9") ("focus" . #t))))
+        """#) == .true)
+
+        #expect(responder.awaitRequest()
+                == #"{"id":"modaliser","method":"worktree.create","params":{"workspace_id":"w9","focus":true}}"#)
+    }
+
+    /// An unreachable herdr degrades to #f here exactly as it does on the
+    /// request side — never a raise, because a leader press must not raise.
+    @Test func sendTransportDegradesToFalseWhenHerdrIsUnreachable() throws {
+        let absent = LineResponderSocket.temporarySocketPath()
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr))")
+        #expect(try engine.evaluate(#"""
+          (parameterize ((current-herdr-socket-path "\#(absent)"))
+            (herdr-socket-send "server.stop" '()))
+        """#) == .false)
+    }
+
+    // MARK: - The rename ops (plain synchronous commands)
+
+    /// herdr-rename-prompt-ownership-k9: the two rename ops don't fire bare —
+    /// they open a Modaliser-owned chooser-prompt (via the (modaliser fsm)
+    /// open-chooser-prompt deferred hook, the same shape open-chooser uses)
+    /// pre-filled with the id's current label, read via `tab.list` (the same
+    /// query the live-list blocks already use). Only submitting the prompt's
+    /// continuation issues the command.
+    ///
+    /// That command is a PLAIN SYNCHRONOUS one: herdr's `tab.rename` handler
+    /// sets the label in memory, emits its event and answers immediately, so
+    /// there is nothing to wait for and no reason to send-and-forget. The
+    /// interactive half is Modaliser's own prompt, which is already CPS —
+    /// ADR-0014 is satisfied by the prompt's shape, not by how the command
+    /// travels. Hence `current-herdr-command-runner` here, the same seam the
+    /// other synchronous verbs use.
+    ///
+    /// open-chooser-prompt is a plain setter (not a parameter), so it's
+    /// stubbed directly rather than parameterized — the stub captures the
+    /// (prompt, initial-value, on-submit) triple without a real WebView.
+    @Test func renameFocusedTabOpensPromptPrefilledAndSendsLabelOnSubmit() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser muxes herdr) (modaliser state-machine) (modaliser json))
+          (import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser fsm) (modaliser json))
         """)
         try engine.evaluate(#"""
           (define captured-prompt #f)
           (define captured-initial #f)
           (define captured-submit #f)
-          (define captured-cmd #f)
+          (define captured-call #f)
           (set-open-chooser-prompt!
             (lambda (prompt initial on-submit)
               (set! captured-prompt prompt)
@@ -1084,73 +1243,79 @@ struct ModaliserMuxesHerdrLibraryTests {
               (set! captured-submit on-submit)))
           (parameterize
             ((current-herdr-query-runner
-               (lambda (args)
+               (lambda (method params)
                  (cond
-                   ((string=? args "pane current")
+                   ((string=? method "pane.current")
                     (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}"))
-                   ((string=? args "tab list")
+                   ((string=? method "tab.list")
                     (json-parse "{\"result\":{\"tabs\":[{\"tab_id\":\"w9:t1\",\"label\":\"main\"}]}}"))
                    (else #f))))
-             (current-herdr-async-runner
-               (lambda (args callback) (set! captured-cmd args))))
+             (current-herdr-command-runner
+               (lambda (method params) (set! captured-call (cons method params)))))
             (rename-focused-tab!)
             (captured-submit "feature work"))
+          (define (param key)
+            (let ((hit (assoc key (cdr captured-call)))) (and hit (cdr hit))))
         """#)
         #expect(try engine.evaluate("captured-prompt").asString() == "Rename tab…")
         #expect(try engine.evaluate("captured-initial").asString() == "main")
-        #expect(try engine.evaluate("captured-cmd").asString()
-                == "tab rename w9:t1 'feature work'")
+        #expect(try engine.evaluate("(car captured-call)") == .string("tab.rename"))
+        #expect(try engine.evaluate(#"(param "tab_id")"#) == .string("w9:t1"))
+        #expect(try engine.evaluate(#"(param "label")"#) == .string("feature work"))
     }
 
-    /// Same shape as the tab test above, plus the sq-escape case: an
-    /// apostrophe in the submitted label must reach the fired verb via the
-    /// close-quote/escaped-literal/reopen idiom (POSIX single-quote
-    /// escaping), not break the shell-command quoting.
-    @Test func renameFocusedWorkspaceOpensPromptPrefilledAndEscapesApostropheOnSubmit() throws {
+    /// Same shape as the tab test above, on the label that used to be the
+    /// interesting one: an apostrophe. Under the shell it had to arrive
+    /// POSIX-single-quote-escaped (`'it'\''s mine'`) or it broke the command;
+    /// the assertion now is the inverse — the label must reach the params
+    /// **verbatim**, because escaping is no longer this code's business.
+    ///
+    /// So this runs the REAL transport rather than stubbing the seam: the
+    /// claim worth pinning is not "we pass the string along" but "what lands
+    /// on the wire is valid JSON with the apostrophe intact", and only
+    /// `json-write` can be caught getting that wrong.
+    @Test func renameFocusedWorkspaceSendsAnApostropheLabelUnescapedAsJson() throws {
+        let responder = try LineResponderSocket(behaviour: .canned(#"{"id":"modaliser","result":{}}"#))
+        defer { responder.stop() }
+
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser muxes herdr) (modaliser state-machine) (modaliser json))
+          (import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser fsm) (modaliser json))
         """)
         try engine.evaluate(#"""
-          (define captured-prompt #f)
           (define captured-initial #f)
           (define captured-submit #f)
-          (define captured-cmd #f)
           (set-open-chooser-prompt!
             (lambda (prompt initial on-submit)
-              (set! captured-prompt prompt)
               (set! captured-initial initial)
               (set! captured-submit on-submit)))
           (parameterize
             ((current-herdr-query-runner
-               (lambda (args)
-                 (cond
-                   ((string=? args "pane current")
-                    (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}"))
-                   ((string=? args "workspace list")
-                    (json-parse "{\"result\":{\"workspaces\":[{\"workspace_id\":\"w9\",\"label\":\"work\"}]}}"))
-                   (else #f))))
-             (current-herdr-async-runner
-               (lambda (args callback) (set! captured-cmd args))))
+               (lambda (method params)
+                 (json-parse "{\"result\":{\"workspaces\":[{\"workspace_id\":\"w9\",\"label\":\"work\"}],\"pane\":{\"pane_id\":\"w9:p1\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}")))
+             (current-herdr-socket-path "\#(responder.path)"))
             (rename-focused-workspace!)
             (captured-submit "it's mine"))
         """#)
-        #expect(try engine.evaluate("captured-prompt").asString() == "Rename Space…")
         #expect(try engine.evaluate("captured-initial").asString() == "work")
-        #expect(try engine.evaluate("captured-cmd").asString()
-                == "workspace rename w9 'it'\\''s mine'")
+
+        // An apostrophe needs no escaping in JSON; a backslash before it here
+        // would mean someone reintroduced shell-shaped quoting.
+        #expect(responder.awaitRequest()
+                == #"{"id":"modaliser","method":"workspace.rename","params":{"workspace_id":"w9","label":"it's mine"}}"#)
     }
 
-    /// The guard: with no focused id (herdr unreachable — `pane current`
-    /// resolves to #f), all four ops no-op — neither the async runner nor
-    /// (for the two rename ops) open-chooser-prompt is ever invoked. The
+    /// The guard: with no focused id (herdr unreachable — `pane.current`
+    /// resolves to #f), all four ops no-op — neither runner, nor (for the two
+    /// rename ops) open-chooser-prompt, is ever invoked. Both the command and
+    /// send seams are stubbed, since the four ops now divide across them. The
     /// query runner is explicitly stubbed to #f rather than relying on the
-    /// ambient environment lacking herdr, so the assertion holds
-    /// regardless of whether the host machine has a live herdr session.
+    /// ambient environment lacking herdr, so the assertion holds regardless
+    /// of whether the host machine has a live herdr session.
     @Test func fourHerdrOpsNoOpWithoutFocusedId() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser muxes herdr) (modaliser state-machine) (modaliser json))
+          (import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser fsm) (modaliser json))
         """)
         try engine.evaluate("""
           (define fired? #f)
@@ -1158,8 +1323,9 @@ struct ModaliserMuxesHerdrLibraryTests {
           (set-open-chooser-prompt!
             (lambda (prompt initial on-submit) (set! prompted? #t)))
           (parameterize
-            ((current-herdr-query-runner (lambda (args) #f))
-             (current-herdr-async-runner (lambda (args callback) (set! fired? #t))))
+            ((current-herdr-query-runner (lambda (method params) #f))
+             (current-herdr-command-runner (lambda (method params) (set! fired? #t)))
+             (current-herdr-send-runner (lambda (method params) (set! fired? #t))))
             (rename-focused-tab!)
             (rename-focused-workspace!)
             (new-worktree!)
@@ -1169,68 +1335,272 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("prompted?") == .false)
     }
 
-    // MARK: - Quit group (leaf herdr-quit-group-k2)
+    // MARK: - Reorder: Move Tab / Move Space (leaf herdr-tab-space-reorder-k36)
 
-    /// Tree-shape only: top-level `Q` is a group holding `d` Detach and `s`
-    /// Stop Server. Detach's keystroke-emission body stays untested by
-    /// design (same trust level as the config's untested copy-mode key) —
-    /// no new keystroke test seam, per the grilled decision.
-    @Test func buildHerdrTreeWiresQuitGroup() throws {
+    /// The relative→absolute arithmetic, exhaustively. herdr's
+    /// `insert_index` is a GAP index into the PRE-removal list — the server
+    /// removes the target then inserts at that gap, landing it on
+    /// `source < insert ? insert - 1 : insert` — so the two directions are
+    /// NOT symmetric: one place later is `pos + 2`, one place earlier is
+    /// `pos - 1`. That asymmetry is the reason this is its own function.
+    ///
+    /// Either end returns #f rather than wrapping (the `[`/`]` ring wraps,
+    /// but that moves focus; this moves content, and its neighbour `m` Move
+    /// Pane no-ops at the edge of the layout). #f means the op sends no
+    /// request at all.
+    @Test func reorderInsertIndexConvertsRelativeStepsToHerdrGapIndex() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
-        """)
-        try engine.evaluate("""
-          (define TREE (build-herdr-tree))
-          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
-          (define (node-with-key k lst)
-            (cond ((null? lst) #f)
-                  ((equal? (node-key (car lst)) k) (car lst))
-                  (else (node-with-key k (cdr lst)))))
-        """)
-        // Top-level `Q` present and is a plain group (not a Walk/drill).
-        #expect(try engine.evaluate("(if (node-with-key \"Q\" TREE) #t #f)") == .true)
-        #expect(try engine.evaluate("""
-          (eq? 'group (cdr (assoc 'kind (node-with-key "Q" TREE))))
-        """) == .true)
-        // Its children hold `d` (Detach) and `s` (Stop Server).
-        try engine.evaluate("""
-          (define Q (node-with-key "Q" TREE))
-          (define KIDS (cdr (assoc 'children Q)))
-        """)
-        #expect(try engine.evaluate("(if (node-with-key \"d\" KIDS) #t #f)") == .true)
-        #expect(try engine.evaluate("(if (node-with-key \"s\" KIDS) #t #f)") == .true)
+        try engine.evaluate("(import (modaliser muxes herdr))")
+
+        // A four-long scope, target at position 1. Later → 1+2 = 3 (the gap
+        // past position 2, which becomes position 2 once the target is
+        // removed); earlier → 1-1 = 0. Asymmetric by two, not by zero.
+        #expect(try engine.evaluate("(reorder-insert-index 1 4 1)") == .fixnum(3))
+        #expect(try engine.evaluate("(reorder-insert-index 1 4 -1)") == .fixnum(0))
+        // From the second-to-last place, moving later lands on the last:
+        // insert 4 == the list length, which herdr accepts (`> len` errors).
+        #expect(try engine.evaluate("(reorder-insert-index 2 4 1)") == .fixnum(4))
+        // Both edges are no-ops, not wraps.
+        #expect(try engine.evaluate("(reorder-insert-index 0 4 -1)") == .false)
+        #expect(try engine.evaluate("(reorder-insert-index 3 4 1)") == .false)
+        // A scope too short to reorder, and an empty one.
+        #expect(try engine.evaluate("(reorder-insert-index 0 1 1)") == .false)
+        #expect(try engine.evaluate("(reorder-insert-index 0 1 -1)") == .false)
+        #expect(try engine.evaluate("(reorder-insert-index 0 0 1)") == .false)
+        // A position outside the scope, or a non-integer one (a malformed
+        // payload) degrades to #f rather than erroring on a leader press —
+        // cycle-target-id's contract.
+        #expect(try engine.evaluate("(reorder-insert-index 4 4 -1)") == .false)
+        #expect(try engine.evaluate("(reorder-insert-index -1 4 1)") == .false)
+        #expect(try engine.evaluate("(reorder-insert-index #f 4 1)") == .false)
+        // A multi-place step is the same formula, no special case.
+        #expect(try engine.evaluate("(reorder-insert-index 0 4 2)") == .fixnum(3))
+        #expect(try engine.evaluate("(reorder-insert-index 3 4 -2)") == .fixnum(1))
     }
 
-    /// Stop Server behaviour (ADR-0014): cancel fires no async verb; OK
-    /// fires exactly "server stop". Routed through the same
-    /// current-dialog-runner + current-herdr-async-runner seams already
-    /// used elsewhere in this file — no new test seam.
-    @Test func stopServerFiresOnConfirmOnlyAndDoesNothingOnCancel() throws {
+    /// The whole reorder decision as a pure function of a parsed
+    /// `<kind>.list` envelope. The load-bearing claim: a tab's position is
+    /// its index within **its own workspace's** rows, not within the whole
+    /// payload — `tab.list` returns every tab in the session, and `tab.move`
+    /// reorders only inside the containing workspace.
+    ///
+    /// The fixture puts the focused tab at ARRAY index 2 but at SCOPE
+    /// position 1 of 3, so a reading that used the array index would answer
+    /// insert_index 4 (or, worse, place it among another workspace's tabs);
+    /// the scope-local reading answers 3. The ids also carry non-positional
+    /// `number`s (`w9:t5` third in its bar) because a tab's `number` is a
+    /// stable identity, not its display order.
+    @Test func reorderCommandReadsFocusedRowPositionWithinItsOwnScope() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        try engine.evaluate(#"""
+          (define TABS (json-parse "{\"result\":{\"tabs\":[{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"focused\":false},{\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\",\"focused\":false},{\"tab_id\":\"w9:t2\",\"workspace_id\":\"w9\",\"focused\":true},{\"tab_id\":\"w9:t5\",\"workspace_id\":\"w9\",\"focused\":false},{\"tab_id\":\"w1:t2\",\"workspace_id\":\"w1\",\"focused\":false}]}}"))
+          (define (call-of parsed kind step)
+            (let ((c (reorder-command kind parsed step)))
+              (and c (list (car c)
+                           (cdr (assoc "insert_index" (cdr c)))))))
+          (define (target-of parsed kind step)
+            (let ((c (reorder-command kind parsed step)))
+              (and c (cdr (car (cdr c))))))
+        """#)
+        // Scope position 1 of 3 → later = 3, earlier = 0.
+        #expect(try engine.evaluate(#"(equal? (call-of TABS 'tabs 1) '("tab.move" 3))"#) == .true)
+        #expect(try engine.evaluate(#"(equal? (call-of TABS 'tabs -1) '("tab.move" 0))"#) == .true)
+        // The target is the focused tab's own id, which survives a reorder.
+        #expect(try engine.evaluate("(target-of TABS 'tabs 1)") == .string("w9:t2"))
+        // The param key is herdr's own field name for the kind.
+        #expect(try engine.evaluate(#"(car (car (cdr (reorder-command 'tabs TABS 1))))"#)
+                == .string("tab_id"))
+
+        // Spaces are globally ordered — no scope field, so position is the
+        // array index. Focused at 0 of 3: later = 2, earlier = #f (the edge).
+        try engine.evaluate(#"""
+          (define SPACES (json-parse "{\"result\":{\"workspaces\":[{\"workspace_id\":\"w9\",\"focused\":true},{\"workspace_id\":\"w3\",\"focused\":false},{\"workspace_id\":\"w7\",\"focused\":false}]}}"))
+        """#)
+        #expect(try engine.evaluate(#"(equal? (call-of SPACES 'workspaces 1) '("workspace.move" 2))"#) == .true)
+        #expect(try engine.evaluate("(call-of SPACES 'workspaces -1)") == .false)
+        #expect(try engine.evaluate("(target-of SPACES 'workspaces 1)") == .string("w9"))
+        #expect(try engine.evaluate(#"(car (car (cdr (reorder-command 'workspaces SPACES 1))))"#)
+                == .string("workspace_id"))
+    }
+
+    /// Every "nothing to do" answers #f, so the op below sends nothing.
+    /// Unreachable herdr (#f, ADR-0020's one failure value), a payload with
+    /// no `result`, a scope where nothing is focused (herdr's `focused` is
+    /// true for exactly one row session-wide, so an unfocused workspace's
+    /// tabs are legitimately all false), a focused row missing its id, and a
+    /// single-tab scope.
+    @Test func reorderCommandDegradesToFalseWhenThereIsNothingToDo() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json))")
+        #expect(try engine.evaluate("(reorder-command 'tabs #f 1)") == .false)
+        #expect(try engine.evaluate(#"(reorder-command 'tabs (json-parse "{\"error\":{\"code\":\"nope\"}}") 1)"#)
+                == .false)
+        #expect(try engine.evaluate(#"(reorder-command 'tabs (json-parse "{\"result\":{\"tabs\":[]}}") 1)"#)
+                == .false)
+        // Nothing focused in the payload at all.
+        #expect(try engine.evaluate(#"(reorder-command 'tabs (json-parse "{\"result\":{\"tabs\":[{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"focused\":false},{\"tab_id\":\"w1:t2\",\"workspace_id\":\"w1\",\"focused\":false}]}}") 1)"#)
+                == .false)
+        // The focused row carries no id.
+        #expect(try engine.evaluate(#"(reorder-command 'tabs (json-parse "{\"result\":{\"tabs\":[{\"workspace_id\":\"w1\",\"focused\":true},{\"tab_id\":\"w1:t2\",\"workspace_id\":\"w1\",\"focused\":false}]}}") 1)"#)
+                == .false)
+        // Sole tab in its workspace — even though the payload holds others.
+        #expect(try engine.evaluate(#"(reorder-command 'tabs (json-parse "{\"result\":{\"tabs\":[{\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\",\"focused\":true},{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"focused\":false},{\"tab_id\":\"w1:t2\",\"workspace_id\":\"w1\",\"focused\":false}]}}") 1)"#)
+                == .false)
+    }
+
+    /// The op through both seams: one `<kind>.list` read per press, then
+    /// `tab.move` / `workspace.move` on the command seam (a plain
+    /// synchronous verb — herdr's move handlers reorder in memory, emit
+    /// their event and answer at once, so no send-seam fire-and-forget).
+    ///
+    /// The claim worth pinning is that the op reads its OWN index fresh per
+    /// press rather than reusing the drill's live-list snapshot: the Move
+    /// keys re-arm ('next 'self), so a snapshot-reusing op would recompute
+    /// one insert_index for a fast `l l` and advance the tab once instead of
+    /// twice. The query runner therefore serves a payload that reflects the
+    /// first move, and the second press must answer the NEXT index.
+    @Test func moveTabReadsItsOwnIndexFreshOnEveryPress() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser json))
+        """)
+        try engine.evaluate(#"""
+          (define reads 0)
+          (define calls '())
+          ;; Two successive states of one three-tab bar: focused tab first,
+          ;; then (after the first move) second.
+          (define (bar focused-at)
+            (json-parse
+              (string-append
+                "{\"result\":{\"tabs\":["
+                "{\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\",\"focused\":"
+                (if (= focused-at 0) "true" "false") "},"
+                "{\"tab_id\":\"w9:t2\",\"workspace_id\":\"w9\",\"focused\":"
+                (if (= focused-at 1) "true" "false") "},"
+                "{\"tab_id\":\"w9:t3\",\"workspace_id\":\"w9\",\"focused\":false}]}}")))
+          (parameterize
+            ((current-herdr-query-runner
+               (lambda (method params)
+                 (set! reads (+ reads 1))
+                 (and (string=? method "tab.list") (bar (- reads 1)))))
+             (current-herdr-command-runner
+               (lambda (method params)
+                 (set! calls (cons (cons method params) calls)))))
+            (move-tab-right)
+            (move-tab-right))
+          (define (nth-call n) (list-ref (reverse calls) n))
+          (define (insert-of c) (cdr (assoc "insert_index" (cdr c))))
+        """#)
+        // One list read per press — no cached snapshot.
+        #expect(try engine.evaluate("reads") == .fixnum(2))
+        #expect(try engine.evaluate("(length calls)") == .fixnum(2))
+        #expect(try engine.evaluate("(car (nth-call 0))") == .string("tab.move"))
+        // From position 0 → gap 2; from position 1 → gap 3. A snapshot-
+        // reusing op would have sent 2 twice.
+        #expect(try engine.evaluate("(insert-of (nth-call 0))") == .fixnum(2))
+        #expect(try engine.evaluate("(insert-of (nth-call 1))") == .fixnum(3))
+        #expect(try engine.evaluate(#"(cdr (assoc "tab_id" (cdr (nth-call 1))))"#)
+                == .string("w9:t2"))
+    }
+
+    /// At either end the op sends NOTHING — no request herdr would discard,
+    /// and (with `'exit-on-unknown` off the direction keys) the Move walk
+    /// simply stays armed. Both kinds, both directions, plus the no-focus
+    /// case: the query runner is stubbed rather than trusting the host to
+    /// lack a live herdr (feedback_no_live_env_mutation_in_tests).
+    @Test func moveAtEitherEndOfTheListSendsNoRequest() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser json))
+        """)
+        try engine.evaluate(#"""
+          (define fired? #f)
+          (define TABS "{\"result\":{\"tabs\":[{\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\",\"focused\":true},{\"tab_id\":\"w9:t2\",\"workspace_id\":\"w9\",\"focused\":false}]}}")
+          (define SPACES "{\"result\":{\"workspaces\":[{\"workspace_id\":\"w1\",\"focused\":false},{\"workspace_id\":\"w9\",\"focused\":true}]}}")
+          (parameterize
+            ((current-herdr-query-runner
+               (lambda (method params)
+                 (json-parse (if (string=? method "tab.list") TABS SPACES))))
+             (current-herdr-command-runner
+               (lambda (method params) (set! fired? #t)))
+             (current-herdr-send-runner
+               (lambda (method params) (set! fired? #t))))
+            (move-tab-left)     ;; focused tab is already first
+            (move-space-down))  ;; focused space is already last
+        """#)
+        #expect(try engine.evaluate("fired?") == .false)
+
+        // And with herdr unreachable, neither op reaches either seam.
+        try engine.evaluate("""
+          (parameterize
+            ((current-herdr-query-runner (lambda (method params) #f))
+             (current-herdr-command-runner (lambda (method params) (set! fired? #t)))
+             (current-herdr-send-runner (lambda (method params) (set! fired? #t))))
+            (move-tab-left) (move-tab-right)
+            (move-space-up) (move-space-down))
+        """)
+        #expect(try engine.evaluate("fired?") == .false)
+    }
+
+    // MARK: - The prefix keystroke ops (k37, ADR-0021)
+
+    /// herdr's three client-side keybindings are (prefix → thunk) ops, so
+    /// the prefix reaches every one of them by being an argument — there
+    /// is no path to a hardcoded `ctrl+b`. Before k37 Detach had one, and
+    /// it failed *silently*: the stray keystrokes land in the pane's
+    /// shell rather than a herdr that is not listening for them.
+    ///
+    /// The emission bodies stay untested by design (send-keystroke is
+    /// native with no Scheme seam), so what is pinned is the shape and
+    /// the one named default the three share.
+    @Test func prefixOpsTakeThePrefixAsTheirOnlyArgument() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser muxes herdr))")
+        for op in ["copy-mode-op", "scrollback-op", "detach-op"] {
+            #expect(try engine.evaluate("(procedure? \(op))") == .true,
+                    "\(op) must be exported as a procedure")
+            // A non-default prefix, to prove nothing reads a hardcoded one.
+            #expect(try engine.evaluate("(procedure? (\(op) '((alt) \"a\")))") == .true,
+                    "(\(op) prefix) must yield a thunk")
+        }
+        #expect(try engine.evaluate("(equal? herdr-default-prefix '((ctrl) \"b\"))") == .true)
+    }
+
+    /// Stop Server behaviour: cancel issues nothing; OK sends exactly
+    /// `server.stop`. Routed through the same current-dialog-runner seam
+    /// already used elsewhere in this file, plus the send seam — no new test
+    /// seam.
+    ///
+    /// It rides `current-herdr-send-runner` rather than the command runner
+    /// because herdr acknowledges this one and then exits; whether the reply
+    /// outruns the process exit is a race with nothing to win, so the answer
+    /// is not asked for.
+    @Test func stopServerSendsOnConfirmOnlyAndDoesNothingOnCancel() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser muxes herdr) (modaliser dialogs))")
 
-        // Cancel clicked (stdout doesn't match the "Stop" ok-label) → no fire.
+        // Cancel clicked (stdout doesn't match the "Stop" ok-label) → nothing sent.
         try engine.evaluate("""
           (define fired? #f)
           (parameterize
             ((current-dialog-runner (lambda (cmd cb) (cb 0 "Cancel\\n" "")))
-             (current-herdr-async-runner
-               (lambda (args callback) (set! fired? #t))))
+             (current-herdr-send-runner (lambda (method params) (set! fired? #t))))
             (stop-server!))
         """)
         #expect(try engine.evaluate("fired?") == .false)
 
-        // "Stop" clicked → exactly "server stop" fired.
+        // "Stop" clicked → exactly `server.stop`, with no params.
         try engine.evaluate("""
           (define captured #f)
           (parameterize
             ((current-dialog-runner (lambda (cmd cb) (cb 0 "Stop\\n" "")))
-             (current-herdr-async-runner
-               (lambda (args callback) (set! captured args))))
+             (current-herdr-send-runner
+               (lambda (method params) (set! captured (cons method params)))))
             (stop-server!))
         """)
-        #expect(try engine.evaluate("captured").asString() == "server stop")
+        #expect(try engine.evaluate("(car captured)") == .string("server.stop"))
+        #expect(try engine.evaluate("(null? (cdr captured))") == .true)
     }
 
     // MARK: - Prev/Next ring cycling (leaf prev-next-impl-k10)
@@ -1270,71 +1640,6 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(cycle-target-id ONE #f 1)") == .string("only"))
     }
 
-    /// The `[`/`]` pair is wired into the Panes, Tabs, Workspaces, and
-    /// Agents drills — uniform loose keys, each carrying 'next 'self (a
-    /// cyclic edge, not a sub-mode to enter) — and deliberately absent from
-    /// Worktrees (the human direction named four cycling groups, not five;
-    /// prev-next-nav-k4's Notes). Tree-shape assertion, no live herdr.
-    @Test func buildHerdrTreeWiresPrevNextCycling() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
-        """)
-        try engine.evaluate("""
-          (define TREE (build-herdr-tree))
-          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
-          (define (node-with-key k lst)
-            (cond ((null? lst) #f)
-                  ((equal? (node-key (car lst)) k) (car lst))
-                  (else (node-with-key k (cdr lst)))))
-          (define (children n) (cdr (assoc 'children n)))
-          (define (next-is-self? n) (eq? (cdr (assoc 'next n)) 'self))
-        """)
-        for drillKey in ["P", "T", "S", "A"] {
-            try engine.evaluate("(define KIDS (children (node-with-key \"\(drillKey)\" TREE)))")
-            #expect(try engine.evaluate("(if (node-with-key \"[\" KIDS) #t #f)") == .true,
-                    "drill \(drillKey) missing [")
-            #expect(try engine.evaluate("(if (node-with-key \"]\" KIDS) #t #f)") == .true,
-                    "drill \(drillKey) missing ]")
-            #expect(try engine.evaluate("(next-is-self? (node-with-key \"[\" KIDS))") == .true,
-                    "drill \(drillKey) [ not 'next 'self")
-            #expect(try engine.evaluate("(next-is-self? (node-with-key \"]\" KIDS))") == .true,
-                    "drill \(drillKey) ] not 'next 'self")
-        }
-        // Worktrees deliberately excluded.
-        try engine.evaluate("(define GKIDS (children (node-with-key \"W\" TREE)))")
-        #expect(try engine.evaluate("(if (node-with-key \"[\" GKIDS) #t #f)") == .false)
-        #expect(try engine.evaluate("(if (node-with-key \"]\" GKIDS) #t #f)") == .false)
-    }
-
-    /// prev-next-nav-k4's "Also": the registered herdr-panes-focus Walk
-    /// carries the `[`/`]` pair TOO (added by focus-mode-register!, not
-    /// just the Panes drill's own top-level copy), so cycling stays
-    /// available mid-focus-walk without leaving it — same 'next 'self
-    /// cyclic edge as hjkl.
-    @Test func registerInstallsPrevNextInFocusWalk() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
-        """)
-        try engine.evaluate("(register!)")
-        try engine.evaluate("""
-          (define FOCUS (lookup-tree "herdr-panes-focus"))
-          (define KIDS (cdr (assoc 'children FOCUS)))
-          (define (node-key n) (let ((e (assoc 'key n))) (and e (cdr e))))
-          (define (node-with-key k lst)
-            (cond ((null? lst) #f)
-                  ((equal? (node-key (car lst)) k) (car lst))
-                  (else (node-with-key k (cdr lst)))))
-        """)
-        #expect(try engine.evaluate("(if (node-with-key \"[\" KIDS) #t #f)") == .true)
-        #expect(try engine.evaluate("(if (node-with-key \"]\" KIDS) #t #f)") == .true)
-        #expect(try engine.evaluate(
-            "(eq? (cdr (assoc 'next (node-with-key \"[\" KIDS))) 'self)") == .true)
-        #expect(try engine.evaluate(
-            "(eq? (cdr (assoc 'next (node-with-key \"]\" KIDS))) 'self)") == .true)
-    }
-
     /// Cycling shares the SAME stale-kind guard the digit path uses
     /// (herdr-fast-key-drops-k8): a fast leader→drill→`]` press can reach
     /// the cycling action before THIS kind's on-render-fn ever snapshotted,
@@ -1347,42 +1652,56 @@ struct ModaliserMuxesHerdrLibraryTests {
     @Test func cyclePressBeforeRenderIgnoresStaleOtherKindEntry() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr)
+          (import (modaliser muxes herdr-socket) (modaliser dsl) (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
+                  (modaliser muxes herdr)
                   (modaliser blocks herdr-list) (modaliser json))
         """)
-        try engine.evaluate("""
-          (apply screen 'com.googlecode.iterm2/herdr (build-herdr-tree))
-        """)
+        try engine.evaluate(Self.herdrScreenFixture)
         // Prior render this session: Panes, one focused row.
         try engine.evaluate(#"""
           (parameterize
-            ((current-herdr-list-runner
-               (lambda (subcmd)
+            ((current-herdr-query-runner
+               (lambda (method params)
                  (cond
-                   ((string=? subcmd "pane list")
+                   ((string=? method "pane.list")
                     (json-parse "{\"result\":{\"panes\":[{\"agent\":\"claude\",\"focused\":true,\"pane_id\":\"STALE-PANE\",\"tab_id\":\"w1:t1\"}]}}"))
                    (else #f)))))
             (herdr-list-refresh! 'panes #f))
         """#)
         #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'panes)") == .true)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"com.googlecode.iterm2/herdr\") F18)")
+        try engine.evaluate("(define FIRED '())")
+        try engine.evaluate("(modal-activate! \"herdr\" '() F18)")
         try engine.evaluate("(modal-handle-key \"A\")") // Agents drill — no render yet here
 
+        // Cycling ends in a real focus verb, so the WRITE seam is stubbed
+        // alongside the read seam. This is the site test-live-herdr-contact-k35
+        // was raised for: stubbing the query runner alone let
+        // `pane.focus REAL-AGENT-2` travel to the developer's live socket, and
+        // the test passed either way — which is precisely how the gap hides.
         try engine.evaluate(#"""
           (parameterize
-            ((current-herdr-list-runner
-               (lambda (subcmd)
+            ((current-herdr-query-runner
+               (lambda (method params)
                  (cond
-                   ((string=? subcmd "agent list")
+                   ((string=? method "agent.list")
                     (json-parse "{\"result\":{\"agents\":[{\"agent\":\"a1\",\"agent_status\":\"idle\",\"focused\":true,\"pane_id\":\"REAL-AGENT-1\"},{\"agent\":\"a2\",\"agent_status\":\"idle\",\"focused\":false,\"pane_id\":\"REAL-AGENT-2\"}]}}"))
-                   (else #f)))))
+                   (else #f))))
+             (current-herdr-command-runner
+               (lambda (method params)
+                 (set! FIRED (cons (cons method params) FIRED))
+                 #f)))
             (modal-handle-key "]"))
         """#)
 
         // The kind mismatch forced a fresh Agents snapshot before cycling —
         // the shared cell no longer belongs to the stale Panes render.
         #expect(try engine.evaluate("(eq? (herdr-list-current-kind) 'agents)") == .true)
+        // …and the cycle focused the next agent's PANE, by pane id.
+        #expect(try engine.evaluate("(car (car FIRED))") == .string("pane.focus"))
+        #expect(try engine.evaluate("(cdr (assoc \"pane_id\" (cdr (car FIRED))))")
+                == .string("REAL-AGENT-2"))
         // 'next 'self: firing never pushes/pops — still inside "A".
         #expect(try engine.evaluate("modal-active?") == .true)
         #expect(try engine.evaluate("(equal? modal-current-path '(\"A\"))") == .true)
@@ -1669,52 +1988,56 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// gets "w" — the next letter in the shared pool). Each assigned label
     /// dispatches through the kind-appropriate focus verb, captured here
     /// via current-herdr-jump-focus-runner (the test seam standing in for
-    /// a real herdr-cmd shell-out — see its own docstring, mirroring
-    /// current-herdr-query-runner/current-herdr-async-runner's rationale).
+    /// a real herdr-cmd socket call — see its own docstring, mirroring
+    /// current-herdr-query-runner/current-herdr-send-runner's rationale).
     /// Firing is Terminal: the modal exits (docs/specs/herdr-jump-
     /// navigation.md "Narrowing"), so each kind is exercised in its own
-    /// fresh modal-enter round.
+    /// fresh activation round.
     @Test func herdrJumpProviderDispatchesEachAxisKindsSingleKeyFocusVerb() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr) (modaliser json)
-                  (only (modaliser blocks herdr-list) current-herdr-list-runner current-herdr-host-frame))
+          (import (modaliser dsl) (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
+                  (modaliser muxes herdr) (modaliser json)
+                  (only (modaliser blocks herdr-list) current-herdr-host-frame)
+                  (modaliser muxes herdr-socket))
         """)
+        try engine.evaluate(Self.herdrScreenFixture)
         try engine.evaluate("""
-          (apply screen 'com.googlecode.iterm2/herdr 'provider herdr-jump-provider (build-herdr-tree))
           (define captured '())
         """)
-        // current-herdr-list-runner + current-herdr-host-frame close the
-        // PAINT pipeline's own seams (herdr-jump-tests-live-ax-k50):
-        // modal-enter can reach herdr-paint-chip-targets!/herdr-paint-ui-
-        // layout-chip-targets!, whose `pane layout`/`ui layout` queries run
-        // through current-herdr-list-runner (NOT the query runner stubbed
-        // below) and whose geometry runs a live-AX iTerm scan that
-        // SIGBUS-es a cooperative-pool test thread. Both stubbed to
-        // "unreachable" — these tests exercise dispatch, never painting.
+        // current-herdr-host-frame closes the PAINT pipeline's own AX seam
+        // (herdr-jump-tests-live-ax-k50): activation can reach
+        // herdr-paint-chip-targets!/herdr-paint-ui-layout-chip-targets!,
+        // whose geometry runs a live-AX iTerm scan that SIGBUS-es a
+        // cooperative-pool test thread. Their `pane.layout`/`ui.layout`
+        // queries ride the SAME current-herdr-query-runner stubbed below
+        // (list-block-query-cutover-k32 collapsed the two seams into one),
+        // so an unlisted method already answers #f; the host-frame stub is
+        // what guarantees no AX call even when a method IS answered. These
+        // tests exercise dispatch, never painting.
         try engine.evaluate(#"""
           (parameterize
             ((current-herdr-query-runner
-               (lambda (args)
+               (lambda (method params)
                  (cond
-                   ((string=? args "pane current")
+                   ((string=? method "pane.current")
                     (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
-                   ((string=? args "pane list")
+                   ((string=? method "pane.list")
                     (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
-                   ((string=? args "ui layout")
+                   ((string=? method "ui.layout")
                     (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_2\"}],\"agents\":[{\"pane_id\":\"w1:p9\"}]},\"tab_bar\":{\"tabs\":[{\"tab_id\":\"w1:t3\"}]}}}"))
                    (else #f))))
-             (current-herdr-list-runner (lambda (subcmd) #f))
              (current-herdr-host-frame (lambda (total-w total-h) #f))
              (current-herdr-jump-focus-runner
                (lambda (kind id) (set! captured (cons (cons kind id) captured)))))
-            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
+            (modal-activate! "herdr" '() F18)
             (modal-handle-key "h")
-            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
+            (modal-activate! "herdr" '() F18)
             (modal-handle-key "a")
-            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
+            (modal-activate! "herdr" '() F18)
             (modal-handle-key "q")
-            (modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18)
+            (modal-activate! "herdr" '() F18)
             (modal-handle-key "w"))
         """#)
         #expect(try engine.evaluate("(length captured)") == .fixnum(4))
@@ -1722,6 +2045,64 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(if (member (cons 'workspaces \"w_2\") captured) #t #f)") == .true)
         #expect(try engine.evaluate("(if (member (cons 'agents \"w1:p9\") captured) #t #f)") == .true)
         #expect(try engine.evaluate("(if (member (cons 'tabs \"w1:t3\") captured) #t #f)") == .true)
+    }
+
+    /// PINNED REGRESSION (herdr-pane-switching-regression-k25, ADR-0020).
+    ///
+    /// The bug: `focus-pane-by-id` issued `agent focus <pane_id>`, which in
+    /// herdr 0.7.5 resolves ONLY agent panes — a plain shell or file-browser
+    /// pane came back `{"error":{"code":"agent_not_found"}}` and never
+    /// focused. Every top-level pane jump at a non-agent pane silently did
+    /// nothing.
+    ///
+    /// The test that would have caught it has to assert the verb that
+    /// reaches the wire, so it captures at current-herdr-command-runner —
+    /// one level BELOW current-herdr-jump-focus-runner, which the sibling
+    /// test above uses and which stops at (kind . id) pairs, exactly the
+    /// altitude at which `agent focus` and `pane.focus` are
+    /// indistinguishable. That gap is why this shipped.
+    ///
+    /// The fixture pane carries no `agent` field: it is precisely the
+    /// non-agent case that used to fail. What the test pins is the
+    /// invariant the fix establishes — the PANES axis focuses by pane id
+    /// (`pane.focus`), never through the agents axis's `agent.focus`.
+    @Test func paneJumpFocusesNonAgentPaneViaPaneFocusNotAgentFocus() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
+                  (modaliser muxes herdr) (modaliser json)
+                  (only (modaliser blocks herdr-list) current-herdr-host-frame)
+                  (modaliser muxes herdr-socket))
+        """)
+        try engine.evaluate(Self.herdrScreenFixture)
+        try engine.evaluate("""
+          (define fired '())
+        """)
+        // current-herdr-jump-focus-runner is deliberately NOT stubbed here:
+        // the real focus verb must run so the method it picks is observable.
+        try engine.evaluate(#"""
+          (parameterize
+            ((current-herdr-query-runner
+               (lambda (method params)
+                 (cond
+                   ((string=? method "pane.current")
+                    (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                   ((string=? method "pane.list")
+                    (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p7\",\"tab_id\":\"w1:t1\"}]}}"))
+                   (else #f))))
+             (current-herdr-host-frame (lambda (total-w total-h) #f))
+             (current-herdr-command-runner
+               (lambda (method params)
+                 (set! fired (cons (cons method params) fired)))))
+            (modal-activate! "herdr" '() F18)
+            (modal-handle-key "h"))
+        """#)
+        #expect(try engine.evaluate("(length fired)") == .fixnum(1))
+        #expect(try engine.evaluate("(car (car fired))") == .makeString("pane.focus"))
+        #expect(try engine.evaluate("""
+          (equal? (cdr (car fired)) '(("pane_id" . "w1:p7")))
+        """) == .true)
     }
 
     /// Two-key narrowing end to end: 24 tab-scoped panes exceed the panes
@@ -1744,11 +2125,14 @@ struct ModaliserMuxesHerdrLibraryTests {
     @Test func herdrJumpProviderTwoKeyLabelNarrowsThenFiresAndBackspaceUnNarrows() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr) (modaliser json)
-                  (only (modaliser blocks herdr-list) current-herdr-list-runner current-herdr-host-frame))
+          (import (modaliser dsl) (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
+                  (modaliser muxes herdr) (modaliser json)
+                  (only (modaliser blocks herdr-list) current-herdr-host-frame)
+                  (modaliser muxes herdr-socket))
         """)
+        try engine.evaluate(Self.herdrScreenFixture)
         try engine.evaluate("""
-          (apply screen 'com.googlecode.iterm2/herdr 'provider herdr-jump-provider (build-herdr-tree))
           (define captured '())
         """)
         let paneEntries = (1...24).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
@@ -1766,28 +2150,32 @@ struct ModaliserMuxesHerdrLibraryTests {
         // exactly how every other test in this file already reads
         // modal-current-path/modal-active? after a modal-handle-key call.
         //
-        // current-herdr-list-runner + current-herdr-host-frame close the
-        // PAINT pipeline's own seams (herdr-jump-tests-live-ax-k50): the
-        // narrowing prefix state's 'entry runs paint-jump-chips-narrowed!
-        // synchronously inside modal-handle-key, and its `pane layout`/
-        // `ui layout` queries run through current-herdr-list-runner (NOT
-        // the query runner stubbed below) — against a live herdr those
-        // return a real canvas, whose host-frame lookup then scans the
-        // live desktop's AX tree and SIGBUS-es the cooperative-pool test
-        // thread. Both stubbed to "unreachable" — this test exercises
-        // narrowing dispatch, never painting.
+        // current-herdr-host-frame closes the PAINT pipeline's own AX seam
+        // (herdr-jump-tests-live-ax-k50). Since defer-chips-to-overlay-k33
+        // the chip hooks are presentation-gated, so with no overlay host
+        // installed run-on-enter never fires here at all — the stub is now
+        // belt-and-braces rather than the sole guard, and stays because the
+        // seam it closes is real: were the hook to run,
+        // paint-jump-chips-narrowed! would fire synchronously inside
+        // modal-handle-key, and against a live herdr its `pane.layout`/
+        // `ui.layout` queries would return a real canvas, whose host-frame
+        // lookup then scans the live desktop's AX tree and SIGBUS-es the
+        // cooperative-pool test thread. Those queries ride the SAME
+        // current-herdr-query-runner stubbed below
+        // (list-block-query-cutover-k32 collapsed the two seams into one);
+        // the host-frame stub is what guarantees no AX call regardless.
+        // This test exercises narrowing dispatch, never painting.
         func act(_ body: String) throws {
             try engine.evaluate(#"""
               (parameterize
                 ((current-herdr-query-runner
-                   (lambda (args)
+                   (lambda (method params)
                      (cond
-                       ((string=? args "pane current")
+                       ((string=? method "pane.current")
                         (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
-                       ((string=? args "pane list")
+                       ((string=? method "pane.list")
                         (json-parse "\#(paneListEscaped)"))
                        (else #f))))
-                 (current-herdr-list-runner (lambda (subcmd) #f))
                  (current-herdr-host-frame (lambda (total-w total-h) #f))
                  (current-herdr-jump-focus-runner
                    (lambda (kind id) (set! captured (cons (cons kind id) captured)))))
@@ -1795,14 +2183,14 @@ struct ModaliserMuxesHerdrLibraryTests {
         }
 
         // Round 1: leader "h" narrows; a second "a" fires p5 ("ha").
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "h")"#)
+        try act(#"(modal-activate! "herdr" '() F18) (modal-handle-key "h")"#)
         #expect(try engine.evaluate("(equal? modal-current-path (list \"h\"))") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
         try act(#"(modal-handle-key "a")"#)
         #expect(try engine.evaluate("modal-active?") == .false)
 
         // Round 2: leader "h" then second key "s" fires p6 ("hs").
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "h") (modal-handle-key "s")"#)
+        try act(#"(modal-activate! "herdr" '() F18) (modal-handle-key "h") (modal-handle-key "s")"#)
         #expect(try engine.evaluate("modal-active?") == .false)
 
         // Round 3: leader "h" then backspace un-narrows back to the top
@@ -1810,7 +2198,7 @@ struct ModaliserMuxesHerdrLibraryTests {
         // second remaining single) still fires afterward — proving the
         // provider re-ran (a fresh Visit), not stale state left over from
         // before narrowing.
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "h") (modal-step-back)"#)
+        try act(#"(modal-activate! "herdr" '() F18) (modal-handle-key "h") (modal-step-back)"#)
         #expect(try engine.evaluate("(null? modal-current-path)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
         try act(#"(modal-handle-key "k")"#)
@@ -1832,11 +2220,14 @@ struct ModaliserMuxesHerdrLibraryTests {
     @Test func herdrJumpProviderKeepsEveryTargetAsIndependentLiveKey() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr) (modaliser json)
-                  (only (modaliser blocks herdr-list) current-herdr-list-runner current-herdr-host-frame))
+          (import (modaliser dsl) (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
+                  (modaliser muxes herdr) (modaliser json)
+                  (only (modaliser blocks herdr-list) current-herdr-host-frame)
+                  (modaliser muxes herdr-socket))
         """)
+        try engine.evaluate(Self.herdrScreenFixture)
         try engine.evaluate("""
-          (apply screen 'com.googlecode.iterm2/herdr 'provider herdr-jump-provider (build-herdr-tree))
           (define captured '())
         """)
         // Paint-pipeline seams stubbed to "unreachable" — see
@@ -1846,25 +2237,24 @@ struct ModaliserMuxesHerdrLibraryTests {
             try engine.evaluate(#"""
               (parameterize
                 ((current-herdr-query-runner
-                   (lambda (args)
+                   (lambda (method params)
                      (cond
-                       ((string=? args "pane current")
+                       ((string=? method "pane.current")
                         (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
-                       ((string=? args "pane list")
+                       ((string=? method "pane.list")
                         (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
-                       ((string=? args "ui layout")
+                       ((string=? method "ui.layout")
                         (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[],\"agents\":[{\"pane_id\":\"w1:p1\"},{\"pane_id\":\"w1:p9\"}]},\"tab_bar\":{\"tabs\":[]}}}"))
                        (else #f))))
-                 (current-herdr-list-runner (lambda (subcmd) #f))
                  (current-herdr-host-frame (lambda (total-w total-h) #f))
                  (current-herdr-jump-focus-runner
                    (lambda (kind id) (set! captured (cons (cons kind id) captured)))))
             """# + body + ")")
         }
 
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "h")"#)
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "q")"#)
-        try act(#"(modal-enter (lookup-tree "com.googlecode.iterm2/herdr") F18) (modal-handle-key "w")"#)
+        try act(#"(modal-activate! "herdr" '() F18) (modal-handle-key "h")"#)
+        try act(#"(modal-activate! "herdr" '() F18) (modal-handle-key "q")"#)
+        try act(#"(modal-activate! "herdr" '() F18) (modal-handle-key "w")"#)
 
         #expect(try engine.evaluate("(length captured)") == .fixnum(3))
         #expect(try engine.evaluate("(if (member (cons 'panes \"w1:p1\") captured) #t #f)") == .true)
@@ -1880,13 +2270,13 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// ONE-DIRECTIONAL coupling: growing agents shifts tabs' labels
     /// (agents assigns first, from the front of the shared pool), but
     /// growing tabs never shifts agents'. Exercised directly through
-    /// herdr-jump-provider (fixture-only, no modal-enter) with small counts
+    /// herdr-jump-provider (fixture-only, no activation) with small counts
     /// so no axis escalates past a single key, keeping every assigned
     /// label a direct edge this test can read straight off the RESULT.
     @Test func herdrJumpProviderLabelsAreStablePerAxisWithOneWayAgentsToTabsCoupling() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr)
+          (import (modaliser muxes herdr-socket) (modaliser dsl) (modaliser fsm) (modaliser muxes herdr)
                   (modaliser json) (modaliser util))
         """)
         try engine.evaluate(#"""
@@ -1901,13 +2291,13 @@ struct ModaliserMuxesHerdrLibraryTests {
           (define RESULT-A
             (parameterize
               ((current-herdr-query-runner
-                 (lambda (args)
+                 (lambda (method params)
                    (cond
-                     ((string=? args "pane current")
+                     ((string=? method "pane.current")
                       (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
-                     ((string=? args "pane list")
+                     ((string=? method "pane.list")
                       (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
-                     ((string=? args "ui layout")
+                     ((string=? method "ui.layout")
                       (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_1\"}],\"agents\":[{\"pane_id\":\"w1:p1\"},{\"pane_id\":\"w1:p2\"}]},\"tab_bar\":{\"tabs\":[{\"tab_id\":\"w1:t1\"}]}}}"))
                      (else #f)))))
               (herdr-jump-provider)))
@@ -1926,13 +2316,13 @@ struct ModaliserMuxesHerdrLibraryTests {
           (define RESULT-B
             (parameterize
               ((current-herdr-query-runner
-                 (lambda (args)
+                 (lambda (method params)
                    (cond
-                     ((string=? args "pane current")
+                     ((string=? method "pane.current")
                       (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
-                     ((string=? args "pane list")
+                     ((string=? method "pane.list")
                       (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
-                     ((string=? args "ui layout")
+                     ((string=? method "ui.layout")
                       (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_1\"}],\"agents\":[{\"pane_id\":\"w1:p1\"},{\"pane_id\":\"w1:p2\"}]},\"tab_bar\":{\"tabs\":[{\"tab_id\":\"w1:t1\"},{\"tab_id\":\"w1:t2\"},{\"tab_id\":\"w1:t3\"}]}}}"))
                      (else #f)))))
               (herdr-jump-provider)))
@@ -1954,13 +2344,13 @@ struct ModaliserMuxesHerdrLibraryTests {
           (define RESULT-C
             (parameterize
               ((current-herdr-query-runner
-                 (lambda (args)
+                 (lambda (method params)
                    (cond
-                     ((string=? args "pane current")
+                     ((string=? method "pane.current")
                       (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
-                     ((string=? args "pane list")
+                     ((string=? method "pane.list")
                       (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"}]}}"))
-                     ((string=? args "ui layout")
+                     ((string=? method "ui.layout")
                       (json-parse "{\"result\":{\"sidebar\":{\"workspaces\":[{\"workspace_id\":\"w_1\"}],\"agents\":[{\"pane_id\":\"w1:p1\"},{\"pane_id\":\"w1:p2\"},{\"pane_id\":\"w1:p3\"}]},\"tab_bar\":{\"tabs\":[{\"tab_id\":\"w1:t1\"}]}}}"))
                      (else #f)))))
               (herdr-jump-provider)))
@@ -2093,34 +2483,35 @@ struct ModaliserMuxesHerdrLibraryTests {
             "(equal? (cdr (assoc 'dim R)) (list (cons \"bd\" \"w1:t3\") (cons \"e\" \"w1:t4\")))") == .true)
     }
 
-    /// The narrowing prefix state must carry a live 'entry/'exit pair
-    /// (jump-chip-entry-cutover-k48; config's app-trees/
-    /// com.googlecode.iterm2.scm wires the SAME pair onto the root
-    /// screen) — unconditional slots, so chips repaint the INSTANT a
-    /// narrow/un-narrow lands, never waiting out `modal-overlay-delay`,
-    /// and never leaving the chips cleared by the root's own 'exit
-    /// (fired at end-old-visit! when descending INTO the prefix state)
-    /// with nothing to repaint them — violating docs/specs/herdr-jump-
-    /// navigation.md "Narrowing" ("ALL chips remain visible"). 'exit is
-    /// still literally clear-jump-chips! (hints-hide unconditionally
-    /// clears every group, narrowed or not); 'entry is a LEADER-closing
-    /// lambda around paint-jump-chips-narrowed! (narrowing-dim-state-k30),
-    /// not the bare paint-jump-chips! the root itself uses — it needs to
-    /// know which leader this Visit narrowed into (see
+    /// The narrowing prefix state must carry a live 'on-enter/'on-leave
+    /// pair in its PAYLOAD (defer-chips-to-overlay-k33; `context` wires the
+    /// SAME pair onto the root screen) — presentation-gated slots, so chips
+    /// appear with the overlay rather than ahead of it. The payload is the
+    /// alist fsm.sld's run-on-enter/run-on-leave read through
+    /// node-on-enter/node-on-leave, and a narrowing descent lands with the
+    /// overlay already open, so the repaint is still synchronous — the
+    /// chips cleared by the root's own 'on-leave (fired by
+    /// fire-group-descent! when descending INTO the prefix state) are
+    /// repainted in the same call, upholding docs/specs/herdr-jump-
+    /// navigation.md "Narrowing" ("ALL chips remain visible"). 'on-leave is
+    /// literally clear-jump-chips! (hints-hide clears every group, narrowed
+    /// or not); 'on-enter is a LEADER-closing lambda around
+    /// paint-jump-chips-narrowed! (narrowing-dim-state-k30), not the bare
+    /// paint-jump-chips! the root itself uses — it needs to know which
+    /// leader this Visit narrowed into (see
     /// jumpNarrowChipTargetsSplitsSurvivorsFromDimByLeader for the
-    /// leader-split logic itself). The payload must carry NEITHER
-    /// 'on-enter NOR 'on-leave — the double-fire trap: leaving those
-    /// alongside 'entry/'exit would let the delayed overlay callback's
-    /// run-on-enter/run-on-leave paint/clear a second time. 24 tab-scoped
+    /// leader-split logic itself). The state's own 'entry/'exit slots must
+    /// stay unset — the double-fire trap: an 'entry alongside the payload's
+    /// 'on-enter would paint the chips twice. 24 tab-scoped
     /// panes (mirroring herdrJumpProviderTwoKeyLabelNarrows... above)
     /// force leader "h" to escalate to two-key duty, minting a real
     /// prefix state to inspect. Calling herdr-jump-provider directly (not
-    /// through modal-enter/modal-handle-key) keeps this fixture-only;
+    /// through activation/modal-handle-key) keeps this fixture-only;
     /// structural only — never invokes the hooks, so no AX/hints-show
     /// dependency.
-    @Test func jumpPrefixStateWiresChipPaintEntryExit() throws {
+    @Test func jumpPrefixStateWiresChipPaintOnEnterOnLeave() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser muxes herdr) (modaliser json) (modaliser util))")
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser json) (modaliser util))")
         let paneEntries = (1...24).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
         let paneListEscaped = "{\"result\":{\"panes\":[\(paneEntries)]}}"
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -2128,53 +2519,104 @@ struct ModaliserMuxesHerdrLibraryTests {
           (define RESULT
             (parameterize
               ((current-herdr-query-runner
-                 (lambda (args)
+                 (lambda (method params)
                    (cond
-                     ((string=? args "pane current")
+                     ((string=? method "pane.current")
                       (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
-                     ((string=? args "pane list")
+                     ((string=? method "pane.list")
                       (json-parse "\#(paneListEscaped)"))
                      (else #f)))))
               (herdr-jump-provider)))
           (define STATES (cdr (assoc 'states RESULT)))
           (define PREFIX
-            (find (lambda (s) (equal? (cdr (assoc 'id s)) "com.googlecode.iterm2/herdr/h")) STATES))
+            (find (lambda (s) (equal? (cdr (assoc 'id s)) "herdr/h")) STATES))
           (define PAYLOAD (cdr (assoc 'payload PREFIX)))
         """#)
-        #expect(try engine.evaluate("(procedure? (cdr (assoc 'entry PREFIX)))") == .true)
-        #expect(try engine.evaluate("(not (eq? (cdr (assoc 'entry PREFIX)) paint-jump-chips!))") == .true)
-        #expect(try engine.evaluate("(eq? (cdr (assoc 'exit PREFIX)) clear-jump-chips!)") == .true)
-        #expect(try engine.evaluate("(assoc 'on-enter PAYLOAD)") == .false)
-        #expect(try engine.evaluate("(assoc 'on-leave PAYLOAD)") == .false)
+        #expect(try engine.evaluate("(procedure? (cdr (assoc 'on-enter PAYLOAD)))") == .true)
+        #expect(try engine.evaluate("(not (eq? (cdr (assoc 'on-enter PAYLOAD)) paint-jump-chips!))") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'on-leave PAYLOAD)) clear-jump-chips!)") == .true)
+        #expect(try engine.evaluate("(not (cdr (assoc 'entry PREFIX)))") == .true)
+        #expect(try engine.evaluate("(not (cdr (assoc 'exit PREFIX)))") == .true)
     }
 
-    /// Mirrors the wiring check above at the herdr entry node's own root
-    /// — config's app-trees/com.googlecode.iterm2.scm sets 'entry/'exit
-    /// to the same pair (jump-chip-entry-cutover-k48), so every
-    /// non-narrowed Visit boundary (leader activation, backspace out of a
-    /// capital drill) paints/clears instantly too, not just narrowing.
-    /// Unlike 'on-enter/'on-leave (composed through (modaliser dsl)'s
-    /// compose-hooks even with no block hooks to merge), 'entry/'exit
-    /// ride straight through uncomposed (panel-grid-head's own doc
-    /// comment) — so the root's node-entry/node-exit ARE eq? to
-    /// paint-jump-chips!/clear-jump-chips! directly, a stronger check
-    /// than the old on-enter/on-leave wiring ever supported. Structural
-    /// only (mirrors defaultItermTreeRendersAsPanelGrid in ConfigDslTests):
-    /// never invokes the hooks, so no AX/hints-show dependency.
-    @Test func herdrEntryNodeRootWiresChipPaintEntryExit() throws {
+    /// The behavioural half of the wiring check above
+    /// (defer-chips-to-overlay-k33): chips paint WITH the overlay, never
+    /// ahead of it. Driven through the real activation path, with the
+    /// overlay's host hooks stubbed so `show-overlay` is what flips
+    /// `overlay-open?` — exactly the ordering ui/overlay.scm establishes.
+    ///
+    /// `pane.layout` is the marker: herdr-paint-chip-targets!
+    /// (blocks/herdr-list.sld) is the ONLY caller of that method in the
+    /// whole tree, and it issues the query unconditionally, before any
+    /// geometry or emptiness check — so its presence in the recorded
+    /// method list means chips painted, and its absence means they did
+    /// not. The query runner answers #f for it, yielding no canvas, which
+    /// is also what keeps the AX host-frame lookup out of this test
+    /// (herdr-jump-tests-live-ax-k50); current-herdr-host-frame is stubbed
+    /// belt-and-braces on top.
+    ///
+    /// Two activations, one graph:
+    ///   * a non-zero `modal-overlay-delay` — the delayed show is merely
+    ///     SCHEDULED, so run-on-enter has not fired and nothing painted.
+    ///     This is the fast muscle-memory press the leaf is about.
+    ///   * a zero delay — modal-show-overlay-delayed's immediate branch
+    ///     runs run-on-enter synchronously, and the chips paint.
+    /// The intervening modal-exit also proves the pairing guarantee: a
+    /// never-fired paint leaves nothing stranded, because run-on-leave is
+    /// gated on the same overlay-open? that would have let run-on-enter
+    /// fire (no clear runs, and none is needed).
+    @Test func chipPaintWaitsForTheOverlayToShow() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser muxes herdr))
+          (import (modaliser dsl) (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
+                  (modaliser muxes herdr) (modaliser json)
+                  (only (modaliser blocks herdr-list) current-herdr-host-frame)
+                  (modaliser muxes herdr-socket))
         """)
+        try engine.evaluate(Self.herdrScreenFixture)
         try engine.evaluate("""
-          (apply screen 'com.googlecode.iterm2/herdr
-            'provider herdr-jump-provider
-            'entry paint-jump-chips! 'exit clear-jump-chips!
-            (build-herdr-tree))
-          (define root (lookup-tree "com.googlecode.iterm2/herdr"))
+          (define methods '())
+          (set-overlay-open! #f)
+          (set-show-overlay! (lambda (root path) (set-overlay-open! #t)))
+          (set-hide-overlay! (lambda () (set-overlay-open! #f)))
         """)
-        #expect(try engine.evaluate("(eq? (node-entry root) paint-jump-chips!)") == .true)
-        #expect(try engine.evaluate("(eq? (node-exit root) clear-jump-chips!)") == .true)
+        // Both activations share this stub: the provider gets its canned
+        // pane data (so real jump labels are assigned), every other method
+        // — `pane.layout` included — answers #f.
+        func activate(delay: String) throws {
+            try engine.evaluate(#"""
+              (set! methods '())
+              (set-overlay-delay! \#(delay))
+              (parameterize
+                ((current-herdr-host-frame (lambda (total-w total-h) #f))
+                 (current-herdr-query-runner
+                   (lambda (method params)
+                     (set! methods (cons method methods))
+                     (cond
+                       ((string=? method "pane.current")
+                        (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
+                       ((string=? method "pane.list")
+                        (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\"},{\"pane_id\":\"w1:p2\",\"tab_id\":\"w1:t1\"}]}}"))
+                       (else #f)))))
+                (modal-activate! "herdr" '() F18))
+            """#)
+        }
+
+        // Fast press: the overlay show is only scheduled, so nothing paints.
+        try activate(delay: "30")
+        #expect(try engine.evaluate("(overlay-open?)") == .false)
+        #expect(try engine.evaluate("(member \"pane.layout\" methods)") == .false)
+        // The provider still ran — dispatch is never gated on presentation.
+        #expect(try engine.evaluate("(and (member \"pane.list\" methods) #t)") == .true)
+
+        try engine.evaluate("(modal-exit)")
+        #expect(try engine.evaluate("modal-active?") == .false)
+
+        // Overlay shows (delay 0 ⇒ synchronously): chips paint.
+        try activate(delay: "0")
+        #expect(try engine.evaluate("(overlay-open?)") == .true)
+        #expect(try engine.evaluate("(and (member \"pane.layout\" methods) #t)") == .true)
     }
 
     // MARK: - Jump legend (leaf legend-panel-k44)
@@ -2240,21 +2682,21 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// block-children digit range — the legend is display-only, its jump
     /// label is never itself a dispatch key (dispatch lives in the FSM
     /// provider edges). The block's on-render-fn queries `workspace list`/
-    /// `tab list`/`pane list` through current-herdr-list-runner (the SAME
+    /// `tab.list`/`pane.list` through current-herdr-query-runner (the SAME
     /// test seam the live-list blocks use, feedback_no_live_env_mutation_
     /// in_tests) — stubbed here to #f envelopes, which herdr-jump-legend-
     /// rows degrades gracefully; an empty *current-jump-assigned* (no
-    /// modal-enter in this test) yields an empty legend.
+    /// activation in this test) yields an empty legend.
     @Test func jumpLegendBlockIsNonInteractiveAndRendersEmptyWithNoAssignment() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser muxes herdr) (modaliser blocks herdr-list))")
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser blocks herdr-list))")
         try engine.evaluate("(define B (jump-legend-block))")
         #expect(try engine.evaluate("(eq? (cdr (assoc 'type B)) 'herdr-jump-legend)") == .true)
         #expect(try engine.evaluate("(assoc 'cursor-targets-fn B)") == .false)
         #expect(try engine.evaluate("(assoc 'block-children B)") == .false)
         try engine.evaluate("""
           (define RENDERED
-            (parameterize ((current-herdr-list-runner (lambda (subcmd) #f)))
+            (parameterize ((current-herdr-query-runner (lambda (method params) #f)))
               ((cdr (assoc 'on-render-fn B)))))
         """)
         #expect(try engine.evaluate("(null? (cdr (assoc 'rows RENDERED)))") == .true)
@@ -2268,12 +2710,12 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// survivor PAIRS directly — already the (label . target) shape the
     /// rows extractor takes, its "label" here being the remaining second
     /// key rather than a full jump label. No new rows extractor, no
-    /// re-query: names still come from current-herdr-list-runner (the
+    /// re-query: names still come from current-herdr-query-runner (the
     /// SAME seam jump-legend-block uses), fixture-tested here with no
     /// live herdr.
     @Test func narrowedJumpLegendBlockRendersSurvivorRowsFromGivenPairs() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser muxes herdr) (modaliser blocks herdr-list) (modaliser json))")
+        try engine.evaluate("(import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser blocks herdr-list) (modaliser json))")
         try engine.evaluate(#"""
           (define PAIRS
             (list (cons "a" (list (cons 'kind 'panes) (cons 'id "w1:p5")))
@@ -2285,9 +2727,9 @@ struct ModaliserMuxesHerdrLibraryTests {
         try engine.evaluate(#"""
           (define RENDERED
             (parameterize
-              ((current-herdr-list-runner
-                 (lambda (subcmd)
-                   (if (string=? subcmd "pane list")
+              ((current-herdr-query-runner
+                 (lambda (method params)
+                   (if (string=? method "pane.list")
                        (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p5\",\"agent\":\"claude\"},{\"pane_id\":\"w1:p6\",\"agent\":\"gpt\"}]}}")
                        #f))))
               ((cdr (assoc 'on-render-fn B)))))
@@ -2301,10 +2743,11 @@ struct ModaliserMuxesHerdrLibraryTests {
         #expect(try engine.evaluate("(cdr (assoc 'title (list-ref ROWS 1)))") == .string("gpt"))
     }
 
-    /// The prefix state's payload carries 'renderer 'panel-grid + a
-    /// 'children category (narrowed-legend-k45) — the SAME shape `screen`
-    /// lowers a registered root's payload into (dsl.sld's panel-grid-head),
-    /// so ui/overlay.scm's UNCHANGED panel-grid renderer draws this
+    /// The prefix state's payload carries the two-layer node shape — the
+    /// legend block as a flat dispatch child plus one 'display panel clause
+    /// referencing it by id (narrowed-legend-k45, readers-cutover) — the
+    /// SAME shape `screen` lowers a registered root's payload into, so
+    /// ui/overlay.scm's UNCHANGED panel-grid renderer draws this
     /// survivor legend: fsm-resolved-payload (fsm.sld) hands the provided
     /// state's payload straight through as modal-current-node, "so a
     /// provided RESTING state ... must present the same way a permanent
@@ -2325,12 +2768,12 @@ struct ModaliserMuxesHerdrLibraryTests {
     /// AX/hints-show dependency; the panel's embedded block's
     /// on-render-fn IS invoked (parameterized) to prove the survivor rows
     /// are exactly p5/p6, in second-key order, reading names through
-    /// current-herdr-list-runner.
+    /// current-herdr-query-runner.
     @Test func jumpPrefixStatePayloadCarriesNarrowedLegendPanel() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser muxes herdr) (modaliser blocks herdr-list)
-                  (modaliser state-machine) (modaliser json) (modaliser util))
+          (import (modaliser muxes herdr-socket) (modaliser muxes herdr) (modaliser blocks herdr-list)
+                  (modaliser fsm) (modaliser json) (modaliser util))
         """)
         let paneEntries = (1...6).map { "{\"pane_id\":\"w1:p\($0)\",\"tab_id\":\"w1:t1\"}" }.joined(separator: ",")
         let paneListEscaped = "{\"result\":{\"panes\":[\(paneEntries)]}}"
@@ -2339,31 +2782,36 @@ struct ModaliserMuxesHerdrLibraryTests {
           (define RESULT
             (parameterize
               ((current-herdr-query-runner
-                 (lambda (args)
+                 (lambda (method params)
                    (cond
-                     ((string=? args "pane current")
+                     ((string=? method "pane.current")
                       (json-parse "{\"result\":{\"pane\":{\"pane_id\":\"w1:p1\",\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\"}}}"))
-                     ((string=? args "pane list")
+                     ((string=? method "pane.list")
                       (json-parse "\#(paneListEscaped)"))
                      (else #f)))))
               (herdr-jump-provider)))
           (define STATES (cdr (assoc 'states RESULT)))
           (define PREFIX
-            (find (lambda (s) (equal? (cdr (assoc 'id s)) "com.googlecode.iterm2/herdr/h")) STATES))
+            (find (lambda (s) (equal? (cdr (assoc 'id s)) "herdr/h")) STATES))
           (define PAYLOAD (cdr (assoc 'payload PREFIX)))
           (define CHILDREN (node-children PAYLOAD))
-          (define JUMP-PANEL (car CHILDREN))
-          (define BLOCK (cdr (assoc 'list JUMP-PANEL)))
+          ;; Two-layer payload shape (ADR-0011): the legend block is the
+          ;; one flat dispatch child; the display value's panel clause
+          ;; places it by reference.
+          (define BLOCK (car CHILDREN))
+          (define JUMP-PANEL (car (node-display-ref PAYLOAD 'panels)))
         """#)
-        #expect(try engine.evaluate("(eq? (cdr (assoc 'renderer PAYLOAD)) 'panel-grid)") == .true)
         #expect(try engine.evaluate("(length CHILDREN)") == .fixnum(1))
-        #expect(try engine.evaluate("(equal? (node-label JUMP-PANEL) \"Jump\")") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type BLOCK)) 'herdr-jump-legend)") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'label JUMP-PANEL)) \"Jump\")") == .true)
+        #expect(try engine.evaluate(
+            "(equal? (cdr (assoc 'rows JUMP-PANEL)) '((block . herdr-jump-legend)))") == .true)
         try engine.evaluate(#"""
           (define RENDERED
             (parameterize
-              ((current-herdr-list-runner
-                 (lambda (subcmd)
-                   (if (string=? subcmd "pane list")
+              ((current-herdr-query-runner
+                 (lambda (method params)
+                   (if (string=? method "pane.list")
                        (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p5\",\"agent\":\"claude\"},{\"pane_id\":\"w1:p6\",\"agent\":\"gpt\"}]}}")
                        #f))))
               ((cdr (assoc 'on-render-fn BLOCK)))))
@@ -2376,94 +2824,116 @@ struct ModaliserMuxesHerdrLibraryTests {
             "(equal? (map (lambda (r) (cdr (assoc 'title r))) ROWS) (list \"claude\" \"gpt\"))") == .true)
     }
 
-    // MARK: - Backend tool health (ADR-0017 Layer 2)
+    // MARK: - Reachability (herdr's replacement for ADR-0017 Layer 2)
 
-    /// End-to-end: a missing herdr tool is flagged at configure-entry
-    /// (register!, routed through current-tool-probe-runner — no live
-    /// shell-out), and the affected block (blocks/herdr-list.sld) renders
-    /// a message row instead of an empty list. Recovery — the tool coming
-    /// back mid-run, no relaunch — clears the flag and restores real rows
-    /// on the very next render: a successful query is itself proof of
-    /// presence, so no re-probe is even needed.
-    @Test func herdrListRendersMissingToolMessageAndRecoversWithoutRelaunch() throws {
+    /// End-to-end: an unresponsive herdr makes the affected block
+    /// (blocks/herdr-list.sld) render a message row instead of an empty
+    /// list, and recovery — herdr answering again mid-run, no relaunch —
+    /// restores real rows on the very next render.
+    ///
+    /// The signal is the QUERY RESULT itself, with no health table behind
+    /// it (list-block-query-cutover-k32): over the socket a #f means herdr
+    /// did not answer, full stop, and a reachable herdr with nothing to
+    /// list answers a truthy `{"result":{"panes":[]}}` instead. That is
+    /// what the shell-out era could not distinguish — `2>/dev/null` gave
+    /// the same empty string either way — and why herdr needed ADR-0017's
+    /// `command -v` re-probe to recover the difference.
+    @Test func herdrListRendersUnresponsiveMessageAndRecoversWithoutRelaunch() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser muxes herdr) (modaliser blocks herdr-list)
+          (import (modaliser dsl) (modaliser fsm)
+                  (modaliser muxes herdr) (modaliser muxes herdr-socket)
+                  (modaliser blocks herdr-list)
                   (modaliser terminal) (modaliser json))
         """)
-        try engine.evaluate("""
-          (parameterize ((current-tool-probe-runner (lambda (tool) #f)))
-            (register!))
-          """)
-        #expect(try engine.evaluate("(backend-tool-missing? 'herdr)") == .true)
-
         try engine.evaluate("(define B (make-herdr-list-block 'kind 'panes))")
-        // The #f query below is itself the ambiguous moment: it fires a
-        // lazy re-probe (note-backend-query-result!), so current-tool-
-        // probe-runner must stay parameterized here too — otherwise the
-        // re-probe would escape to the REAL `command -v herdr`, which may
-        // find a genuinely-installed herdr on the machine running this
-        // test (feedback_no_live_env_mutation_in_tests).
         try engine.evaluate(#"""
           (define RENDERED
-            (parameterize ((current-herdr-list-runner (lambda (subcmd) #f))
-                           (current-tool-probe-runner (lambda (tool) #f)))
+            (parameterize ((current-herdr-query-runner (lambda (method params) #f)))
               ((cdr (assoc 'on-render-fn B)))))
           (define ROWS (cdr (assoc 'rows RENDERED)))
         """#)
         #expect(try engine.evaluate("(length ROWS)") == .fixnum(1))
         #expect(try engine.evaluate("(cdr (assoc 'label (car ROWS)))") == .string(""))
         #expect(try engine.evaluate("(cdr (assoc 'title (car ROWS)))")
-                == .string("herdr not found on the tool path"))
+                == .string("herdr is not responding"))
         #expect(try engine.evaluate("(null? (herdr-list-current-targets))") == .true)
 
-        // The tool comes back mid-run; the next render's own query
-        // succeeds, which alone clears the flag and restores real rows.
+        // herdr answers again mid-run; the next render's own query is all
+        // it takes to restore real rows.
         try engine.evaluate(#"""
           (define RENDERED2
             (parameterize
-              ((current-herdr-list-runner
-                 (lambda (subcmd)
+              ((current-herdr-query-runner
+                 (lambda (method params)
                    (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"agent\":\"claude\",\"focused\":true,\"tab_id\":\"w1:t1\"}]}}"))))
               ((cdr (assoc 'on-render-fn B)))))
           (define ROWS2 (cdr (assoc 'rows RENDERED2)))
         """#)
-        #expect(try engine.evaluate("(backend-tool-missing? 'herdr)") == .false)
         #expect(try engine.evaluate("(length ROWS2)") == .fixnum(1))
         #expect(try engine.evaluate("(cdr (assoc 'title (car ROWS2)))") == .string("claude"))
         #expect(try engine.evaluate("(length (herdr-list-current-targets))") == .fixnum(1))
     }
 
-    /// With the herdr tool present and queries succeeding, no probe fires
-    /// beyond the one configure-entry check — the healthy path pays no
-    /// extra subprocess spawn per op.
-    @Test func healthyHerdrToolPaysNoExtraProbesAcrossQueries() throws {
+    /// A reachable herdr with genuinely nothing to list is NOT the
+    /// unresponsive case: the envelope parses truthy and flows into the
+    /// pure extractor as zero rows. This is the distinction the socket
+    /// buys and the shell-out could not make, so it is pinned.
+    @Test func reachableHerdrWithAnEmptyListIsNotTheUnresponsiveCase() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser muxes herdr) (modaliser blocks herdr-list)
+          (import (modaliser muxes herdr-socket) (modaliser blocks herdr-list)
+                  (modaliser json))
+        """)
+        try engine.evaluate("(define B (make-herdr-list-block 'kind 'panes))")
+        try engine.evaluate(#"""
+          (define ROWS
+            (cdr (assoc 'rows
+              (parameterize
+                ((current-herdr-query-runner
+                   (lambda (method params) (json-parse "{\"result\":{\"panes\":[]}}"))))
+                ((cdr (assoc 'on-render-fn B)))))))
+        """#)
+        #expect(try engine.evaluate("(null? ROWS)") == .true)
+        #expect(try engine.evaluate("(null? (herdr-list-current-targets))") == .true)
+    }
+
+    /// herdr has LEFT ADR-0017 Layer 2: its backend record carries no
+    /// tool-name, so installing it fires no `command -v` probe at all —
+    /// not at backend install, and not lazily on a failed query. The
+    /// backend that reaches herdr over a socket must never look a binary
+    /// up on the tool path (ADR-0020's whole point is de-subprocessing
+    /// this path). Layer 2 itself is untouched and still covers the
+    /// CLI-native backends — see ModaliserTerminalLibraryTests.
+    @Test func herdrBackendCarriesNoToolNameAndNeverProbesTheToolPath() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (modaliser fsm)
+                  (modaliser muxes herdr) (modaliser muxes herdr-socket)
+                  (modaliser blocks herdr-list)
                   (modaliser terminal) (modaliser json))
         """)
         try engine.evaluate("""
           (define probe-count 0)
           (parameterize ((current-tool-probe-runner
                            (lambda (tool) (set! probe-count (+ probe-count 1)) #t)))
-            (register!))
+            (terminal-install-backends! (list backend)))
           """)
-        #expect(try engine.evaluate("probe-count") == .fixnum(1))
+        #expect(try engine.evaluate("probe-count") == .fixnum(0))
 
+        // Nor on the failing-query path that used to be the ambiguous
+        // moment: a #f is now the verdict, not a trigger to go looking for
+        // a binary (feedback_no_live_env_mutation_in_tests — an escaped
+        // probe would run the REAL `command -v herdr`).
         try engine.evaluate("(define B (make-herdr-list-block 'kind 'panes))")
         try engine.evaluate(#"""
           (parameterize
-            ((current-herdr-list-runner
-               (lambda (subcmd)
-                 (json-parse "{\"result\":{\"panes\":[{\"pane_id\":\"w1:p1\",\"agent\":\"claude\",\"focused\":true,\"tab_id\":\"w1:t1\"}]}}"))))
-            ((cdr (assoc 'on-render-fn B)))
-            ((cdr (assoc 'on-render-fn B)))
+            ((current-herdr-query-runner (lambda (method params) #f))
+             (current-tool-probe-runner
+               (lambda (tool) (set! probe-count (+ probe-count 1)) #t)))
             ((cdr (assoc 'on-render-fn B))))
         """#)
-        #expect(try engine.evaluate("probe-count") == .fixnum(1))
+        #expect(try engine.evaluate("probe-count") == .fixnum(0))
         #expect(try engine.evaluate("(backend-tool-missing? 'herdr)") == .false)
     }
 }

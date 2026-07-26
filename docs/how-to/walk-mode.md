@@ -96,7 +96,7 @@ the overlay *is* the mode indicator).
 **Fire-and-cross via `'next`.** Sometimes you want a binding in a
 transient tree to fire its action *and* drop the user into a Walk.
 `'next` on a `(key …)` does both in one press — a **cross edge** into
-the registered Walk, distinct from the **cyclic edge** (`'next 'self`)
+the Walk's mode tree, distinct from the **cyclic edge** (`'next 'self`)
 the Walk's own members use to keep cycling:
 
 ```scheme
@@ -104,7 +104,7 @@ the Walk's own members use to keep cycling:
 (key "h" "Left" (λ () (send-keystroke '(cmd alt) "left"))
   'next 'my-pane-focus)
 
-;; Plus the registered Walk destination — its own members carry
+;; Plus the Walk destination tree — its own members carry
 ;; 'next 'self, not 'next 'my-pane-focus:
 (screen 'my-pane-focus
   'exit-on-unknown #t
@@ -124,11 +124,12 @@ dispatch against the Walk's own bindings (each re-arming via its own
 — see its `.sld` for a worked example.
 
 When the entry keys and the destination keys are the same list (as
-above), `(walk …)` packages both halves in one form — it registers the
-mode tree (decorating each member `'next 'self`) *and* returns the
-entry keys decorated with `'next MODE-ID`, so you write the list once
+above), `(walk …)` packages both halves in one form — it returns the
+entry keys decorated with `'next MODE-ID`, carrying the mode tree
+(each member decorated `'next 'self`) inside for the `configuration`
+merge to hoist, so you write the list once
 and splice it into any parent. See
-[reference/dsl.md](../reference/dsl.md#walk-mode-id-display-name-key).
+[reference/dsl.md](../reference/dsl.md#walk-mode-id-display-name-order-keysdeclared-key).
 
 **Nested Walks.** Groups compose freely — a nested group is a Walk in
 its own right if its own members declare `'next 'self`, independent of

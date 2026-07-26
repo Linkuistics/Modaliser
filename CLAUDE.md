@@ -21,42 +21,81 @@ are nearly empty.
 ## Commands
 
 ```bash
-swift build                       # debug build → .build/debug/Modaliser
-swift test                        # full test suite (XCTest)
-swift test --filter KeyCodeTests  # single test class (or Class/testMethod)
-.build/debug/Modaliser            # run the debug binary directly
+swift build                          # debug build → .build/debug/Modaliser
+swift test                           # the full suite — no skip needed
+swift test --filter KeyCodeTests     # one suite
+swift test --filter 'KeyCodeTests/f18HasCorrectValue'   # one test
+.build/debug/Modaliser               # run the debug binary directly
 
 ./scripts/build-app.sh            # release build → .build/release/Modaliser.app
 ./scripts/install.sh              # build + copy to /Applications
 ./scripts/check-portable-surface.sh   # enforce the portability contract (see below)
+./scripts/check-decision-free.sh      # enforce the decision-free library contract
 ```
+
+The suite is **swift-testing** (`@Suite` / `@Test`), not XCTest — no file imports
+XCTest — so `--filter` is a regex matched against test IDs (`SuiteType` or
+`SuiteType/functionName`), not an XCTest class path. A plain `swift test` is green
+and needs **no skip**: the whole suite runs offline and reaches nothing outside
+the process — not the network, not the developer's own tmux/terminals, not a live
+herdr (ADR-0023, ADR-0020). That is structural, not per-test discipline, and it is
+worth keeping: if you add a test that needs an outward call, install a canned
+runner on the relevant seam rather than reaching past it. To re-verify the
+property rather than trust it, ADR-0023's Consequences record the two-instrument
+method that established it — a choke-point recorder for *what* leaks, a
+process-boundary sandbox denial for *is that all*.
 
 Requires macOS 14+ and Swift 5.9+. `build-app.sh` code-signs with a "Modaliser Dev"
 certificate when present (this preserves Accessibility TCC grants across rebuilds),
 else falls back to ad-hoc signing. `scripts/release-*.sh` drive the Homebrew-cask
 release flow.
 
-There is no separate lint step; `check-portable-surface.sh` is the one bespoke
-invariant check and should be treated as a required gate (wire it into CI / run it
-after touching `lib/modaliser`).
+There is no CI in this repository and no separate lint step.
+`check-portable-surface.sh` and `check-decision-free.sh` are the two bespoke
+invariant checks; nothing runs them for you, so running both after touching
+`lib/modaliser` is a local discipline. A third invariant has no script of its own
+because it belongs to packaging: `build-app.sh` wipes the `.app` before
+assembling it and then **fails the build** unless the bundled `Scheme/` tree
+matches `Sources/Modaliser/Scheme/` exactly (ADR-0019).
 
 ## Architecture
 
 ### The Swift ↔ Scheme bridge
 
 Native capabilities are exposed to Scheme as LispKit `NativeLibrary` subclasses, one
-per Swift `*Library.swift` file (e.g. `ShellLibrary` → `(modaliser shell)`,
+per Swift `*Library.swift` file (e.g. `ShellLibrary` → `(modaliser shell-native)`,
 `WindowLibrary` → `(modaliser window)`). Each declares a `name` like
-`["modaliser", "shell"]` and `define`s `Procedure`s. They are registered and imported
+`["modaliser", "window"]` and `define`s `Procedure`s. They are registered and imported
 in `SchemeEngine.init` (`Sources/Modaliser/SchemeEngine.swift`) — **that initializer is
 the canonical list of what native primitives Scheme can call.** Adding a native
 primitive means: add/extend a `*Library.swift`, then register + import it in
 `SchemeEngine.init`.
 
+Registration proves the procedures **resolve**, not that they work — a registered
+library can be reachable and still answer nothing. The clipboard-history library
+shipped in v3.3.0 with all five of its primitives resolving at the Scheme prompt
+and permanently returning null, because the `var store` / `var monitor` they
+guard on were declared and never assigned. Deleting that is a correctness fix,
+not a tidy-up, and the shape is invisible to a sweep that asks only whether a
+type is referenced from `Sources/` — the registration *is* a reference. So when
+auditing the bridge, ask both questions: is the type referenced at all (which
+finds orphans), and is its backing state ever assigned (which finds this).
+
+Two native libraries are deliberately *not* reachable from the library tree, both
+because they reach outside the process: `(modaliser shell-native)` and
+`(modaliser http-native)`. Shelling out is how Modaliser drives the user's real
+tmux/zellij/terminal apps, and fetching is how web search reaches Google, so the
+tree calls the portable `(modaliser shell)` / `(modaliser http)` instead — seams
+whose runners are **not installed by default**, wired to the native ones by
+`root.scm` at boot and therefore inert under `swift test` (ADR-0023). Before they
+existed, one green run put 419 commands onto the developer's machine and fetched
+a third-party endpoint. The `-native` suffix is the marker the check script
+enforces on.
+
 The non-`*Library` Swift files are the implementations those libraries wrap:
 window geometry (`WindowManipulator`, `WindowEnumerator`, `ChipPlacement`), keyboard
 capture (`KeyboardCapture`, `KeystrokeEmitter`, `KeyCode`), fuzzy matching
-(`FuzzyMatcher`), WebView panels (`WebViewManager`), clipboard, app scanning, etc.
+(`FuzzyMatcher`), WebView panels (`WebViewManager`), app scanning, etc.
 
 **Evaluation threading contract.** All evaluation of one engine must be serialized;
 in the app the main run loop provides that (every callback dispatches to the main
@@ -71,12 +110,19 @@ the doc comments on `ModaliserContext` for the deadlock reasoning).
 ### The Scheme layer (two tiers, deliberately separated)
 
 - `Sources/Modaliser/Scheme/lib/modaliser/**.sld` — the **portable library tree**.
-  R7RS `define-library` files that form the user-facing stdlib (`dsl`, `leader`,
-  `state-machine`, `window-actions`, `terminal`, `apps/*`, `blocks/*`, `muxes/*`, …).
+  R7RS `define-library` files that form the user-facing stdlib (`dsl`,
+  `configuration`, `handoff`, `activation`, `fsm`, `window-actions`,
+  `terminal`, `apps/*`, `blocks/*`, `muxes/*`, …).
 - `Sources/Modaliser/Scheme/ui/*.scm` (`css.scm`, `overlay.scm`, `chooser.scm`) —
   **host-specific** UI plumbing, flat-`include`d by `root.scm` (not `import`ed). These
   lean on LispKit-specific bindings (WebView, JSON) and intentionally stay outside the
   portable tree.
+
+Beside them, `Sources/Modaliser/Scheme/examples/*.scm` are complete, **never-loaded**
+configurations for setups a fresh install does not seed (tmux, Chrome) — reference
+material a user copies from, carried by the `sys/` mirror like everything else. They
+are load-tested (`ConfigDslTests.exampleConfigsLoadWithoutErrors`) so an example that
+stops composing is a red suite rather than silent rot.
 
 ### Portability contract (load-bearing invariant)
 
@@ -87,17 +133,44 @@ grepping for the literal `(lispkit ` — which also means **prose comments in th
 must avoid that literal string** (write "the LispKit hashtable library", not the
 parenthesized form). See `docs/reference/portability.md`.
 
-### Library path resolution & the `sys/` mirror
+The same script carries a second rule with the same textual-grep mechanics (and
+so the same prose convention — write "the native shell library", "the native HTTP
+library"): **no file under `lib/modaliser` may import a `(modaliser …-native)`
+library**. Outward-reaching native capability is quarantined behind an
+inert-by-default seam that `root.scm` installs at boot — `(modaliser shell)` for
+spawning, `(modaliser http)` for fetching. Importing a native form re-opens the
+path that let a green test run drive the developer's live tmux, zellij, wezterm,
+kitty, iTerm2 and Ghostty, or fetch a third-party endpoint. The rule is stated
+over the **`-native` suffix**, not a list of names, so a new quarantine is a
+naming decision rather than a script edit. See ADR-0023.
+
+### Decision-free library contract (load-bearing invariant)
+
+A `lib/modaliser` library may hold a **facility** — anything whose correctness is
+fixed by the tool it wraps or the machinery it implements — but never a
+**decision**, anything whose correctness is fixed only by the user's preference.
+Operationally: **no file under `lib/modaliser` authors a key or a label.**
+Libraries export ops, blocks, providers and wiring; the user's `config.scm`
+binds them into screens. `scripts/check-decision-free.sh` enforces it at
+**strict zero** — one authored key or label fails the check, exactly as one
+`(lispkit …)` import fails the portability check. See ADR-0021.
+
+### Library path resolution, seeding & the `sys/` mirror
 
 At startup `SchemeEngine` builds the library search path, ordered (first wins):
-user config root (`~/.config/modaliser/`) → synced `sys/` mirror → app bundle →
-LispKit's R7RS/SRFI. In a *production* `.app` run, `SysSync` mirrors the whole Scheme
-tree into `~/.config/modaliser/sys/` so users can browse/fork every bundled file;
+user config root (`~/.config/modaliser/`) → synced `sys/scheme/lib/` mirror → app
+bundle → LispKit's R7RS/SRFI. In a *production* `.app` run, `SysSync` mirrors the
+whole Scheme tree into `~/.config/modaliser/sys/scheme/` (wiped + re-copied per bundle
+fingerprint, generated `sys/README.md`) and production reads the tree from the mirror;
 dev/test runs read straight from `Sources/Modaliser/Scheme/` and never write to `sys/`
 (gated by `isProductionBundlePath`). User-first ordering is what lets a user shadow any
-bundled library. LispKit ships its own R7RS/SRFI `.sld`s but SPM excludes them from
-bundling, so `build-app.sh` vendors them into `Contents/Resources/LispKitLibraries`
-and `SchemeEngine` adds that path — see `locateLispKitLibrariesFallback`.
+bundled library. Seeding is separate and one-shot: first run copies
+`default-config.scm` to the user's `config.scm` — one user-owned file, never rewritten;
+everything shipped arrives always-fresh via the mirror, so a stale seed can only be
+stale *preference*, never stranded machinery (ADR 0019 is the contract). LispKit ships
+its own R7RS/SRFI `.sld`s but SPM excludes them from bundling, so `build-app.sh`
+vendors them into `Contents/Resources/LispKitLibraries` and `SchemeEngine` adds that
+path — see `locateLispKitLibrariesFallback`.
 
 ### UI rendering
 
@@ -109,19 +182,29 @@ replacement is avoided except for structural change. Blocks (`blocks/*`) pair a 
 
 ## Repository conventions
 
-- **grove workflow.** Long workstreams are driven via the `grove` skill
-  (`.claude/skills/grove/`): a git-tracked task tree under `.grove/`, one task per
-  session, ADRs in `docs/adr/`, PRDs in `docs/prd/`. Worktrees live under
-  `.grove-worktrees/`.
+- **grove workflow.** Long workstreams are driven via the `grove` skill: a
+  git-tracked task tree under `.grove/`, one task per session, with decisions
+  landing in `docs/adr/` and designs in `docs/specs/`. The tree is process state
+  and is deleted when the grove finishes; the durable output is the ADRs, specs,
+  docs and `CONTEXT.md` entries it leaves behind.
+- **ADR filenames stay numbered** (`docs/adr/00NN-slug.md`) and citations stay
+  bare (`ADR-0018`), not paths. This deliberately inverts the usual slug-only
+  advice, because here the **number is the stable handle and the slug is the
+  volatile one**: ADRs get reworked *in place* as the design moves — 0011, 0013,
+  0014 and 0015 were each rewritten inside one three-day window, keeping the
+  number and resharpening the slug — and none of the several hundred bare
+  `ADR-00NN` citations across the repo broke. Slug-only naming would have charged
+  that toll four times over already, and again on every future rework. Don't
+  "fix" this to slugs.
 - **`CONTEXT.md` is the Ubiquitous Language glossary** and is load-bearing against
   terminology drift across sessions — read it when working in the terminal-pane,
   window-switching, chooser, or window-layout domains, and append terms inline as they
   harden. It is glossary-only (no implementation detail).
 - **`docs/` is the source of truth** for behaviour. `docs/reference/` (dsl, libraries,
-  state-machine, library-system, portability, theming, renderer-protocol, keyboard) is
-  ground-truthed against the `.sld` sources; `docs/how-to/` holds task recipes;
-  `docs/adr/` records decisions. Update the relevant doc when you change the surface it
-  documents.
+  state-machine, library-system, portability, theming, renderer-protocol, keyboard,
+  terminal-detection) is ground-truthed against the `.sld` sources; `docs/how-to/`
+  holds task recipes; `docs/adr/` records decisions and `docs/specs/` describes how
+  areas work. Update the relevant doc when you change the surface it documents.
 - **Tests mirror sources** under `Tests/ModaliserTests/`, covering both Swift units and
   end-to-end Scheme evaluation (`*LibraryTests`, `ConfigDslTests`, `EndToEndSchemeModalTests`).
   Scheme library behaviour is exercised by loading it through a real LispKit context, so
@@ -129,9 +212,12 @@ replacement is avoided except for structural change. Blocks (`blocks/*`) pair a 
 
 ## Gotchas
 
-- **No in-place config reload.** The menu bar offers **Relaunch**; the running app does
-  not re-read config (see `TODO.md` for the planned hot-reload). Changes to a user's
-  `~/.config/modaliser/config.scm` require a relaunch.
+- **No in-place config reload — by doctrine, not by omission.** The menu bar offers
+  **Relaunch**; the running app never re-reads config, so changes to a user's
+  `~/.config/modaliser/config.scm` require a relaunch. Hot reload was considered and
+  **rejected** (ADR-0018, option 4): partial teardown of live visit/chips/capture state
+  is exactly the orphan-state trap reload-by-relaunch avoids, and the handoff latches
+  once by design. Don't build it back; ADR-0018 records what would reopen the question.
 - **Dev vs. production divergence is real.** Scheme-directory resolution, `sys/`
   mirroring, and LispKit library location all branch on whether the binary is inside an
   `.app`. A bug that only reproduces in the installed app (not under `swift run`) is

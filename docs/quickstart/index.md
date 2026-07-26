@@ -51,7 +51,9 @@ onboarding window asking for two macOS permissions:
 
 After both grants, Modaliser runs as an accessory app: no Dock icon,
 just a menu bar icon. On first run it also seeds
-`~/.config/modaliser/config.scm` from a bundled default.
+`~/.config/modaliser/config.scm` from a bundled default — one
+self-contained file, yours from then on and never rewritten (see the
+[upgrade contract](../reference/library-system.md#the-upgrade-contract)).
 
 ## 3. Press F18
 
@@ -64,10 +66,10 @@ handful of **loose rows** at the top — rendered bare, with no card:
 
 Below them sits a grid of banded **panels**, one card per group:
 
-- **Applications** — `b` Browser, `e` Editor, `t` Terminal, … one key
-  per app.
-- **AI** — `c` ChatGPT, `C` Claude Desktop.
-- **Search** — `g` Google, `a` Find Application, `f` Find File.
+- **Applications** — `b` Browser, `e` Editor, `t` Terminal,
+  `c` ChatGPT, … one key per app.
+- **Search** — `g` Google, `a` Applications (fuzzy-find an app),
+  `f` Files.
 
 Each card bands its label across the top; a `›` on a row marks a
 drill-down into a sub-screen.
@@ -82,8 +84,8 @@ captures and dispatches the key, the user just never sees a flash.
 
 ## 4. Edit one binding
 
-Open `~/.config/modaliser/config.scm` (the menu bar icon's **Settings**
-item launches it in your default editor). Find the `Applications`
+Open `~/.config/modaliser/config.scm` (the menu bar icon's **Open
+Config…** item launches it in your default editor). Find the `Applications`
 panel — a `(panel "Applications" …)` block, abridged here:
 
 ```scheme
@@ -140,14 +142,15 @@ You now have the loop: edit `config.scm`, relaunch, try the binding.
   per-app trees, Walks, fuzzy-finders, theming, and debugging.
   → [how-to/index.md](../how-to/index.md)
 - **The DSL** — the layout forms (`screen`, `panel`, `open`,
-  `fragment`) you author the overlay with, plus the dispatch atoms they
+  `splice`) you author the overlay with, plus the dispatch atoms they
   hold: `key`, `keys` for multi-key bindings, `group` for flat nested
   submenus, and `selector` for fuzzy-finder choosers.
   → [reference/dsl.md](../reference/dsl.md)
 - **Bundled libraries** — `(modaliser launchers)` for app/file pickers,
-  `(modaliser web-search)` for web queries, `(modaliser apps safari)` /
-  `(modaliser apps iterm)` for per-app trees, `(modaliser window-actions)`
-  for window management.
+  `(modaliser web-search)` for web queries, `(modaliser apps iterm)` and
+  the mux libraries for terminal integration, `(modaliser window-actions)`
+  for window management. None of them ships a screen: the keys and labels
+  are always yours.
   → [reference/libraries.md](../reference/libraries.md)
 - **State machine** — Terminal nodes vs. Walks, the `'next` edge,
   `'exit-on-unknown`, `on-enter` / `on-leave` hooks.
@@ -158,7 +161,7 @@ You now have the loop: edit `config.scm`, relaunch, try the binding.
   → [reference/theming.md](../reference/theming.md)
 - **Splitting configs across files** — `(import …)` from your own
   `.sld` libraries under `~/.config/modaliser/`, the `sys/` mirror of
-  bundled libraries, lookup order.
+  the bundled Scheme tree, lookup order, the upgrade contract.
   → [reference/library-system.md](../reference/library-system.md)
 - **Portability contract** — what's portable Scheme vs.
   LispKit-specific.

@@ -103,6 +103,11 @@
   --panel-head-bg: #eef0fb;         /* banded header */
   --panel-head-fg: #3b3fb6;
   --panel-shadow: 0 1px 2px rgba(17, 20, 36, 0.05);
+  /* Dim level for non-live regions of a display root (embed-rendering-k14):
+   * inactive embedded sections, and everything but the active section while
+   * one is visited. Dimming is the display's statement of liveness — active
+   * rows ≡ live keys (ADR-0011). */
+  --embed-dim: 0.45;
 
   /* ─ Keycaps ─ soft neutral for static command keys; the accent variant
    * (live-list / chooser numeric keys) re-maps these three on a scoped
@@ -440,6 +445,47 @@ body {
 .panel--bare .panel-list {
   margin: 0;
   padding: 0;
+}
+
+/* ─── Embedded sections (embed-rendering-k14; ADR-0011) ─────── */
+/*
+ * An 'embed-marked edge's target rendered as a section card of its parent's
+ * display root. The root persists as the Visit moves within it; only the
+ * active-section marker restyles — data-active-section on the
+ * .overlay-custom-body (set by overlay.js) drives every state:
+ *   • absent (Visit at the anchor): section cards dim — their keys are not
+ *     live; the anchor's own rows read full-strength.
+ *   • present (Visit on a section): everything BUT the active section dims
+ *     (anchor panels, loose rows, sibling sections); the active section
+ *     reads full-strength and its header keycap — the fired key — takes the
+ *     accent. Dimming states liveness: active rows ≡ live keys.
+ * The opacity transition is what makes the restyle read as a restyle
+ * (a soft dim shift), not a redraw. */
+.panel, .panel-loose {
+  transition: opacity 140ms ease;
+}
+.overlay-custom-body:not([data-active-section]) .embed-section {
+  opacity: var(--embed-dim);
+}
+.overlay-custom-body[data-active-section] .panel:not(.embed-section--active),
+.overlay-custom-body[data-active-section] .panel-loose {
+  opacity: var(--embed-dim);
+}
+/* The fired key highlights: the active section's header keycap flips to the
+ * accent keycap treatment (the same vocabulary as live-list digit keys). */
+.embed-section--active {
+  border-color: var(--keycap-accent-border);
+}
+.embed-section--active .embed-section-key {
+  background: var(--keycap-accent-bg);
+  border-color: var(--keycap-accent-border);
+  color: var(--accent);
+}
+/* The header keycap sits inline before the label inside the banded head. */
+.embed-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ─── Loose region (bare-loose-rows-k23) ───────────────────── */

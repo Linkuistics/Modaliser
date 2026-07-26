@@ -4,7 +4,7 @@ import Testing
 
 @Suite("End-to-end: user library imports (modaliser dsl)")
 struct ModaliserDslImportEndToEndTests {
-    @Test func userLibraryCanImportModaliserDslAndRegisterScreen() throws {
+    @Test func userLibraryCanImportModaliserDslAndContributeScreen() throws {
         let tmpRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("modaliser-dsl-e2e-\(UUID().uuidString)",
                                    isDirectory: true)
@@ -13,14 +13,15 @@ struct ModaliserDslImportEndToEndTests {
                                                 withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
 
+        // screen is PURE: the user library returns a tree contribution the
+        // config composes into a configuration value and installs.
         let libBody = """
         (define-library (user bindings)
-          (export register!)
+          (export global-screen)
           (import (scheme base)
-                  (modaliser dsl)
-                  (modaliser state-machine))
+                  (modaliser dsl))
           (begin
-            (define (register!)
+            (define (global-screen)
               (screen 'global
                 (key "s" "Safari" (lambda () 'ok))))))
         """
@@ -29,8 +30,8 @@ struct ModaliserDslImportEndToEndTests {
 
         let engine = try SchemeEngine(userConfigDir: tmpRoot.path)
         try engine.evaluate("(import (user bindings))")
-        try engine.evaluate("(register!)")
-        try engine.evaluate("(import (modaliser state-machine))")
-        #expect(try engine.evaluate("(lookup-tree \"global\")") != .false)
+        try engine.evaluate("(import (modaliser fsm) (modaliser configuration))")
+        try engine.evaluate("(fsm-install-graph! (lower-configuration (configuration (global-screen))))")
+        #expect(try engine.evaluate("(fsm-state-ref \"global\")") != .false)
     }
 }

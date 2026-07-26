@@ -21,6 +21,13 @@ from "no herdr session running". The same pattern is shared by every backend
 (tmux, zellij, kitty, wezterm, alacritty, iTerm helpers), so the fragility
 class is general, not herdr-specific.
 
+herdr itself has since left this ADR's scope entirely: it is driven over its
+Unix socket, not its CLI (ADR-0020), so there is no binary to resolve, its
+backend record carries no `tool-name`, and its query result distinguishes
+"unreachable" from "nothing to list" on its own. The incident above remains
+this ADR's motivating case, but the backends it governs are now the
+CLI-native ones.
+
 ## Decision
 
 Two layers, attacking incidence and detectability independently:
@@ -35,9 +42,15 @@ Two layers, attacking incidence and detectability independently:
    does; a future relocation that keeps a tool on the shell PATH needs no
    Modaliser change.
 
+   That spawn — like every shell-out this ADR governs, including Layer 2's
+   `command -v` probes — now goes through the `(modaliser shell)` seam
+   (ADR-0023), which is inert until `root.scm` installs a runner. Hence the
+   ordering constraint recorded there: the install must precede the import of
+   `(modaliser terminal)`, or the derivation silently yields the floor.
+
 2. **Detect and surface absence.** A configured backend whose tool cannot be
    resolved (`command -v` through the derived path) is detected at two
-   points: once at backend configure-entry (catches a broken state at every
+   points: once at backend install (catches a broken state at every
    relaunch, before any op fires), and lazily — memoized — when a query
    returns `#f` (distinguishes "tool gone" from "nothing running" at exactly
    the moment the ambiguity arises, and catches mid-run relocations; the
@@ -74,3 +87,7 @@ Two layers, attacking incidence and detectability independently:
   (the established canned-runner seam, as in `current-herdr-query-runner`).
 - Blocks/drills need a render path for the "tool missing" message — backend
   health becomes visible state the overlay can consult, not just a `#f`.
+  `backend-tool-missing?` is that consultable state; since herdr left Layer 2
+  it has no current consumer, because the CLI-native backends drive no live
+  list of their own. It stays as the surfacing point for the first one that
+  does, and Layer 2's `log-line` on a missing tool is unaffected.

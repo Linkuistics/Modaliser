@@ -1,28 +1,35 @@
 ;; (modaliser muxes herdr) — herdr mux backend behind the (modaliser
 ;; terminal) façade. herdr (herdr.dev) is an "agent multiplexer that lives
 ;; in the terminal": a client/server TUI run *inside* a host terminal (the
-;; user runs it in iTerm), controlled through a JSON socket-API CLI
-;; (`herdr pane …`) rather than keystrokes/AppleScript.
+;; user runs it in iTerm), driven over its JSON-RPC Unix socket
+;; (ADR-0020) rather than keystrokes/AppleScript.
 ;;
 ;; Quick start (prefix-style import — recommended to avoid collisions with
 ;; peer backend modules and the façade):
 ;;
 ;;   (import (prefix (modaliser muxes herdr) herdr:))
-;;   (herdr:register!)
+;;   (terminal-contexts (herdr:wiring))
+;;
+;; That is the WIRING half only — the backend record, the context-map
+;; entry, the digit-jump tree. The herdr SCREEN (which ops are surfaced,
+;; on which keys, under which labels) is configuration, not facility
+;; (ADR-0021): it lives in the user's config.scm as a (screen 'herdr …)
+;; built from the ops this library exports, and default-config.scm ships
+;; the stock composition to read and edit.
 ;;
 ;; Once iTerm's host backend is also registered, ops dispatch through
 ;; (modaliser terminal): when the focused iTerm pane's foreground command
 ;; is "herdr", `(terminal:focus-pane-left)` resolves to this backend's
-;; `herdr pane focus --direction left`.
+;; `pane.focus_direction {direction:"left"}`.
 ;;
 ;; ── Detection, validated live against a herdr-in-iTerm client (leaf 2) ──
 ;;   #1 An iTerm pane running the herdr *client* reports tty foreground
 ;;      command "herdr" (verified: the client is the `herdr` binary running
 ;;      as a foreground TUI). So the façade's mux match-key "herdr"
 ;;      resolves it — no special detection path needed.
-;;   #2/#3 The socket API scopes per *session* (one default session = one
-;;      socket) with GLOBAL focus, NOT per client / tty. `herdr pane
-;;      current` answers from server state and reflects the sole client's
+;;   #2/#3 The socket scopes per *session* (one default session = one
+;;      socket) with GLOBAL focus, NOT per client / tty. `pane.current`
+;;      answers from server state and reflects the sole client's
 ;;      focused pane (verified: it answers even with no client attached).
 ;;      Two herdr clients attached to one session therefore share one
 ;;      global focus and cannot be disambiguated — a documented v1
@@ -30,35 +37,42 @@
 ;;      correlation (cf. tmux/zellij) is required.
 ;;
 ;; ── JSON ──
-;; herdr emits compact single-line nested JSON
-;; ({"id":…,"result":{…},"type":…}). The multiline awk parsers used by
+;; herdr answers with compact single-line nested JSON
+;; ({"id":…,"result":{…},"type":…}) — the socket reply and the CLI's
+;; printed output are the same document. The multiline awk parsers used by
 ;; tmux/zellij do not transfer, so we parse with (modaliser json) — a
 ;; small portable reader (no host JSON primitive, stays in the portable
-;; tree). `herdr-json` shells out, parses, and returns the alist/vector
-;; tree; a `guard` degrades any non-JSON line to #f rather than breaking a
-;; leader press.
+;; tree). `herdr-query` — the ONE read seam, shared with the herdr blocks,
+;; see (modaliser muxes herdr-socket) — returns the parsed envelope, or #f
+;; for every failure (unreachable socket, timeout, unparseable reply,
+;; structured error) rather than breaking a leader press.
 ;;
-;; ── Op recipes (from `herdr pane --help`) ──
-;;   focus  → `pane focus  --direction <dir> --current`
-;;   move   → `pane swap   --direction <dir> --current`   (swap w/ neighbour)
-;;   split  → `pane split  --current --direction right|down --focus` native;
+;; ── Op recipes (methods, cross-checked against `herdr api schema --json`) ──
+;;   focus  → `pane.focus_direction {direction}`
+;;   move   → `pane.swap  {direction}`                    (swap w/ neighbour)
+;;   split  → `pane.split {direction:"right"|"down", focus:#t}` native;
 ;;            LEFT/UP have no native direction, so split the opposite
-;;            native way with --focus (the new pane becomes --current
-;;            atomically, server-side) then `pane swap` it back toward the
+;;            native way with focus (the new pane becomes current
+;;            atomically, server-side) then `pane.swap` it back toward the
 ;;            requested side — no split/swap focus race (R7).
-;;   zoom   → `pane zoom   --current --toggle`
+;;   zoom   → `pane.zoom  {mode:"toggle"}`
+;;
+;; `move` there is a pane SWAP with a neighbour — positional, no index. The
+;; unrelated tab/space REORDER (`tab.move` / `workspace.move`, an absolute
+;; `insert_index`) is the `m` Move group in the T / S drills; see the Reorder
+;; section below, which is where the index model is settled.
 ;;
 ;; ── Digit-jump focus ──
-;; herdr has no dedicated "focus pane <id>" verb, but `herdr agent focus
-;; <pane_id>` is a UNIVERSAL pane focus: it focuses ANY pane by id (verified
-;; live cross-tab). On a bare shell pane it also emits a cosmetic
-;; agent_not_found, but the focus side-effect fires first so the pane still
-;; lands focused (2>/dev/null swallows the error). Digit-jump therefore
-;; focuses via `agent focus <pane_id>` for every pane. The panes list block
-;; (build-herdr-tree's Panes panel) paints digit CHIPS over the on-screen
+;; `pane.focus {pane_id}` is the universal by-id focus: it focuses ANY pane,
+;; agent-hosting or not. Its narrower cousin `agent.focus {target}` resolves
+;; only panes currently hosting an agent, and that narrowness WAS the
+;; pane-switching regression (ADR-0020) — the CLI era routed digit-jump
+;; through it and lost every plain-shell pane to an `agent_not_found` that
+;; `2>/dev/null` then swallowed. `agent.focus` has no caller left in this
+;; backend. The panes list block paints digit CHIPS over the on-screen
 ;; herdr panes — see (modaliser blocks herdr-list). The backend's own
-;; focus-pane-by-digit slot below (the generic-capability-tree entry point,
-;; not on the shipping herdr entry-point tree) stays chip-less.
+;; focus-pane-by-digit slot below (the generic-capability-tree entry
+;; point, not the herdr screen a config authors) stays chip-less.
 ;;
 ;; ── Prev/Next ring cycling ([ / ]) ──
 ;; `[` prev / `]` next cycle the Panes/Tabs/Spaces/Agents drills'
@@ -70,22 +84,97 @@
 ;; cycle-target-id below.
 
 (define-library (modaliser muxes herdr)
-  (export register!
-          backend
-          ;; herdr-in-iTerm entry-point wiring (ADR-0013): the herdr tree
-          ;; builder the config splices into the herdr entry-point screen it
-          ;; registers, detection-gated on (terminal:in-chain? 'herdr) — see
-          ;; state-machine.sld's register-tree-up-edge!/
-          ;; register-tree-entry-gated!.
-          build-herdr-tree
+  (export backend
+          ;; ── The wiring fragment (ADR-0018 / ADR-0021) ──────────────
+          ;;
+          ;; Everything herdr's integration needs and nothing a user would
+          ;; want to choose: the Terminal-context-map entry, the backend
+          ;; record, and the machinery-named digit-jump tree the record
+          ;; fires at. It authors no key and no label, so composing herdr
+          ;; into ANY terminal-like host is one call:
+          ;;
+          ;;   (terminal-contexts (herdr:wiring))
+          ;;
+          ;; The herdr SCREEN — which of the ops below are surfaced, on
+          ;; which keys, under which labels, in which drills — is
+          ;; configuration, not facility (ADR-0021), so it lives in the
+          ;; user's own config.scm as a (screen 'herdr …); the seeded
+          ;; default-config.scm carries the stock composition to read and
+          ;; edit. The scope symbol is machinery-named, not a preference:
+          ;; the context entry below references the 'herdr tree BY KEY, so
+          ;; a screen authored under any other scope is a load-time
+          ;; closure error rather than a silent no-op. The same holds for
+          ;; 'herdr-panes-focus, which the config's Focus rows cross into.
+          wiring
+          ;; herdr's stock client keybinding prefix as one named value —
+          ;; a FACT about herdr, so it stays here, while whether the user
+          ;; overrode it is a decision their config makes by passing a
+          ;; different (mods key) list to the three keystroke ops below.
+          ;; herdr exposes no way to query the resolved prefix, so this is
+          ;; an assumption stated once rather than a reading; the same
+          ;; unqueryable-default applies one level down, to each op's
+          ;; SECOND keystroke (`[`, `e`, `q`), which is why they are
+          ;; separate ops a config can replace individually.
+          herdr-default-prefix
+          ;; ── Ops: the verbs a screen binds (ADR-0021) ───────────────
+          ;;
+          ;; One name per thing herdr can do. These are the stable layer —
+          ;; `focus-pane-left`'s definition has changed twice in its life
+          ;; (birth, and the socket cutover) behind an unchanged name and
+          ;; signature — which is why the exported surface is at op grain
+          ;; rather than at the whole-drill constructors that churned.
+          ;; Zero-argument ops are bound directly, `(key "z" "Zoom"
+          ;; herdr:toggle-pane-zoom)`; the by-id verbs and the three
+          ;; keystroke constructors take arguments (see below).
+          focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
+          split-pane-left  split-pane-right  split-pane-up    split-pane-down
+          move-pane-left   move-pane-right   move-pane-up     move-pane-down
+          toggle-pane-zoom close-pane
+          new-tab       close-focused-tab       rename-focused-tab!
+          new-workspace close-focused-workspace rename-focused-workspace!
+          jump-to-next-blocked
+          ;; The by-id focus verbs and the two focused-scope readers, the
+          ;; pieces a `[`/`]` cycling pair or a hand-rolled list binding
+          ;; composes from: a focus-fn plus the zero-arg scope thunk that
+          ;; keeps the ring scoped the way the matching list block is
+          ;; (panes → the displayed tab, tabs → the focused workspace,
+          ;; workspaces/agents → global, i.e. #f).
+          focus-pane-by-id focus-tab-by-id focus-workspace-by-id
+          focused-tab-id   focused-workspace-id
+          ;; The `[` Prev / `]` Next ring step as two ops rather than one
+          ;; key pair (the pair was a library-authored key and label, and
+          ;; therefore a decision — ADR-0021). Each takes the same
+          ;; (kind focus-fn scope-id-fn) triple the list blocks use and
+          ;; returns a thunk; bind them on whichever keys you like, with
+          ;; 'next 'self so presses chain.
+          cycle-prev-op cycle-next-op
+          ;; herdr's three client-side keybindings, as (prefix → thunk)
+          ;; constructors: copy mode, the scrollback buffer, and detaching
+          ;; the client. None has a socket or CLI verb — all three are the
+          ;; herdr CLIENT's own bindings — so each emits herdr's prefix
+          ;; followed by its own second key as a keystroke pair into the
+          ;; frontmost app. PREFIX is a (mods key) list; herdr-default-prefix
+          ;; above is the stock one.
+          copy-mode-op scrollback-op detach-op
           ;; Pure round-robin ring helper (parsed `agent list` + focused
           ;; pane_id → next blocked pane_id | #f), exported for unit tests —
           ;; the jump-to-blocked op (`b`) is a thin shell around it.
           next-blocked-pane-id
+          ;; ── Live-list blocks ──────────────────────────────────────
+          ;;
+          ;; One per herdr list kind, each a panel child that renders the
+          ;; live rows AND carries a hidden 1.. digit range focusing the
+          ;; matching id. Facilities: the row shape, the digit range and
+          ;; the scoping are fixed by what herdr reports, not by taste —
+          ;; which panel a block goes in, and whether it is surfaced at
+          ;; all, is the config's call. The panes block takes an optional
+          ;; 'chips? #t to paint digit chips over the on-screen panes.
+          pane-list-block tab-list-block workspace-list-block
+          agent-list-block worktree-list-block
           ;; Pure prev/next ring-step helper (a live-list block's targets +
           ;; focused-row index + step → target id | #f), exported for unit
-          ;; tests (prev-next-nav-k4) — the `[`/`]` keys in the Panes / Tabs
-          ;; / Spaces / Agents drills are a thin shell around it.
+          ;; tests (prev-next-nav-k4) — cycle-prev-op / cycle-next-op above
+          ;; are thin shells around it.
           cycle-target-id
           ;; Pure worktree switch-target parser (k14's tagged "ws:<id>" /
           ;; "br:<branch>" target + focused source workspace id → herdr command
@@ -124,12 +213,12 @@
           ;; (the functions above), assigns labels, and lowers them to live
           ;; edges/states (single-key direct, two-key narrowing prefix
           ;; states). Wired onto the tree's root via 'provider on the
-          ;; config's (screen 'com.googlecode.iterm2/herdr …) call.
+          ;; config's (screen 'herdr …) call.
           herdr-jump-provider
-          ;; Test seam, mirroring current-herdr-query-runner/current-herdr-
-          ;; async-runner below (feedback_no_live_env_mutation_in_tests): a
+          ;; Test seam, mirroring current-herdr-command-runner/current-herdr-
+          ;; send-runner below (feedback_no_live_env_mutation_in_tests): a
           ;; jump firing otherwise calls the real focus verb (herdr-cmd ->
-          ;; run-shell), capable of reaching a live herdr session from a
+          ;; the socket), capable of reaching a live herdr session from a
           ;; test. current-herdr-jump-focus-runner overrides the (kind id)
           ;; dispatch; the real default is exactly the kind's own verb.
           current-herdr-jump-focus-runner
@@ -140,10 +229,10 @@
           ;; is its panes-kind specialisation (mini-chip-painting-k32
           ;; generalised the reshape by kind — see the ui.layout-sourced
           ;; kinds below). paint-jump-chips!/clear-jump-chips! are the
-          ;; herdr entry node's unconditional 'entry/'exit pair
-          ;; (jump-chip-entry-cutover-k48; wired on both the root screen and
-          ;; each narrowing prefix state, config's app-trees/
-          ;; com.googlecode.iterm2.scm) — paint reads the
+          ;; herdr entry node's presentation-gated 'on-enter/'on-leave pair
+          ;; (defer-chips-to-overlay-k33; the config wires them onto its
+          ;; own (screen 'herdr …), and the provider's lowering wires the
+          ;; same pair onto each narrowing prefix state) — paint reads the
           ;; ASSIGNED list herdr-jump-provider snapshotted this Visit, so
           ;; re-entering or re-narrowing always repaints from fresh data,
           ;; never stale.
@@ -160,7 +249,7 @@
           ;; generalised the split by kind — the SAME leader-prefix logic
           ;; applies unchanged to workspaces/agents/tabs targets).
           ;; paint-jump-chips-narrowed! is the narrowing prefix state's own
-          ;; 'entry (jump-prefix-state below), painting both groups via
+          ;; 'on-enter (jump-prefix-state below), painting both groups via
           ;; herdr-paint-chip-targets!'s opts, plus the three ui.layout-
           ;; sourced kinds' mini chips via herdr-paint-ui-layout-chip-
           ;; targets! (mini-chip-painting-k32).
@@ -169,7 +258,7 @@
           paint-jump-chips-narrowed!
           ;; The Jump legend panel (legend-panel-k44, docs/specs/herdr-
           ;; jump-navigation.md "Legend"): jump-legend-block is the config's
-          ;; (screen 'com.googlecode.iterm2/herdr …) panel child, closing
+          ;; (screen 'herdr …) panel child, closing
           ;; (modaliser blocks herdr-jump-legend)'s 'assigned-fn over
           ;; *current-jump-assigned* so the legend reads the SAME snapshot
           ;; paint-jump-chips! does, never re-gathering/re-assigning.
@@ -181,41 +270,65 @@
           ;; shape herdr-jump-legend-rows takes, its "label" here being the
           ;; remaining second key, so the survivor legend falls out with no
           ;; new rows extractor. jump-prefix-state (below) wires it into its
-          ;; own provided payload's 'renderer/'children so the SAME panel-
+          ;; own provided payload's 'children + 'display so the SAME panel-
           ;; grid renderer that draws the root screen's Jump panel draws
           ;; this one too, exported for unit tests.
           narrowed-jump-legend-block
-          ;; The four async fire-and-forget herdr ops (ADR-0014), exported for
-          ;; unit tests — each is also bound into build-herdr-tree's Tabs /
-          ;; Spaces / Worktrees groups.
-          rename-focused-tab!
-          rename-focused-workspace!
+          ;; The two worktree ops, sent without awaiting a reply (see the
+          ;; send seam below for why they divide from the rename pair,
+          ;; which are plain synchronous commands).
           new-worktree!
           remove-focused-worktree!
-          ;; The Stop Server op (`q s`), exported for unit tests — bound into
-          ;; build-herdr-tree's Quit group. Its dialog-confirm gate (ADR-0014)
-          ;; is driven through the same current-dialog-runner /
-          ;; current-herdr-async-runner seams as the ops above, no new seam.
-          ;; Detach (`q d`) has no test seam of its own — a keystroke
-          ;; emission, same trust level as the config's untested copy-mode
-          ;; key — so it is not exported; only a tree-shape assertion covers
-          ;; it.
+          ;; Reorder (herdr-tab-space-reorder-k36): the tab/space Move ops,
+          ;; backed by herdr 0.7.5's `tab.move` / `workspace.move`. Two pure
+          ;; functions carry the logic and are exported for unit tests, on
+          ;; the cycle-target-id /
+          ;; worktree-switch-command precedent — reorder-insert-index is the
+          ;; relative-key → absolute-`insert_index` arithmetic (herdr's index
+          ;; is a GAP into the pre-removal list, so the two directions are
+          ;; NOT symmetric), and reorder-command is the whole decision over a
+          ;; parsed `<kind>.list` envelope, yielding a (method . params) call
+          ;; or #f for every nothing-to-do including either end of the list.
+          ;; The four ops are thin shells, exported so a test can assert the
+          ;; verb that actually reaches the wire (ADR-0020's altitude lesson).
+          reorder-insert-index
+          reorder-command
+          move-tab-left move-tab-right
+          move-space-up move-space-down
+          ;; The Stop Server op. Its dialog-confirm gate (ADR-0014) is
+          ;; driven through the same current-dialog-runner /
+          ;; current-herdr-send-runner seams as the ops above, no new seam.
+          ;; Its keystroke-emitting sibling detach-op has no test seam of
+          ;; its own — a keystroke emission, same trust level as copy-mode-op
+          ;; and scrollback-op — but it cannot be built without a prefix,
+          ;; which is the property worth pinning.
           stop-server!
           ;; Test seams (ADR-0014): parameterized indirection points a test
-          ;; can override so no test spawns herdr
-          ;; (feedback_no_live_env_mutation_in_tests) — current-herdr-query-runner
-          ;; stubs canned JSON in place of a live `herdr <query>`, mirroring
-          ;; `current-frontmost-bundle-id` in (modaliser terminal);
-          ;; current-herdr-async-runner captures the exact verb string in
-          ;; place of firing run-shell-async.
-          current-herdr-query-runner
-          current-herdr-async-runner)
+          ;; can override so no test reaches a live herdr
+          ;; (feedback_no_live_env_mutation_in_tests) —
+          ;; current-herdr-command-runner captures the (method params) pair a
+          ;; mutating op would put on the socket — the altitude at which
+          ;; `agent focus` and `pane.focus` finally differ, hence the pinned
+          ;; pane-switching regression test (ADR-0020);
+          ;; current-herdr-send-runner captures the same pair for the ops
+          ;; whose reply is deliberately not awaited. The READ side has no
+          ;; seam here: every herdr query in the tree goes through the ONE
+          ;; current-herdr-query-runner in (modaliser muxes herdr-socket).
+          current-herdr-command-runner
+          current-herdr-send-runner)
   (import (scheme base)
           (modaliser dsl)
-          (modaliser state-machine)
           (modaliser util)
-          (modaliser shell)
           (modaliser json)
+          ;; The socket transport (ADR-0020) — no (modaliser shell) import
+          ;; remains, this backend never shells out. It lives in its own
+          ;; library because (modaliser blocks herdr-list), which this file
+          ;; imports, needs the same transport and would otherwise close an
+          ;; import cycle (list-block-query-cutover-k32):
+          ;;   herdr-query          — the shared read seam
+          ;;   herdr-socket-request — the transport under the command seam
+          ;;   herdr-socket-send    — its no-reply sibling, under the send seam
+          (modaliser muxes herdr-socket)
           ;; jump-labels-assign: the parameterised prefix-free label-
           ;; assignment utility (jump-dispatch-wiring-k26's consumer).
           ;; edge / provided-state: the FSM primitives the herdr entry
@@ -223,29 +336,34 @@
           ;; (docs/specs/fsm-graph.md) — both portable, (modaliser fsm)
           ;; imports only (scheme base) (scheme write) (modaliser util).
           (modaliser jump-labels)
-          (only (modaliser fsm) edge provided-state)
-          ;; sq-escape: the one canonical POSIX single-quote escaper (ADR-0014's
-          ;; (modaliser dialogs) is its home); used here for shell-safe branch-
-          ;; name interpolation. dialog-confirm: the Stop Server op's confirm
-          ;; gate — herdr's own CLI stops the server immediately with no
-          ;; herdr-side confirm of its own, unlike worktree remove above.
-          (only (modaliser dialogs) sq-escape dialog-confirm)
+          (only (modaliser fsm) edge provided-state open-chooser-prompt)
+          ;; dialog-confirm: the Stop Server op's confirm gate — herdr stops
+          ;; the server immediately with no herdr-side confirm of its own,
+          ;; unlike worktree remove. `sq-escape` left with the shell: every
+          ;; user-supplied value is now a JSON string value, and `json-write`
+          ;; owns escaping for all of them.
+          (only (modaliser dialogs) dialog-confirm)
           ;; send-keystroke: Detach has no socket/CLI verb (it's herdr's own
           ;; client-side keybinding), so it is emitted as a keystroke into the
           ;; focused iTerm session — established portable-tree practice
           ;; (apps/*.sld: chrome.sld, iterm.sld, safari.sld).
           (modaliser input)
-          ;; The three herdr live-list blocks (panes / tabs / workspaces)
-          ;; share one kind-parameterised constructor; build-herdr-tree wraps
-          ;; each with a hidden digit key-range whose focus action lives here
-          ;; (agent focus / tab focus / workspace focus). Mirrors apps/iterm
-          ;; importing (modaliser blocks iterm-panes) / iterm-tabs.
+          ;; The herdr live-list blocks share one kind-parameterised
+          ;; constructor; the per-kind wrappers below add a hidden digit
+          ;; key-range whose focus action lives here (pane / tab /
+          ;; workspace focus). Mirrors apps/iterm importing
+          ;; (modaliser blocks iterm-panes) / iterm-tabs.
           (modaliser blocks herdr-list)
           ;; The Jump legend panel's block constructor (legend-panel-k44) —
           ;; jump-legend-block below closes it over *current-jump-assigned*.
           (modaliser blocks herdr-jump-legend)
+          ;; The contribution constructors for `wiring` below —
+          ;; prefixed: the bare names (context, backend, tree) collide
+          ;; with this module's own vocabulary.
+          (prefix (modaliser configuration) config:)
           ;; hints-hide: clears the full-size jump chips on 'on-leave
-          ;; (full-size-chip-letter-labels-k27) — the paint side reuses
+          ;; (full-size-chip-letter-labels-k27, defer-chips-to-overlay-k33)
+          ;; — the paint side reuses
           ;; herdr-list's herdr-paint-chip-targets! above, so only the
           ;; clear half needs its own import here.
           (only (modaliser hints) hints-hide)
@@ -260,82 +378,70 @@
           ;; so import only the machinery we need. herdr's global-focus
           ;; socket API needs no tty correlation, so unlike zellij we do
           ;; not import correlate-mux-client-to-host-tty.
-          (only (modaliser terminal)
-                make-terminal-backend
-                register-backend!
-                modaliser-tool-path
-                ;; note-backend-query-result!: ADR-0017 Layer 2 — every
-                ;; query's success/failure feeds the shared backend-health
-                ;; table, so a #f here can trigger the lazily-memoized
-                ;; re-probe (see herdr-json below).
-                note-backend-query-result!))
+          ;; No `modaliser-tool-path` here: ADR-0017's PATH derivation is moot
+          ;; for herdr now that nothing in this file spawns a process. It
+          ;; stays load-bearing for the CLI-native backends (tmux, zellij).
+          ;; No `note-backend-query-result!` either: herdr has left ADR-0017
+          ;; Layer 2 altogether (list-block-query-cutover-k32) — see the
+          ;; backend record's tool-name below.
+          (only (modaliser terminal) make-terminal-backend))
   (begin
 
-    ;; ─── Shell preamble ─────────────────────────────────────────────
+    ;; ─── Command seam ───────────────────────────────────────────────
     ;;
-    ;; GUI-launched Modaliser inherits a stripped path_helper PATH that
-    ;; doesn't include /opt/homebrew/bin (where herdr lives), so every
-    ;; shell-out is prefixed with the tool path — same pattern as tmux,
-    ;; zellij, and the nvim helpers in (modaliser terminal).
-    (define path-prefix
-      (string-append "export PATH=" modaliser-tool-path ":$PATH; "))
-
-    ;; ─── Socket-API query ───────────────────────────────────────────
+    ;; Fire a mutating op; the response is ignored (a failure is already
+    ;; logged by the transport, and an edge-of-layout no-op is not worth
+    ;; surfacing to the user).
     ;;
-    ;; Run `herdr <args>`, parse stdout as JSON, return the alist/vector
-    ;; tree — or #f when the command produced nothing or non-JSON. Routed
-    ;; through `current-herdr-query-runner` (mirrors `current-frontmost-
-    ;; bundle-id` in (modaliser terminal)) so a test can hand back canned
-    ;; JSON without a live herdr session (feedback_no_live_env_mutation_in_tests).
-    ;; The `guard` in the real runner is the safety net: herdr's output is
-    ;; reliably JSON (even errors are `{"error":{…}}`, which parse fine and
-    ;; simply lack a "result" key), but a truncated/garbage line must not
-    ;; raise through a leader press.
-    (define current-herdr-query-runner
-      (make-parameter
-        (lambda (args)
-          (let ((out (string-trim
-                       (run-shell
-                         (string-append path-prefix "herdr " args " 2>/dev/null")))))
-            (if (string=? out "")
-                #f
-                (guard (e (#t #f))
-                  (json-parse out)))))))
+    ;; `current-herdr-command-runner` is a test seam in its own right, and a
+    ;; load-bearing one: without it the lowest assertable altitude was
+    ;; `current-herdr-jump-focus-runner`'s (kind . id) pairs, at which
+    ;; `agent focus` and `pane.focus` look identical — which is how the
+    ;; pane-switching regression shipped. Capturing here pins the verb that
+    ;; actually reaches herdr.
+    (define current-herdr-command-runner
+      (make-parameter herdr-socket-request))
 
-    (define (herdr-json args)
-      (let ((result ((current-herdr-query-runner) args)))
-        (note-backend-query-result! 'herdr (and result #t))
-        result))
+    (define (herdr-cmd method params)
+      ((current-herdr-command-runner) method params))
 
-    ;; Fire a mutating pane op; output is ignored (2>/dev/null keeps
-    ;; innocuous edge-of-layout errors out of the GUI app log).
-    (define (herdr-cmd args)
-      (run-shell (string-append path-prefix "herdr " args " 2>/dev/null")))
-
-    ;; ─── Async command dispatch (ADR-0014) ───────────────────────────
+    ;; ─── Send seam: the ops whose reply we must not wait for ─────────
     ;;
-    ;; Ops whose external UI needs the user's keyboard — herdr's own rename
-    ;; / worktree-create / worktree-remove prompts — must not fire through
-    ;; the synchronous herdr-cmd above. Dispatch has already released modal
-    ;; capture for these terminal leaves (ADR-0015), but release alone is
-    ;; not enough: a synchronous run-shell blocks the Scheme thread, and a
-    ;; leader press while herdr's prompt is up would then stall the
-    ;; keyboard tap (ADR-0014's stalled-tap failure mode). herdr-cmd-async
-    ;; fires through run-shell-async and returns immediately; the callback
-    ;; only logs a non-zero exit — no continuation payload, since the
-    ;; argument-gathering is herdr's UI, not Modaliser's. Routed through
-    ;; `current-herdr-async-runner` so a test can capture the exact verb
-    ;; string instead of shelling out (feedback_no_live_env_mutation_in_tests).
-    (define current-herdr-async-runner
-      (make-parameter
-        (lambda (args callback)
-          (run-shell-async (string-append path-prefix "herdr " args) callback))))
+    ;; Three ops cannot ride `herdr-cmd` above, because their reply does not
+    ;; arrive promptly — or at all — and waiting on it would block the eval
+    ;; thread for the full timeout as a matter of routine, which is exactly
+    ;; ADR-0014's stalled-tap hazard:
+    ;;
+    ;;   worktree.create / worktree.remove — herdr answers these only once a
+    ;;     `git worktree add`/`remove` subprocess finishes. That is bounded,
+    ;;     unlike a human, but it scales with working-tree size and can fire
+    ;;     the user's own post-checkout hook.
+    ;;   server.stop — the server acknowledges and then dies; whether the
+    ;;     reply outruns the exit is a race we have no reason to enter.
+    ;;
+    ;; So they go over `herdr-socket-send`: connect, send, close, never read.
+    ;; The op still happens in full — herdr does all of its work (creating
+    ;; the workspace, switching focus, emitting events) BEFORE composing the
+    ;; reply, and drops the reply silently if nobody is listening. What we
+    ;; give up is only the acknowledgement, which no caller here consumed
+    ;; even when it was available.
+    ;;
+    ;; This is what makes these plain calls rather than the CPS the shell-out
+    ;; era needed: connect+send is sub-millisecond against a local peer, so
+    ;; there is no stall to hide behind a callback, and no continuation to
+    ;; thread. The ops that DO raise interactive UI keep their CPS — but that
+    ;; UI is Modaliser's own (`open-chooser-prompt`, `dialog-confirm`), which
+    ;; was always the case; herdr's socket API never prompts.
+    ;;
+    ;; Routed through `current-herdr-send-runner` so a test can capture the
+    ;; (method params) pair instead of reaching a live herdr, at the same
+    ;; altitude as `current-herdr-command-runner`
+    ;; (feedback_no_live_env_mutation_in_tests).
+    (define current-herdr-send-runner
+      (make-parameter herdr-socket-send))
 
-    (define (herdr-cmd-async args)
-      ((current-herdr-async-runner) args
-        (lambda (code out err)
-          (when (not (eqv? code 0))
-            (log "herdr: '" args "' failed (exit " code "): " err)))))
+    (define (herdr-cmd-send method params)
+      ((current-herdr-send-runner) method params))
 
     ;; ─── Detection ──────────────────────────────────────────────────
     ;;
@@ -351,7 +457,7 @@
     ;; workspace_id, so the close/rename ops below get their target ids from
     ;; the same query without a second shell-out.
     (define (focused-pane-field field)
-      (let ((j (herdr-json "pane current")))
+      (let ((j (herdr-query "pane.current" '())))
         (and j
              (let ((v (json-ref (json-ref (json-ref j "result") "pane") field)))
                (and (string? v) v)))))
@@ -361,7 +467,7 @@
     (define (focused-workspace-id) (focused-pane-field "workspace_id"))
 
     (define (detect-fg-command)
-      (let ((j (herdr-json "pane process-info --current")))
+      (let ((j (herdr-query "pane.process_info" '())))
         (and j
              (let* ((pi  (json-ref (json-ref j "result") "process_info"))
                     (fps (and pi (json-ref pi "foreground_processes"))))
@@ -374,14 +480,14 @@
 
     ;; ─── Op primitives ──────────────────────────────────────────────
 
-    (define (focus-pane-left)  (herdr-cmd "pane focus --direction left --current"))
-    (define (focus-pane-right) (herdr-cmd "pane focus --direction right --current"))
-    (define (focus-pane-up)    (herdr-cmd "pane focus --direction up --current"))
-    (define (focus-pane-down)  (herdr-cmd "pane focus --direction down --current"))
+    (define (focus-pane-left)  (herdr-cmd "pane.focus_direction" '(("direction" . "left"))))
+    (define (focus-pane-right) (herdr-cmd "pane.focus_direction" '(("direction" . "right"))))
+    (define (focus-pane-up)    (herdr-cmd "pane.focus_direction" '(("direction" . "up"))))
+    (define (focus-pane-down)  (herdr-cmd "pane.focus_direction" '(("direction" . "down"))))
 
     ;; Native splits (right/down): new pane on that side, focus follows it.
-    (define (split-pane-right) (herdr-cmd "pane split --current --direction right --focus"))
-    (define (split-pane-down)  (herdr-cmd "pane split --current --direction down --focus"))
+    (define (split-pane-right) (herdr-cmd "pane.split" '(("direction" . "right") ("focus" . #t))))
+    (define (split-pane-down)  (herdr-cmd "pane.split" '(("direction" . "down") ("focus" . #t))))
 
     ;; Left/up: no native direction. Split the opposite native way with
     ;; --focus so the new pane is the server's current pane, then swap it
@@ -389,53 +495,56 @@
     ;; unambiguous (it is --current), avoiding the split/swap race R7
     ;; describes; focus rides with the pane through the swap.
     (define (split-pane-left)
-      (herdr-cmd "pane split --current --direction right --focus")
-      (herdr-cmd "pane swap --direction left --current"))
+      (herdr-cmd "pane.split" '(("direction" . "right") ("focus" . #t)))
+      (herdr-cmd "pane.swap" '(("direction" . "left"))))
     (define (split-pane-up)
-      (herdr-cmd "pane split --current --direction down --focus")
-      (herdr-cmd "pane swap --direction up --current"))
+      (herdr-cmd "pane.split" '(("direction" . "down") ("focus" . #t)))
+      (herdr-cmd "pane.swap" '(("direction" . "up"))))
 
     ;; Move = swap the focused pane with its directional neighbour.
-    (define (move-pane-left)   (herdr-cmd "pane swap --direction left --current"))
-    (define (move-pane-right)  (herdr-cmd "pane swap --direction right --current"))
-    (define (move-pane-up)     (herdr-cmd "pane swap --direction up --current"))
-    (define (move-pane-down)   (herdr-cmd "pane swap --direction down --current"))
+    (define (move-pane-left)   (herdr-cmd "pane.swap" '(("direction" . "left"))))
+    (define (move-pane-right)  (herdr-cmd "pane.swap" '(("direction" . "right"))))
+    (define (move-pane-up)     (herdr-cmd "pane.swap" '(("direction" . "up"))))
+    (define (move-pane-down)   (herdr-cmd "pane.swap" '(("direction" . "down"))))
 
     ;; Zoom: herdr's `--toggle` is a stateless flip.
-    (define (toggle-pane-zoom) (herdr-cmd "pane zoom --current --toggle"))
+    (define (toggle-pane-zoom) (herdr-cmd "pane.zoom" '(("mode" . "toggle"))))
 
     ;; Close the focused pane. `pane close` needs an explicit id (no
     ;; --current form), so resolve the focused pane first. Bound to `d` at
     ;; the herdr tree top level.
     (define (close-pane)
       (let ((pid (focused-pane-id)))
-        (when pid (herdr-cmd (string-append "pane close " pid)))))
+        (when pid (herdr-cmd "pane.close" (list (cons "pane_id" pid))))))
 
     ;; ─── Digit-jump (façade slot; chip-less) ───────────────────────
     ;;
     ;; Snapshot the pane ids at mode-enter (labels 1..0 in list order),
-    ;; then focus pane N via `herdr agent focus <pane_id>`.
+    ;; then focus pane N by id.
     ;;
-    ;; `agent focus <pane_id>` is a UNIVERSAL pane focus: it focuses ANY
-    ;; pane by id — verified live cross-tab against p1/p2/p3. On a
-    ;; non-agent (bare shell) pane it *also* emits an `agent_not_found`
-    ;; error, but the focus side-effect fires first, so the pane still
-    ;; lands focused (2>/dev/null in herdr-cmd swallows the cosmetic
-    ;; error). This corrects the leaf-2 assumption that it no-ops on
-    ;; shell panes — it does not. No `pane neighbor` geometric walk is
-    ;; needed. This façade slot (the generic-capability-tree entry point)
-    ;; is chip-less; the shipping herdr entry-point tree instead uses the
-    ;; panes list block, whose Panes panel paints digit chips over the
-    ;; on-screen herdr panes (see (modaliser blocks herdr-list)).
+    ;; This used to fire `agent focus <pane_id>`, on the belief that it was
+    ;; a UNIVERSAL pane focus whose side-effect landed before the cosmetic
+    ;; `agent_not_found`. That belief was wrong, and `2>/dev/null` hid the
+    ;; evidence: in herdr 0.7.5 `agent focus` resolves ONLY agent panes, so
+    ;; a bare shell or file-browser pane was never focused at all
+    ;; (herdr-pane-switching-regression-k25, ADR-0020). The socket's
+    ;; `pane.focus {pane_id}` is the real universal focus — it is what the
+    ;; agents axis's `agent.focus {target}` is NOT — and it is what every
+    ;; by-id pane focus in this file now uses.
+    ;;
+    ;; This façade slot (the generic-capability-tree entry point) is
+    ;; chip-less; the shipping herdr entry-point tree instead uses the panes
+    ;; list block, whose Panes panel paints digit chips over the on-screen
+    ;; herdr panes (see (modaliser blocks herdr-list)).
 
     ;; Still snapshots the GLOBAL `pane list`, unlike the shipping Panes
     ;; drill's block (herdr-list-block's 'panes call above), which is
     ;; tab-scoped (pane-list-tab-local-k3). Left unscoped on purpose: this
-    ;; façade slot is near-dead surface (build-herdr-tree uses the block
-    ;; instead, so no shipping entry-point tree reaches this path) — not
+    ;; façade slot is near-dead surface (a herdr screen binds the panes
+    ;; list block instead, so no authored tree reaches this path) — not
     ;; worth threading focused-tab-id through a path nothing exercises.
     (define (list-pane-ids)
-      (let ((j (herdr-json "pane list")))
+      (let ((j (herdr-query "pane.list" '())))
         (if (not j)
             '()
             (let ((panes (json-ref (json-ref j "result") "panes")))
@@ -465,8 +574,7 @@
           (let* ((zero-based (if (= idx 0) 9 (- idx 1)))
                  (id (and (< zero-based (length ids))
                           (list-ref ids zero-based))))
-            (when id
-              (herdr-cmd (string-append "agent focus " id)))))))
+            (when id (focus-pane-by-id id))))))
 
     (define (digit-range)
       (cons (cons 'hidden #t)
@@ -474,8 +582,8 @@
               digit-labels
               (lambda (k) (focus-by-digit k)))))
 
-    (define (pane-digit-register!)
-      (register-tree! 'herdr-pane-digit
+    (define (pane-digit-tree)
+      (tree-root 'herdr-pane-digit
         'on-enter
         (lambda () (set-current-pane-ids! (list-pane-ids)))
         'on-leave (lambda () #f)
@@ -545,7 +653,7 @@
 
     ;; The three ui.layout-sourced axes' id lists — workspaces (Spaces),
     ;; agents (keyed on pane_id, the join key against panes), tabs — from a
-    ;; full `ui.layout` response envelope (as herdr-json would return it).
+    ;; full `ui.layout` response envelope (as herdr-query would return it).
     ;; A #f/error-shaped PARSED (no ui.layout support — any error means "not
     ;; supported", docs/specs/herdr-ui-layout.md "Compatibility and
     ;; probing") degrades every axis to '(): mini-chips don't paint, but
@@ -608,7 +716,7 @@
 
     ;; (TARGETS ((label . id) …) — same shape herdr-chip-entries'
     ;; targets take, PARSED a full `ui.layout` response envelope as
-    ;; herdr-json would return it, SECTION-KEY/ARRAY-KEY/ID-KEY
+    ;; herdr-query would return it, SECTION-KEY/ARRAY-KEY/ID-KEY
     ;; selecting one axis (see the three named wrappers below), HOST
     ;; the pixel frame alist ((x)(y)(w)(h))) → labelled chip entries,
     ;; the SAME (label . ((handle . #f)(x)(y)(w)(h))) shape
@@ -720,36 +828,40 @@
     ;; resting state, unlike the Terminal targets, which deactivate before
     ;; their id is ever consulted) has to read as root-id + "/" + its one
     ;; dispatch key — the same convention fsm-child-id uses for permanent
-    ;; states (state-machine.sld) — because modal-current-path's strip-
+    ;; states (fsm.sld) — because modal-current-path's strip-
     ;; id-prefix assumes a child's id textually starts with its parent's
     ;; id + "/" and would raise on a mismatched shape. This is also why a
     ;; provided RESTING state needed (modaliser fsm)'s fsm-resolved-
     ;; payload/fsm-resolved-up-edge (jump-dispatch-wiring-k26): the
-    ;; presentation-facing façade (state-machine.sld's modal-current-node/
+    ;; presentation-facing façade (fsm.sld's modal-current-node/
     ;; modal-root-node/breadcrumb derivation) used to read ONLY the
     ;; permanent graph, so a jump narrowing prefix state — the first
     ;; provided state ever to persist as a visit owner across more than
     ;; one keystroke — was invisible to it.
 
-    ;; The herdr entry node's own FSM state id (register-tree!'s scope
-    ;; string) — the narrowing prefix states' up-edge target, and where
-    ;; this provider itself must be wired (via 'provider on the config's
-    ;; (screen 'com.googlecode.iterm2/herdr …) call). Hardcoded, mirroring
-    ;; pane-digit-register!'s 'herdr-pane-digit precedent above:
-    ;; build-herdr-tree is spliced into exactly this one screen, nowhere
-    ;; else.
-    (define herdr-jump-scope "com.googlecode.iterm2/herdr")
+    ;; The herdr entry node's own FSM state id — the config's (screen
+    ;; 'herdr …) scope, the narrowing prefix states' up-edge target, and
+    ;; where this provider itself is wired (via 'provider on that screen).
+    ;; Hardcoded, mirroring pane-digit-tree's 'herdr-pane-digit precedent
+    ;; above: the scope symbol is MACHINERY, not preference — `wiring`'s
+    ;; context entry names the same 'herdr tree, so a screen authored under
+    ;; another scope is a load-time closure error (ADR-0021).
+    (define herdr-jump-scope "herdr")
 
     ;; The plane rule (plane-rule-capitals-k23) frees every lowercase
-    ;; letter except `b` (Jump to Blocked) at the top level. `c` is ALSO
-    ;; excluded here: the config splices its own Scrollback key onto this
-    ;; SAME root alongside build-herdr-tree's children
-    ;; (com.googlecode.iterm2.scm's herdr-copy-mode-key), and a state's
-    ;; provider-supplied edges never override an already-registered static
-    ;; one — fsm-step! finds the FIRST live edge matching a key, static
-    ;; edges before provider-supplied ones (classify-and-snapshot appends
-    ;; provider edges after static-edges) — so assigning "c" here would
-    ;; silently mint an unreachable jump label instead of erroring. The
+    ;; letter except `b` (the stock Jump-to-Blocked key) at the top level.
+    ;; `c` is ALSO excluded, and that exclusion outlives whatever a config
+    ;; binds: a state's provider-supplied edges never override an
+    ;; already-registered static one — fsm-step! finds the FIRST live edge
+    ;; matching a key, static edges before provider-supplied ones
+    ;; (classify-and-snapshot appends provider edges after static-edges) —
+    ;; so a jump label that collides with a statically-bound top-level key
+    ;; is silently unreachable rather than an error. `b` and `c` are the
+    ;; two the stock composition binds (Jump to Blocked, Copy Mode), and
+    ;; reserving them here costs nothing while a config that rebinds them
+    ;; simply leaves two letters unused. Capitals need no exclusion at all:
+    ;; the pools below are lowercase-only, so a capital can never collide
+    ;; with a jump label by construction. The
     ;; label space is the 20 home-position keys (never b/c, satisfying the
     ;; constraints above for free), PARTITIONED into three reserved,
     ;; per-axis single-key/leader pools (jump-label-axis-pools-k43,
@@ -775,8 +887,8 @@
                                                herdr-jump-shared-pool))
 
     ;; Per-kind focus verb — panes and agents share focus-pane-by-id (both
-    ;; pane_id-keyed; "agent focus" is the universal pane focus, per the
-    ;; module header above); workspaces/tabs use their own clean verbs.
+    ;; pane_id-keyed, and `pane.focus` is the universal by-id pane focus —
+    ;; see its definition below); workspaces/tabs use their own verbs.
     (define (jump-focus-fn kind)
       (case kind
         ((panes agents) focus-pane-by-id)
@@ -784,14 +896,14 @@
         ((tabs)         focus-tab-by-id)
         (else (lambda (id) (if #f #f)))))
 
-    ;; Test seam (mirrors current-herdr-query-runner/current-herdr-async-
-    ;; runner's rationale below, ADR-0014 /
+    ;; Test seam (mirrors current-herdr-command-runner/current-herdr-send-
+    ;; runner's rationale above, ADR-0014 /
     ;; feedback_no_live_env_mutation_in_tests): a test drives real FSM
     ;; dispatch through modal-handle-key, so without this indirection a
-    ;; passing jump-dispatch test would shell out through the REAL focus
-    ;; verbs (herdr-cmd -> run-shell), capable of reaching a live herdr
-    ;; session, not just this process. The real default is exactly "call
-    ;; the target kind's existing focus verb".
+    ;; passing jump-dispatch test would reach the socket through the REAL
+    ;; focus verbs (herdr-cmd), touching a live herdr session, not just
+    ;; this process. The real default is exactly "call the target kind's
+    ;; existing focus verb".
     (define current-herdr-jump-focus-runner
       (make-parameter
         (lambda (kind id) ((jump-focus-fn kind) id))))
@@ -847,41 +959,45 @@
     ;; un-narrowed top level; its own 'provider re-mints those SAME
     ;; Terminal states as this state's OWN Visit begins (see the section
     ;; header for why — a resting provided state landed on from elsewhere
-    ;; discards whatever the PREVIOUS visit owner installed). 'entry/'exit
-    ;; (jump-chip-entry-cutover-k48, unconditional — CONTEXT.md Action
-    ;; slots) paint/clear the narrowed chips at come-to-rest, matching the
-    ;; root screen's own 'entry/'exit pair (config's app-trees/
-    ;; com.googlecode.iterm2.scm): a narrowing descent/return is a fresh
-    ;; Visit boundary, so 'entry/'exit fire exactly there regardless of
-    ;; `modal-overlay-delay` — see fsm.sld's move-to!/end-old-visit!.
-    ;; Unlike the root screen's bare paint-jump-chips!, 'entry here is a
+    ;; discards whatever the PREVIOUS visit owner installed).
+    ;; 'on-enter/'on-leave (defer-chips-to-overlay-k33, presentation-gated
+    ;; — CONTEXT.md Action slots) paint/clear the narrowed chips, matching
+    ;; the root screen's own 'on-enter/'on-leave pair. They live in the
+    ;; PAYLOAD, not this state's own show/hide slots: the façade's
+    ;; run-on-enter/run-on-leave read node-on-enter/node-on-leave off
+    ;; whatever alist modal-current-node resolves to, and the engine's own
+    ;; show/hide slots are never fired in production (fsm-mark-displayed!
+    ;; has no host caller — see fsm.sld). Narrowing still repaints with no
+    ;; perceptible delay: a narrowing descent only happens once the user has
+    ;; SEEN the chips, so the overlay is already open and
+    ;; fire-group-descent! runs run-on-leave/run-on-enter synchronously —
+    ;; only the FIRST paint waits out `modal-overlay-delay`.
+    ;; Unlike the root screen's bare paint-jump-chips!, 'on-enter here is a
     ;; LEADER-closing lambda around paint-jump-chips-narrowed!
     ;; (narrowing-dim-state-k30) — it needs to know which leader this Visit
-    ;; narrowed into to split survivors from everything else; 'exit stays
+    ;; narrowed into to split survivors from everything else; 'on-leave stays
     ;; the plain clear-jump-chips! (hints-hide clears every group narrowing
     ;; paints into, not just the default one).
     ;;
-    ;; 'payload carries 'renderer 'panel-grid + a 'children category
-    ;; (narrowed-legend-k45): fsm-resolved-payload (fsm.sld) hands this
-    ;; alist straight to state-machine.sld as modal-current-node, "so a
-    ;; provided RESTING state ... must present the same way a permanent
-    ;; one does" (its own doc comment) — and the overlay's panel-grid
-    ;; renderer (ui/overlay.scm's panel-grid-payload-json) reads 'renderer/
-    ;; 'children/'cols/'layout/'loose off WHATEVER alist modal-current-node
-    ;; resolves to, with no separate static-screen lookup. So giving this
-    ;; payload the exact shape `screen` lowers a registered root's payload
-    ;; into — 'renderer 'panel-grid plus one 'children category built by
-    ;; the SAME (panel …) constructor the config uses — draws the survivor
-    ;; legend through the UNCHANGED renderer, no fsm.sld/state-machine.sld/
-    ;; overlay.scm change needed. The panel wraps narrowed-jump-legend-block
-    ;; closed over PAIRS, the exact (second-char . target) survivor list
-    ;; this state's own second-key edges are built from above — no re-query,
-    ;; no re-narrow. Deliberately no 'on-enter/'on-leave in this payload —
-    ;; node-on-enter/node-on-leave (state-machine.sld) `assoc` for those
-    ;; keys and find nothing, so the delayed overlay callback's
-    ;; run-on-enter/run-on-leave are a no-op here (the double-fire trap:
-    ;; leaving the old alist entries alongside 'entry/'exit would paint the
-    ;; chips twice).
+    ;; 'payload carries the two-layer node shape (narrowed-legend-k45,
+    ;; readers-cutover): fsm-resolved-payload (fsm.sld) hands this alist
+    ;; straight to fsm.sld as modal-current-node, "so a provided RESTING
+    ;; state ... must present the same way a permanent one does" (its own
+    ;; doc comment) — and the overlay's panel-grid renderer resolves
+    ;; 'children + 'display off WHATEVER alist modal-current-node
+    ;; resolves to (resolve-display; ADR-0011), with no separate
+    ;; static-screen lookup. So giving this payload the exact shape
+    ;; `screen` lowers a registered root's payload into — the legend
+    ;; block as a flat dispatch child, one display panel clause
+    ;; referencing it by id — draws the survivor legend through the
+    ;; UNCHANGED renderer, no fsm.sld/overlay.scm change needed. The
+    ;; panel wraps narrowed-jump-legend-block closed over PAIRS, the
+    ;; exact (second-char . target) survivor list this state's own
+    ;; second-key edges are built from above — no re-query, no
+    ;; re-narrow. It also carries the chip pair above, and this state's
+    ;; own 'entry/'exit slots are deliberately left unset — the
+    ;; double-fire trap runs the other way now: an 'entry alongside the
+    ;; payload's 'on-enter would paint the chips twice.
     (define (jump-prefix-state leader pairs)
       (let ((second-edges
               (map (lambda (p)
@@ -890,10 +1006,14 @@
                                               (jump-target-id (cdr p)))))
                    pairs)))
         (apply provided-state (jump-prefix-state-id leader)
-          'payload (list (cons 'renderer 'panel-grid)
-                         (cons 'children (list (panel "Jump" (narrowed-jump-legend-block pairs)))))
-          'entry (lambda () (paint-jump-chips-narrowed! leader))
-          'exit clear-jump-chips!
+          'payload (list (cons 'children (list (narrowed-jump-legend-block pairs)))
+                         (cons 'display
+                               (list (cons 'panels
+                                           (list (list (cons 'label "Jump")
+                                                       (cons 'span 'wide)
+                                                       (cons 'rows (list (cons 'block 'herdr-jump-legend))))))))
+                         (cons 'on-enter (lambda () (paint-jump-chips-narrowed! leader)))
+                         (cons 'on-leave clear-jump-chips!))
           'provider (lambda ()
                       (list (cons 'states
                                   (map (lambda (p) (jump-terminal-state (cdr p))) pairs))))
@@ -940,16 +1060,18 @@
     ;; Paint jump-letter chips over on-screen panes, reusing the existing
     ;; digit-chip pipeline ((modaliser blocks herdr-list)'s herdr-chip-
     ;; entries/herdr-paint-chip-targets!) fed from THIS Visit's assigned
-    ;; labels instead of digit labels. Wired as unconditional 'entry/'exit
-    ;; (not 'provider — chip paint/clear is presentation, but an
-    ;; UNGATED presentation action, CONTEXT.md "Action slots";
-    ;; jump-chip-entry-cutover-k48) on both the herdr entry node itself
-    ;; (config's app-trees/com.googlecode.iterm2.scm) and every narrowing
-    ;; prefix state (jump-prefix-state above): a narrowing descent/return
-    ;; is a fresh Visit boundary (a distinct resting state), so 'entry/
-    ;; 'exit fire exactly there, immediately, regardless of
-    ;; `modal-overlay-delay` — see fsm.sld's move-to!/end-old-visit!. Only
-    ;; the PANES axis is painted here; the three
+    ;; labels instead of digit labels. Wired as presentation-gated
+    ;; 'on-enter/'on-leave (not 'provider — chip paint/clear is
+    ;; presentation, and rides the pair that shares the overlay's own
+    ;; timing, CONTEXT.md "Action slots"; defer-chips-to-overlay-k33) on
+    ;; both the herdr entry node itself (the 'herdr screen) and every
+    ;; narrowing prefix state (jump-prefix-state above): chips appear WITH
+    ;; the overlay, so a press fast enough to never raise it paints
+    ;; nothing — and clearing pairs structurally, since run-on-leave is
+    ;; guarded by the same overlay-open? that let run-on-enter fire
+    ;; (fsm.sld). A narrowing descent lands with the overlay already open,
+    ;; so its repaint is synchronous — only the FIRST paint waits out
+    ;; `modal-overlay-delay`. Only the PANES axis is painted here; the three
     ;; ui.layout-sourced axes (workspaces/agents/tabs) are mini-chip-
     ;; painting-k32's job, painted alongside this section's panes chips
     ;; below (see paint-jump-chips!/paint-jump-chips-narrowed!) via a
@@ -1156,7 +1278,7 @@
       (filter (lambda (l) (not (member l used))) pool))
 
     ;; The herdr entry node's own 'provider (wired via 'provider on the
-    ;; config's (screen 'com.googlecode.iterm2/herdr …) call, mirroring
+    ;; config's (screen 'herdr …) call, mirroring
     ;; `group`'s docstring in (modaliser dsl)): gather this Visit's live
     ;; jump targets across all four axes, assign each axis's labels from
     ;; its OWN reserved pool (jump-label-axis-pools-k43,
@@ -1171,8 +1293,8 @@
     ;; that one direction (agents → tabs, never the reverse).
     (define (herdr-jump-provider)
       (let* ((tab-id (focused-tab-id))
-             (pane-ids (jump-pane-target-ids (herdr-json "pane list") tab-id))
-             (axes (parse-ui-layout (herdr-json "ui layout")))
+             (pane-ids (jump-pane-target-ids (herdr-query "pane.list" '()) tab-id))
+             (axes (parse-ui-layout (herdr-query "ui.layout" '())))
              (workspace-targets (jump-axis-targets 'workspaces (cdr (assoc 'workspaces axes))))
              (agent-targets     (jump-axis-targets 'agents     (cdr (assoc 'agents axes))))
              (tab-targets       (jump-axis-targets 'tabs       (cdr (assoc 'tabs axes))))
@@ -1205,10 +1327,9 @@
     ;; *current-jump-assigned* so the legend ALWAYS reads the exact
     ;; assignment herdr-jump-provider snapshotted for this Visit — never
     ;; re-gathering/re-assigning, so it can never disagree with the painted
-    ;; chips. Wired into the herdr entry node's screen as an ordinary panel
-    ;; child (config's app-trees/com.googlecode.iterm2.scm), not inside
-    ;; build-herdr-tree — the legend belongs to the entry node itself, not
-    ;; the P/T/S/W/A drills build-herdr-tree assembles.
+    ;; chips. The config wires it into its (screen 'herdr …) as an
+    ;; ordinary panel child — the legend belongs to the entry node itself,
+    ;; not to any drill beneath it.
     (define (jump-legend-block)
       (make-herdr-jump-legend-block 'assigned-fn (lambda () *current-jump-assigned*)))
 
@@ -1225,15 +1346,14 @@
     (define (narrowed-jump-legend-block pairs)
       (make-herdr-jump-legend-block 'assigned-fn (lambda () pairs)))
 
-    ;; ─── herdr-in-iTerm entry-point wiring (ADR-0013) ───────────────
+    ;; ─── herdr entry-point activation (ADR-0013) ────────────────────
     ;;
     ;; Leader activation lands directly at the herdr entry node when the
-    ;; focused iTerm pane runs herdr (detection-gated; no split-count
-    ;; classification, no separate augment tree — backspace from the herdr
-    ;; entry node walks to the plain iTerm node, which already has the full
-    ;; splits/panes/tabs surface). See the config's app-trees/
-    ;; com.googlecode.iterm2.scm for the register-tree-up-edge!/
-    ;; register-tree-entry-gated! wiring.
+    ;; focused pane's detection chain reaches herdr — the Terminal context
+    ;; map's chain walk (resolve-activation), which also seeds the return
+    ;; stack so backspace steps outward to the host screen. Nothing is
+    ;; authored: `wiring` below contributes the map entry, and the config's
+    ;; own (screen 'herdr …) is what it resolves to.
 
     ;; ─── Tab & workspace ops ────────────────────────────────────────
     ;;
@@ -1241,40 +1361,33 @@
     ;; close/rename need the focused id, read from `pane current` (one
     ;; query yields pane_id + tab_id + workspace_id).
     ;;
-    ;; NO tab-reorder op (k17, reconfirmed against herdr 0.7.1). The `tab`
-    ;; CLI exposes only list · create · get · focus · rename · close, and
-    ;; `tab list`/`tab get` carry a read-only `number` (display order) with
-    ;; no verb to set it — `tab rename` mutates the label only. herdr *can*
-    ;; reorder tabs, but only by MOUSE-DRAG in the TUI (persisted to
-    ;; session.json); that primitive is deliberately NOT exposed on the
-    ;; socket API / CLI (upstream ogulcancelik/herdr#770 "Add tab.reorder to
-    ;; socket API + CLI", CLOSED not-planned). Driving reorder would mean
-    ;; injecting mouse/keystrokes — barred by the socket-API-only charter —
-    ;; so tab reorder is a v1 exclusion blocked on upstream herdr, NOT a
-    ;; Move-Tab affordance in the `t` drill below (contrast `m` Move Pane,
-    ;; which `pane swap` backs). Revisit if herdr exposes a tab-order verb.
+    ;; Reorder is the `m` Move group in the `T` / `S` drills below; its
+    ;; index model is the Reorder section further down. The long-standing
+    ;; "blocked on upstream herdr#770" exclusion is RETIRED —
+    ;; herdr 0.7.5 ships `tab.move` / `workspace.move`
+    ;; (herdr-tab-space-reorder-k36).
 
-    (define (new-tab)       (herdr-cmd "tab create --focus"))
-    (define (new-workspace) (herdr-cmd "workspace create --focus"))
+    (define (new-tab)       (herdr-cmd "tab.create" '(("focus" . #t))))
+    (define (new-workspace) (herdr-cmd "workspace.create" '(("focus" . #t))))
 
     (define (close-focused-tab)
       (let ((id (focused-tab-id)))
-        (when id (herdr-cmd (string-append "tab close " id)))))
+        (when id (herdr-cmd "tab.close" (list (cons "tab_id" id))))))
     (define (close-focused-workspace)
       (let ((id (focused-workspace-id)))
-        (when id (herdr-cmd (string-append "workspace close " id)))))
+        (when id (herdr-cmd "workspace.close" (list (cons "workspace_id" id))))))
 
     ;; herdr requires the rename label positionally (`tab rename <id>
     ;; <label>`), and prompt-on-missing-arg is unshipped herdr-repo work
     ;; with no ETA (ADR-0014, reworked at herdr-rename-prompt-ownership-k9),
     ;; so these two ops collect the label through a Modaliser-owned
     ;; chooser-prompt instead of firing bare and hitting herdr's own
-    ;; usage-error exit. Look up ID's current label via `herdr <kind> list`
+    ;; usage-error exit. Look up ID's current label via the `<kind>.list` query
     ;; (the same query the live-list blocks already read) so the prompt
     ;; opens pre-filled; a failed/empty lookup degrades to "" rather than
     ;; blocking the rename.
-    (define (herdr-label-for-id list-cmd list-key id-key id)
-      (let* ((j (herdr-json list-cmd))
+    (define (herdr-label-for-id list-method list-key id-key id)
+      (let* ((j (herdr-query list-method '()))
              (arr (and j (json-ref (json-ref j "result") list-key))))
         (if (not (vector? arr))
             ""
@@ -1287,49 +1400,223 @@
                           (if (string? lab) lab ""))
                         (loop (+ k 1)))))))))
 
-    ;; Enter submits the edited label, sq-escaped and single-quoted exactly
-    ;; like worktree-switch-command's branch-name interpolation below;
-    ;; Escape cancels the prompt and never calls this continuation, so no
-    ;; herdr call fires.
+    ;; Enter submits the edited label as a plain JSON string value — no
+    ;; escaping of our own, `json-write` owns it. Escape cancels the prompt
+    ;; and never calls this continuation, so no herdr call fires.
+    ;;
+    ;; These two are plain synchronous commands. herdr's `tab.rename` /
+    ;; `workspace.rename` handlers set the label in memory, emit their event
+    ;; and answer immediately (measured sub-millisecond), so there is nothing
+    ;; to wait for and nothing to fire-and-forget. The interactive part is
+    ;; Modaliser's own chooser-prompt above, which is already CPS — ADR-0014
+    ;; is satisfied by the prompt's shape, not by how the command travels.
     (define (rename-focused-tab!)
       (let ((id (focused-tab-id)))
         (when id
           (open-chooser-prompt "Rename tab…"
-            (herdr-label-for-id "tab list" "tabs" "tab_id" id)
+            (herdr-label-for-id "tab.list" "tabs" "tab_id" id)
             (lambda (label)
-              (herdr-cmd-async
-                (string-append "tab rename " id " '" (sq-escape label) "'")))))))
+              (herdr-cmd "tab.rename"
+                         (list (cons "tab_id" id) (cons "label" label))))))))
     (define (rename-focused-workspace!)
       (let ((id (focused-workspace-id)))
         (when id
           (open-chooser-prompt "Rename Space…"
-            (herdr-label-for-id "workspace list" "workspaces" "workspace_id" id)
+            (herdr-label-for-id "workspace.list" "workspaces" "workspace_id" id)
             (lambda (label)
-              (herdr-cmd-async
-                (string-append "workspace rename " id " '" (sq-escape label) "'")))))))
+              (herdr-cmd "workspace.rename"
+                         (list (cons "workspace_id" id)
+                               (cons "label" label))))))))
+
+    ;; ─── Reorder: Move Tab / Move Space (herdr-tab-space-reorder-k36) ──
+    ;;
+    ;; herdr 0.7.5 exposes `tab.move {tab_id, insert_index}` and
+    ;; `workspace.move {workspace_id, insert_index}` (both params required),
+    ;; retiring the long-recorded "blocked on upstream herdr#770" exclusion.
+    ;; Neither method takes a destination scope: a tab reorders among its own
+    ;; workspace's tabs, a space among all spaces.
+    ;;
+    ;; Three facts about the wire contract, read out of herdr 0.7.5's source
+    ;; (`app/api/tabs.rs`, `app/api/workspaces.rs`, `workspace.rs::move_tab`,
+    ;; `app/actions.rs::move_workspace`) rather than exercised against the
+    ;; developer's live session (feedback_no_live_env_mutation_in_tests):
+    ;;
+    ;;  1. `insert_index` is a GAP index into the PRE-removal list, valid
+    ;;     0…len inclusive (`> len` answers a `tab_move_failed` /
+    ;;     `workspace_move_failed` error envelope, which by ADR-0020 is an
+    ;;     answer, not a #f). The server removes then inserts, so the resulting
+    ;;     position is `source < insert ? insert - 1 : insert`. That
+    ;;     asymmetry is the whole reason the arithmetic below is its own
+    ;;     tested function: moving one step LATER is `pos + 2`, one step
+    ;;     EARLIER is `pos - 1`.
+    ;;  2. Display order is the `<kind>.list` ARRAY order. A tab's `number`
+    ;;     is NOT its display order — it is a stable public identity that
+    ;;     rides along unchanged through a reorder (herdr's own test
+    ;;     `tab_info_number_uses_stable_public_tab_number` pins this), which
+    ;;     is also why `tab_id` survives a move and can be sent as the
+    ;;     target. Modaliser's docs said "read-only `number` (display
+    ;;     order)" for four leaves; they were wrong, and are corrected.
+    ;;  3. Exactly ONE row in a whole `tab.list` payload carries
+    ;;     `focused: true` — the active workspace's active tab (`focused:
+    ;;     state.active == Some(ws_idx) && ws.active_tab == tab_idx`) — and
+    ;;     likewise one across `workspace.list`. So a single list query
+    ;;     yields target id, its position, and its scope's length together;
+    ;;     no `pane.current` call is needed.
+    ;;
+    ;; Two decisions the wiring rests on:
+    ;;
+    ;; **The op reads its own index, fresh, per press** — it does NOT reuse
+    ;; the drill's live-list snapshot the way digit-jump and `[`/`]` do. The
+    ;; line is: reuse the snapshot when the user is CHOOSING among rows they
+    ;; can see (a stale row is at worst the wrong pick), read fresh when
+    ;; MUTATING (every other mutating op here already does — close reads
+    ;; `pane.current`, rename reads `<kind>.list`). Reuse would also lose
+    ;; presses outright: the Move keys re-arm, so a fast `l l l` that beats
+    ;; the panel's re-render would recompute one insert_index three times and
+    ;; the tab would advance once, not three times.
+    ;;
+    ;; **Either end is a no-op, not a wrap.** The `[`/`]` ring cycling wraps
+    ;; (prev-next-nav-k4), but that moves FOCUS; this moves CONTENT, and its
+    ;; nearest neighbour is `m` Move Pane, whose `pane.swap` no-ops at the
+    ;; edge of the layout. Wrapping would also make a held key cycle a tab
+    ;; around the bar forever with no resting place, where clamping parks it
+    ;; at the end — the gesture users actually reach for. The edge is
+    ;; expressed by returning #f from the pure arithmetic, so no request goes
+    ;; out at all rather than one herdr will discard.
+
+    ;; (reorder-insert-index position count step) → insert-index | #f
+    ;;
+    ;; The relative→absolute conversion, pure and total. POSITION is the
+    ;; target's 0-based display index, COUNT its scope's length, STEP the
+    ;; signed number of places to travel (-1 earlier / +1 later). Returns the
+    ;; `insert_index` herdr wants, or #f when the move would leave the list —
+    ;; the edge no-op above — which also covers a scope too short to reorder
+    ;; (COUNT ≤ 1) and a POSITION outside [0, COUNT) (a malformed payload,
+    ;; mirroring cycle-target-id's #f rather than erroring on a leader press).
+    (define (reorder-insert-index position count step)
+      (and (integer? position) (integer? count) (integer? step)
+           (>= position 0) (< position count)
+           (let ((final (+ position step)))
+             (and (>= final 0) (< final count)
+                  ;; Fact 1: the gap index. Travelling LATER, the target's own
+                  ;; removal shifts everything after it down one, so the gap
+                  ;; that lands it on FINAL is one further right.
+                  (if (> final position) (+ final 1) final)))))
+
+    ;; Per-kind reorder spec: (list-method array-key id-key scope-key
+    ;; move-method). SCOPE-KEY is the field a reorder is confined within, or
+    ;; #f for a globally-ordered kind — tabs reorder inside their workspace,
+    ;; spaces reorder across the whole session. Both methods happen to name
+    ;; the target under the SAME key the list rows use, so ID-KEY serves
+    ;; twice (reading the row, writing the param).
+    (define (reorder-spec kind)
+      (cond
+        ((eq? kind 'tabs)
+         (list "tab.list" "tabs" "tab_id" "workspace_id" "tab.move"))
+        ((eq? kind 'workspaces)
+         (list "workspace.list" "workspaces" "workspace_id" #f "workspace.move"))
+        (else (error "herdr reorder: unknown kind" kind))))
+
+    ;; The focused row's place within its OWN scope: an ordered `<kind>.list`
+    ;; array + the id and scope fields → (id position count), or #f when no
+    ;; row is focused or it carries no usable id. Two passes over the array
+    ;; because the scope is only known once the focused row is found (fact 3
+    ;; guarantees there is at most one); rows outside that scope are then
+    ;; skipped, so POSITION and COUNT describe the tab bar the user is
+    ;; looking at rather than every tab in the session.
+    (define (focused-scope-position arr id-key scope-key)
+      (let ((fk (let loop ((k 0))
+                  (cond
+                    ((>= k (vector-length arr)) #f)
+                    ((eq? (json-ref (vector-ref arr k) "focused") #t) k)
+                    (else (loop (+ k 1)))))))
+        (and fk
+             (let ((id    (json-ref (vector-ref arr fk) id-key))
+                   (scope (and scope-key
+                               (json-ref (vector-ref arr fk) scope-key))))
+               (and (string? id)
+                    (let loop ((k 0) (i 0) (pos #f))
+                      (if (>= k (vector-length arr))
+                          (and pos (list id pos i))
+                          (if (or (not scope-key)
+                                  (equal? (json-ref (vector-ref arr k) scope-key)
+                                          scope))
+                              (loop (+ k 1) (+ i 1) (if (= k fk) i pos))
+                              (loop (+ k 1) i pos)))))))))
+
+    ;; (reorder-command kind parsed step) → (method . params) | #f
+    ;;
+    ;; The whole reorder decision as one pure function of a parsed
+    ;; `<kind>.list` envelope: locate the focused row, convert STEP to an
+    ;; absolute insert_index, and shape the call. #f for every "nothing to
+    ;; do" — unreachable herdr (#f PARSED), malformed payload, nothing
+    ;; focused, or a move off either end. Fixture-testable with no live
+    ;; herdr, the same (target → call | #f) shape worktree-switch-command
+    ;; has; the op below is the thin shell.
+    (define (reorder-command kind parsed step)
+      (let* ((spec      (reorder-spec kind))
+             (array-key (list-ref spec 1))
+             (id-key    (list-ref spec 2))
+             (scope-key (list-ref spec 3))
+             (method    (list-ref spec 4))
+             (arr       (and parsed
+                             (json-ref (json-ref parsed "result") array-key))))
+        (and (vector? arr)
+             (let ((found (focused-scope-position arr id-key scope-key)))
+               (and found
+                    (let ((insert (reorder-insert-index (list-ref found 1)
+                                                        (list-ref found 2)
+                                                        step)))
+                      (and insert
+                           (cons method
+                                 (list (cons id-key (car found))
+                                       (cons "insert_index" insert))))))))))
+
+    ;; The op the Move keys fire: one list query, one pure decision, and at
+    ;; most one command. A plain synchronous command like the renames —
+    ;; herdr's move handlers reorder in memory, emit their event and answer
+    ;; at once — so it rides `herdr-cmd`, not the send seam.
+    (define (reorder-focused! kind step)
+      (let ((call (reorder-command kind
+                                   (herdr-query (car (reorder-spec kind)) '())
+                                   step)))
+        (when call (herdr-cmd (car call) (cdr call)))))
+
+    ;; The four keys' ops, named spatially to match the labels they carry:
+    ;; herdr draws tabs in a horizontal bar (h/l) and spaces in a vertical
+    ;; sidebar (j/k), so the direction key means the direction the target
+    ;; visibly travels. Earlier in the list is left/up, later is right/down.
+    (define (move-tab-left)    (reorder-focused! 'tabs -1))
+    (define (move-tab-right)   (reorder-focused! 'tabs  1))
+    (define (move-space-up)    (reorder-focused! 'workspaces -1))
+    (define (move-space-down)  (reorder-focused! 'workspaces  1))
 
     ;; ─── Worktree ops (the `W` Worktrees drill, W1–W4) ──────────────
     ;;
-    ;; All three verbs are source-repo pinned via `--workspace
-    ;; <focused-workspace-id>` (read from `pane current`) rather than herdr's
+    ;; All three verbs are source-repo pinned via an explicit `workspace_id`
+    ;; (the focused one, read from `pane.current`) rather than herdr's
     ;; implicit focused-workspace resolution — deterministic, and matches the
-    ;; sibling tab/workspace ops. herdr's `worktree` CLI (0.7.1):
-    ;;   worktree list   [--workspace ID] [--json]
-    ;;   worktree create [--workspace ID] [--branch NAME] [--base REF] [--focus]
-    ;;   worktree open   [--workspace ID] (--path P | --branch NAME) [--focus]
-    ;;   worktree remove  --workspace ID [--force]
+    ;; sibling tab/workspace ops. herdr's `worktree` socket methods:
+    ;;   worktree.list   {workspace_id?, cwd?}
+    ;;   worktree.create {workspace_id?, branch?, base?, path?, label?, focus?}
+    ;;   worktree.open   {workspace_id?, branch?, path?, label?, focus?}
+    ;;   worktree.remove {workspace_id, force?}
 
     ;; Smart-switch target parser (W4). k14 encodes each worktree row's switch
-    ;; target as a tagged string it computes purely over the `worktree list`
+    ;; target as a tagged string it computes purely over the `worktree.list`
     ;; payload (git refs cannot contain ':', so the tag split is unambiguous):
-    ;;   "ws:<id>"     open worktree     → `workspace focus <id>` (clean verb)
-    ;;   "br:<branch>" dormant worktree  → `worktree open --branch <branch>
-    ;;                                      --focus` (opens a fresh workspace)
-    ;; Returns the herdr command-args string, or #f for a malformed / empty
+    ;;   "ws:<id>"     open worktree     → `workspace.focus` (clean verb)
+    ;;   "br:<branch>" dormant worktree  → `worktree.open` with that branch
+    ;;                                      (opens a fresh workspace)
+    ;; Returns a (method . params) call pair, or #f for a malformed / empty
     ;; target (a detached-dormant worktree carries no target → never dispatched).
-    ;; Pure (target + source ws-id → string | #f) so it is fixture-testable with
-    ;; no live herdr; the `--workspace` pin is folded in only when SOURCE-WS-ID
-    ;; is a real string (degrades to herdr's implicit resolution otherwise).
+    ;; Pure (target + source ws-id → call | #f) so it is fixture-testable with
+    ;; no live herdr; the workspace pin is folded in only when SOURCE-WS-ID is a
+    ;; real string (degrades to herdr's implicit resolution otherwise).
+    ;;
+    ;; The branch name used to be sq-escaped and single-quoted for the shell.
+    ;; It is now just a JSON string value: json-write owns escaping, in one
+    ;; place, for every param of every method.
     (define (worktree-switch-command target source-ws-id)
       (and (string? target)
            (>= (string-length target) 3)
@@ -1338,82 +1625,81 @@
              (and (not (string=? rest ""))
                   (cond
                     ((string=? tag "ws:")
-                     (string-append "workspace focus " rest))
+                     (cons "workspace.focus" (list (cons "workspace_id" rest))))
                     ((string=? tag "br:")
-                     (string-append
-                       "worktree open"
-                       (if (and (string? source-ws-id)
-                                (not (string=? source-ws-id "")))
-                           (string-append " --workspace " source-ws-id)
-                           "")
-                       " --branch '" (sq-escape rest) "' --focus"))
+                     (cons "worktree.open"
+                           (append
+                             (if (and (string? source-ws-id)
+                                      (not (string=? source-ws-id "")))
+                                 (list (cons "workspace_id" source-ws-id))
+                                 '())
+                             (list (cons "branch" rest)
+                                   (cons "focus" #t)))))
                     (else #f))))))
 
     ;; The digit focus-fn behind the worktrees list: parse k14's tagged target
     ;; against the live focused workspace, then fire — a thin shell over the
-    ;; pure parser (mirrors `agent focus` / `tab focus` for the other kinds).
+    ;; pure parser (mirrors focus-pane-by-id / focus-tab-by-id for the other
+    ;; kinds).
     (define (switch-worktree target)
-      (let ((cmd (worktree-switch-command target (focused-workspace-id))))
-        (when cmd (herdr-cmd cmd))))
+      (let ((call (worktree-switch-command target (focused-workspace-id))))
+        (when call (herdr-cmd (car call) (cdr call)))))
 
     ;; New (`n`, W1). Guard on the focused workspace id — a #f means herdr is
-    ;; unreachable, so no-op — then fire `worktree create` async with no
-    ;; `--branch` (ADR-0014): herdr's own UI prompts for the branch name, not
-    ;; a Modaliser dialog. `--focus` still switches to the new workspace once
-    ;; herdr finishes creating it.
+    ;; unreachable, so no-op — then send `worktree.create` with no `branch`.
+    ;;
+    ;; Omitting `branch` does NOT hand the naming to a herdr prompt: herdr's
+    ;; socket API never prompts (its own branch-name dialog belongs to its TUI
+    ;; key handler, which fills `branch` in before calling this same method).
+    ;; The server generates a branch slug instead. `focus` still switches to
+    ;; the new workspace once herdr finishes creating it.
+    ;;
+    ;; Sent, not called: herdr answers only after `git worktree add` returns.
     (define (new-worktree!)
       (let ((wsid (focused-workspace-id)))
         (when wsid
-          (herdr-cmd-async (string-append "worktree create --workspace " wsid " --focus")))))
+          (herdr-cmd-send "worktree.create"
+                          (list (cons "workspace_id" wsid) (cons "focus" #t))))))
 
     ;; Remove (`d`, W2). Acts on the FOCUSED worktree — always a valid,
     ;; unambiguous target (the focused workspace's worktree), mirroring
-    ;; close-pane/tab/workspace. NO `--force`: a dirty worktree or the main
+    ;; close-pane/tab/workspace. NO `force`: a dirty worktree or the main
     ;; checkout makes herdr/git refuse, no data loss. No Modaliser confirm
-    ;; dialog (ADR-0014) — the remove-confirm UX is herdr-side; the safety
-    ;; that survives here is the missing --force. #f ws-id → no-op.
+    ;; dialog — the remove-confirm UX is herdr-side; the safety that survives
+    ;; here is the missing `force`. #f ws-id → no-op.
+    ;;
+    ;; Sent, not called, for the same reason as create above.
     (define (remove-focused-worktree!)
       (let ((wsid (focused-workspace-id)))
         (when wsid
-          (herdr-cmd-async (string-append "worktree remove --workspace " wsid)))))
+          (herdr-cmd-send "worktree.remove"
+                          (list (cons "workspace_id" wsid))))))
 
-    ;; ─── Quit ops (the `Q` Quit group, D-etach / S-top server) ──────
+    ;; ─── Stop Server ────────────────────────────────────────────────
     ;;
     ;; "Quit" unqualified is ambiguous between ending the herdr CLIENT and
     ;; the herdr SERVER (CONTEXT.md "Detach (herdr)" / "Stop (herdr
-    ;; server)"), so the group names both explicitly rather than offering a
-    ;; single bare Quit binding.
+    ;; server)"), which is why the two are separate ops with separate
+    ;; names rather than one — a config that surfaces them should name
+    ;; both explicitly rather than offer a single bare "Quit" binding. The
+    ;; client half, detach-op, is a prefix keystroke and therefore lives
+    ;; with the other two keystroke ops, not here.
 
-    ;; Detach (`d`). herdr has no socket/CLI verb for it — detach is the
-    ;; client's OWN keybinding (default `prefix+q`, i.e. ctrl+b then q), so
-    ;; it is emitted as a keystroke into the focused iTerm session where the
-    ;; herdr client is listening, exactly like the config's Scrollback key
-    ;; (herdr-copy-mode-k16, app-trees/com.googlecode.iterm2.scm) — same
-    ;; prefix-then-key shape, same (modaliser input) portable-tree import.
-    ;; Each send-keystroke is self-contained (ctrl is bracketed on `b`
-    ;; only), so the trailing `q` carries no stray modifier.
-    ;;
-    ;; v1 assumption: the user runs herdr on the DEFAULT prefix (ctrl+b).
-    ;; herdr exposes no CLI to query the resolved prefix; if the user
-    ;; rebinds herdr's prefix, update the ctrl+b below to match (same
-    ;; caveat as the Scrollback key).
-    (define (detach!)
-      (send-keystroke '(ctrl) "b")   ; herdr prefix
-      (send-keystroke "q"))          ; detach-client
-
-    ;; Stop Server (`s`). Ends the herdr SERVER: every pane and agent
+    ;; Stop Server. Ends the herdr SERVER: every pane and agent
     ;; terminates. Unlike worktree remove above (herdr-side confirm UX, no
-    ;; Modaliser dialog), herdr's CLI stops the server immediately with no
-    ;; confirm of its own — so this is the one herdr op that raises a
-    ;; Modaliser dialog-confirm. CPS per ADR-0014: never synchronous
-    ;; run-shell around a dialog. On confirm, fires the same fire-and-forget
-    ;; async seam as the ops above.
+    ;; Modaliser dialog), herdr stops the server immediately with no confirm
+    ;; of its own — so this is the one herdr op that raises a Modaliser
+    ;; dialog-confirm, and the CPS here is that dialog's, per ADR-0014.
+    ;;
+    ;; Sent, not called: herdr marks itself for quit and composes an `Ok`,
+    ;; but whether that reply outruns the process exit is a race with nothing
+    ;; to win — the answer is never read, so we do not ask for it.
     (define (stop-server!)
       (dialog-confirm
         "Stop the herdr server? Every pane and agent will terminate."
         (lambda (continue?)
           (when continue?
-            (herdr-cmd-async "server stop")))
+            (herdr-cmd-send "server.stop" '())))
         'title "Stop herdr Server" 'ok-label "Stop" 'icon "caution"))
 
     ;; ─── Live-list blocks (panes / tabs / workspaces) ───────────────
@@ -1435,7 +1721,7 @@
     ;; last, e.g. the Panes list from an earlier press this session. That is
     ;; not a hypothetical: descending into a group fires the group's on-enter
     ;; / on-render synchronously ONLY when the overlay is already visible
-    ;; (modal-handle-key's group? branch, state-machine.sld); a fast
+    ;; (modal-handle-key's group? branch, fsm.sld); a fast
     ;; leader→w→<digit> sequence types the digit before the overlay's
     ;; modal-overlay-delay (0.3s default) elapses, so this kind's on-render-fn
     ;; — and thus its snapshot! — never ran. Without the kind check, the
@@ -1470,12 +1756,20 @@
 
     ;; Named focus verbs, one per kind, so the `[`/`]` ring cycling below
     ;; (prev-next-nav-k4) fires EXACTLY the same command the digit path
-    ;; does — no second definition to drift out of sync. `agent focus
-    ;; <pane_id>` is the universal pane focus, so panes and agents (both
-    ;; pane_id-keyed) share focus-pane-by-id.
-    (define (focus-pane-by-id id)      (herdr-cmd (string-append "agent focus " id)))
-    (define (focus-tab-by-id id)       (herdr-cmd (string-append "tab focus " id)))
-    (define (focus-workspace-by-id id) (herdr-cmd (string-append "workspace focus " id)))
+    ;; does — no second definition to drift out of sync.
+    ;;
+    ;; `pane.focus {pane_id}` is the universal by-id pane focus, so panes
+    ;; and agents share focus-pane-by-id: every focus target this backend
+    ;; ever holds is a pane_id — the agents axis reads `sidebar.agents[]
+    ;; .pane_id` out of `ui.layout`, and next-blocked reads `agents[]
+    ;; .pane_id` out of `agent.list`. `agent.focus {target}` addresses an
+    ;; AGENT, which is a different (and narrower) thing: it resolves only
+    ;; panes currently hosting an agent, which is exactly the regression
+    ;; ADR-0020 fixes. Nothing in this file has an agent target, so nothing
+    ;; in this file calls it.
+    (define (focus-pane-by-id id)      (herdr-cmd "pane.focus" (list (cons "pane_id" id))))
+    (define (focus-tab-by-id id)       (herdr-cmd "tab.focus" (list (cons "tab_id" id))))
+    (define (focus-workspace-by-id id) (herdr-cmd "workspace.focus" (list (cons "workspace_id" id))))
 
     ;; The panes block takes an optional 'chips? — when #t it paints digit
     ;; chips over the on-screen herdr panes (rects from `herdr pane layout`;
@@ -1571,11 +1865,14 @@
     ;; toast when none. A plain key (Terminal, not a Walk) so the overlay
     ;; dismisses and the user interacts with the agent immediately (D4).
     (define (jump-to-next-blocked)
-      (let ((target (next-blocked-pane-id (herdr-json "agent list")
+      (let ((target (next-blocked-pane-id (herdr-query "agent.list" '())
                                           (focused-pane-id))))
         (if target
-            (herdr-cmd (string-append "agent focus " target))
-            (herdr-cmd "notification show 'No blocked agents'"))))
+            ;; A pane_id (blocked-pane-ids reads `agents[].pane_id`), so the
+            ;; universal by-id focus applies here too — not `agent.focus`.
+            (focus-pane-by-id target)
+            (herdr-cmd "notification.show"
+                       '(("title" . "No blocked agents"))))))
 
     ;; ─── Prev/Next ring cycling ([ / ], prev-next-nav-k4) ───────────
     ;;
@@ -1613,12 +1910,12 @@
                            (if (> step 0) 0 (- n 1)))))
               (cdr (list-ref targets idx))))))
 
-    ;; The `[`/`]` press's action: ensure a fresh snapshot for THIS kind —
+    ;; A ring press's action: ensure a fresh snapshot for THIS kind —
     ;; the same stale-kind guard list-digit-range uses above
-    ;; (herdr-fast-key-drops-k8: a fast leader→drill→[ press can beat the
-    ;; on-render snapshot) — then step the ring and fire FOCUS-FN on the
-    ;; result. An empty ring is a silent no-op; either way the drill's
-    ;; overlay refresh (triggered by the 'next 'self edge below) re-runs
+    ;; (herdr-fast-key-drops-k8: a fast leader→drill→step press can beat
+    ;; the on-render snapshot) — then step the ring and fire FOCUS-FN on
+    ;; the result. An empty ring is a silent no-op; either way the drill's
+    ;; overlay refresh (triggered by the config's 'next 'self edge) re-runs
     ;; the live list's on-render-fn, so the NEXT press reads a snapshot
     ;; reflecting whatever focus this press just set.
     (define (cycle-fire! kind focus-fn scope-id-fn step)
@@ -1628,160 +1925,44 @@
              (target (cycle-target-id targets (herdr-list-focused-index) step)))
         (when target (focus-fn target))))
 
-    ;; The loose `[` Prev / `]` Next pair a drill splices in, uniform
-    ;; across Panes/Tabs/Spaces/Agents (Worktrees deliberately
-    ;; excluded — the human direction named four groups). Each is 'next
-    ;; 'self — a cyclic edge re-arming right where the press happened, no
-    ;; sub-mode to enter (unlike Move, one keystroke already tours the
-    ;; ring) — so presses chain, and the walk feel (press-press-press
-    ;; tours the ring with the list updating) falls out of the overlay
-    ;; refresh described on cycle-fire! above.
-    (define (cycle-nav kind focus-fn scope-id-fn)
-      (fragment
-        (key "[" "Prev" (lambda () (cycle-fire! kind focus-fn scope-id-fn -1)) 'next 'self)
-        (key "]" "Next" (lambda () (cycle-fire! kind focus-fn scope-id-fn 1))  'next 'self)))
-
-    ;; The Panes pair, reused in TWO places (see focus-mode-register! below):
-    ;; the top-level Panes drill AND the registered herdr-panes-focus Walk,
-    ;; so cycling stays available mid-focus-walk without leaving it.
-    (define (pane-cycle-nav) (cycle-nav 'panes focus-pane-by-id focused-tab-id))
-
-    ;; The Walk focus mode the Panes drill's Focus panel crosses into. The
-    ;; Focus panel's hjkl each carry 'next 'herdr-panes-focus (build-herdr-
-    ;; tree, a cross edge), so the first hjkl focuses AND crosses into this
-    ;; mode; each member here carries 'next 'self (a cyclic edge back to
-    ;; itself), so subsequent hjkl keep moving focus without another leader
-    ;; press.
-    ;; Also carries the `[`/`]` cycling pair (prev-next-nav-k4's "Also") —
-    ;; the SAME registered Walk, not a second key-range, so a hjkl-then-[
-    ;; sequence never leaves Focus mode.
-    (define (focus-mode-register!)
-      (register-tree! 'herdr-panes-focus
-        'exit-on-unknown #t
-        'display-name "Focus"
-        (key "h" "Left"  focus-pane-left  'next 'self)
-        (key "j" "Down"  focus-pane-down  'next 'self)
-        (key "k" "Up"    focus-pane-up    'next 'self)
-        (key "l" "Right" focus-pane-right 'next 'self)
-        (pane-cycle-nav)))
-
-    ;; The herdr entry-point tree (ADR-0013). Pane ops are bound to the
-    ;; herdr-DIRECT ops above, never the façade, so they drive herdr
-    ;; regardless of what active-backend resolves to. Returns a list of
-    ;; nodes the config splices into (screen 'com.googlecode.iterm2/herdr
-    ;; …) — the herdr entry point; backspace from it reaches the plain
-    ;; iTerm node, which already has the full splits/panes/tabs surface,
-    ;; so no separate augment tree is needed.
-    ;;
-    ;; Top-level keys follow the plane rule (docs/specs/herdr-jump-
-    ;; navigation.md): capitals are the named drills/Quit, `b` is the one
-    ;; lowercase jump kept at this level (jump-to-next-blocked is itself a
-    ;; jump, not a drill), and every OTHER lowercase letter belongs to the
-    ;; jump space, wired dynamically per-Visit by herdr-jump-provider
-    ;; (jump-dispatch-wiring-k26) — this build-herdr-tree's static children
-    ;; carry none of those edges; the config wires the provider onto this
-    ;; tree's root via 'provider on its (screen 'com.googlecode.iterm2/
-    ;; herdr …) call.
-    ;;
-    ;;   P Panes      the whole pane surface, drilled (herdr-pane-group grove):
-    ;;                  Focus panel  hjkl → focus (crosses into the
-    ;;                               'herdr-panes-focus Walk)
-    ;;                  n New         hjkl → new split that direction
-    ;;                               (left/up = split+swap)
-    ;;                  m Move       Walk hjkl → swap focused pane with its
-    ;;                               neighbour
-    ;;                  [ / ]        Prev/Next — cycle the displayed panes
-    ;;                               (tab-scoped; prev-next-nav-k4)
-    ;;                  z / d        toggle zoom / close pane
-    ;;                  Panes panel  the panes list + chips (digit → focus
-    ;;                               by id)
-    ;;   T Tabs       n/r/d + [ / ] Prev/Next (workspace-scoped) + the tabs
-    ;;                list (digit → switch); no Move Tab — herdr exposes no
-    ;;                socket/CLI tab-reorder verb (see Tab ops above)
-    ;;   S Spaces     n/r/d + [ / ] Prev/Next (global) + the spaces list
-    ;;                (digit → switch) — labelled "Spaces" throughout (herdr's
-    ;;                own UI term); code identifiers keep the `workspace`
-    ;;                stem (herdr's API vocabulary)
-    ;;   W Worktrees  n/d + the worktrees list (digit → smart-switch); no
-    ;;                [ / ] — the human direction named four cycling groups,
-    ;;                not five (prev-next-nav-k4)
-    ;;   b Jump       focus the next blocked agent (round-robin; toast if none)
-    ;;   A Agents     [ / ] Prev/Next (status-banded order) + the agents list
-    ;;                (status-badged, blocked-first; digit → focus)
-    ;;   Q Quit       d Detach (keystroke, ctrl+b q) / s Stop Server (confirm-gated)
-    (define (build-herdr-tree)
-      (list
-        (open "P" "Panes"
-          (panel "Focus"
-            (key "h" "Left"  focus-pane-left  'next 'herdr-panes-focus)
-            (key "j" "Down"  focus-pane-down  'next 'herdr-panes-focus)
-            (key "k" "Up"    focus-pane-up    'next 'herdr-panes-focus)
-            (key "l" "Right" focus-pane-right 'next 'herdr-panes-focus))
-          (group "n" "New"
-            (key "h" "Left"  split-pane-left)
-            (key "j" "Down"  split-pane-down)
-            (key "k" "Up"    split-pane-up)
-            (key "l" "Right" split-pane-right))
-          (group "m" "Move"
-            'exit-on-unknown #t
-            (key "h" "Left"  move-pane-left  'next 'self)
-            (key "j" "Down"  move-pane-down  'next 'self)
-            (key "k" "Up"    move-pane-up    'next 'self)
-            (key "l" "Right" move-pane-right 'next 'self))
-          (key "z" "Zoom"  toggle-pane-zoom)
-          (key "d" "Close" close-pane)
-          (pane-cycle-nav)
-          (panel "Panes" (pane-list-block 'chips? #t)))
-        (open "T" "Tabs"
-          (key "n" "New"    new-tab)
-          (key "r" "Rename" rename-focused-tab!)
-          (key "d" "Close"  close-focused-tab)
-          (cycle-nav 'tabs focus-tab-by-id focused-workspace-id)
-          (panel "Tabs" (tab-list-block)))
-        (open "S" "Spaces"
-          (key "n" "New"    new-workspace)
-          (key "r" "Rename" rename-focused-workspace!)
-          (key "d" "Close"  close-focused-workspace)
-          (cycle-nav 'workspaces focus-workspace-by-id #f)
-          (panel "Spaces" (workspace-list-block)))
-        ;; Worktrees surface (k6). `W` drills a live worktree list: digit →
-        ;; smart-switch (focus the live workspace when open, else open the
-        ;; dormant worktree); `n` prompts a branch and creates one; `d`
-        ;; removes the focused worktree behind a confirm (no --force). All
-        ;; source-pinned via the focused workspace id.
-        (open "W" "Worktrees"
-          (key "n" "New"    new-worktree!)
-          (key "d" "Remove" remove-focused-worktree!)
-          (panel "Worktrees" (worktree-list-block)))
-        ;; Agents surface (k5). `b` jumps to the next blocked agent in one
-        ;; keystroke (the differentiator); `A` drills into the Agents live-list
-        ;; (status-badged, blocked-first, digit → focus by id), plus [ / ]
-        ;; Prev/Next over that same displayed (status-banded) order
-        ;; (prev-next-nav-k4). v1 focus-only (D8) — no send/read/explain, so
-        ;; the drill is the list panel plus the cycling pair.
-        (key "b" "Jump to Blocked" jump-to-next-blocked)
-        (open "A" "Agents"
-          (cycle-nav 'agents focus-pane-by-id #f)
-          (panel "Agents" (agent-list-block)))
-        ;; Quit group (k2). "Quit" unqualified is ambiguous between ending
-        ;; the herdr client and the herdr server (CONTEXT.md), so the group
-        ;; names both ops explicitly — no bare top-level Quit binding, and a
-        ;; fumbled double-tap of `Q` lands nowhere.
-        (group "Q" "Quit"
-          (key "d" "Detach"      detach!)
-          (key "s" "Stop Server" stop-server!))))
+    ;; The two ring-step ops, one per direction, each over the SAME
+    ;; (kind focus-fn scope-id-fn) triple the matching live-list block is
+    ;; built from — so a cycling key and its list always agree on scope.
+    ;; One keystroke already tours the ring, so there is no sub-mode to
+    ;; enter: bind these on a cyclic edge ('next 'self) and presses chain,
+    ;; the walk feel (press-press-press tours the ring with the list
+    ;; updating) falling out of the overlay refresh described on
+    ;; cycle-fire! above. WHICH keys, WHICH labels, and which drills get a
+    ;; pair at all are the config's decisions (ADR-0021) — this library
+    ;; ships only the step.
+    (define (cycle-prev-op kind focus-fn scope-id-fn)
+      (lambda () (cycle-fire! kind focus-fn scope-id-fn -1)))
+    (define (cycle-next-op kind focus-fn scope-id-fn)
+      (lambda () (cycle-fire! kind focus-fn scope-id-fn 1)))
 
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
     ;; configured? is constant #t — herdr has no provisioning step (no
-    ;; config-file edits, no keybinding install); its socket-API CLI works
-    ;; out of the box, earning herdr the full 14/14 surface like tmux and
-    ;; zellij.
+    ;; config-file edits, no keybinding install); its socket works out of the
+    ;; box, earning herdr the full 14/14 surface like tmux and zellij.
     (define (configured?) #t)
 
+    ;; tool-name is #f — herdr has LEFT ADR-0017 Layer 2 entirely
+    ;; (list-block-query-cutover-k32). Layer 2 exists to disambiguate a
+    ;; shell-out's empty stdout, which collapses three different worlds
+    ;; (binary missing / server down / genuinely nothing to list) into one
+    ;; empty string, and recovers the difference by re-probing `command -v`.
+    ;; The socket separates those worlds itself: a reachable herdr with
+    ;; nothing to list answers a truthy `{"result":{"panes":[]}}`, while
+    ;; unreachable / timeout / structured-error all answer #f. So a #f IS the
+    ;; reachability verdict, consumed directly by the one reader that shows
+    ;; it (the live-list blocks' unresponsive row) — no health table, no
+    ;; probe, and no binary lookup on the path ADR-0020 set out to
+    ;; de-subprocess. Layer 2 stays load-bearing for the CLI-native backends
+    ;; (tmux, zellij, kitty, wezterm), which still have the ambiguity.
     (define backend
       (make-terminal-backend
-        'herdr "herdr" 'mux "herdr" "herdr"
+        'herdr "herdr" 'mux "herdr" #f
         detect-fg-command
         focused-pane-id
         focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
@@ -1791,11 +1972,134 @@
         toggle-pane-zoom
         configured?))
 
-    ;; Register the backend + the digit-jump mode + the Walk top-level
-    ;; focus mode the herdr tree crosses into. Safe to call more than once:
-    ;; register-backend! is last-write-wins on backend symbol; register-tree!
-    ;; replaces any prior tree of the same id.
-    (define (register!)
-      (register-backend! backend)
-      (pane-digit-register!)
-      (focus-mode-register!))))
+    ;; ─── The prefix-needing ops ─────────────────────────────────────
+    ;;
+    ;; Every op that needs herdr's client keybinding prefix is built here,
+    ;; as a (prefix → thunk) constructor. The prefix is an ARGUMENT, never
+    ;; a hidden default, so there is exactly one place it can be wrong:
+    ;; the config's own binding (herdr-detach-honours-prefix-k37 fixed the
+    ;; last case where it was not — Detach used to hardcode `ctrl+b`, and
+    ;; failed silently, the stray keystrokes reaching the pane's shell
+    ;; rather than a herdr that is not listening on them).
+    ;;
+    ;; THE DEFAULT-PREFIX ASSUMPTION, stated once for all three. herdr
+    ;; exposes no way to query its resolved prefix, so herdr-default-prefix
+    ;; is an assumption, not a reading; a config that rebound herdr's
+    ;; prefix passes its own (mods key) list to these three ops instead.
+    ;; The same unqueryable-default applies one level down, to the SECOND
+    ;; keystroke of each pair (`[`, `e`, `q`): those bindings are
+    ;; rebindable in herdr's own config too, and herdr will not tell us
+    ;; what they resolved to. There is deliberately no knob for those —
+    ;; a user who rebound copy_mode / edit_scrollback / detach ITSELF
+    ;; writes their own one-line thunk in place of the op, which is
+    ;; exactly what op grain makes cheap.
+    (define herdr-default-prefix '((ctrl) "b"))
+
+    ;; The prefix-then-key emission, in one place. Each send-keystroke is
+    ;; self-contained — the modifiers are bracketed on the prefix key only —
+    ;; so the trailing key carries no stray modifier. PREFIX is a (mods key)
+    ;; list; mods may be empty, which send-keystroke accepts.
+    (define (send-prefixed-keystroke prefix key)
+      (send-keystroke (car prefix) (cadr prefix))
+      (send-keystroke key))
+
+    ;; herdr's THREE client-side keybindings, as (prefix → thunk) ops.
+    ;; None has a socket or CLI verb — all three are bindings of the herdr
+    ;; CLIENT, and `pane send-keys` targets the shell PTY rather than
+    ;; herdr's input layer — so each emits the prefix followed by its own
+    ;; second key as a keystroke pair to the FRONTMOST app, where the herdr
+    ;; client is listening. Keystrokes to the frontmost app are
+    ;; host-generic, which is what lets these live HERE rather than in any
+    ;; host's library (the herdr screen only shows when herdr's client has
+    ;; the focused pane). ADR-0020's socket cutover does not reach these:
+    ;; keystroke emission was always the right mechanism here, never a
+    ;; shell-out.
+    ;;
+    ;;   copy-mode-op   — copy_mode, default `prefix [`. herdr's per-pane
+    ;;                    selection/yank mode, acting on the LIVE pane.
+    ;;   scrollback-op  — edit_scrollback, default `prefix e`. Opens the
+    ;;                    focused pane's scrollback BUFFER in an editor.
+    ;;   detach-op      — detach-client, default `prefix q`. Ends the herdr
+    ;;                    CLIENT, leaving the server and every pane running
+    ;;                    (CONTEXT.md "Detach (herdr)"); contrast
+    ;;                    stop-server! above, which ends the server.
+    ;;
+    ;; The first two are distinct operations, not spellings of one
+    ;; (CONTEXT.md "Copy mode (herdr)" / "Scrollback (herdr)"), which is
+    ;; exactly why they are the near-synonym pair most at risk of
+    ;; collapsing back into each other under a later edit. A host
+    ;; terminal's own copy mode is WRONG for both: the host sees herdr as a
+    ;; SINGLE session and paints selection across the entire herdr canvas,
+    ;; ignoring herdr's per-pane layout, while herdr's own bindings are
+    ;; layout-aware.
+    ;;
+    ;; PLANE-RULE NOTE for whoever binds these (docs/specs/herdr-jump-
+    ;; navigation.md). The stock composition puts copy mode on `c`, and
+    ;; that lowercase key is the plane rule's ONE deliberate exception —
+    ;; which means `c` MUST stay out of the jump label pools above,
+    ;; because a static edge shadows a provider-supplied one, so a `c` jump
+    ;; label would be silently unreachable rather than an error. That
+    ;; constraint lives in the pools, and moving the BINDING into user
+    ;; configuration does not move it: rebind copy mode off `c` freely, but
+    ;; do not expect `c` to become a jump label. A capital (the stock
+    ;; scrollback key `C`) cannot collide with a label at all — the pools
+    ;; are lowercase-only.
+    (define (copy-mode-op prefix)
+      (lambda () (send-prefixed-keystroke prefix "[")))    ; copy_mode
+
+    (define (scrollback-op prefix)
+      (lambda () (send-prefixed-keystroke prefix "e")))    ; edit_scrollback
+
+    (define (detach-op prefix)
+      (lambda () (send-prefixed-keystroke prefix "q")))    ; detach-client
+
+    ;; ─── The wiring fragment (library-fragments-k11, ADR-0021) ──────
+
+    ;; (wiring) → herdr's Fragment: the Terminal-context-map entry
+    ;; ("herdr" → the 'herdr tree, driven by the 'herdr backend), the
+    ;; backend record, and the digit-jump mode tree the record's
+    ;; focus-pane-by-digit slot names at fire time. Integration only —
+    ;; ADR-0013's "inner-tool wiring lives with the inner tool", narrowed
+    ;; by ADR-0021 to facilities: no host is named anywhere, and no key or
+    ;; label is authored anywhere.
+    ;;
+    ;; What is NOT here, and lives in the user's config.scm instead, is the
+    ;; (screen 'herdr …) itself — the drills, the keys, the labels, the
+    ;; panels — together with the three things it must wire onto that
+    ;; screen for the jump space to work (see default-config.scm for the
+    ;; stock composition to copy):
+    ;;
+    ;;   'provider herdr-jump-provider — the jump space: on every
+    ;;     come-to-rest it gathers visible panes/spaces/agents/tabs,
+    ;;     assigns lowercase jump labels, and lowers them to live edges.
+    ;;   'on-enter paint-jump-chips! / 'on-leave clear-jump-chips! —
+    ;;     full-size jump-letter chips painted over the on-screen panes
+    ;;     when the overlay ACTUALLY displays this screen, cleared on leave
+    ;;     (presentation-gated Action slots — chips appear with the
+    ;;     overlay, so a press fast enough to never raise it paints
+    ;;     nothing; defer-chips-to-overlay-k33). The same pair rides every
+    ;;     narrowing prefix state inside the provider's own lowering, which
+    ;;     IS machinery and stays here.
+    ;;   (panel "Jump" (jump-legend-block)) — reads the SAME per-visit
+    ;;     snapshot the chips paint from, so legend and chips always agree.
+    ;;
+    ;; The tree scope 'herdr is machinery, not preference: the context
+    ;; entry below references it by key, so a screen authored under another
+    ;; scope fails reference-closure validation at load. Likewise
+    ;; 'herdr-panes-focus, which the config's Focus rows cross into via
+    ;; 'next and which the config registers itself.
+    ;;
+    ;; Activation, the outward backspace, and the host's gated "." step-in
+    ;; all derive from the context map machinery (resolve-activation /
+    ;; the seeded stack / the lowering-composed step-in provider) — the
+    ;; app-tree's detection gate, entry row, and up-edge wiring have no
+    ;; equivalent here because nothing needs authoring.
+    ;;
+    ;; Each call builds fresh tree objects: compose ONE call's value (two
+    ;; calls' same-scope contributions are a merge conflict, not a
+    ;; diamond).
+    (define (wiring)
+      (list
+        (config:context "herdr" 'tree 'herdr 'backend 'herdr)
+        (config:backend 'herdr backend)
+        (config:tree 'herdr-pane-digit (pane-digit-tree))))))

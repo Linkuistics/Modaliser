@@ -6,7 +6,12 @@
 ;; with peer backend modules and the façade):
 ;;
 ;;   (import (prefix (modaliser muxes zellij) zellij:))
-;;   (zellij:register!)
+;;   (configuration (terminal-contexts (zellij:wiring)) zellij-screen …)
+;;
+;; `wiring` is the integration; the SCREEN — which of the ops below are
+;; surfaced, on which keys, under which labels — is the user's
+;; (ADR-0021), and the seeded default-config.scm carries the stock
+;; composition to read and edit.
 ;;
 ;; Once the iTerm (or any host) backend is also registered, ops dispatch
 ;; through (modaliser terminal) — when the focused host pane's foreground
@@ -35,20 +40,47 @@
 ;; iTerm per-host leaf lands.
 
 (define-library (modaliser muxes zellij)
-  (export register!
-          backend)
+  (export
+          backend
+          ;; ── The wiring fragment (ADR-0018 / ADR-0013 / ADR-0021) ───
+          ;;
+          ;; Everything zellij's integration needs and nothing a user
+          ;; would want to choose: the Terminal-context-map entry, the
+          ;; backend record, and the machinery-named digit-jump tree the
+          ;; record fires at. Composing zellij into any terminal-like
+          ;; host is one call:
+          ;;
+          ;;   (terminal-contexts (zellij:wiring))
+          ;;
+          ;; The tree scope 'zellij is machinery, not preference: the
+          ;; context entry references it by key, so the screen the user
+          ;; authors must carry that scope or the configuration fails
+          ;; reference-closure validation at load — loudly.
+          wiring
+          ;; ── Ops: the verbs a screen binds (ADR-0021) ───────────────
+          ;;
+          ;; One name per thing zellij can do, all 0-arg thunks that land
+          ;; straight in a `(key K L op)` slot. This is the stable layer:
+          ;; every one is a `zellij action` invocation whose correctness
+          ;; is fixed by zellij's own CLI, not by anybody's preference.
+          focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
+          split-pane-left  split-pane-right  split-pane-up    split-pane-down
+          move-pane-left   move-pane-right   move-pane-up     move-pane-down
+          toggle-pane-zoom)
   (import (scheme base)
           (modaliser dsl)
-          (modaliser state-machine)
           (modaliser util)
           (modaliser shell)
           (modaliser accessibility)
           (modaliser hints)
           (modaliser ax-hints)
           (modaliser theming)
+          ;; The contribution constructors for `context` below —
+          ;; prefixed: the bare names (context, backend, tree) collide
+          ;; with this module's own exports.
+          (prefix (modaliser configuration) config:)
           (only (modaliser terminal)
                 make-terminal-backend
-                register-backend!
                 focused-iterm-tty
                 correlate-mux-client-to-host-tty
                 modaliser-tool-path
@@ -398,8 +430,8 @@
               digit-labels
               (lambda (k) (focus-by-digit k)))))
 
-    (define (pane-digit-register!)
-      (register-tree! 'zellij-pane-digit
+    (define (pane-digit-tree)
+      (tree-root 'zellij-pane-digit
         'on-enter
         (lambda ()
           (let* ((all-panes (list-panes-raw))
@@ -444,9 +476,26 @@
         toggle-pane-zoom
         configured?))
 
-    ;; Register the backend + the digit-jump mode. Safe to call more
-    ;; than once: register-backend! is last-write-wins on backend
-    ;; symbol; register-tree! replaces any prior tree of the same id.
-    (define (register!)
-      (register-backend! backend)
-      (pane-digit-register!))))
+    ;; ─── The wiring fragment (ADR-0021) ─────────────────────────────
+    ;;
+    ;; zellij's integration and nothing else: the Terminal-context-map
+    ;; entry (exe "zellij" → the 'zellij screen + this backend), the
+    ;; backend record, and the digit-jump mode tree the record's
+    ;; focus-pane-by-digit slot names at fire time.
+    ;;
+    ;; NO SCREEN. Which of the fourteen ops above are surfaced, on which
+    ;; keys, under which labels, is preference and lives in the user's
+    ;; config.scm — the seeded default-config.scm carries the stock
+    ;; composition. That absence is the contract: a library change can
+    ;; never silently re-take a key the user chose.
+    ;;
+    ;; Activation, outward backspace, and the host's gated "." step-in
+    ;; all derive from the context-map machinery — nothing is authored
+    ;; here.
+    ;;
+    ;; Each call builds fresh tree objects: compose ONE call's value.
+    (define (wiring)
+      (list
+        (config:context "zellij" 'tree 'zellij 'backend 'zellij)
+        (config:backend 'zellij backend)
+        (config:tree 'zellij-pane-digit (pane-digit-tree))))))

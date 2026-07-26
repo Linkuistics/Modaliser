@@ -9,7 +9,7 @@ import Testing
 /// AppleScript wrapper's `is running` guard makes every probe call
 /// short-circuit to "" in that case, which the façade treats as #f /
 /// empty — the contract that lets these tests verify wiring,
-/// registration, and capability shape end-to-end without a real
+/// installation, and capability shape end-to-end without a real
 /// session. Hand-verification of the 13 supported ops against a live
 /// Ghostty window is the leaf's separate "Done when" item.
 @Suite("(modaliser apps ghostty) library")
@@ -19,21 +19,20 @@ struct ModaliserAppsGhosttyLibraryTests {
         try engine.evaluate("(import (modaliser apps ghostty))")
         // Public surface mirrors wezterm / tmux / zellij — ops live on
         // the façade, not here. Both must bind without error.
-        _ = try engine.evaluate("register!")
+        _ = try engine.evaluate("fragment")
         _ = try engine.evaluate("backend")
     }
 
-    /// (register!) installs the backend into the façade's registry,
-    /// keyed by 'ghostty + bundle-id "com.mitchellh.ghostty". When
-    /// the frontmost app is Ghostty, the façade walks the path and
-    /// resolves to this backend.
-    @Test func registerInstallsGhosttyBackend() throws {
+    /// (terminal-install-backends! (list backend)) installs the backend
+    /// into the façade's registry, keyed by 'ghostty + bundle-id
+    /// "com.mitchellh.ghostty". When the frontmost app is Ghostty, the
+    /// façade walks the path and resolves to this backend.
+    @Test func installedBackendResolvesThroughFacade() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser apps ghostty) (modaliser terminal))
+          (import (modaliser apps ghostty) (modaliser terminal))
         """)
-        try engine.evaluate("(register!)")
+        try engine.evaluate("(terminal-install-backends! (list backend))")
 
         let pathLen = try engine.evaluate("""
           (parameterize ((current-frontmost-bundle-id
@@ -52,17 +51,19 @@ struct ModaliserAppsGhosttyLibraryTests {
         #expect(inChain == .true)
     }
 
-    /// (register!) also wires the digit-pick mode so that the backend's
+    /// (fragment) also carries the digit-pick mode so that the backend's
     /// focus-pane-by-digit symbol ('ghostty-pane-digit) names a real tree
-    /// for the façade's resolver to hand a procedure-valued 'next.
-    @Test func registerInstallsDigitPickTree() throws {
+    /// in the installed graph for the façade's resolver to hand a
+    /// procedure-valued 'next.
+    @Test func fragmentCarriesDigitPickTree() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
+          (import (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
                   (modaliser apps ghostty))
         """)
-        try engine.evaluate("(register!)")
-        #expect(try engine.evaluate("(lookup-tree \"ghostty-pane-digit\")") != .false)
+        try engine.evaluate("(fsm-install-graph! (lower-configuration (config:configuration (fragment))))")
+        #expect(try engine.evaluate("(fsm-state-ref \"ghostty-pane-digit\")") != .false)
     }
 
     /// Capability matrix: Ghostty is 13/14 — move-pane is the gap, same
@@ -75,7 +76,7 @@ struct ModaliserAppsGhosttyLibraryTests {
           (import (modaliser apps ghostty) (modaliser terminal))
         """)
         #expect(try engine.evaluate("(terminal-backend? backend)") == .true)
-        try engine.evaluate("(register-backend! backend)")
+        try engine.evaluate("(terminal-install-backends! (list backend))")
 
         // splits? requires all four move-pane ops; Ghostty has none,
         // so the predicate is #f.

@@ -3,21 +3,27 @@
 You want F17 (the local leader) to show different bindings depending
 on what is running in the focused terminal pane — e.g. an
 nvim-specific tree when nvim is focused, a git tree when lazygit is
-focused. The dispatcher already supports this through a *context
-suffix*; this guide wires it up. The same pattern works whether the
-focused terminal is iTerm, WezTerm, Kitty, Ghostty, or a multiplexer
-inside one of them, because the detection primitive
-(`focused-terminal-path`) is generic across all registered backends.
+focused. The configuration's **Terminal context map** does this: one
+`exe → tree` mapping, consulted by every terminal-like screen. The
+same entries work whether the focused terminal is iTerm, WezTerm,
+Kitty, Ghostty, or a multiplexer inside one of them, because the
+detection primitive (`focused-terminal-path`) is generic across all
+configured backends — no host names an inner tool; no inner tool names
+a host.
 
 ## How it works
 
-On every local-leader press, a hook installed via
-`set-local-context-suffix!` is called with the focused app's bundle ID
-and returns a suffix string (e.g. `/nvim`) or `#f`.
-`resolve-app-tree` (called internally by the leader handler) then
-prefers the tree registered under `"com.googlecode.iterm2/nvim"`,
-falling back to the plain `"com.googlecode.iterm2"` tree when no
-suffix matches. You register the variant trees with `screen`.
+On a local-leader press over a terminal-like screen, activation walks
+the **detection chain** — host terminal, through any multiplexer, down
+to the innermost foreground command — and looks each layer's exe name
+up in the context map. It lands in the **innermost mapped** context's
+tree, with the return stack seeded so **backspace steps outward** one
+context at a time (nvim → zellij → iTerm) and Escape exits from any
+depth. Every terminal-like screen also derives a gated **`.` step-in
+edge** stepping one mapped context inward. Nothing is ranked and
+nothing re-probes on the way out: the chain itself is the containment
+order ([ADR-0013](../adr/0013-nested-context-entry-points.md),
+[configuration-value spec](../specs/configuration-value.md)).
 
 For how detection works — what the TTY probe does, which terminals
 support it, and the nvim RPC route — see
@@ -25,160 +31,151 @@ support it, and the nvim RPC route — see
 
 ## You'll need
 
-- A registered terminal backend — one of iTerm, WezTerm, Kitty,
-  Ghostty, Alacritty, tmux, or zellij. The detection primitives
-  (`focused-terminal-foreground-command`, `focused-terminal-path`,
-  `in-chain?`) work across all of them.
-- For nvim-variant trees: the `FocusGained`/`FocusLost` autocmds in
+- A **terminal-like host** composed into your configuration — a host's
+  wiring fragment (`(iterm:wiring)`, or `kitty:`/`wezterm:`/`ghostty:`/
+  `alacritty:` `fragment`) plus your own `(screen "<bundle-id>" …)` for
+  it. The screen's scope must be the host backend record's match-key;
+  that is what makes it terminal-like.
+- Context entries for the inner tools — the bundled factories
+  (`herdr:wiring`, `tmux:wiring`, `zellij:wiring`, `nvim:wiring`) or
+  your own (worked example below). All four ship **integration only**:
+  each screen is yours to author, under the scope the entry names
+  (ADR-0021, and the herdr worked example below).
+- For the nvim entry: the `FocusGained`/`FocusLost` autocmds in
   your nvim config — see [The nvim side](
   ../reference/terminal-detection.md#the-nvim-side) in the
   detection reference.
 - For form-by-form detail: [reference/dsl.md](../reference/dsl.md)
-  (`screen`).
+  (`screen`, and "Nested contexts: the Terminal context map").
 
-## The quick path: `(iterm:register!)`
+## The quick path: factory context entries
 
-If you use the bundled iTerm factory, `(iterm:register!)` installs the
-suffix hook for you. It already returns `/nvim`, `/zellij`, and
-`/zellij+nvim` based on the focused split's foreground command. You only
-need to register the matching variant trees:
+Add the factory entries to the `terminal-contexts` fragment of your
+configuration:
 
 ```scheme
 (import (modaliser dsl)
-        (modaliser terminal)                  ; nvim-remote-send
-        (prefix (modaliser apps iterm) iterm:))
-(iterm:register!)
+        (modaliser configuration)
+        (modaliser handoff)
+        (prefix (modaliser apps iterm)   iterm:)
+        (prefix (modaliser muxes herdr)  herdr:)
+        (prefix (modaliser muxes zellij) zellij:)
+        (prefix (modaliser tools nvim)   nvim:))
 
-(screen 'com.googlecode.iterm2/nvim
-  (panel "nvim"
-    (key "w" "Write"  (λ () (nvim-remote-send ":w<CR>")))
-    (key "q" "Close"  (λ () (nvim-remote-send "<Esc>:q<CR>")))))
+(modaliser:start!
+  (configuration
+    …
+    (iterm:wiring)            ; a terminal-like host: backend + digit tree
+    (terminal-contexts        ; each entry is backend + map entry; every
+      (herdr:wiring)          ;   screen below is yours (ADR-0021)
+      (nvim:wiring)           ; hjkl window focus over nvim's RPC socket
+      (zellij:wiring))        ; full pane ops via the zellij action CLI
+    iterm-screen              ; your (screen 'com.googlecode.iterm2 …)
+    herdr-screen              ; your (screen 'herdr …) — see below
+    herdr-focus-walk          ; your (tree 'herdr-panes-focus …)
+    nvim-screen               ; your (screen 'nvim …)
+    zellij-screen))           ; your (screen 'zellij …)
 ```
 
-Tap F17 with nvim in the focused split — the `/nvim` tree appears.
-Switch the split to a plain shell — the plain `com.googlecode.iterm2`
-tree appears instead.
+The seeded `default-config.scm` authors all four of those screens
+inline — read them there rather than inventing your own from scratch.
+For a mux a fresh install does not seed, `Scheme/examples/tmux.scm` is
+the same thing for tmux: a complete working configuration, never loaded,
+mirrored to `~/.config/modaliser/sys/scheme/examples/` to copy from.
 
-## If you've inlined your iTerm tree
+Tap F17 with nvim in the focused split — the nvim tree appears.
+Switch the split to a plain shell — the host's own tree appears
+instead. Backspace from the nvim tree steps back out to the host
+tree; `.` from the host tree steps in while nvim is running.
 
-Inlining the iTerm tree by hand — writing a
-`(screen 'com.googlecode.iterm2 …)` instead of calling
-`(iterm:register!)` — keeps your bindings but **drops two
-behaviours the library would otherwise install**:
+## Worked example: your own context entry
 
-1. The **iTerm backend record** registers with `(modaliser
-   terminal)`. Without this, `(terminal:focus-pane-left)` and the
-   other 13 façade ops have no backend to dispatch to and raise an
-   error at call time. (Pre-cutover the bare `(iterm:focus-pane-*)`
-   procedures didn't need this — they were direct calls.)
-2. The **context-suffix handler** lets `/nvim`-style variant trees
-   activate. Pane detection silently does nothing without it; you
-   always get the plain tree.
-
-The fix for #1 is `(iterm:register! 'install-tree? #f)` — this calls
-everything `register!` normally does **except** the
-`rebuild-tree!` step that would clobber your inline tree:
+A context entry is an ordinary fragment: the map entry (keyed by the
+tool's **exe name**) plus the tree it selects. For lazygit:
 
 ```scheme
 (import (modaliser dsl)
-        (prefix (modaliser apps iterm) iterm:)
-        (prefix (modaliser terminal)   terminal:))
+        (modaliser configuration)   ; context
+        (modaliser input))          ; send-keystroke
 
-;; Register the iTerm backend record + focus Walk + digit-pick
-;; mode + suffix handler with the façade, but leave the tree to us.
-(iterm:register! 'install-tree? #f)
+(define (lazygit-context)
+  (list
+    (context "lazygit" 'tree 'lazygit)
+    (screen 'lazygit
+      'display-name "lazygit"
+      (panel "lazygit"
+        (key "p" "Push" (λ () (send-keystroke '() "P")))
+        (key "f" "Pull" (λ () (send-keystroke '() "p")))))))
 
-(screen 'com.googlecode.iterm2
-  (panel "Focus"
-    (key "h" "Left"  terminal:focus-pane-left)
-    (key "j" "Down"  terminal:focus-pane-down)
-    (key "k" "Up"    terminal:focus-pane-up)
-    (key "l" "Right" terminal:focus-pane-right))
-  …)
+;; …then compose it like any factory entry:
+(terminal-contexts
+  (lazygit-context)
+  (nvim:wiring))
 ```
 
-That single call covers #1 *and* #2 — the default suffix handler
-(detecting nvim, zellij, tmux inside iTerm) installs automatically.
-If you want a custom suffix handler instead, also pass
-`'install-context-suffix? #f` and write your own per the next
-section.
+Notes on the shape:
 
-## Worked example: a custom context suffix
+- The map key is the **exe name**: the basename of the first token of
+  the focused pane's foreground command line (`"lazygit"` matches
+  `/opt/homebrew/bin/lazygit`). One entry per tool, independent of
+  which host contains the pane.
+- A tree-only entry (like nvim's) names just `'tree`. A mux-style
+  tool that drives its own panes also names `'backend` and ships the
+  backend record in the same fragment — see `muxes/tmux.sld` for the
+  canonical example.
+- This one bundles its entry *and* its screen in a single constructor,
+  which the bundled libraries deliberately do not do (ADR-0021 is a
+  constraint on `lib/modaliser`, so that a library can never take a key
+  you chose). In your own config the keys are already yours, so bundle
+  or split as you please.
+- Finer variation lives *inside* the tree, not in the map: for rows
+  that should appear only in some states of the tool (say, an
+  nvim-filetype-specific key), put an **edge gate** on the row — gates
+  snapshot per visit, so the check runs once per landing (e.g.
+  `(nvim-remote-expr "&filetype")` in a gate thunk).
 
-The general recipe — branch on the focused split's foreground command.
-Add this alongside your `(screen 'com.googlecode.iterm2 …)`
-(your config already imports `(modaliser dsl)` for `screen`,
-`key`, and `λ`):
+## Worked example: herdr
+
+[herdr](https://herdr.dev) — an "agent multiplexer" run *inside* a
+terminal — has the richest surface of the bundled inner tools, and it
+splits in two.
+
+The **integration** is one call, and works in *any* terminal-like host:
 
 ```scheme
-(import (modaliser event-dispatch)   ; set-local-context-suffix!
-        (modaliser terminal)         ; focused-terminal-foreground-command, nvim-remote-expr
-        (modaliser input)            ; send-keystroke
-        (modaliser util))            ; string-contains?
-
-;; Runs on every F17 press. Probe the focused iTerm split and choose a
-;; tree variant by what's running in it.
-(set-local-context-suffix!
-  (lambda (bundle-id)
-    (and (equal? bundle-id "com.googlecode.iterm2")
-         (let ((cmd (focused-terminal-foreground-command)))
-           (cond
-             ((not cmd)                        #f)
-             ((string-contains? cmd "nvim")    "/nvim")
-             ((string-contains? cmd "lazygit") "/lazygit")
-             (else                             #f))))))
-
-(screen 'com.googlecode.iterm2/lazygit
-  (panel "lazygit"
-    (key "p" "Push"  (λ () (send-keystroke '() "P")))
-    (key "f" "Pull"  (λ () (send-keystroke '() "p")))))
+(terminal-contexts (herdr:wiring))
 ```
 
-The suffix itself can go deeper — ask the focused nvim a question.
-For example, branch on its filetype:
+That contributes the context-map entry, herdr's terminal backend, and
+the digit-jump mode tree — no key, no label, nothing to choose.
 
-```scheme
-((string-contains? cmd "nvim")
- (let ((ft (nvim-remote-expr "&filetype")))
-   (cond ((equal? ft "rust") "/nvim-rust")
-         (else               "/nvim"))))
-```
+The **screen** is yours. herdr ships none (ADR-0021: a library holds
+facilities, configuration holds decisions), so you author a
+`(screen 'herdr …)` out of the ops, blocks and provider
+`(modaliser muxes herdr)` exports, plus a `(tree 'herdr-panes-focus …)`
+for the Focus walk. Both scope symbols are machinery — the wiring's
+context entry resolves to `'herdr`, and the Focus rows cross into
+`'herdr-panes-focus` — so rename either and the configuration fails
+reference-closure validation at load, loudly.
 
-This requires the nvim-side `FocusGained`/`FocusLost` autocmds — see
-[The nvim side](../reference/terminal-detection.md#the-nvim-side).
+**Start from the seed, not from scratch.** `default-config.scm` (copied
+to `~/.config/modaliser/config.scm` on first run) carries the whole
+stock composition described below, ready to edit in place. The rest of
+this section is a tour of what it binds and why — not a spec: every
+key and label in it is preference, and yours to change.
 
-## Worked example: the herdr nested entry point
+When the focused pane runs herdr, F17 lands directly in the **herdr
+screen**; backspace steps back out to the host tree, so the host's full
+splits/panes/tabs surface is always one keystroke away — there is no
+second "augment" tree duplicating it.
 
-[herdr](https://herdr.dev) — an "agent multiplexer" run *inside* an
-iTerm split — is a worked example of a **different** mechanism from
-everything above: a **nested entry point** (ADR-0013), not a
-context-suffix variant tree. The two don't compose the same way, so
-read this section on its own terms:
-
-- A **context-suffix tree** (`/nvim` above) is resolved by
-  `resolve-app-tree` trying a suffixed scope before falling back to
-  the plain one — the suffix hook decides, every leader press.
-- A **nested entry point** is a second, independent activation target
-  in the FSM's entry table (CONTEXT.md "Entry table" / "Entry point"):
-  leader activation picks whichever passing entry is most specific,
-  and specificity here comes from a real graph edge — the nested
-  node's **up edge** into its container — not a suffix string.
-
-When the focused iTerm pane runs herdr, F17 activates the **herdr
-entry node** directly instead of the plain iTerm tree; backspace from
-it walks back to the iTerm node over that same up edge, so the full
-iTerm splits/panes/tabs surface is always one keystroke away — there
-is no second "augment" tree duplicating it. See
-[ADR-0013](../adr/0013-nested-context-entry-points.md) for the full
-rationale.
-
-`(herdr:build-herdr-tree)` returns the whole herdr control surface —
-what the overlay shows at the herdr entry node. Its top level follows
-the **plane rule** (`docs/specs/herdr-jump-navigation.md`): capitals
-name the drills/Quit, and `b` is the one lowercase key kept at this
-level — it is a jump (Jump to Blocked), not a drill. Every other
-lowercase letter belongs to the **jump space** — see below the drill
-list for how it dispatches and paints chips.
+The stock screen's top level follows the **plane rule**
+(`docs/specs/herdr-jump-navigation.md`): capitals name the drills/Quit,
+and `b` is the one lowercase key kept at this level — it is a jump
+(Jump to Blocked), not a drill. Every other lowercase letter belongs to
+the **jump space** — see below the drill list for how it dispatches and
+paints chips. The `c`/`C` pair below is the rule's one deliberate
+exception.
 
 - **`P` Panes** — the entire pane surface, drilled:
   - **`hjkl`** — focus the pane in that direction (first press crosses
@@ -195,11 +192,19 @@ list for how it dispatches and paints chips.
     the on-screen panes (correct when herdr is the sole current-tab
     split; see below).
 - **`T` Tabs**, **`S` Spaces** — each a drill with `n`/`r`/`d`
-  (new / rename / close), `[`/`]` Prev/Next cycling (tabs are
-  workspace-scoped; spaces are global), plus a live list whose
+  (new / rename / close), `m` Move (below), `[`/`]` Prev/Next cycling
+  (tabs are workspace-scoped; spaces are global), plus a live list whose
   digits switch. "Spaces" is the user-facing label everywhere
   (matching herdr's own UI term); the code identifiers underneath
   keep herdr's `workspace` stem.
+  - **`m`** then a direction — Move Walk: reorder the focused target one
+    place. Tabs take `h`/`l` (herdr draws them in a horizontal bar),
+    spaces `k`/`j` (a vertical sidebar); each key carries only the axis
+    its target can actually travel. Presses chain, and either end of the
+    list is a no-op rather than a wrap — unlike `[`/`]`, which move
+    *focus* and do wrap. See
+    [terminal-detection.md](../reference/terminal-detection.md#herdr-tab--space-reorder-the-insert-index-model)
+    for herdr's insert-index model.
 - **`W` Worktrees** — `n` new (prompt a branch), `d` remove the
   focused worktree (behind a confirm), plus a live list whose digits
   *smart-switch* (focus a live workspace, or open a dormant worktree).
@@ -210,15 +215,35 @@ list for how it dispatches and paints chips.
   (status-banded) order, plus the agents live list, status-badged and
   blocked-first; a digit focuses that agent's pane.
 - **`Q` Quit** — `d` Detach (ends the herdr *client* only, emitted as
-  herdr's own `prefix+q` keystroke — `ctrl+b` then `q`) or `s` Stop
+  herdr's own `prefix+q` keystroke) or `s` Stop
   Server (ends the herdr *server*, behind a confirm dialog since
   herdr's CLI stops it immediately with no confirm of its own). See
   CONTEXT.md's Detach/Stop glossary entries for the distinction.
+  Detach takes the client prefix, exactly like the two keys below —
+  `(herdr:detach-op herdr-prefix)`.
+- **`c` Copy Mode** / **`C` Scrollback** — herdr's two text-inspection
+  surfaces, the plane rule's one exception (a lowercase key that is not a
+  jump label, a capital that is not a drill). `c` enters herdr's per-pane
+  selection mode in the *live* focused pane (`copy_mode`); `C` opens that
+  pane's scrollback *buffer* in an editor (`edit_scrollback`). Both are
+  client-side herdr keybindings with no socket verb, so both are emitted as
+  prefix-then-key keystrokes to the frontmost app — which is what lets them
+  live in herdr's screen rather than each host's. A host terminal's own copy
+  mode is the wrong tool for either: the host sees herdr as one session and
+  selects across the whole canvas, ignoring herdr's pane layout. All three
+  keystroke ops take herdr's client prefix as their one argument —
+  `(herdr:copy-mode-op p)` / `(herdr:scrollback-op p)` /
+  `(herdr:detach-op p)`, where `p` defaults to `herdr:herdr-default-prefix`
+  (`ctrl+b`). herdr exposes no way to query what its bindings resolved to,
+  so both the prefix and each op's *second* key are assumptions: correct
+  the prefix in one place, and if you rebound `copy_mode` /
+  `edit_scrollback` / `detach` itself, write the one-line thunk in place
+  of the op.
 
 **The jump space (every other lowercase letter).** Typing a target's
 assigned label focuses it directly, no drill in between
 (`docs/specs/herdr-jump-navigation.md`). Targets are gathered fresh on
-every visit — a `'provider` on the herdr entry node's own state,
+every visit — a `'provider` on the herdr screen root's state,
 `herdr-jump-provider` — across four axes in stable-axis order (spaces →
 agents → tabs → panes), visual order within an axis. Two visible targets
 naming the same destination (an agent whose pane is already on-screen)
@@ -233,13 +258,15 @@ axis's own letters, only once that axis's pool is exhausted (the general
 axis).
 
 - **Full-size letter chips** paint over the current tab's on-screen
-  panes the instant the herdr entry node is reached — an unconditional
-  `'entry`/`'exit` pair (`paint-jump-chips!`/`clear-jump-chips!`, [state-
-  machine.md](../reference/state-machine.md#unconditional-hooks-entry--exit))
+  panes when the which-key overlay appears — a presentation-gated
+  `'on-enter`/`'on-leave` pair (`paint-jump-chips!`/`clear-jump-chips!`,
+  [state-machine.md](../reference/state-machine.md#hook-gating-on-enter--on-leave))
   reusing the same chip pipeline the `P` drill's digit chips use (see the
-  split-tab caveat below). `'entry`/`'exit` fire regardless of
-  `modal-overlay-delay` — chips never wait out the which-key overlay's
-  no-flash delay the way a gated `'on-enter`/`'on-leave` pair would.
+  split-tab caveat below). Chips share the overlay's own
+  `modal-overlay-delay`, so a press fast enough to never raise the
+  overlay paints nothing — the jump keys still dispatch, since the
+  provider lowers its edges at come-to-rest whether or not anything is
+  drawn.
 - **Typing a two-key label's first (leader) key narrows**: the modal
   moves to a resting prefix state whose only live edges are that
   leader's second keys plus backspace (un-narrows back to the top
@@ -255,64 +282,10 @@ axis).
   you know their assigned key, but nothing paints a chip over the
   sidebar/tab-bar entries until the mini-chips work lands.
 
-```scheme
-(import (modaliser dsl)
-        (modaliser state-machine)                     ; register-tree-up-edge!,
-                                                        ; register-tree-entry-gated!
-        (modaliser event-dispatch)                    ; set-local-context-suffix!
-        (prefix (modaliser terminal)    terminal:)    ; in-chain?
-        (prefix (modaliser apps iterm)  iterm:)
-        (prefix (modaliser muxes herdr) herdr:))
-
-;; 1. Register both backends. iterm:register! installs the iTerm
-;;    backend record but NOT its tree/suffix (we compose our own);
-;;    herdr:register! makes (terminal:in-chain? 'herdr) resolve when
-;;    the focused iTerm split runs the herdr client.
-(iterm:register! 'install-tree? #f 'install-context-suffix? #f)
-(herdr:register!)
-
-(define (herdr-detected?) (terminal:in-chain? 'herdr))
-
-;; 2. The plain iTerm screen (elsewhere in your config, e.g. the
-;;    "If you've inlined your iTerm tree" section above) and the herdr
-;;    screen. 'auto-entry #f suppresses the automatic bundle-id/suffix
-;;    entry row — this scope contains "/", which would otherwise be
-;;    treated as a suffix variant of "com.googlecode.iterm2" gated on the
-;;    suffix hook; the two calls below register the real thing.
-;;    'provider wires the jump space's per-visit FSM edges (dynamic
-;;    lowercase key edges + narrowing prefix states, gathered fresh on
-;;    every visit); 'entry/'exit paint and clear the jump-letter chips
-;;    over the on-screen panes, unconditionally — not gated behind
-;;    modal-overlay-delay the way 'on-enter/'on-leave would be.
-(apply screen 'com.googlecode.iterm2/herdr 'auto-entry #f
-  'provider herdr:herdr-jump-provider
-  'entry herdr:paint-jump-chips!
-  'exit herdr:clear-jump-chips!
-  (herdr:build-herdr-tree))
-
-;; 3. The outward up edge (backspace: herdr entry node -> iTerm node)
-;;    and the entry point's own gate. fsm-entry-more-specific?'s
-;;    up-edge-containment check is what then ranks this entry above the
-;;    plain iTerm one whenever both pass — no suffix/'refines needed.
-(register-tree-up-edge! 'com.googlecode.iterm2/herdr 'com.googlecode.iterm2)
-(register-tree-entry-gated! 'com.googlecode.iterm2/herdr herdr-detected?)
-
-;; 4. Step in from the plain iTerm tree with "." while herdr is running
-;;    (add this key inside your (screen 'com.googlecode.iterm2 …)):
-;;      (step-in "." "Herdr" 'com.googlecode.iterm2/herdr herdr-detected?)
-
-;; 5. The composed suffix hook — herdr no longer routes through it, so
-;;    this is just iTerm's own nvim/zellij delegation (the [One hook
-;;    total](#notes) note still applies if you add more branches).
-(set-local-context-suffix!
- (lambda (bundle-id)
-   (iterm:context-suffix-handler bundle-id 'rebuild? #f)))
-```
-
 **Pane chips are correct only when herdr is the sole current-tab
-split.** The herdr tree's Panes panel paints digit chips over the
+split.** The stock screen's Panes panel paints digit chips over the
 on-screen herdr panes, and the top-level jump space's letter chips
-reuse that exact same pipeline; when the iTerm tab holds other splits
+reuse that exact same pipeline; when the host tab holds other splits
 too, the host-frame heuristic can target the wrong one, so either kind
 of chip may be misplaced (`hjkl` focus, digit-jump, and jump-letter
 dispatch by id are all unaffected) — a plain pane-chip-pipeline
@@ -321,65 +294,38 @@ See [herdr pane chips](../reference/terminal-detection.md#herdr-pane-chips).
 
 ## One tree across every backend: capability predicates
 
-The 14-op surface on `(modaliser terminal)` lets a single tree
-drive any registered terminal — at call time the façade routes to
-whichever backend's `register!` thunk matched the frontmost app.
-But not every backend supports every op (Kitty has no zoom,
-Ghostty has no `move-pane-*`, Alacritty has no splits at all),
-so a static tree that hard-codes every op will surface entries
-that silently no-op on backends that don't support them.
+The 14-op surface on `(modaliser terminal)` lets a shared splice of
+bindings drive any configured terminal — at call time the façade
+routes each op to the backend the detection chain says owns the
+focused pane. But not every backend supports every op (Kitty has no
+zoom, Ghostty has no `move-pane-*`, Alacritty has no splits at all),
+so a shared body that hard-codes every op will surface entries that
+silently no-op where unsupported.
 
-The capability predicates let the tree omit those entries
-on the backends where they wouldn't work. `screen` is a
-regular procedure, so the canonical splice idiom is `apply` +
-`append` — the same pattern the bundled `(modaliser apps iterm)`
-module uses for its own conditional children:
+Because each host has its **own screen** in the configuration, shape
+differences are a composition-time decision: build each host's screen
+body from a shared splice plus only the ops that host supports —
+you know the backend statically at the point you write its screen.
 
 ```scheme
-(import (modaliser dsl)
-        (prefix (modaliser terminal) terminal:))
+(define focus-keys                       ; shared everywhere
+  (splice
+    (key "h" "Focus Left"  terminal:focus-pane-left)
+    (key "j" "Focus Down"  terminal:focus-pane-down)
+    (key "k" "Focus Up"    terminal:focus-pane-up)
+    (key "l" "Focus Right" terminal:focus-pane-right)))
 
-(define (rebuild-terminal-tree!)
-  (apply screen 'com.googlecode.iterm2
-    (append
-      (list
-        (panel "Focus"
-          (key "h" "Left"  terminal:focus-pane-left)
-          (key "j" "Down"  terminal:focus-pane-down)
-          (key "k" "Up"    terminal:focus-pane-up)
-          (key "l" "Right" terminal:focus-pane-right)))
+(screen "net.kovidgoyal.kitty"           ; kitty: no native zoom —
+  (panel "Panes" focus-keys))            ; no z key authored
 
-      ;; Move-pane only when the active backend supports it.
-      (if (terminal:supports-move-pane?)
-          (list
-            (group "m" "Move"
-              'exit-on-unknown #t
-              (key "h" "Left"  terminal:move-pane-left  'next 'self)
-              (key "j" "Down"  terminal:move-pane-down  'next 'self)
-              (key "k" "Up"    terminal:move-pane-up    'next 'self)
-              (key "l" "Right" terminal:move-pane-right 'next 'self)))
-          '())
-
-      ;; Digit-jump only on backends that paint chips. The façade's
-      ;; focus-pane-by-digit is a fire-time resolver (ADR-0015): the
-      ;; action is a no-op, and 'next takes the edge to whichever
-      ;; backend's digit-mode is active.
-      (if (terminal:supports-digit-jump?)
-          (list (key "g" "Goto pane" (lambda () (if #f #f))
-                  'next terminal:focus-pane-by-digit))
-          '())
-
-      ;; Zoom only on backends with a native zoom toggle.
-      (if (terminal:supports-zoom?)
-          (list (key "z" "Toggle Zoom" terminal:toggle-pane-zoom))
-          '()))))
+(screen "com.googlecode.iterm2"
+  (panel "Panes" focus-keys
+    (key "z" "Toggle Zoom" terminal:toggle-pane-zoom)))
 ```
 
-Call `rebuild-terminal-tree!` from a suffix hook (the worked
-example above) so the tree shape tracks the active backend on
-every leader press.
-
-The five capability predicates are:
+For the residual *runtime* cases — a shared action that must branch on
+the live backend at fire time — the capability predicates answer for
+the **active** backend (the one the chain resolves at that moment):
 
 - `(terminal:supports-splits?)` — backend exposes `split-pane-*`
 - `(terminal:supports-move-pane?)` — backend exposes `move-pane-*`
@@ -387,46 +333,27 @@ The five capability predicates are:
 - `(terminal:supports-zoom?)` — backend exposes `toggle-pane-zoom`
 - `(terminal:supports? 'focus-pane-left)` — universal introspection by op name
 
-They're evaluated whenever the tree is built — typically inside a
-suffix hook, so the answer reflects whichever backend is frontmost
-*at that moment* — and so the tree shape stays in sync with the
-active backend.
-
 ## Verify it worked
 
-1. Focus an iTerm split running nvim, tap F17: the nvim variant tree
+1. Focus a terminal split running nvim, tap F17: the nvim tree
    should appear.
-2. Switch the split to a plain shell, tap F17: the plain
-   `com.googlecode.iterm2` tree.
+2. Switch the split to a plain shell, tap F17: the host's own tree.
+3. From the nvim tree, backspace: the host tree, without re-probing.
 
-If you always get the plain tree, the hook is not installed (did you
-inline the tree without calling `set-local-context-suffix!`?) or the
-variant tree's scope symbol is misspelt — e.g.
-`com.googlecode.iterm2/Nvim` vs `com.googlecode.iterm2/nvim`.
+If you always get the host tree: the entry is missing from your
+`terminal-contexts` call, the exe name doesn't match (it is the
+basename of the foreground command's first token — check with
+`(focused-terminal-path)`), or the host's screen isn't terminal-like
+(its fragment must carry a host backend whose match-key is the
+screen's scope — composing the factory's `wiring` / `fragment`
+guarantees this).
 
 ## Notes
 
-**One hook total.** `set-local-context-suffix!` replaces any
-previously installed hook — it is not additive. If you use both the
-iTerm factory and your own hook, compose them: call
-`(iterm:register! 'install-context-suffix? #f)` and have your hook
-delegate the iTerm branch to
-`(iterm:context-suffix-handler bundle-id)`:
-
-```scheme
-(import (prefix (modaliser apps iterm) iterm:)
-        (modaliser event-dispatch))
-
-(iterm:register! 'install-context-suffix? #f)
-
-(set-local-context-suffix!
-  (lambda (bundle-id)
-    (cond
-      ((equal? bundle-id "com.googlecode.iterm2")
-       (iterm:context-suffix-handler bundle-id))
-      ;; … handle other bundle IDs here …
-      (else #f))))
-```
+**Merge conflicts are loud.** Two entries for the same exe (or two
+trees for the same scope) error at `configuration` time unless they
+are the identical value — there is no last-wins hook to silently lose
+a variant to.
 
 **Save and relaunch** from the menu bar icon after any config change.
 In-place reload is not supported — relaunch is the reload.
@@ -436,8 +363,7 @@ In-place reload is not supported — relaunch is the reload.
 - [`../reference/terminal-detection.md`](../reference/terminal-detection.md)
   — how pane detection works, which terminals are supported, the nvim
   RPC route.
-- [`add-a-per-app-tree.md`](add-a-per-app-tree.md) — registering
-  per-app trees without pane-awareness.
-- [ADR-0013](../adr/0013-nested-context-entry-points.md) — why the
-  herdr entry node binds backend-direct ops and activates via an
-  outward up edge rather than a merged variant tree.
+- [`add-a-per-app-tree.md`](add-a-per-app-tree.md) — per-app screens
+  without pane-awareness.
+- [ADR-0013](../adr/0013-nested-context-entry-points.md) — why nesting
+  works as chain-seeded activation rather than a merged variant tree.

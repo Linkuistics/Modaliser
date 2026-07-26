@@ -3,8 +3,9 @@
 Modal dispatch runs on an **explicit graph**: states and labelled edges are
 first-class, printable s-expression data, built by a dedicated construction
 DSL in a portable core library (`(modaliser fsm)`) and introspectable by
-tooling and renderers. The layout spec remains the authoring surface and
-lowers to this graph (ADR-0011's lowering, retargeted). Nothing about a
+tooling and renderers. The authoring sugar remains the user surface and
+lowers to this graph from the configuration value (ADR-0011's two-layer
+node model; ADR-0018's pipeline). Nothing about a
 node's transitions is ever buried in an action body — every edge (key,
 backspace, post-action, gated, provided) is data an inspector can read.
 
@@ -31,21 +32,22 @@ The machine is a **flat Moore RTN**:
   re-arm-in-place hook pairing, preserved), though the snapshot refreshes so
   provided edges track live content.
 - **Runtime configuration is (current state, return stack)** — an RTN, not a
-  pure FSM. Containment is static: lowering gives every state an implicit
-  `up` (backspace) edge to its parent, and an entry node declares its
-  outward up-edge explicitly (herdr → iTerm, ADR-0013). Cross edges into
-  Walks are **call** edges pushing a return frame. Backspace is one rule:
-  up-edge, else pop, else (walk root → halt; otherwise no-op). Escape clears
-  the stack — full teardown from any depth.
+  pure FSM. Intra-tree containment is static: lowering gives every state an
+  implicit `up` (backspace) edge to its parent. Cross-*context* containment
+  is runtime state: activation seeds the return stack from the detection
+  chain (ADR-0013), so a tree root's backspace pops outward. Cross edges
+  into Walks are **call** edges pushing a return frame. Backspace is one
+  rule: up-edge, else pop, else (walk root → halt; otherwise no-op). Escape
+  clears the stack — full teardown from any depth.
 - **Walks stay derived:** a Walk is a region whose members carry cyclic auto
   edges; no group-level flag exists.
-- **Activation is graph data.** An entry table maps names to states, each
-  optionally gated by a detection predicate; leader activation picks the
-  most specific passing entry. Specificity is derived, never hand-ranked:
-  up-edge containment (a nested context outranks its container) or scope
-  refinement stamped at lowering (a `bundle/suffix` variant outranks its
-  base); ties fall to declaration order. This retires bundle-id scope
-  lookup and, ultimately, the context-suffix hook.
+- **Activation resolves outside the graph.** Leader activation is a
+  screen-set lookup (leader kind → 'global or frontmost bundle-id) followed,
+  on terminal-like screens, by the Terminal context map's chain walk
+  (ADR-0013); the result is a landing state plus seeded return frames. The
+  graph carries states and edges only — there is no entry table and no
+  specificity ranking. Any state id remains directly activatable
+  programmatically, through the same resolution.
 - **Gates and providers snapshot when the machine comes to rest** — at visit
   start and again on each cyclic re-arm. The snapshot is the visit's edge
   set, shared by overlay and dispatch, so rendered rows and live keys
@@ -59,14 +61,16 @@ The machine is a **flat Moore RTN**:
   optional naming wrapper for display. All structure is printable; only
   closure bodies are opaque.
 
-During the cutover, `(modaliser state-machine)` keeps its exported names as
-a façade deriving them from the FSM runtime, so the overlay's `(node, path)`
-contract and existing configs/tests continue working until the planned
-rendering-model grove consumes the graph directly. The keyboard entry path
-(`(modaliser event-dispatch)`) cuts over with it — the leader resolves
-through the entry table — while the config-facing suffix-hook API keeps its
-semantics as derived gates until the nested-context cutover retires it
-(ADR-0013).
+The graph is built by a **pure lower function** from the configuration
+value (ADR-0018): closed over its authored references — key-edge targets,
+`'next` cross/call ids, up-edges — validated at load time. Providers'
+visit-scoped synthetic states and dynamic `'next` resolvers are the two
+deliberate runtime mechanisms outside static closure. The modal façade —
+the overlay's `(node, path)` contract, derived from the FSM runtime — is
+consolidated into the FSM library itself (the `(modaliser
+state-machine)` shim has since been removed); leader activation resolves through
+ADR-0013's `resolve-activation` from the handoff's armed handlers — the
+entry table, its specificity ranking, and the suffix-hook API are deleted.
 
 ## Why it binds
 
@@ -108,15 +112,14 @@ representation.
 
 - ADR-0014 is unaffected: dialog commands remain ordinary terminal states;
   the never-block invariant stands.
-- ADR-0013's prerequisite (activation at a named inner entry point with the
-  outward edge in place) is supplied by the entry table plus explicit
-  up-edges.
+- ADR-0013's prerequisite (activation at an inner context with outward
+  steps in place) is supplied by chain-seeded return frames from
+  `resolve-activation`.
 - The overlay/tooling read transitions statically off the graph (the `↻`
   marker keys off the auto edge, as it keyed off `'next`).
 - Unknown-key policy (`'exit-on-unknown`) is stamped per state at lowering —
   no runtime ancestor walk.
-- Migration is expand→contract: graph model, then engine, then lowering
-  shadows the tree, then dispatch cuts over and tree-walk internals retire;
-  the existing state-machine suite is the regression gate throughout, and
-  callers that pass raw inline trees to `modal-enter` are lowered on the
-  fly.
+- The migration ran expand→contract (value model, pure lowering,
+  activation, then the registration surfaces and the façade retired at
+  the contract stage); the state-machine suite was the regression gate
+  throughout and now drives build-value-then-handoff.

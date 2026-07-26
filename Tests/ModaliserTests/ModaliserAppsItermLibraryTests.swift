@@ -20,31 +20,47 @@ struct ModaliserAppsItermLibraryTests {
         #expect(try engine.evaluate("(assoc 'cursor-targets-fn pb-static)") == .false)
     }
 
-    @Test func registerInstallsItermTree() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps iterm))")
-        // iTerm not running; AX query returns empty. Tree is registered
-        // even with no pane-range children — the c/f/z/x static keys
-        // remain. Pass 'install-context-suffix? #f to avoid mutating
-        // shared (modaliser event-dispatch) state between tests.
-        try engine.evaluate("(register! 'install-context-suffix? #f)")
-        #expect(try engine.evaluate("(lookup-tree \"com.googlecode.iterm2\")") != .false)
-        // The digit-pick mode is also registered, ready for the backend's
-        // focus-pane-by-digit symbol ('iterm-pane-digit) to name.
-        #expect(try engine.evaluate("(lookup-tree \"iterm-pane-digit\")") != .false)
-    }
-
-    /// (register!) hands a populated `<terminal-backend>` to the façade
-    /// keyed by 'iterm and the iTerm bundle-id. With a stubbed frontmost
-    /// query pointing at that bundle, the façade walks a single-frame
-    /// path and exposes the iTerm backend as active.
-    @Test func registerInstallsTerminalBackend() throws {
+    /// ADR-0021's line, read off the fragment itself: (iterm:wiring)
+    /// contributes the backend record and the machinery-named digit-jump
+    /// tree — and NO screen under 'com.googlecode.iterm2. That absence
+    /// is the contract, not an omission: which ops iTerm surfaces, on
+    /// which keys, is the configuration's to author, so a library change
+    /// can never silently re-take a key the user chose. 'iterm-panes-focus
+    /// is likewise the configuration's — nothing in the wiring names it.
+    ///
+    /// Pure construction — no AX, no AppleScript.
+    @Test func wiringCarriesIntegrationAndNoScreen() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser apps iterm) (modaliser terminal))
+          (import (modaliser dsl) (prefix (modaliser configuration) config:)
+                  (modaliser terminal) (prefix (modaliser apps iterm) iterm:))
         """)
-        try engine.evaluate("(register! 'install-context-suffix? #f)")
+        try engine.evaluate("(define cfg (config:configuration (iterm:wiring)))")
+        // The digit-pick mode rides the wiring, ready for the backend's
+        // focus-pane-by-digit symbol ('iterm-pane-digit) to name.
+        #expect(try engine.evaluate("(config:configuration-tree-ref cfg \"iterm-pane-digit\")") != .false)
+        #expect(try engine.evaluate("(terminal-backend? (config:configuration-backend-ref cfg 'iterm))") == .true)
+        // The two the composition must supply.
+        #expect(try engine.evaluate("(config:configuration-tree-ref cfg \"com.googlecode.iterm2\")") == .false)
+        #expect(try engine.evaluate("(config:configuration-tree-ref cfg \"iterm-panes-focus\")") == .false)
+    }
+
+    /// The wiring carries a populated `<terminal-backend>` record
+    /// keyed by 'iterm and the iTerm bundle-id; installing it via the
+    /// façade's one install point and stubbing the frontmost query at
+    /// that bundle, the façade walks a single-frame path and exposes the
+    /// iTerm backend as active.
+    @Test func wiringBackendRecordInstallsIntoTheFacade() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("""
+          (import (modaliser dsl) (prefix (modaliser configuration) config:)
+                  (prefix (modaliser apps iterm) iterm:) (modaliser terminal))
+        """)
+        try engine.evaluate("""
+          (define cfg (config:configuration (iterm:wiring)))
+          (terminal-install-backends!
+            (list (config:configuration-backend-ref cfg 'iterm)))
+        """)
         // Force the façade to resolve as if iTerm were frontmost; the
         // detect-fg / focused-pane-id thunks still shell out, but they
         // return #f cleanly when iTerm isn't running, so the walk
@@ -68,19 +84,6 @@ struct ModaliserAppsItermLibraryTests {
         }
     }
 
-    @Test func focusModeRegistersUnderDefaultId() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps iterm))")
-        try engine.evaluate("(focus-mode-register!)")
-        #expect(try engine.evaluate("(lookup-tree \"iterm-panes-focus\")") != .false)
-    }
-
-    @Test func contextSuffixReturnsFalseForOtherApps() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser apps iterm))")
-        #expect(try engine.evaluate("(context-suffix-handler \"com.apple.Safari\")") == .false)
-    }
-
     @Test func defaultPaneLabelsAreDigits() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser apps iterm))")
@@ -88,79 +91,11 @@ struct ModaliserAppsItermLibraryTests {
         #expect(try engine.evaluate("(equal? (car default-pane-labels) \"1\")") == .true)
     }
 
-    @Test func rebuildTreeLegacyHintOptionsRaises() throws {
-        // The old 'hint-options keyword was removed in the chip-theming
-        // refactor — chip styling moved to the .chip CSS rule. Passing
-        // it should fail loudly with a migration message.
-        let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine) (modaliser apps iterm))
-        """)
-        #expect(throws: (any Error).self) {
-            try engine.evaluate("(rebuild-tree! 'hint-options '())")
-        }
-    }
-
-    @Test func focusModeTreeIsHjklOnly() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps iterm))")
-        try engine.evaluate("(define cs (focus-mode-tree))")
-        #expect(try engine.evaluate("(= (length cs) 4)") == .true)
-        try engine.evaluate("""
-          (define keys (map (lambda (c) (cdr (assoc 'key c))) cs))
-        """)
-        #expect(try engine.evaluate("(equal? keys '(\"h\" \"j\" \"k\" \"l\"))") == .true)
-    }
-
-    // Regression: prior to this test, context-suffix-handler called
-    // (rebuild-tree!) with no opts, so any 'focus-mode-id passed to
-    // register! got reverted to the default 'iterm-panes-focus on
-    // the first leader-press into iTerm — and the dynamic tree's "f" key
-    // then crossed into (lookup-tree 'iterm-panes-focus), a tree id that
-    // didn't exist for that user. The fix captures opts in register!
-    // and threads them through to the suffix handler.
-    @Test func registerOptsSurviveContextSuffixRebuild() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser event-dispatch) (modaliser apps iterm))
-        """)
-        // Register with a custom focus-mode id. install-context-suffix? defaults to #t,
-        // so register! installs a closure that should re-apply opts on every
-        // dispatcher call.
-        try engine.evaluate("(register! 'focus-mode-id 'my-iterm-focus)")
-        // The initial registration created the custom focus tree.
-        #expect(try engine.evaluate("(lookup-tree \"my-iterm-focus\")") != .false)
-        #expect(try engine.evaluate("(lookup-tree \"iterm-panes-focus\")") == .false)
-        // Simulate a leader press into iTerm: the dispatcher calls local-context-suffix,
-        // which runs the installed closure. PRE-FIX: this rebuilt with default opts,
-        // re-registering the default 'iterm-panes-focus tree (alongside the custom one).
-        // POST-FIX: forwarded opts re-register 'my-iterm-focus and 'iterm-panes-focus
-        // remains unregistered.
-        _ = try engine.evaluate("(local-context-suffix \"com.googlecode.iterm2\")")
-        #expect(try engine.evaluate("(lookup-tree \"my-iterm-focus\")") != .false)
-        #expect(try engine.evaluate("(lookup-tree \"iterm-panes-focus\")") == .false)
-    }
-
-    // Regression: same family as the test above, but for the standalone
-    // exported (context-suffix-handler bundle-id . opts) form used by
-    // users composing their own handler. Caller must be able to pass opts;
-    // pre-fix the handler ignored everything after bundle-id.
-    @Test func standaloneHandlerHonoursForwardedOpts() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps iterm))")
-        // Skip the auto-install — we'll exercise the handler directly.
-        try engine.evaluate("(register! 'install-context-suffix? #f 'focus-mode-id 'manual-focus)")
-        #expect(try engine.evaluate("(lookup-tree \"manual-focus\")") != .false)
-        // Invoke the handler with the same opts. The rebuild it does must
-        // preserve the custom focus-mode id, not revert to 'iterm-panes-focus.
-        _ = try engine.evaluate("""
-          (context-suffix-handler "com.googlecode.iterm2"
-                                        'focus-mode-id 'manual-focus)
-        """)
-        #expect(try engine.evaluate("(lookup-tree \"manual-focus\")") != .false)
-        #expect(try engine.evaluate("(lookup-tree \"iterm-panes-focus\")") == .false)
-    }
+    // (focus-mode-tree was here: it asserted that the library's focus
+    // Walk bound exactly h/j/k/l. Deleted, not relocated, at
+    // iterm-owns-its-bindings-k45 — the Walk is authored in the
+    // configuration now, so asserting its key set asserts preference.
+    // ADR-0021.)
 
     // MARK: - Async provisioning (leaf provision-scripts-async-k8)
 
@@ -176,10 +111,12 @@ struct ModaliserAppsItermLibraryTests {
     /// machine's real iTerm already carries Modaliser's bindings — exactly
     /// the live-environment dependency feedback_no_live_env_mutation_in_tests
     /// warns against. Mirrors current-dialog-runner / current-herdr-async-
-    /// runner: a parameterized indirection point defaulting to the real
-    /// run-shell-async, so a future test driving iterm-configure! (once the
-    /// probe itself gets a seam) can override it without touching a real
-    /// iTerm installation.
+    /// runner: a parameterized indirection point defaulting to `(modaliser
+    /// shell)`'s `run-shell-async`, so a future test driving iterm-configure!
+    /// (once the probe itself gets a seam) can override it without touching a
+    /// real iTerm installation. Note that default is the *seam*, not the
+    /// native spawn — under `swift test` no runner is installed behind it
+    /// (ADR-0023), so even the un-overridden path reaches nothing.
     @Test func provisionRunnerSeamDefaultsToRealAsyncShell() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser shell) (modaliser apps iterm))")
@@ -189,7 +126,7 @@ struct ModaliserAppsItermLibraryTests {
 
     /// The seam is a genuine parameter: overridable within a dynamic extent
     /// and restored outside it, same contract `current-dialog-runner` and
-    /// `current-herdr-async-runner` already rely on.
+    /// `current-herdr-send-runner` already rely on.
     @Test func provisionRunnerSeamIsParameterizable() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser shell) (modaliser apps iterm))")

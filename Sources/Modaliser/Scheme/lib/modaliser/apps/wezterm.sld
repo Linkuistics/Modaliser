@@ -6,7 +6,7 @@
 ;; with peer backend modules and the façade):
 ;;
 ;;   (import (prefix (modaliser apps wezterm) wezterm:))
-;;   (wezterm:register!)
+;;   (configuration (wezterm:fragment) …)
 ;;
 ;; ─── Op surface (13/14) ────────────────────────────────────────────
 ;;
@@ -23,7 +23,7 @@
 ;; (`activate-pane-direction` is focus-only, `adjust-pane-size` is
 ;; resize, `split-pane --move-pane-id` moves into a *new* split), not
 ;; in default keybinds (`RotatePanes` is global Clockwise / CCW only),
-;; and not in the Lua pane API. A `configure-entry` was originally
+;; and not in the Lua pane API. A provisioning step was originally
 ;; planned but the re-probe at implementation time found no
 ;; Lua action the keybind could call, so move-pane is honestly absent.
 ;; (terminal:supports-move-pane?) returns #f on WezTerm; trees that
@@ -50,11 +50,20 @@
 ;; when"; if WezTerm exposes a different role, swap it here.
 
 (define-library (modaliser apps wezterm)
-  (export register!
-          backend)
+  (export backend
+          ;; The configuration-value constructor (ADR-0018,
+          ;; library-fragments-k11): a pure fragment carrying the backend
+          ;; record and the digit-jump mode tree. WezTerm ships no stock
+          ;; screen — compose this with your own (screen
+          ;; "com.github.wez.wezterm" …), whose scope is what makes the
+          ;; screen terminal-like against this record's match-key.
+          fragment)
   (import (scheme base)
           (modaliser dsl)
-          (modaliser state-machine)
+          ;; The contribution constructors for `fragment` — prefixed to
+          ;; keep the bare names (backend, tree, …) clear of this
+          ;; module's own vocabulary.
+          (prefix (modaliser configuration) config:)
           (modaliser util)
           (modaliser shell)
           (modaliser accessibility)
@@ -63,7 +72,6 @@
           (modaliser theming)
           (only (modaliser terminal)
                 make-terminal-backend
-                register-backend!
                 tty-foreground-command
                 modaliser-tool-path
                 ;; note-backend-query-result!: ADR-0017 Layer 2 — see
@@ -334,8 +342,8 @@
               digit-labels
               (lambda (k) (focus-by-digit k)))))
 
-    (define (pane-digit-register!)
-      (register-tree! 'wezterm-pane-digit
+    (define (pane-digit-tree)
+      (tree-root 'wezterm-pane-digit
         'on-enter
         (lambda ()
           (let* ((panes (list-panes-raw))
@@ -365,7 +373,7 @@
     ;; configured? is constant #t — WezTerm has no provisioning step
     ;; in v1 (the move-pane gap is honest, not configurable). If a
     ;; future WezTerm release adds a directional swap action, this
-    ;; flips to a real probe + configure-entry.
+    ;; flips to a real probe + `configure!`.
 
     (define (configured?) #t)
 
@@ -383,9 +391,11 @@
         toggle-pane-zoom
         configured?))
 
-    ;; Register the backend + the digit-jump mode. Safe to call more
-    ;; than once: register-backend! is last-write-wins on backend
-    ;; symbol; register-tree! replaces any prior tree of the same id.
-    (define (register!)
-      (register-backend! backend)
-      (pane-digit-register!))))
+    ;; (fragment) → the WezTerm Fragment (library-fragments-k11): the
+    ;; backend record plus the digit-jump mode tree its
+    ;; focus-pane-by-digit slot names at fire time. Compose ONE call's
+    ;; value.
+    (define (fragment)
+      (list
+        (config:backend 'wezterm backend)
+        (config:tree 'wezterm-pane-digit (pane-digit-tree))))))

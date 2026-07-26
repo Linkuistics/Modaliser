@@ -25,7 +25,7 @@ struct ModaliserTerminalLibraryTests {
             // Façade machinery
             "make-terminal-backend",
             "terminal-backend?",
-            "register-backend!",
+            "terminal-install-backends!",
             "current-frontmost-bundle-id",
             "active-backend",
             "focused-terminal-path",
@@ -67,7 +67,7 @@ struct ModaliserTerminalLibraryTests {
               'digit (lambda () 'zoom)        ; focus-pane-by-digit: a plain
                                                ; symbol, not a thunk (ADR-0015)
               (lambda () #t)))                ; configured?
-          (register-backend! host)
+          (terminal-install-backends! (list host))
           """)
 
         // Path has exactly one frame keyed by the stub's symbol, with
@@ -146,8 +146,7 @@ struct ModaliserTerminalLibraryTests {
               (lambda () 'mux-mpl) (lambda () 'mux-mpr) (lambda () 'mux-mpu) (lambda () 'mux-mpd)
               'mux-digit (lambda () 'mux-zoom)
               (lambda () #t)))
-          (register-backend! host)
-          (register-backend! mux)
+          (terminal-install-backends! (list host mux))
           """)
 
         // Path has both frames.
@@ -170,7 +169,7 @@ struct ModaliserTerminalLibraryTests {
     }
 
     /// `configured?` returns #f → predicates report unsupported even when
-    /// the op fields are populated. Models WezTerm pre-configure-entry.
+    /// the op fields are populated. Models a host whose `configure!` has not run.
     @Test func unconfiguredBackendDoesNotReportSupport() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser terminal))")
@@ -184,7 +183,7 @@ struct ModaliserTerminalLibraryTests {
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               'x (lambda () 'x)
               (lambda () #f)))                ; NOT configured
-          (register-backend! host)
+          (terminal-install-backends! (list host))
           """)
 
         #expect(try engine.evaluate(stubbed("(supports-splits?)"))    == .false)
@@ -207,7 +206,7 @@ struct ModaliserTerminalLibraryTests {
               #f #f #f #f                     ; move-pane unsupported
               'digit (lambda () 'zoom)
               (lambda () #t)))
-          (register-backend! host)
+          (terminal-install-backends! (list host))
           """)
 
         #expect(try engine.evaluate(stubbed("(supports-move-pane?)")) == .false)
@@ -271,7 +270,7 @@ struct ModaliserTerminalLibraryTests {
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               #f (lambda () 'zoom)            ; focus-pane-by-digit unsupported
               (lambda () #t)))
-          (register-backend! host)
+          (terminal-install-backends! (list host))
           """)
 
         #expect(try engine.evaluate(stubbed("(focus-pane-by-digit)")) == .false)
@@ -330,8 +329,8 @@ struct ModaliserTerminalLibraryTests {
         }
     }
 
-    /// Backend tool health (ADR-0017 Layer 2): the configure-entry probe
-    /// (register-backend!) and the lazily-memoized re-probe
+    /// Backend tool health (ADR-0017 Layer 2): the backend-install probe
+    /// (terminal-install-backends!) and the lazily-memoized re-probe
     /// (note-backend-query-result!), both routed through
     /// current-tool-probe-runner so no test shells out
     /// (feedback_no_live_env_mutation_in_tests).
@@ -360,7 +359,7 @@ struct ModaliserTerminalLibraryTests {
             try engine.evaluate(defineHost(symbol: "stub-missing", tool: "\"stubtool\""))
             try engine.evaluate("""
               (parameterize ((current-tool-probe-runner (lambda (tool) #f)))
-                (register-backend! host))
+                (terminal-install-backends! (list host)))
               """)
             #expect(try engine.evaluate("(backend-tool-missing? 'stub-missing)") == .true)
         }
@@ -371,7 +370,7 @@ struct ModaliserTerminalLibraryTests {
             try engine.evaluate(defineHost(symbol: "stub-present", tool: "\"stubtool\""))
             try engine.evaluate("""
               (parameterize ((current-tool-probe-runner (lambda (tool) #t)))
-                (register-backend! host))
+                (terminal-install-backends! (list host)))
               """)
             #expect(try engine.evaluate("(backend-tool-missing? 'stub-present)") == .false)
         }
@@ -388,7 +387,7 @@ struct ModaliserTerminalLibraryTests {
               (define probe-count 0)
               (parameterize ((current-tool-probe-runner
                                (lambda (tool) (set! probe-count (+ probe-count 1)) #t)))
-                (register-backend! host))
+                (terminal-install-backends! (list host)))
               """)
             #expect(try engine.evaluate("probe-count") == .fixnum(0))
             #expect(try engine.evaluate("(backend-tool-missing? 'stub-no-tool)") == .false)
@@ -403,7 +402,7 @@ struct ModaliserTerminalLibraryTests {
             try engine.evaluate(defineHost(symbol: "stub-flip", tool: "\"stubtool\""))
             try engine.evaluate("""
               (parameterize ((current-tool-probe-runner (lambda (tool) #t)))
-                (register-backend! host))
+                (terminal-install-backends! (list host)))
               """)
             #expect(try engine.evaluate("(backend-tool-missing? 'stub-flip)") == .false)
 
@@ -426,7 +425,7 @@ struct ModaliserTerminalLibraryTests {
               (define probe-count 0)
               (parameterize ((current-tool-probe-runner
                                (lambda (tool) (set! probe-count (+ probe-count 1)) #f)))
-                (register-backend! host))
+                (terminal-install-backends! (list host)))
               """)
             #expect(try engine.evaluate("(backend-tool-missing? 'stub-clear)") == .true)
             #expect(try engine.evaluate("probe-count") == .fixnum(1))
@@ -437,7 +436,7 @@ struct ModaliserTerminalLibraryTests {
         }
 
         /// The healthy path (successful queries) never triggers the probe
-        /// beyond the one configure-entry check — no extra subprocess spawn
+        /// beyond the one backend-install check — no extra subprocess spawn
         /// per op.
         @Test func healthyPathPaysNoExtraProbesPerOp() throws {
             let engine = try SchemeEngine()
@@ -447,7 +446,7 @@ struct ModaliserTerminalLibraryTests {
               (define probe-count 0)
               (parameterize ((current-tool-probe-runner
                                (lambda (tool) (set! probe-count (+ probe-count 1)) #t)))
-                (register-backend! host)
+                (terminal-install-backends! (list host))
                 (note-backend-query-result! 'stub-healthy #t)
                 (note-backend-query-result! 'stub-healthy #t)
                 (note-backend-query-result! 'stub-healthy #t))
@@ -464,7 +463,7 @@ struct ModaliserTerminalLibraryTests {
             try engine.evaluate(defineHost(symbol: "stub-restore", tool: "\"stubtool\""))
             try engine.evaluate("""
               (parameterize ((current-tool-probe-runner (lambda (tool) #f)))
-                (register-backend! host))
+                (terminal-install-backends! (list host)))
               """)
             #expect(try engine.evaluate("(backend-tool-missing? 'stub-restore)") == .true)
 

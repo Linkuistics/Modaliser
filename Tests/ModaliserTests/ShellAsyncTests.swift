@@ -3,7 +3,7 @@ import Foundation
 import LispKit
 @testable import Modaliser
 
-@Suite("Shell Library – run-shell-async")
+@Suite("Shell Library (native) – run-shell-async-native")
 @MainActor
 struct ShellAsyncTests {
 
@@ -11,7 +11,7 @@ struct ShellAsyncTests {
 
     @Test func syncRunShellStillWorks() throws {
         let engine = try SchemeEngine()
-        let result = try engine.evaluate(#"(run-shell "echo hello")"#)
+        let result = try engine.evaluate(#"(run-shell-native "echo hello")"#)
         #expect(try result.asString() == "hello\n")
     }
 
@@ -21,7 +21,7 @@ struct ShellAsyncTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(define async-result #f)")
         try engine.evaluate("""
-            (run-shell-async "echo hello"
+            (run-shell-async-native "echo hello"
               (lambda (code out err)
                 (set! async-result (list code out err))))
             """)
@@ -38,7 +38,7 @@ struct ShellAsyncTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(define async-result #f)")
         try engine.evaluate("""
-            (run-shell-async "exit 42"
+            (run-shell-async-native "exit 42"
               (lambda (code out err)
                 (set! async-result (list code out err))))
             """)
@@ -53,7 +53,7 @@ struct ShellAsyncTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(define async-result #f)")
         try engine.evaluate("""
-            (run-shell-async "echo err >&2"
+            (run-shell-async-native "echo err >&2"
               (lambda (code out err)
                 (set! async-result (list code out err))))
             """)
@@ -70,7 +70,7 @@ struct ShellAsyncTests {
         let engine = try SchemeEngine()
         try engine.evaluate("(define async-result #f)")
         try engine.evaluate("""
-            (run-shell-async "sleep 30"
+            (run-shell-async-native "sleep 30"
               (lambda (code out err)
                 (set! async-result (list code out err)))
               'timeout 1)

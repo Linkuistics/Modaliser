@@ -5,9 +5,16 @@ import Testing
 @Suite("(modaliser fsm) library")
 struct ModaliserFsmLibraryTests {
 
+    /// Each test owns one graph value `g`, installed up front: the
+    /// graph-directed constructors (fsm-graph-state!/fsm-graph-edge!)
+    /// mutate `g` in place, so the single-graph queries and the step
+    /// engine see the accumulating graph live — a unit-test convenience;
+    /// production builds a whole value with lower-configuration and
+    /// installs once (the Handoff).
     private func loadFsm() throws -> SchemeEngine {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser fsm))")
+        try engine.evaluate("(define g (fsm-make-graph)) (fsm-install-graph! g)")
         return engine
     }
 
@@ -21,15 +28,15 @@ struct ModaliserFsmLibraryTests {
         // doesn't depend on cross-state symbol identity.
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'a-inline 'label "A" (edge "x" 'b-inline) (edge 'up 'c-inline))
-          (fsm-state! 'b-inline 'label "B")
-          (fsm-state! 'c-inline 'label "C")
+          (fsm-graph-state! g 'a-inline 'label "A" (edge "x" 'b-inline) (edge 'up 'c-inline))
+          (fsm-graph-state! g 'b-inline 'label "B")
+          (fsm-graph-state! g 'c-inline 'label "C")
 
-          (fsm-state! 'a-standalone 'label "A")
-          (fsm-edge! 'a-standalone "x" 'b-standalone)
-          (fsm-edge! 'a-standalone 'up 'c-standalone)
-          (fsm-state! 'b-standalone 'label "B")
-          (fsm-state! 'c-standalone 'label "C")
+          (fsm-graph-state! g 'a-standalone 'label "A")
+          (fsm-graph-edge! g 'a-standalone "x" 'b-standalone)
+          (fsm-graph-edge! g 'a-standalone 'up 'c-standalone)
+          (fsm-graph-state! g 'b-standalone 'label "B")
+          (fsm-graph-state! g 'c-standalone 'label "C")
 
           (define (edge-triggers id)
             (map (lambda (e) (cdr (assoc 'trigger e))) (fsm-state-edges id)))
@@ -43,8 +50,8 @@ struct ModaliserFsmLibraryTests {
     @Test func upEdgeDeclaredInlineOrStandaloneAgree() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'root 'label "Root")
-          (fsm-state! 'child 'label "Child" (edge 'up 'root))
+          (fsm-graph-state! g 'root 'label "Root")
+          (fsm-graph-state! g 'child 'label "Child" (edge 'up 'root))
         """)
         // fsm-up-edge returns the raw edge alist; read its target directly.
         #expect(try engine.evaluate("(cdr (assoc 'target (fsm-up-edge 'child)))") == engine.evaluate("'root"))
@@ -55,9 +62,9 @@ struct ModaliserFsmLibraryTests {
     @Test func stateClassDerivesFromEdges() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'resting 'label "R" (edge "a" 'x))
-          (fsm-state! 'transient 'label "T" (edge 'auto 'x))
-          (fsm-state! 'terminal 'label "Term")
+          (fsm-graph-state! g 'resting 'label "R" (edge "a" 'x))
+          (fsm-graph-state! g 'transient 'label "T" (edge 'auto 'x))
+          (fsm-graph-state! g 'terminal 'label "Term")
         """)
         #expect(try engine.evaluate("(eq? (fsm-state-class 'resting) 'resting)") == .true)
         #expect(try engine.evaluate("(eq? (fsm-state-class 'transient) 'transient)") == .true)
@@ -76,12 +83,12 @@ struct ModaliserFsmLibraryTests {
     @Test func resolvedStateClassSeesAProvidedRestingStatesOwnEdges() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'root 'label "Root"
+          (fsm-graph-state! g 'root 'label "Root"
             'provider (lambda ()
                         (list (cons 'edges (list (edge "a" 'prefix)))
                               (cons 'states (list (provided-state 'prefix
                                                      (edge "d" 'landed)))))))
-          (fsm-state! 'landed 'label "Landed")
+          (fsm-graph-state! g 'landed 'label "Landed")
           (fsm-activate! 'root)
         """)
         // The permanent-graph-only query is blind to 'prefix's own edges —
@@ -98,8 +105,8 @@ struct ModaliserFsmLibraryTests {
         // terminal — backspace is orthogonal to resting/transient/terminal.
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'root 'label "Root")
-          (fsm-state! 'leaf 'label "Leaf" (edge 'up 'root))
+          (fsm-graph-state! g 'root 'label "Root")
+          (fsm-graph-state! g 'leaf 'label "Leaf" (edge 'up 'root))
         """)
         #expect(try engine.evaluate("(eq? (fsm-state-class 'leaf) 'terminal)") == .true)
     }
@@ -108,86 +115,72 @@ struct ModaliserFsmLibraryTests {
 
     @Test func duplicateStateIdRaises() throws {
         let engine = try loadFsm()
-        try engine.evaluate("(fsm-state! 'dup 'label \"First\")")
+        try engine.evaluate("(fsm-graph-state! g 'dup 'label \"First\")")
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-state! 'dup 'label \"Second\")")
+            try engine.evaluate("(fsm-graph-state! g 'dup 'label \"Second\")")
         }
     }
 
     @Test func keyEdgeThenAutoEdgeOnSameStateRaises() throws {
         let engine = try loadFsm()
-        try engine.evaluate("(fsm-state! 's 'label \"S\")")
-        try engine.evaluate("(fsm-edge! 's \"a\" 'x)")
+        try engine.evaluate("(fsm-graph-state! g 's 'label \"S\")")
+        try engine.evaluate("(fsm-graph-edge! g 's \"a\" 'x)")
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-edge! 's 'auto 'y)")
+            try engine.evaluate("(fsm-graph-edge! g 's 'auto 'y)")
         }
     }
 
     @Test func autoEdgeThenKeyEdgeOnSameStateRaises() throws {
         let engine = try loadFsm()
-        try engine.evaluate("(fsm-state! 's 'label \"S\")")
-        try engine.evaluate("(fsm-edge! 's 'auto 'y)")
+        try engine.evaluate("(fsm-graph-state! g 's 'label \"S\")")
+        try engine.evaluate("(fsm-graph-edge! g 's 'auto 'y)")
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-edge! 's \"a\" 'x)")
+            try engine.evaluate("(fsm-graph-edge! g 's \"a\" 'x)")
         }
     }
 
     @Test func secondAutoEdgeOnSameStateRaises() throws {
         let engine = try loadFsm()
-        try engine.evaluate("(fsm-state! 's 'label \"S\")")
-        try engine.evaluate("(fsm-edge! 's 'auto 'y)")
+        try engine.evaluate("(fsm-graph-state! g 's 'label \"S\")")
+        try engine.evaluate("(fsm-graph-edge! g 's 'auto 'y)")
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-edge! 's 'auto 'z)")
+            try engine.evaluate("(fsm-graph-edge! g 's 'auto 'z)")
         }
     }
 
     @Test func secondUpEdgeOnSameStateRaises() throws {
         let engine = try loadFsm()
-        try engine.evaluate("(fsm-state! 's 'label \"S\")")
-        try engine.evaluate("(fsm-edge! 's 'up 'y)")
+        try engine.evaluate("(fsm-graph-state! g 's 'label \"S\")")
+        try engine.evaluate("(fsm-graph-edge! g 's 'up 'y)")
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-edge! 's 'up 'z)")
+            try engine.evaluate("(fsm-graph-edge! g 's 'up 'z)")
         }
     }
 
     @Test func duplicateKeyTriggerOnSameStateRaises() throws {
         let engine = try loadFsm()
-        try engine.evaluate("(fsm-state! 's 'label \"S\")")
-        try engine.evaluate("(fsm-edge! 's \"a\" 'x)")
+        try engine.evaluate("(fsm-graph-state! g 's 'label \"S\")")
+        try engine.evaluate("(fsm-graph-edge! g 's \"a\" 'x)")
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-edge! 's \"a\" 'y)")
-        }
-    }
-
-    @Test func entryReferencingUnknownStateRaises() throws {
-        let engine = try loadFsm()
-        #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-entry! 'e 'no-such-state)")
-        }
-    }
-
-    @Test func duplicateEntryNameRaises() throws {
-        let engine = try loadFsm()
-        try engine.evaluate("(fsm-state! 's 'label \"S\")")
-        try engine.evaluate("(fsm-entry! 'e 's)")
-        #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-entry! 'e 's)")
+            try engine.evaluate("(fsm-graph-edge! g 's \"a\" 'y)")
         }
     }
 
     @Test func danglingEdgeTargetIsAllowedAtConstructionTime() throws {
-        // The graph is open — an edge may point at a state that doesn't
-        // exist yet. Only entry rows are checked eagerly.
+        // Construction is incremental — an edge may point at a state that
+        // doesn't exist yet. Closure over authored references is checked
+        // on the whole graph by fsm-graph-check-closed (the pure lowering
+        // runs it), never per edge declaration.
         let engine = try loadFsm()
         #expect(throws: Never.self) {
-            try engine.evaluate("(fsm-state! 's 'label \"S\" (edge \"a\" 'not-yet-registered))")
+            try engine.evaluate("(fsm-graph-state! g 's 'label \"S\" (edge \"a\" 'not-yet-registered))")
         }
     }
 
     @Test func stateKeywordUnknownRaises() throws {
         let engine = try loadFsm()
         #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-state! 's 'frob 1)")
+            try engine.evaluate("(fsm-graph-state! g 's 'frob 1)")
         }
     }
 
@@ -203,7 +196,7 @@ struct ModaliserFsmLibraryTests {
     @Test func namedWrapsAProcedureAndPrintsItsName() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'leaf 'label "Leaf" 'entry (named 'my-action (lambda () 'ok)))
+          (fsm-graph-state! g 'leaf 'label "Leaf" 'entry (named 'my-action (lambda () 'ok)))
         """)
         #expect(try engine.evaluate("(fsm-named? (fsm-state-entry 'leaf))") == .true)
         #expect(try engine.evaluate("(eq? (fsm-behavior-name (fsm-state-entry 'leaf)) 'my-action)") == .true)
@@ -213,7 +206,7 @@ struct ModaliserFsmLibraryTests {
     @Test func anonymousProcedureBehaviorHasNoName() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'leaf 'label "Leaf" 'entry (lambda () 'ok))
+          (fsm-graph-state! g 'leaf 'label "Leaf" 'entry (lambda () 'ok))
         """)
         #expect(try engine.evaluate("(fsm-behavior-name (fsm-state-entry 'leaf))") == .false)
         #expect(try engine.evaluate("((fsm-behavior-proc (fsm-state-entry 'leaf)))") == engine.evaluate("'ok"))
@@ -231,7 +224,7 @@ struct ModaliserFsmLibraryTests {
     @Test func graphAlistShowsNamedBehaviorAndAnonymousMarker() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'leaf 'label "Leaf"
+          (fsm-graph-state! g 'leaf 'label "Leaf"
             'entry (named 'my-entry (lambda () 'ok))
             'exit (lambda () 'bye))
         """)
@@ -246,7 +239,7 @@ struct ModaliserFsmLibraryTests {
 
     @Test func printDoesNotThrow() throws {
         let engine = try loadFsm()
-        try engine.evaluate("(fsm-state! 's 'label \"S\")")
+        try engine.evaluate("(fsm-graph-state! g 's 'label \"S\")")
         #expect(throws: Never.self) {
             try engine.evaluate("(fsm-print)")
         }
@@ -257,9 +250,9 @@ struct ModaliserFsmLibraryTests {
     @Test func stateIdsPreserveDeclarationOrder() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'first 'label "1")
-          (fsm-state! 'second 'label "2")
-          (fsm-state! 'third 'label "3")
+          (fsm-graph-state! g 'first 'label "1")
+          (fsm-graph-state! g 'second 'label "2")
+          (fsm-graph-state! g 'third 'label "3")
         """)
         #expect(try engine.evaluate("(equal? (fsm-state-ids) '(first second third))") == .true)
     }
@@ -272,7 +265,7 @@ struct ModaliserFsmLibraryTests {
     @Test func edgesOutEnumeratesInDeclarationOrder() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 's 'label "S" (edge "a" 'x) (edge "b" 'y) (edge 'up 'z))
+          (fsm-graph-state! g 's 'label "S" (edge "a" 'x) (edge "b" 'y) (edge 'up 'z))
         """)
         #expect(try engine.evaluate("""
           (equal? (map (lambda (e) (cdr (assoc 'trigger e))) (fsm-state-edges 's))
@@ -283,9 +276,9 @@ struct ModaliserFsmLibraryTests {
     @Test func ancestorsWalkUpEdgesOutward() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'grandparent 'label "GP")
-          (fsm-state! 'parent 'label "P" (edge 'up 'grandparent))
-          (fsm-state! 'child 'label "C" (edge 'up 'parent))
+          (fsm-graph-state! g 'grandparent 'label "GP")
+          (fsm-graph-state! g 'parent 'label "P" (edge 'up 'grandparent))
+          (fsm-graph-state! g 'child 'label "C" (edge 'up 'parent))
         """)
         #expect(try engine.evaluate("(equal? (fsm-ancestors 'child) '(parent grandparent))") == .true)
         #expect(try engine.evaluate("(equal? (fsm-ancestors 'grandparent) '())") == .true)
@@ -293,73 +286,8 @@ struct ModaliserFsmLibraryTests {
 
     @Test func ancestorsStopsAtDanglingUpEdgeTarget() throws {
         let engine = try loadFsm()
-        try engine.evaluate("(fsm-state! 's 'label \"S\" (edge 'up 'never-registered))")
+        try engine.evaluate("(fsm-graph-state! g 's 'label \"S\" (edge 'up 'never-registered))")
         #expect(try engine.evaluate("(equal? (fsm-ancestors 's) '())") == .true)
-    }
-
-    @Test func entryRowsEnumerateInDeclarationOrder() throws {
-        let engine = try loadFsm()
-        try engine.evaluate("""
-          (fsm-state! 'a 'label "A")
-          (fsm-state! 'b 'label "B")
-          (fsm-entry! 'entry-a 'a)
-          (fsm-entry! 'entry-b 'b)
-        """)
-        #expect(try engine.evaluate("""
-          (equal? (map (lambda (r) (cdr (assoc 'name r))) (fsm-entry-rows))
-                  '(entry-a entry-b))
-        """) == .true)
-    }
-
-    @Test func entryMoreSpecificByUpEdgeContainment() throws {
-        // A nested context's entry outranks its container's — the herdr
-        // entry node beats the iTerm node it lives inside.
-        let engine = try loadFsm()
-        try engine.evaluate("""
-          (fsm-state! 'outer-root 'label "Outer")
-          (fsm-state! 'inner-root 'label "Inner" (edge 'up 'outer-root))
-          (fsm-entry! 'outer 'outer-root)
-          (fsm-entry! 'inner 'inner-root)
-        """)
-        #expect(try engine.evaluate("(fsm-entry-more-specific? 'inner 'outer)") == .true)
-        #expect(try engine.evaluate("(fsm-entry-more-specific? 'outer 'inner)") == .false)
-    }
-
-    @Test func entryMoreSpecificByExplicitRefinesStamp() throws {
-        // Non-nested siblings (today's suffix-hook disambiguation) use an
-        // explicit scope-refinement stamp instead of structural nesting.
-        let engine = try loadFsm()
-        try engine.evaluate("""
-          (fsm-state! 'base-state 'label "Base")
-          (fsm-state! 'variant-state 'label "Variant")
-          (fsm-entry! 'base 'base-state)
-          (fsm-entry! 'variant 'variant-state 'refines 'base)
-        """)
-        #expect(try engine.evaluate("(fsm-entry-more-specific? 'variant 'base)") == .true)
-        #expect(try engine.evaluate("(fsm-entry-more-specific? 'base 'variant)") == .false)
-    }
-
-    @Test func entryMoreSpecificTiesFallToDeclarationOrder() throws {
-        let engine = try loadFsm()
-        try engine.evaluate("""
-          (fsm-state! 'a 'label "A")
-          (fsm-state! 'b 'label "B")
-          (fsm-entry! 'declared-first 'a)
-          (fsm-entry! 'declared-second 'b)
-        """)
-        #expect(try engine.evaluate("(fsm-entry-more-specific? 'declared-first 'declared-second)") == .true)
-        #expect(try engine.evaluate("(fsm-entry-more-specific? 'declared-second 'declared-first)") == .false)
-    }
-
-    @Test func entryMoreSpecificRejectsUnknownEntry() throws {
-        let engine = try loadFsm()
-        try engine.evaluate("""
-          (fsm-state! 'a 'label "A")
-          (fsm-entry! 'known 'a)
-        """)
-        #expect(throws: (any Error).self) {
-            try engine.evaluate("(fsm-entry-more-specific? 'known 'unknown)")
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -371,8 +299,8 @@ struct ModaliserFsmLibraryTests {
     @Test func activatingARestingStateStaysActive() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'root 'label "Root" (edge "a" 'leaf))
-          (fsm-state! 'leaf 'label "Leaf")
+          (fsm-graph-state! g 'root 'label "Root" (edge "a" 'leaf))
+          (fsm-graph-state! g 'leaf 'label "Leaf")
           (fsm-activate! 'root)
         """)
         #expect(try engine.evaluate("(fsm-active?)") == .true)
@@ -382,7 +310,7 @@ struct ModaliserFsmLibraryTests {
     @Test func activatingATerminalStateHaltsImmediately() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'lone 'label "Lone")
+          (fsm-graph-state! g 'lone 'label "Lone")
           (fsm-activate! 'lone)
         """)
         #expect(try engine.evaluate("(fsm-active?)") == .false)
@@ -391,9 +319,9 @@ struct ModaliserFsmLibraryTests {
     @Test func activatingATransientStateFollowsItsAutoEdgeToAConcreteTarget() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'command 'label "Command" (edge 'auto 'landing))
-          (fsm-state! 'landing 'label "Landing" (edge "x" 'somewhere))
-          (fsm-state! 'somewhere 'label "Somewhere")
+          (fsm-graph-state! g 'command 'label "Command" (edge 'auto 'landing))
+          (fsm-graph-state! g 'landing 'label "Landing" (edge "x" 'somewhere))
+          (fsm-graph-state! g 'somewhere 'label "Somewhere")
           (fsm-activate! 'command)
         """)
         #expect(try engine.evaluate("(fsm-active?)") == .true)
@@ -406,7 +334,7 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (define active-when-entry-ran 'unset)
-          (fsm-state! 'lone 'label "Lone"
+          (fsm-graph-state! g 'lone 'label "Lone"
             'entry (lambda () (set! active-when-entry-ran (fsm-active?))))
           (fsm-activate! 'lone)
         """)
@@ -417,7 +345,7 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (define entry-ran? #f)
-          (fsm-state! 'declines 'label "Declines"
+          (fsm-graph-state! g 'declines 'label "Declines"
             'entry (lambda () (set! entry-ran? #t))
             (edge 'auto (lambda () #f)))
           (fsm-activate! 'declines)
@@ -433,11 +361,11 @@ struct ModaliserFsmLibraryTests {
         try engine.evaluate("""
           (define entry-count 0)
           (define show-count 0)
-          (fsm-state! 'walk 'label "Walk"
+          (fsm-graph-state! g 'walk 'label "Walk"
             'entry (lambda () (set! entry-count (+ entry-count 1)))
             'show (lambda () (set! show-count (+ show-count 1)))
             (edge "x" 'leaf))
-          (fsm-state! 'leaf 'label "Leaf" (edge 'auto 'walk))
+          (fsm-graph-state! g 'leaf 'label "Leaf" (edge 'auto 'walk))
           (fsm-activate! 'walk)
           (fsm-mark-displayed! (fsm-visit-generation))
           (fsm-step! "x")
@@ -453,11 +381,11 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (define provider-calls 0)
-          (fsm-state! 'walk 'label "Walk"
+          (fsm-graph-state! g 'walk 'label "Walk"
             'provider (lambda ()
                         (set! provider-calls (+ provider-calls 1))
                         (list (cons 'edges (list (edge "x" 'leaf))))))
-          (fsm-state! 'leaf 'label "Leaf" (edge 'auto 'walk))
+          (fsm-graph-state! g 'leaf 'label "Leaf" (edge 'auto 'walk))
           (fsm-activate! 'walk)
         """)
         #expect(try engine.evaluate("(= provider-calls 1)") == .true)
@@ -472,9 +400,9 @@ struct ModaliserFsmLibraryTests {
     @Test func callEdgePushesAReturnFrameAndBackspacePopsBackToTheCaller() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'caller 'label "Caller" (edge "w" 'walk-root 'call #t))
-          (fsm-state! 'walk-root 'label "WalkRoot" (edge "y" 'walk-leaf))
-          (fsm-state! 'walk-leaf 'label "WalkLeaf" (edge 'auto 'walk-root))
+          (fsm-graph-state! g 'caller 'label "Caller" (edge "w" 'walk-root 'call #t))
+          (fsm-graph-state! g 'walk-root 'label "WalkRoot" (edge "y" 'walk-leaf))
+          (fsm-graph-state! g 'walk-leaf 'label "WalkLeaf" (edge 'auto 'walk-root))
           (fsm-activate! 'caller)
           (fsm-step! "w")
         """)
@@ -488,10 +416,10 @@ struct ModaliserFsmLibraryTests {
     @Test func multipleCallersEachReturnToTheirOwnCaller() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'caller-a 'label "A" (edge "w" 'walk-root 'call #t))
-          (fsm-state! 'caller-b 'label "B" (edge "w" 'walk-root 'call #t))
-          (fsm-state! 'walk-root 'label "WalkRoot" (edge "y" 'walk-leaf))
-          (fsm-state! 'walk-leaf 'label "WalkLeaf" (edge 'auto 'walk-root))
+          (fsm-graph-state! g 'caller-a 'label "A" (edge "w" 'walk-root 'call #t))
+          (fsm-graph-state! g 'caller-b 'label "B" (edge "w" 'walk-root 'call #t))
+          (fsm-graph-state! g 'walk-root 'label "WalkRoot" (edge "y" 'walk-leaf))
+          (fsm-graph-state! g 'walk-leaf 'label "WalkLeaf" (edge 'auto 'walk-root))
         """)
         try engine.evaluate("(fsm-activate! 'caller-a) (fsm-step! \"w\") (fsm-step-back!)")
         #expect(try engine.evaluate("(eq? (fsm-current-state) 'caller-a)") == .true)
@@ -505,11 +433,11 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (define parent-entry-count 0)
-          (fsm-state! 'parent 'label "Parent"
+          (fsm-graph-state! g 'parent 'label "Parent"
             'entry (lambda () (set! parent-entry-count (+ parent-entry-count 1)))
             (edge "c" 'child))
-          (fsm-state! 'child 'label "Child" (edge 'up 'parent) (edge "q" 'elsewhere))
-          (fsm-state! 'elsewhere 'label "Elsewhere")
+          (fsm-graph-state! g 'child 'label "Child" (edge 'up 'parent) (edge "q" 'elsewhere))
+          (fsm-graph-state! g 'elsewhere 'label "Elsewhere")
           (fsm-activate! 'parent)
           (fsm-step! "c")
         """)
@@ -523,8 +451,8 @@ struct ModaliserFsmLibraryTests {
     @Test func backspaceAtAWalkRootWithNoCallerHalts() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'walk-root 'label "WalkRoot" (edge "y" 'walk-leaf))
-          (fsm-state! 'walk-leaf 'label "WalkLeaf" (edge 'auto 'walk-root))
+          (fsm-graph-state! g 'walk-root 'label "WalkRoot" (edge "y" 'walk-leaf))
+          (fsm-graph-state! g 'walk-leaf 'label "WalkLeaf" (edge 'auto 'walk-root))
           (fsm-activate! 'walk-root)
           (fsm-step-back!)
         """)
@@ -534,8 +462,8 @@ struct ModaliserFsmLibraryTests {
     @Test func backspaceAtANonWalkRootWithNoCallerIsANoOp() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'plain 'label "Plain" (edge "z" 'leaf))
-          (fsm-state! 'leaf 'label "Leaf")
+          (fsm-graph-state! g 'plain 'label "Plain" (edge "z" 'leaf))
+          (fsm-graph-state! g 'leaf 'label "Leaf")
           (fsm-activate! 'plain)
           (fsm-step-back!)
         """)
@@ -548,9 +476,9 @@ struct ModaliserFsmLibraryTests {
     @Test func haltClearsTheReturnStackAndFullyDeactivates() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'caller 'label "Caller" (edge "w" 'walk-root 'call #t))
-          (fsm-state! 'walk-root 'label "WalkRoot" (edge "y" 'walk-leaf))
-          (fsm-state! 'walk-leaf 'label "WalkLeaf" (edge 'auto 'walk-root))
+          (fsm-graph-state! g 'caller 'label "Caller" (edge "w" 'walk-root 'call #t))
+          (fsm-graph-state! g 'walk-root 'label "WalkRoot" (edge "y" 'walk-leaf))
+          (fsm-graph-state! g 'walk-leaf 'label "WalkLeaf" (edge 'auto 'walk-root))
           (fsm-activate! 'caller)
           (fsm-step! "w")
         """)
@@ -574,11 +502,11 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (define provider-calls 0)
-          (fsm-state! 'jump 'label "Jump"
+          (fsm-graph-state! g 'jump 'label "Jump"
             'provider (lambda ()
                         (set! provider-calls (+ provider-calls 1))
                         (list (cons 'edges (list (edge "j" 'landed))))))
-          (fsm-state! 'landed 'label "Landed")
+          (fsm-graph-state! g 'landed 'label "Landed")
           (fsm-activate! 'jump)
         """)
         #expect(try engine.evaluate("(= provider-calls 1)") == .true)
@@ -587,12 +515,12 @@ struct ModaliserFsmLibraryTests {
     @Test func providedEdgesAreDispatchableWithinTheVisitAndExpireAfterward() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'jump 'label "Jump"
+          (fsm-graph-state! g 'jump 'label "Jump"
             'provider (lambda () (list (cons 'edges (list (edge "j" 'landed))))))
-          (fsm-state! 'landed 'label "Landed" (edge "z" 'elsewhere))
-          (fsm-state! 'elsewhere 'label "Elsewhere" (edge "j" 'not-landed))
-          (fsm-state! 'not-landed 'label "NotLanded" (edge "q" 'nowhere))
-          (fsm-state! 'nowhere 'label "Nowhere")
+          (fsm-graph-state! g 'landed 'label "Landed" (edge "z" 'elsewhere))
+          (fsm-graph-state! g 'elsewhere 'label "Elsewhere" (edge "j" 'not-landed))
+          (fsm-graph-state! g 'not-landed 'label "NotLanded" (edge "q" 'nowhere))
+          (fsm-graph-state! g 'nowhere 'label "Nowhere")
           (fsm-activate! 'jump)
           (fsm-step! "j")
         """)
@@ -610,12 +538,12 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (define gate-open? #f)
-          (fsm-state! 'gated 'label "Gated"
+          (fsm-graph-state! g 'gated 'label "Gated"
             (edge "g" 'through 'gate (lambda () gate-open?))
             (edge "n" 'noop))
-          (fsm-state! 'through 'label "Through" (edge "q" 'nowhere))
-          (fsm-state! 'nowhere 'label "Nowhere")
-          (fsm-state! 'noop 'label "Noop" (edge "b" 'gated))
+          (fsm-graph-state! g 'through 'label "Through" (edge "q" 'nowhere))
+          (fsm-graph-state! g 'nowhere 'label "Nowhere")
+          (fsm-graph-state! g 'noop 'label "Noop" (edge "b" 'gated))
           (fsm-activate! 'gated)
           (fsm-step! "g")
         """)
@@ -632,53 +560,14 @@ struct ModaliserFsmLibraryTests {
         #expect(try engine.evaluate("(eq? (fsm-current-state) 'through)") == .true)
     }
 
-    // MARK: - Entry-table specificity, end-to-end through activation
-
-    @Test func activateViaEntryTableChoosesTheRefinesVariantOverItsBaseWithNoContainment() throws {
-        let engine = try loadFsm()
-        try engine.evaluate("""
-          (fsm-state! 'base-state 'label "Base" (edge "z" 'somewhere))
-          (fsm-state! 'variant-state 'label "Variant" (edge "z" 'somewhere))
-          (fsm-state! 'somewhere 'label "Somewhere")
-          (fsm-entry! 'base 'base-state)
-          (fsm-entry! 'variant 'variant-state 'refines 'base)
-        """)
-        #expect(try engine.evaluate("(eq? (fsm-activate-via-entry-table!) 'variant)") == .true)
-        #expect(try engine.evaluate("(eq? (fsm-current-state) 'variant-state)") == .true)
-    }
-
-    @Test func activateViaEntryTableSkipsAFailingGate() throws {
-        let engine = try loadFsm()
-        try engine.evaluate("""
-          (fsm-state! 'blocked-state 'label "Blocked" (edge "z" 'somewhere))
-          (fsm-state! 'fallback-state 'label "Fallback" (edge "z" 'somewhere))
-          (fsm-state! 'somewhere 'label "Somewhere")
-          (fsm-entry! 'blocked 'blocked-state 'gate (lambda () #f))
-          (fsm-entry! 'fallback 'fallback-state)
-        """)
-        #expect(try engine.evaluate("(eq? (fsm-activate-via-entry-table!) 'fallback)") == .true)
-        #expect(try engine.evaluate("(eq? (fsm-current-state) 'fallback-state)") == .true)
-    }
-
-    @Test func activateViaEntryTableReturnsFalseWhenNothingPasses() throws {
-        let engine = try loadFsm()
-        try engine.evaluate("""
-          (fsm-state! 'blocked-state 'label "Blocked" (edge "z" 'somewhere))
-          (fsm-state! 'somewhere 'label "Somewhere")
-          (fsm-entry! 'blocked 'blocked-state 'gate (lambda () #f))
-        """)
-        #expect(try engine.evaluate("(fsm-activate-via-entry-table!)") == .false)
-        #expect(try engine.evaluate("(fsm-active?)") == .false)
-    }
-
     // MARK: - Entry actions and the arriving key (shared provided targets)
 
     @Test func entryActionsDefaultToBeingCalledWithNoArgs() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
           (define called-with-zero-args? #f)
-          (fsm-state! 'target 'label "Target" 'entry (lambda () (set! called-with-zero-args? #t)))
-          (fsm-state! 'source 'label "Source" (edge "1" 'target))
+          (fsm-graph-state! g 'target 'label "Target" 'entry (lambda () (set! called-with-zero-args? #t)))
+          (fsm-graph-state! g 'source 'label "Source" (edge "1" 'target))
           (fsm-activate! 'source)
           (fsm-step! "1")
         """)
@@ -695,7 +584,7 @@ struct ModaliserFsmLibraryTests {
           "(set-fsm-accepts-arg! (lambda (p) (procedure-arity-includes? p 1)))")
         try engine.evaluate("""
           (define last-key #f)
-          (fsm-state! 'jump 'label "Jump"
+          (fsm-graph-state! g 'jump 'label "Jump"
             'provider (lambda ()
                         (list (cons 'edges (list (edge "1" 'shared) (edge "2" 'shared)))
                               (cons 'states (list (provided-state 'shared
@@ -714,11 +603,11 @@ struct ModaliserFsmLibraryTests {
         try engine.evaluate("""
           (define show-count 0)
           (define hide-count 0)
-          (fsm-state! 'shown 'label "Shown"
+          (fsm-graph-state! g 'shown 'label "Shown"
             'show (lambda () (set! show-count (+ show-count 1)))
             'hide (lambda () (set! hide-count (+ hide-count 1)))
             (edge "z" 'elsewhere))
-          (fsm-state! 'elsewhere 'label "Elsewhere")
+          (fsm-graph-state! g 'elsewhere 'label "Elsewhere")
           (fsm-activate! 'shown)
           (fsm-step! "z")
         """)
@@ -731,11 +620,11 @@ struct ModaliserFsmLibraryTests {
         try engine.evaluate("""
           (define show-count 0)
           (define hide-count 0)
-          (fsm-state! 'shown 'label "Shown"
+          (fsm-graph-state! g 'shown 'label "Shown"
             'show (lambda () (set! show-count (+ show-count 1)))
             'hide (lambda () (set! hide-count (+ hide-count 1)))
             (edge "z" 'elsewhere))
-          (fsm-state! 'elsewhere 'label "Elsewhere")
+          (fsm-graph-state! g 'elsewhere 'label "Elsewhere")
           (fsm-activate! 'shown)
           (fsm-mark-displayed! (fsm-visit-generation))
         """)
@@ -748,9 +637,9 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (define show-count 0)
-          (fsm-state! 'shown 'label "Shown"
+          (fsm-graph-state! g 'shown 'label "Shown"
             'show (lambda () (set! show-count (+ show-count 1))) (edge "z" 'elsewhere))
-          (fsm-state! 'elsewhere 'label "Elsewhere")
+          (fsm-graph-state! g 'elsewhere 'label "Elsewhere")
           (fsm-activate! 'shown)
           (fsm-mark-displayed! (fsm-visit-generation))
           (fsm-mark-displayed! (fsm-visit-generation))
@@ -762,10 +651,10 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (define show-count 0)
-          (fsm-state! 'shown 'label "Shown"
+          (fsm-graph-state! g 'shown 'label "Shown"
             'show (lambda () (set! show-count (+ show-count 1))) (edge "z" 'elsewhere))
-          (fsm-state! 'elsewhere 'label "Elsewhere" (edge "q" 'noop))
-          (fsm-state! 'noop 'label "Noop")
+          (fsm-graph-state! g 'elsewhere 'label "Elsewhere" (edge "q" 'noop))
+          (fsm-graph-state! g 'noop 'label "Noop")
           (fsm-activate! 'shown)
           (define stale-gen (fsm-visit-generation))
           (fsm-step! "z")
@@ -784,8 +673,8 @@ struct ModaliserFsmLibraryTests {
     @Test func unknownKeyIsSwallowedByDefault() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'forgiving 'label "Forgiving" (edge "a" 'somewhere))
-          (fsm-state! 'somewhere 'label "Somewhere")
+          (fsm-graph-state! g 'forgiving 'label "Forgiving" (edge "a" 'somewhere))
+          (fsm-graph-state! g 'somewhere 'label "Somewhere")
           (fsm-activate! 'forgiving)
           (fsm-step! "unbound-key")
         """)
@@ -796,8 +685,8 @@ struct ModaliserFsmLibraryTests {
     @Test func unknownKeyHaltsWhenExitOnUnknownIsSet() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'strict 'label "Strict" 'exit-on-unknown #t (edge "a" 'somewhere))
-          (fsm-state! 'somewhere 'label "Somewhere")
+          (fsm-graph-state! g 'strict 'label "Strict" 'exit-on-unknown #t (edge "a" 'somewhere))
+          (fsm-graph-state! g 'somewhere 'label "Somewhere")
           (fsm-activate! 'strict)
           (fsm-step! "unbound-key")
         """)
@@ -812,8 +701,8 @@ struct ModaliserFsmLibraryTests {
           "(set-fsm-accepts-arg! (lambda (p) (procedure-arity-includes? p 1)))")
         try engine.evaluate("""
           (define seen-reason 'unset)
-          (fsm-state! 'root 'label "Root" 'exit (lambda (r) (set! seen-reason r)) (edge "a" 'x))
-          (fsm-state! 'x 'label "X")
+          (fsm-graph-state! g 'root 'label "Root" 'exit (lambda (r) (set! seen-reason r)) (edge "a" 'x))
+          (fsm-graph-state! g 'x 'label "X")
           (fsm-activate! 'root)
           (fsm-halt! 'cancel)
         """)
@@ -826,9 +715,9 @@ struct ModaliserFsmLibraryTests {
           "(set-fsm-accepts-arg! (lambda (p) (procedure-arity-includes? p 1)))")
         try engine.evaluate("""
           (define seen-reason 'unset)
-          (fsm-state! 'a 'label "A" 'exit (lambda (r) (set! seen-reason r)) (edge "b" 'b))
-          (fsm-state! 'b 'label "B" (edge "q" 'nowhere))
-          (fsm-state! 'nowhere 'label "Nowhere")
+          (fsm-graph-state! g 'a 'label "A" 'exit (lambda (r) (set! seen-reason r)) (edge "b" 'b))
+          (fsm-graph-state! g 'b 'label "B" (edge "q" 'nowhere))
+          (fsm-graph-state! g 'nowhere 'label "Nowhere")
           (fsm-activate! 'a)
           (fsm-step! "b")
         """)
@@ -840,8 +729,8 @@ struct ModaliserFsmLibraryTests {
     @Test func autoEdgeCycleRaisesInsteadOfLoopingForever() throws {
         let engine = try loadFsm()
         try engine.evaluate("""
-          (fsm-state! 'a 'label "A" (edge 'auto 'b))
-          (fsm-state! 'b 'label "B" (edge 'auto 'a))
+          (fsm-graph-state! g 'a 'label "A" (edge 'auto 'b))
+          (fsm-graph-state! g 'b 'label "B" (edge 'auto 'a))
         """)
         #expect(throws: (any Error).self) {
             try engine.evaluate("(fsm-activate! 'a)")

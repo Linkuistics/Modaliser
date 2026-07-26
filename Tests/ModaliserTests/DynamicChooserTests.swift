@@ -41,7 +41,7 @@ struct DynamicChooserTests {
               (set! webview-eval-calls (cons (cons id js) webview-eval-calls)))
             """)
 
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dom))")
         let files = [
@@ -64,14 +64,15 @@ struct DynamicChooserTests {
             (define search-queries '())
             (define (my-dynamic-search query)
               (set! search-queries (cons query search-queries)))
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search Google…"
-                'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search Google…"
+                  'dynamic-search my-dynamic-search
+                  'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Chooser should be open
@@ -90,14 +91,15 @@ struct DynamicChooserTests {
             (define search-queries '())
             (define (my-dynamic-search query)
               (set! search-queries (cons query search-queries)))
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search…"
-                'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search…"
+                  'dynamic-search my-dynamic-search
+                  'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Simulate JS ready message
@@ -117,14 +119,15 @@ struct DynamicChooserTests {
             (define search-queries '())
             (define (my-dynamic-search query)
               (set! search-queries (cons query search-queries)))
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search…"
-                'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search…"
+                  'dynamic-search my-dynamic-search
+                  'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Simulate search message from JS
@@ -147,14 +150,15 @@ struct DynamicChooserTests {
               (chooser-push-results
                 (list (list (cons 'text "Result A"))
                       (list (cons 'text "Result B")))))
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search…"
-                'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search…"
+                  'dynamic-search my-dynamic-search
+                  'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Trigger search which pushes results
@@ -176,14 +180,15 @@ struct DynamicChooserTests {
               (chooser-push-results
                 (list (list (cons 'text "Alpha"))
                       (list (cons 'text "Beta")))))
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search…"
-                'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search…"
+                  'dynamic-search my-dynamic-search
+                  'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Clear eval calls from setup
@@ -212,14 +217,15 @@ struct DynamicChooserTests {
                 (list (list (cons 'text "First"))
                       (list (cons 'text "Second"))
                       (list (cons 'text "Third")))))
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search…"
-                'dynamic-search my-dynamic-search
-                'on-select (lambda (item) (set! selected-item item)))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search…"
+                  'dynamic-search my-dynamic-search
+                  'on-select (lambda (item) (set! selected-item item)))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Trigger search to populate items
@@ -243,14 +249,15 @@ struct DynamicChooserTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define (my-dynamic-search query) #t)
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search…"
-                'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search…"
+                  'dynamic-search my-dynamic-search
+                  'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
         #expect(try engine.evaluate("(procedure? chooser-dynamic-search)") == .true)
 
@@ -267,14 +274,15 @@ struct DynamicChooserTests {
               (list (list (cons 'text "Safari"))
                     (list (cons 'text "Chrome"))))
             (define (test-source) test-items)
-            (register-tree! 'global
-              (key "a" "Find App" (selector
-                'prompt "Find app…"
-                'source test-source
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "a" "Find App" (selector
+                  'prompt "Find app…"
+                  'source test-source
+                  'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"a\")")
 
         // Chooser should be open with items cached
@@ -293,14 +301,15 @@ struct DynamicChooserTests {
               (chooser-push-results
                 (list (list (cons 'text "He said \\"hello\\""))
                       (list (cons 'text "Line1\\nLine2")))))
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search…"
-                'dynamic-search my-dynamic-search
-                'on-select (lambda (item) #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search…"
+                  'dynamic-search my-dynamic-search
+                  'on-select (lambda (item) #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
         try engine.evaluate("(set! webview-eval-calls '())")
 

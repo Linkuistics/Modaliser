@@ -134,7 +134,7 @@ final class KeyboardLibrary: NativeLibrary {
     ///      neither stalls the tap nor lets the kernel disable it — the
     ///      buffer keeps absorbing keystrokes for the whole probe.
     ///   3. After the Scheme handler returns, finalise:
-    ///      - If a catch-all was installed (modal-enter fired): drain the
+    ///      - If a catch-all was installed (modal activation fired): drain the
     ///        buffered events through it so they reach modal-key-handler in
     ///        arrival order.
     ///      - Otherwise (modal didn't enter — e.g. no app-local tree found):

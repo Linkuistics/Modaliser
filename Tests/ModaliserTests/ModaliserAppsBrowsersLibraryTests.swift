@@ -2,52 +2,29 @@ import Foundation
 import Testing
 @testable import Modaliser
 
-@Suite("(modaliser apps safari) library")
-struct ModaliserAppsSafariLibraryTests {
-    @Test func registerInstallsSafariTree() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps safari))")
-        try engine.evaluate("(register!)")
-        #expect(try engine.evaluate("(lookup-tree \"com.apple.Safari\")") != .false)
-    }
+// The `(modaliser apps safari)` and `(modaliser apps chrome)` suites are
+// GONE, with their libraries (apps-own-their-bindings-k47). Both shipped
+// nothing but a stock tree — keys, labels, groups — which is preference,
+// not facility (ADR-0021), so there was no facility half left to keep.
+// Safari's screen is authored inline in `default-config.scm` and rides
+// `ConfigDslTests.defaultConfigSchemeLoadsWithoutErrors`; Chrome's ships
+// as `Scheme/examples/chrome.scm` and rides
+// `ConfigDslTests.exampleConfigsLoadWithoutErrors`. Asserting here that
+// "t" is Tabs would have asserted preference.
 
-    @Test func treeBuilderReturnsListOfGroups() throws {
+@Suite("(modaliser apps dia) library")
+struct ModaliserAppsDiaLibraryTests {
+    /// Utilities-layer library (ADR-0019): machinery exports only, no
+    /// fragment — the Dia SCREEN is preference, authored inline in user
+    /// config. Assertions stay structural: tab-source / focus-tab! shell
+    /// out to osascript and tab-step posts keystrokes, so none may fire
+    /// in tests.
+    @Test func exportsResolveAsProcedures() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps safari))")
-        try engine.evaluate("(define cs (tree))")
-        #expect(try engine.evaluate("(list? cs)") == .true)
-        #expect(try engine.evaluate("(group? (car cs))") == .true)
-    }
-
-    @Test func safariExtraBindingsAppended() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps safari))")
-        try engine.evaluate("""
-          (define extra (list (key "x" "Extra" (lambda () 'ok))))
-          (define cs (tree 'extra-bindings extra))
-          (define last (let loop ((xs cs))
-                         (cond ((null? (cdr xs)) (car xs))
-                               (else (loop (cdr xs))))))
-        """)
-        #expect(try engine.evaluate("(command? last)") == .true)
-        #expect(try engine.evaluate("(equal? (cdr (assoc 'key last)) \"x\")") == .true)
-    }
-}
-
-@Suite("(modaliser apps chrome) library")
-struct ModaliserAppsChromeLibraryTests {
-    @Test func registerInstallsChromeTree() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps chrome))")
-        try engine.evaluate("(register!)")
-        #expect(try engine.evaluate("(lookup-tree \"com.google.Chrome\")") != .false)
-    }
-
-    @Test func chromeTreeStructureMatchesSafari() throws {
-        let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser apps chrome))")
-        try engine.evaluate("(define cs (tree))")
-        #expect(try engine.evaluate("(list? cs)") == .true)
-        #expect(try engine.evaluate("(= (length cs) 2)") == .true) // Tabs + Browser
+        try engine.evaluate("(import (prefix (modaliser apps dia) dia:))")
+        #expect(try engine.evaluate("(procedure? dia:tab-source)") == .true)
+        #expect(try engine.evaluate("(procedure? dia:focus-tab!)") == .true)
+        #expect(try engine.evaluate("(procedure? dia:tab-step)") == .true)
+        #expect(try engine.evaluate("(procedure? dia:tab-step-back)") == .true)
     }
 }

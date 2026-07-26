@@ -1,25 +1,22 @@
 ;; (modaliser event-dispatch) — Keyboard event dispatch into the modal
-;; state machine. The catch-all key handler installed by modal-enter
-;; lives here, as does the leader-key handler factory.
+;; state machine: the catch-all key handler installed by modal-activate!.
 ;;
-;; modal-key-handler is installed into the state-machine via the
-;; set-modal-key-handler! setter — Task 5 introduced that hook so
-;; state-machine could be hermetic while event-dispatch was still an
-;; include. Now that event-dispatch is itself a library, the install
-;; runs at library-load time.
+;; modal-key-handler is installed into the modal façade via the
+;; set-modal-key-handler! setter at library-load time (the façade is a
+;; lower layer, so it cannot reference this library's binding directly).
+;; Leader activation lives elsewhere: the handoff arms leaders whose
+;; handlers resolve through resolve-activation against the installed
+;; configuration value ((modaliser handoff), ADR-0018/ADR-0013) — the
+;; entry-table/suffix-hook leader path this library used to own retired
+;; at cutover-contract-k13.
 
 (define-library (modaliser event-dispatch)
-  (export modal-key-handler
-          local-context-suffix
-          set-local-context-suffix!
-          resolve-app-tree
-          make-leader-handler)
+  (export modal-key-handler)
   (import (scheme base)
           (scheme char)              ; string-upcase (used for shift handling)
           (modaliser keymap)
-          (modaliser keyboard)
-          (modaliser app)
-          (modaliser state-machine))
+          (modaliser keyboard)       ; keycode constants + keycode->char
+          (modaliser fsm))
   (begin
 
 ;; The catch-all key handler. Registered via (register-all-keys!) when
@@ -86,75 +83,8 @@
            (modal-handle-key effective) #t)
          (begin (modal-exit 'cancel) #t))))))
 
-;; Hook: given the focused app's bundle ID, return a suffix string like
-;; "/zellij" to try a more specific tree first, or #f to use the plain
-;; bundle-id tree. User configs override this via (set-local-context-suffix! fn).
-(define local-context-suffix-impl (lambda (bundle-id) #f))
-(define (local-context-suffix bundle-id) (local-context-suffix-impl bundle-id))
-(define (set-local-context-suffix! fn) (set! local-context-suffix-impl fn))
-
-;; Resolve the per-app tree for a bundle ID, preferring a context-suffixed
-;; variant (e.g. "com.googlecode.iterm2/zellij") when the suffix hook
-;; returns one and that variant is registered.
-(define (resolve-app-tree bundle-id)
-  (and bundle-id
-       (or (let ((suffix (local-context-suffix bundle-id)))
-             (and suffix (lookup-tree (string-append bundle-id suffix))))
-           (lookup-tree bundle-id))))
-
-;; Create a leader key handler for a specific mode. `mode` is always
-;; 'global or 'local — set-leader! requires it.
-;; 'global → always uses the "global" tree
-;; 'local  → resolves through the FSM entry table (dispatch-cutover-k11,
-;;           docs/specs/fsm-graph.md "Lowering and the façade"): among the
-;;           focused app's own entries — its plain bundle-id row and any
-;;           bundle-id/suffix variants — the most specific one whose gate
-;;           passes wins (resolve-entry-for-bundle, state-machine.sld),
-;;           the suffix variants' gates having been wired at registration
-;;           time to local-context-suffix's answer. Reproduces resolve-
-;;           app-tree's try-variant-then-fall-back exactly, just derived
-;;           from the entry table instead of two lookup-tree calls; if
-;;           that app has no tree at all, nothing opens — no fallback to
-;;           the global tree.
-;;
-;; Pass-and-arm passthrough is implemented entirely in Swift (see
-;; KeyboardHandlerRegistry). When the focused app is in arm-bundle-ids,
-;; the dispatch layer arms a Swift-side state machine and returns
-;; passThrough, *without* calling this handler. On the second trigger
-;; within the arm window, Swift posts Escape, then calls this handler
-;; — at which point Scheme just enters the local modal as for a normal
-;; idle press.
-(define (make-leader-handler leader-kc mode)
-  (lambda ()
-    (cond
-      ((chooser-open?)
-       (close-chooser))
-      (modal-active?
-       (modal-exit))
-      (else
-       (let* ((bundle-id (focused-app-bundle-id))
-              (tree (cond
-                      ((eq? mode 'global) (lookup-tree "global"))
-                      ((eq? mode 'local)
-                       (and bundle-id
-                            (let ((name (resolve-entry-for-bundle bundle-id)))
-                              (and name (lookup-tree name)))))
-                      (else (error "make-leader-handler: invalid mode" mode)))))
-         (when tree
-           (modal-enter tree leader-kc)))))))
-
-;; Install modal-key-handler into the state-machine library's dispatch cell.
+;; Install modal-key-handler into the modal façade's dispatch cell.
 ;; Runs at library-load time, after modal-key-handler is defined above.
 (set-modal-key-handler! modal-key-handler)
-
-;; Install the local-context-suffix hook so a suffix-variant entry's gate
-;; (register-tree-entry!, state-machine.sld) can ask "does this variant's
-;; suffix match what local-context-suffix currently answers for its base
-;; bundle-id" without state-machine.sld importing this (higher) library.
-;; local-context-suffix itself is a live indirection through
-;; local-context-suffix-impl (above), so passing the procedure — not its
-;; current value — keeps this reading through to whatever a user config
-;; installs later via set-local-context-suffix!.
-(set-local-context-suffix-hook! local-context-suffix)
 
 )) ;; end begin / define-library

@@ -87,24 +87,27 @@ parentheses landed it as a sibling instead:
 Count closing parens. Editors with paren-matching highlights make
 this trivial; without them, the failure mode is silent.
 
-## 4. Scope collision (one tree replaces another)
+## 4. Scope collision (two trees for one scope)
 
-Two `(screen 'global …)` calls don't merge — the second replaces
-the first. If you have multiple files declaring the same scope (e.g.
-your config + a bundled factory's `register!`), the later call wins.
+Two trees for the same scope don't merge — `configuration` **errors**
+at load time (unless both are the identical value, the diamond case).
+No bundled library contributes a screen (ADR-0021), so both trees are
+in your own config: the usual cause is copying an example or a second
+screen in beside one you already had for that app (e.g. two
+`(screen 'com.apple.Safari …)` forms).
 
-Check the call order in `config.scm`. Bundled factories like
-`(safari:register!)` are forgiving — pass `'extra-bindings (list …)`
-to add without replacing. For your own trees, keep a single
-`screen` call per scope.
+Keep one tree per scope — merge the rows you want into a single screen
+and delete the other.
 
 ## 5. Modal isn't even being entered
 
 If pressing the leader produces *no overlay at all*, the leader itself
 might not be set. Confirm:
 
-- `~/.config/modaliser/config.scm` calls `(set-leaders! …)` or
-  `(set-leader! …)` somewhere near the top.
+- `~/.config/modaliser/config.scm` includes a `(leaders (leader …) …)`
+  setting in its `configuration` call, and ends with
+  `(modaliser:start! …)` — leaders arm at the handoff, so a config
+  that never reaches it arms nothing.
 - The keycode you used is one your keyboard actually emits. F18 is
   typical for split layouts and TouchID-key replacements; on a bare
   Apple keyboard you may need to remap a less-common key (Karabiner

@@ -14,11 +14,10 @@ struct SchemeCoreSmokeTests {
 
     @Test func stateMachineModuleLoads() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm))")
 
-        #expect(try engine.evaluate("(procedure? register-tree!)") == .true)
-        #expect(try engine.evaluate("(procedure? lookup-tree)") == .true)
-        #expect(try engine.evaluate("(procedure? modal-enter)") == .true)
+        #expect(try engine.evaluate("(procedure? lower-configuration)") == .true)
+        #expect(try engine.evaluate("(procedure? modal-activate!)") == .true)
         #expect(try engine.evaluate("(procedure? modal-exit)") == .true)
         #expect(try engine.evaluate("(procedure? modal-handle-key)") == .true)
         #expect(try engine.evaluate("(procedure? modal-step-back)") == .true)
@@ -26,7 +25,7 @@ struct SchemeCoreSmokeTests {
 
     @Test func dslModuleLoads() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
@@ -36,82 +35,88 @@ struct SchemeCoreSmokeTests {
         #expect(try engine.evaluate("(eq? (cdr (assoc 'kind cmd)) 'command)") == .true)
         #expect(try engine.evaluate("(procedure? group)") == .true)
         #expect(try engine.evaluate("(procedure? screen)") == .true)
-        #expect(try engine.evaluate("(procedure? set-leader!)") == .true)
+        #expect(try engine.evaluate("(procedure? tree-root)") == .true)
     }
 
-    // MARK: - Tree registration and lookup
+    // MARK: - Tree contribution and lookup
 
     @Test func registerAndLookupTree() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'launched-safari)))
+            (define cfg (configuration
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () 'launched-safari))))))
+            (fsm-install-graph! (lower-configuration cfg))
             """)
 
-        let result = try engine.evaluate("(lookup-tree \"global\")")
+        let result = try engine.evaluate("(configuration-tree-ref cfg \"global\")")
         #expect(result != .false)
-        #expect(try engine.evaluate("(group? (lookup-tree \"global\"))") == .true)
+        #expect(try engine.evaluate("(group? (configuration-tree-ref cfg \"global\"))") == .true)
     }
 
     @Test func registerAppSpecificTree() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (register-tree! 'com.apple.Safari
-              (key "t" "New Tab" (lambda () 'new-tab)))
+            (define cfg (configuration
+              (tree 'com.apple.Safari (tree-root 'com.apple.Safari
+                (key "t" "New Tab" (lambda () 'new-tab))))))
+            (fsm-install-graph! (lower-configuration cfg))
             """)
 
-        #expect(try engine.evaluate("(lookup-tree \"com.apple.Safari\")") != .false)
-        #expect(try engine.evaluate("(lookup-tree \"nonexistent\")") == .false)
+        #expect(try engine.evaluate("(configuration-tree-ref cfg \"com.apple.Safari\")") != .false)
+        #expect(try engine.evaluate("(configuration-tree-ref cfg \"nonexistent\")") == .false)
     }
 
     // MARK: - Modal navigation
 
     @Test func modalEnterAndExit() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
         #expect(try engine.evaluate("modal-active?") == .false)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("modal-active?") == .true)
 
-        // modal-enter registers a catch-all, so unregister it for test cleanup
+        // modal-activate! registers a catch-all, so unregister it for test cleanup
         try engine.evaluate("(modal-exit)")
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
     @Test func modalHandleKeyExecutesCommand() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define action-called #f)
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () (set! action-called #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () (set! action-called #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"s\")")
 
         #expect(try engine.evaluate("action-called") == .true)
@@ -120,18 +125,19 @@ struct SchemeCoreSmokeTests {
 
     @Test func modalHandleKeyNavigatesGroup() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (group "w" "Windows"
-                (key "c" "Center" (lambda () 'centered))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (group "w" "Windows"
+                  (key "c" "Center" (lambda () 'centered))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"w\")")
 
         #expect(try engine.evaluate("modal-active?") == .true)
@@ -142,18 +148,19 @@ struct SchemeCoreSmokeTests {
 
     @Test func modalStepBackWorks() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (group "w" "Windows"
-                (key "c" "Center" (lambda () 'centered))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (group "w" "Windows"
+                  (key "c" "Center" (lambda () 'centered))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"w\")")
         try engine.evaluate("(modal-step-back)")
 
@@ -168,17 +175,18 @@ struct SchemeCoreSmokeTests {
         // to retreat to, so it's a stand-still. Exit is owned by Escape
         // and 'exit-on-unknown; backspace never drops a modal.
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-step-back)")
 
         #expect(try engine.evaluate("modal-active?") == .true)
@@ -190,15 +198,18 @@ struct SchemeCoreSmokeTests {
 
     @Test func setLeaderRegistersHotkey() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
+        try engine.evaluate("(import (modaliser handoff))")
 
+        // The real handoff arms the leaders from the configuration value.
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
-            (set-leader! 'global F18)
+            (modaliser:start! (configuration
+              (leaders (leader 'global F18))
+              (screen 'global
+                (key "s" "Safari" (lambda () 'ok)))))
             """)
 
         // Verify the hotkey was registered in the keyboard library
@@ -208,21 +219,22 @@ struct SchemeCoreSmokeTests {
 
     @Test func fullLifecycleViaSchemeModules() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define test-action-log '())
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () (set! test-action-log (cons 'safari test-action-log))))
-              (group "w" "Windows"
-                (key "c" "Center" (lambda () (set! test-action-log (cons 'center test-action-log))))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () (set! test-action-log (cons 'safari test-action-log))))
+                (group "w" "Windows"
+                  (key "c" "Center" (lambda () (set! test-action-log (cons 'center test-action-log))))))))))
             """)
 
         // Simulate full flow: enter → navigate group → execute command
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("modal-active?") == .true)
 
         try engine.evaluate("(modal-handle-key \"w\")")
@@ -235,32 +247,33 @@ struct SchemeCoreSmokeTests {
 
     @Test func appSpecificTreeOverridesGlobal() throws {
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
             (define which-tree #f)
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () (set! which-tree 'global))))
-            (register-tree! 'com.apple.Safari
-              (key "t" "Tab" (lambda () (set! which-tree 'safari))))
+            (define cfg (configuration
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () (set! which-tree 'global)))))
+              (tree 'com.apple.Safari (tree-root 'com.apple.Safari
+                (key "t" "Tab" (lambda () (set! which-tree 'safari)))))))
+            (fsm-install-graph! (lower-configuration cfg))
             """)
 
         // App-specific tree should be found for Safari
-        let safariTree = try engine.evaluate("(lookup-tree \"com.apple.Safari\")")
+        let safariTree = try engine.evaluate("(configuration-tree-ref cfg \"com.apple.Safari\")")
         #expect(safariTree != .false)
 
         // Global should still exist
-        let globalTree = try engine.evaluate("(lookup-tree \"global\")")
+        let globalTree = try engine.evaluate("(configuration-tree-ref cfg \"global\")")
         #expect(globalTree != .false)
 
-        // The make-leader-handler uses (or app-tree global-tree), test that logic
-        try engine.evaluate("""
-            (let ((tree (or (lookup-tree "com.apple.Safari") (lookup-tree "global"))))
-              (modal-enter tree F18))
-            """)
+        // The old make-leader-handler's (or app-tree global-tree) fallback now
+        // lives in resolve-activation; activating the app scope directly must
+        // dispatch the app-specific tree.
+        try engine.evaluate("(modal-activate! \"com.apple.Safari\" '() F18)")
         try engine.evaluate("(modal-handle-key \"t\")")
         #expect(try engine.evaluate("which-tree") == .symbol(engine.context.symbols.intern("safari")))
     }
@@ -269,17 +282,18 @@ struct SchemeCoreSmokeTests {
         // Unknown keys are swallowed — never dismiss the modal. Escape
         // is the sole exit; this applies to Terminal and Walk trees alike.
         let engine = try SchemeEngine()
-        guard let schemePath = engine.schemeDirectoryPath else { return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        guard engine.schemeDirectoryPath != nil else { return }
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"x\")")
 
         #expect(try engine.evaluate("modal-active?") == .true)
@@ -289,12 +303,12 @@ struct SchemeCoreSmokeTests {
 
     // MARK: - Walks and Terminal dispatch (ADR-0015)
     //
-    // Each test loads the core layer fresh because the global tree-registry
+    // Each test loads the core layer fresh because the installed graph
     // and modal-* state survive across evaluates within a single engine,
     // and we want isolated trees per scenario.
 
     private func loadCore(_ engine: SchemeEngine, _ schemePath: String) throws {
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
     }
@@ -308,11 +322,12 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("""
             (define fire-count 0)
-            (register-tree! 'panes
-              (key "h" "Left" (lambda () (set! fire-count (+ fire-count 1))) 'next 'self))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Left" (lambda () (set! fire-count (+ fire-count 1))) 'next 'self))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         try engine.evaluate("(modal-handle-key \"h\")")
         try engine.evaluate("(modal-handle-key \"h\")")
         try engine.evaluate("(modal-handle-key \"h\")")
@@ -330,11 +345,12 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (key "h" "Left" (lambda () 'ok) 'next 'self))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Left" (lambda () 'ok) 'next 'self))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         try engine.evaluate("(modal-handle-key \"z\")") // unknown
         #expect(try engine.evaluate("modal-active?") == .true)
 
@@ -353,17 +369,19 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'fresh
-              (key "z" "Z" (lambda () 'ok)))
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () (modal-enter (lookup-tree \"fresh\") F19))))
+            (define cfg (configuration
+              (tree 'fresh (tree-root 'fresh
+                (key "z" "Z" (lambda () 'ok))))
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () (modal-activate! "fresh" '() F19)))))))
+            (fsm-install-graph! (lower-configuration cfg))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"s\")")
 
         #expect(try engine.evaluate("modal-active?") == .true)
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"fresh\"))") == .true)
+        #expect(try engine.evaluate("(eq? modal-root-node (configuration-tree-ref cfg \"fresh\"))") == .true)
         #expect(try engine.evaluate("(eq? modal-leader-keycode F19)") == .true)
 
         try engine.evaluate("(modal-exit)")
@@ -378,11 +396,12 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (key "h" "Left" (lambda () 'ok) 'next 'self))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Left" (lambda () 'ok) 'next 'self))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
 
         try engine.evaluate("(modal-handle-key \"h\")")
@@ -396,29 +415,31 @@ struct SchemeCoreSmokeTests {
     }
 
     @Test func crossEdgePushesCallerAndSwitchesRoot() throws {
-        // A 'next edge naming a DIFFERENT registered tree is a cross
-        // edge: push the caller context and switch into the target — what
-        // the old enter-mode! primitive did imperatively, now declared on
-        // the leaf and followed by the engine itself after the action.
+        // A 'next edge naming a DIFFERENT tree in the configuration is a
+        // cross edge: push the caller context and switch into the target —
+        // what the old enter-mode! primitive did imperatively, now declared
+        // on the leaf and followed by the engine itself after the action.
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (key "h" "Left" (lambda () 'ok) 'next 'self))
-            (register-tree! 'launcher
-              (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes))
+            (define cfg (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Left" (lambda () 'ok) 'next 'self)))
+              (tree 'launcher (tree-root 'launcher
+                (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes)))))
+            (fsm-install-graph! (lower-configuration cfg))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("(modal-activate! \"launcher\" '() F18)")
         try engine.evaluate("(modal-handle-key \"p\")")
 
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"panes\"))") == .true)
+        #expect(try engine.evaluate("(eq? modal-root-node (configuration-tree-ref cfg \"panes\"))") == .true)
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
 
         try engine.evaluate("(modal-step-back)")
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"launcher\"))") == .true)
+        #expect(try engine.evaluate("(eq? modal-root-node (configuration-tree-ref cfg \"launcher\"))") == .true)
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
 
         try engine.evaluate("(modal-exit)")
@@ -436,11 +457,12 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("""
             (define fired #f)
-            (register-tree! 'global
-              (key "g" "Goto" (lambda () (set! fired #t)) 'next (lambda () #f)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Goto" (lambda () (set! fired #t)) 'next (lambda () #f)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         #expect(try engine.evaluate("fired") == .true)
@@ -453,15 +475,18 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes (key "h" "Left" (lambda () 'ok) 'next 'self))
-            (register-tree! 'global
-              (key "g" "Goto" (lambda () 'ok) 'next (lambda () 'panes)))
+            (define cfg (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Left" (lambda () 'ok) 'next 'self)))
+              (tree 'global (tree-root 'global
+                (key "g" "Goto" (lambda () 'ok) 'next (lambda () 'panes))))))
+            (fsm-install-graph! (lower-configuration cfg))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"panes\"))") == .true)
+        #expect(try engine.evaluate("(eq? modal-root-node (configuration-tree-ref cfg \"panes\"))") == .true)
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
 
         try engine.evaluate("(modal-exit)")
@@ -476,11 +501,12 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (key "h" "Left" (lambda () 'ok) 'next 'self))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Left" (lambda () 'ok) 'next 'self))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         try engine.evaluate("(modal-step-back)")
         #expect(try engine.evaluate("modal-active?") == .false)
     }
@@ -495,13 +521,14 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (key "p" "Panes" (lambda () 'ok) 'next 'self)
-              (group "x" "Split"
-                (key "h" "Split Left" (lambda () 'ok) 'next 'self)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                (key "p" "Panes" (lambda () 'ok) 'next 'self)
+                (group "x" "Split"
+                  (key "h" "Split Left" (lambda () 'ok) 'next 'self)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         try engine.evaluate("(modal-handle-key \"x\")")
         #expect(try engine.evaluate("(equal? modal-current-path '(\"x\"))") == .true)
 
@@ -520,13 +547,14 @@ struct SchemeCoreSmokeTests {
 
         try engine.evaluate("""
             (define split-count 0)
-            (register-tree! 'panes
-              (group "x" "Split"
-                (key "h" "Split Left"
-                  (lambda () (set! split-count (+ split-count 1))) 'next 'self)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                (group "x" "Split"
+                  (key "h" "Split Left"
+                    (lambda () (set! split-count (+ split-count 1))) 'next 'self)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         try engine.evaluate("(modal-handle-key \"x\")")
         #expect(try engine.evaluate("(equal? modal-current-path '(\"x\"))") == .true)
 
@@ -546,12 +574,13 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (group "x" "Split"
-                (key "h" "Split Left" (lambda () 'ok) 'next 'self)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                (group "x" "Split"
+                  (key "h" "Split Left" (lambda () 'ok) 'next 'self)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         try engine.evaluate("(modal-handle-key \"x\")")
         try engine.evaluate("(modal-step-back)")
 
@@ -570,11 +599,12 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"s\")")
 
         #expect(try engine.evaluate("modal-active?") == .false)
@@ -597,14 +627,15 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              'display-name "Pane Mode"
-              (key "h" "Left" (lambda () 'ok)))
-            (register-tree! 'launcher
-              (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                'display-name "Pane Mode"
+                (key "h" "Left" (lambda () 'ok))))
+              (tree 'launcher (tree-root 'launcher
+                (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("(modal-activate! \"launcher\" '() F18)")
         try engine.evaluate("(modal-handle-key \"p\")")
         #expect(try engine.evaluate("modal-active?") == .true)
         #expect(try engine.evaluate("(member \"Pane Mode\" (modal-root-segments))") != .false)
@@ -618,21 +649,23 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (key "h" "Left" (lambda () 'ok)))
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok) 'next 'panes))
+            (define cfg (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Left" (lambda () 'ok))))
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () 'ok) 'next 'panes)))))
+            (fsm-install-graph! (lower-configuration cfg))
             """)
 
         // Enter the global modal first.
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("modal-active?") == .true)
 
         // The cross edge should switch us cleanly into the panes mode.
         try engine.evaluate("(modal-handle-key \"s\")")
         #expect(try engine.evaluate("modal-active?") == .true)
         #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"panes\"))") == .true)
+            "(eq? modal-root-node (configuration-tree-ref cfg \"panes\"))") == .true)
 
         try engine.evaluate("(modal-exit)")
     }
@@ -647,15 +680,16 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'walk-mode
-              'display-name "Splits"
-              (key "h" "Left" (lambda () 'ok)))
-            (register-tree! 'global
-              (key "s" "Splits" (lambda () 'ok) 'next 'walk-mode))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'walk-mode (tree-root 'walk-mode
+                'display-name "Splits"
+                (key "h" "Left" (lambda () 'ok))))
+              (tree 'global (tree-root 'global
+                (key "s" "Splits" (lambda () 'ok) 'next 'walk-mode))))))
             """)
 
         // Enter the parent (global → root segment "Global"), then cross in.
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"s\")")
 
         // Both the caller's segment and the mode's segment are present.
@@ -668,11 +702,13 @@ struct SchemeCoreSmokeTests {
     }
 
     @Test func walkRegistersModeAndSplicesEntries() throws {
-        // (walk …) defines an "act + latch" set once: it registers a mode
-        // tree whose own members cycle ('next 'self) AND returns a splice
-        // node whose keys carry a 'next cross edge back to that mode.
-        // Splicing it into a parent must hoist those entry keys in place
-        // (DRY — one definition, two uses).
+        // (walk …) defines an "act + latch" set once: it builds a splice
+        // node carrying its mode tree, whose own members cycle ('next
+        // 'self), AND whose entry keys carry a 'next cross edge back to
+        // that mode. Splicing it into a parent tree hoists the mode tree
+        // into the configuration's tree set at the merge (walk hoisting)
+        // and expands the entry keys in place (DRY — one definition, two
+        // uses).
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { return }
         try loadCore(engine, schemePath)
@@ -682,28 +718,32 @@ struct SchemeCoreSmokeTests {
               (walk 'walk-mode "Walk"
                 (key "h" "Left"  (lambda () 'l))
                 (key "l" "Right" (lambda () 'r))))
-            (register-tree! 'global
-              (key "x" "X" (lambda () 'x))
-              nav)
+            (define cfg (configuration
+              (tree 'global (tree-root 'global
+                (key "x" "X" (lambda () 'x))
+                nav))))
+            (fsm-install-graph! (lower-configuration cfg))
+            (define global-root (configuration-tree-ref cfg "global"))
+            (define walk-mode-root (configuration-tree-ref cfg "walk-mode"))
             """)
 
-        // The mode tree is registered and its own members cycle.
-        #expect(try engine.evaluate("(node-walk? (lookup-tree \"walk-mode\"))") == .true)
+        // The mode tree was hoisted into the tree set and its own members cycle.
+        #expect(try engine.evaluate("(node-walk? walk-mode-root)") == .true)
 
         // The splice expanded into the parent: the spliced key dispatches
         // and carries a 'next cross edge back to the mode.
         #expect(try engine.evaluate(
-            "(find-child (lookup-tree \"global\") \"h\")") != .false)
+            "(find-child global-root \"h\")") != .false)
         #expect(try engine.evaluate(
-            "(eq? (node-next (find-child (lookup-tree \"global\") \"h\")) 'walk-mode)")
+            "(eq? (node-next (find-child global-root \"h\")) 'walk-mode)")
             == .true)
         // The non-spliced sibling is untouched.
         #expect(try engine.evaluate(
-            "(find-child (lookup-tree \"global\") \"x\")") != .false)
+            "(find-child global-root \"x\")") != .false)
         // The mode's own copy of the key carries 'next 'self (it cycles via
         // its own edge, not a cross edge back to itself).
         #expect(try engine.evaluate(
-            "(eq? (node-next (find-child (lookup-tree \"walk-mode\") \"h\")) 'self)") == .true)
+            "(eq? (node-next (find-child walk-mode-root \"h\")) 'self)") == .true)
     }
 
     @Test func exitOnUnknownDismissesAtRoot() throws {
@@ -717,12 +757,13 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              'exit-on-unknown #t
-              (key "h" "Left" (lambda () 'ok) 'next 'self))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                'exit-on-unknown #t
+                (key "h" "Left" (lambda () 'ok) 'next 'self))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         try engine.evaluate("(modal-handle-key \"z\")")  // unknown
         #expect(try engine.evaluate("modal-active?") == .false)
     }
@@ -736,13 +777,14 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              'exit-on-unknown #t
-              (group "x" "Split"
-                (key "h" "Split Left" (lambda () 'ok))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                'exit-on-unknown #t
+                (group "x" "Split"
+                  (key "h" "Split Left" (lambda () 'ok))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         try engine.evaluate("(modal-handle-key \"x\")")
         #expect(try engine.evaluate("modal-active?") == .true)
 
@@ -759,14 +801,15 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (key "h" "Root H" (lambda () 'ok))
-              (group "x" "Strict"
-                'exit-on-unknown #t
-                (key "h" "Strict H" (lambda () 'ok))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Root H" (lambda () 'ok))
+                (group "x" "Strict"
+                  'exit-on-unknown #t
+                  (key "h" "Strict H" (lambda () 'ok))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"panes\") F18)")
+        try engine.evaluate("(modal-activate! \"panes\" '() F18)")
         // Unknown at root: tree default is forgiving → swallowed.
         try engine.evaluate("(modal-handle-key \"z\")")
         #expect(try engine.evaluate("modal-active?") == .true)
@@ -777,7 +820,7 @@ struct SchemeCoreSmokeTests {
         #expect(try engine.evaluate("modal-active?") == .false)
     }
 
-    // MARK: - Modal stack via enter-mode! (fired through 'next + modal-handle-key)
+    // MARK: - Modal stack via cross edges (fired through 'next + modal-handle-key)
 
     @Test func enterModeFromTransientLeafPushesCaller() throws {
         // A cross edge fired from an active modal (the launcher) pushes
@@ -788,16 +831,18 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (key "h" "Left" (lambda () 'ok)))
-            (register-tree! 'launcher
-              (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes))
+            (define cfg (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Left" (lambda () 'ok))))
+              (tree 'launcher (tree-root 'launcher
+                (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes)))))
+            (fsm-install-graph! (lower-configuration cfg))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("(modal-activate! \"launcher\" '() F18)")
         try engine.evaluate("(modal-handle-key \"p\")")
         #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"panes\"))") == .true)
+            "(eq? modal-root-node (configuration-tree-ref cfg \"panes\"))") == .true)
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
 
         // Backspace at the panes root pops back to the launcher — a
@@ -806,7 +851,7 @@ struct SchemeCoreSmokeTests {
         try engine.evaluate("(modal-step-back)")
         #expect(try engine.evaluate("modal-active?") == .true)
         #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"launcher\"))") == .true)
+            "(eq? modal-root-node (configuration-tree-ref cfg \"launcher\"))") == .true)
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
 
         try engine.evaluate("(modal-exit)")
@@ -820,13 +865,14 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'panes
-              (key "h" "Left" (lambda () 'ok)))
-            (register-tree! 'launcher
-              (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'panes (tree-root 'panes
+                (key "h" "Left" (lambda () 'ok))))
+              (tree 'launcher (tree-root 'launcher
+                (key "p" "Pane Mode" (lambda () 'ok) 'next 'panes))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("(modal-activate! \"launcher\" '() F18)")
         try engine.evaluate("(modal-handle-key \"p\")")
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
 
@@ -843,29 +889,31 @@ struct SchemeCoreSmokeTests {
         try loadCore(engine, schemePath)
 
         try engine.evaluate("""
-            (register-tree! 'b
-              (key "x" "Noop" (lambda () 'ok)))
-            (register-tree! 'a
-              (key "n" "Next" (lambda () 'ok) 'next 'b))
-            (register-tree! 'launcher
-              (key "p" "Mode A" (lambda () 'ok) 'next 'a))
+            (define cfg (configuration
+              (tree 'b (tree-root 'b
+                (key "x" "Noop" (lambda () 'ok))))
+              (tree 'a (tree-root 'a
+                (key "n" "Next" (lambda () 'ok) 'next 'b)))
+              (tree 'launcher (tree-root 'launcher
+                (key "p" "Mode A" (lambda () 'ok) 'next 'a)))))
+            (fsm-install-graph! (lower-configuration cfg))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"launcher\") F18)")
+        try engine.evaluate("(modal-activate! \"launcher\" '() F18)")
         try engine.evaluate("(modal-handle-key \"p\")")  // launcher → a
         try engine.evaluate("(modal-handle-key \"n\")")  // a → b
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(2))
         #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"b\"))") == .true)
+            "(eq? modal-root-node (configuration-tree-ref cfg \"b\"))") == .true)
 
         try engine.evaluate("(modal-step-back)")  // b → a
         #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"a\"))") == .true)
+            "(eq? modal-root-node (configuration-tree-ref cfg \"a\"))") == .true)
         #expect(try engine.evaluate("(length modal-stack)") == .fixnum(1))
 
         try engine.evaluate("(modal-step-back)")  // a → launcher
         #expect(try engine.evaluate(
-            "(eq? modal-root-node (lookup-tree \"launcher\"))") == .true)
+            "(eq? modal-root-node (configuration-tree-ref cfg \"launcher\"))") == .true)
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
 
         try engine.evaluate("(modal-exit)")

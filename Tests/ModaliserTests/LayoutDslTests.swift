@@ -5,14 +5,15 @@ import LispKit
 
 // Lowering tests for the presentation-first layout DSL (ADR-0011/0012):
 // the `screen` / `panel` / `open` container forms in (modaliser dsl) and the
-// construction-time lowering that emits operational alist nodes carrying the
-// presentation metadata the panel-grid renderer (panel-grid-renderer-k4)
-// reads. The state machine is untouched, so these exercise the alist shape
-// and that find-child / flatten-categories still dispatch transparently.
+// construction-time lowering onto the two-layer node model — flat dispatch
+// children plus one 'display entry holding the complete Display value the
+// renderer resolves (resolve-display). These exercise the lowered shape
+// and that find-child / dispatch-children still dispatch transparently.
 @Suite("Layout DSL (screen / panel / open lowering)")
 struct LayoutDslTests {
 
     // Imports just enough for lowering + dispatch: dsl, state-machine,
+    // configuration (the pure merge the value-built trees go through),
     // and the helpers below. No ui/*.scm — find-child / navigate-to-path
     // are pure state-machine, and modal show/hide hooks default to no-ops.
     private func loadLayout() throws -> SchemeEngine {
@@ -20,10 +21,11 @@ struct LayoutDslTests {
         try engine.evaluate("""
           (import (modaliser util)
                   (modaliser keymap)
-                  (modaliser state-machine))
+                  (modaliser fsm))
         """)
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
+        try engine.evaluate("(import (modaliser configuration))")
         // A minimal live-list block-spec, shaped like the real
         // window:list-block / iterm:pane-list-block output: a 'type entry,
         // a hidden digit (key-range …) under 'block-children, and an
@@ -35,26 +37,28 @@ struct LayoutDslTests {
                   (cons 'block-children
                         (list (key-range "1.." "Win <n>" (list "1" "2")
                                 (lambda (k) k))))))
-          ;; Find a direct child category (panel) of ROOT by its label.
+          ;; Find a panel CLAUSE of ROOT's display value by its label —
+          ;; panels live only in the display value now (ADR-0011), never
+          ;; among a node's children.
           (define (find-panel root label)
-            (let loop ((cs (node-children root)))
-              (cond ((null? cs) #f)
-                    ((and (eq? (cdr (assoc 'kind (car cs))) 'category)
-                          (equal? (node-label (car cs)) label))
-                     (car cs))
-                    (else (loop (cdr cs))))))
+            (let loop ((ps (or (node-display-ref root 'panels) '())))
+              (cond ((null? ps) #f)
+                    ((equal? (cdr (assoc 'label (car ps))) label) (car ps))
+                    (else (loop (cdr ps))))))
         """)
         return engine
     }
 
     // MARK: - panel
 
-    @Test func panelLowersToCategoryWithDefaultNarrowSpan() throws {
+    @Test func panelBuildsAConstructionSpecWithDefaultNarrowSpan() throws {
         let engine = try loadLayout()
+        // panel returns a construction-time panel-spec the enclosing
+        // screen/open consumes — never an IR node kind.
         try engine.evaluate("""
             (define p (panel "Windows" (key "c" "Center" (lambda () 'ok))))
             """)
-        #expect(try engine.evaluate("(category? p)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'kind p)) 'panel-spec)") == .true)
         #expect(try engine.evaluate("(node-label p)").asString() == "Windows")
         #expect(try engine.evaluate("(eq? (cdr (assoc 'span p)) 'narrow)") == .true)
         // The key descends transparently.
@@ -96,15 +100,17 @@ struct LayoutDslTests {
     @Test func panelCarriesListBlockUnderListKey() throws {
         let engine = try loadLayout()
         try engine.evaluate("(define p (panel \"Windows\" (fake-list-block)))")
-        // The block-spec rides under 'list for the renderer to read.
-        #expect(try engine.evaluate("(eq? (cdr (assoc 'type (node-renderer-payload p 'list))) 'window-list)") == .true)
+        // The block-spec rides under 'list (hook composition + the
+        // display clause's block reference).
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'type (cdr (assoc 'list p)))) 'window-list)") == .true)
     }
 
-    @Test func panelLiftsListBlockChildrenIntoDispatch() throws {
+    @Test func panelBlockDigitRangeResolvesInDispatch() throws {
         let engine = try loadLayout()
         try engine.evaluate("(define p (panel \"Windows\" (fake-list-block)))")
-        // The block's hidden digit range was lifted into the panel's
-        // dispatch children, so pressing "1" resolves to it.
+        // The block stays a dispatch atom among the children; its hidden
+        // digit range expands at read time (dispatch-children), so
+        // pressing "1" resolves to it.
         #expect(try engine.evaluate("(range-command? (find-child p \"1\"))") == .true)
     }
 
@@ -128,31 +134,36 @@ struct LayoutDslTests {
         #expect(try engine.evaluate("(command? (find-child p \"l\"))") == .true)
     }
 
-    @Test func walkForwardsOrderToRegisteredMode() throws {
+    @Test func walkForwardsOrderToModeTree() throws {
         let engine = try loadLayout()
-        // 'order 'declared on walk rides through to the registered mode
-        // tree so the crossed-into Walk renders in declaration order rather
-        // than key-sorted (iterm-nav-declared-order-k38).
+        // 'order 'declared on walk rides through to the walk's carried mode
+        // tree (hoisted into the configuration's tree set by the merge) so
+        // the crossed-into Walk renders in declaration order rather than
+        // key-sorted (iterm-nav-declared-order-k38).
         try engine.evaluate("""
-            (walk 'sset-order-declared "Walk" 'order 'declared
-              (key "h" "Left"  (lambda () 'ok))
-              (key "l" "Right" (lambda () 'ok)))
+            (define cfg (configuration
+              (tree 'sset-order-host (tree-root 'sset-order-host
+                (walk 'sset-order-declared "Walk" 'order 'declared
+                  (key "h" "Left"  (lambda () 'ok))
+                  (key "l" "Right" (lambda () 'ok)))))))
             """)
         #expect(try engine.evaluate(
-          "(eq? (node-renderer-payload (lookup-tree \"sset-order-declared\") 'order) 'declared)") == .true)
+          "(eq? (node-display-ref (configuration-tree-ref cfg \"sset-order-declared\") 'order) 'declared)") == .true)
     }
 
     @Test func walkOmitsOrderByDefault() throws {
         let engine = try loadLayout()
-        // No 'order keyword → the registered mode carries no 'order entry, so
+        // No 'order keyword → the hoisted mode carries no 'order entry, so
         // it keeps the renderer's key-sort default.
         try engine.evaluate("""
-            (walk 'sset-order-default "Walk"
-              (key "h" "Left"  (lambda () 'ok))
-              (key "l" "Right" (lambda () 'ok)))
+            (define cfg (configuration
+              (tree 'sset-order-host (tree-root 'sset-order-host
+                (walk 'sset-order-default "Walk"
+                  (key "h" "Left"  (lambda () 'ok))
+                  (key "l" "Right" (lambda () 'ok)))))))
             """)
         #expect(try engine.evaluate(
-          "(node-renderer-payload (lookup-tree \"sset-order-default\") 'order)") == .false)
+          "(node-display-ref (configuration-tree-ref cfg \"sset-order-default\") 'order)") == .false)
     }
 
     @Test func walkOrderKeywordDoesNotLeakIntoSplice() throws {
@@ -170,34 +181,37 @@ struct LayoutDslTests {
 
     // MARK: - screen
 
-    @Test func screenRegistersTreeWithPanelGridRenderer() throws {
+    @Test func screenContributesTreeWithStructuredDisplay() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
-            (screen 'scr-test
-              (panel "P" (key "c" "C" (lambda () 'ok))))
+            (define cfg (configuration (screen 'scr-test
+              (panel "P" (key "c" "C" (lambda () 'ok))))))
+            (define scr-root (configuration-tree-ref cfg "scr-test"))
             """)
-        #expect(try engine.evaluate("(lookup-tree \"scr-test\")") != .false)
-        #expect(try engine.evaluate("(eq? (node-renderer (lookup-tree \"scr-test\")) 'panel-grid)") == .true)
+        #expect(try engine.evaluate("scr-root") != .false)
+        // The panel grid lives in the display value — the shape the
+        // overlay derives the panel-grid render path from.
+        #expect(try engine.evaluate("(pair? (node-display-ref scr-root 'panels))") == .true)
     }
 
     @Test func screenCarriesColsWhenGiven() throws {
         let engine = try loadLayout()
-        try engine.evaluate("(screen 'scr-cols 'cols 3 (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
-        #expect(try engine.evaluate("(= (node-renderer-payload (lookup-tree \"scr-cols\") 'cols) 3)") == .true)
+        try engine.evaluate("(define cfg (configuration (screen 'scr-cols 'cols 3 (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))))")
+        #expect(try engine.evaluate("(= (node-display-ref (configuration-tree-ref cfg \"scr-cols\") 'cols) 3)") == .true)
     }
 
     @Test func screenCarriesLayoutWhenGiven() throws {
         let engine = try loadLayout()
-        try engine.evaluate("(screen 'scr-layout 'layout 'grid (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
-        #expect(try engine.evaluate("(eq? (node-renderer-payload (lookup-tree \"scr-layout\") 'layout) 'grid)") == .true)
+        try engine.evaluate("(define cfg (configuration (screen 'scr-layout 'layout 'grid (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))))")
+        #expect(try engine.evaluate("(eq? (node-display-ref (configuration-tree-ref cfg \"scr-layout\") 'layout) 'grid)") == .true)
     }
 
     @Test func screenDefaultsToMasonryWhenLayoutOmitted() throws {
         let engine = try loadLayout()
-        // No 'layout keyword → no layout marker on the node; the renderer omits
-        // it and the CSS default (.panel-grid masonry) applies.
-        try engine.evaluate("(screen 'scr-nolayout (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
-        #expect(try engine.evaluate("(node-renderer-payload (lookup-tree \"scr-nolayout\") 'layout)") == .false)
+        // No 'layout keyword → no layout entry in the display value; the
+        // renderer omits it and the CSS default (.panel-grid masonry) applies.
+        try engine.evaluate("(define cfg (configuration (screen 'scr-nolayout (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))))")
+        #expect(try engine.evaluate("(node-display-ref (configuration-tree-ref cfg \"scr-nolayout\") 'layout)") == .false)
     }
 
     @Test func screenRejectsUnknownLayout() throws {
@@ -210,106 +224,132 @@ struct LayoutDslTests {
     @Test func screenRendersLooseKeysWithoutGeneralPanel() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
-            (screen 'scr-general
+            (define cfg (configuration (screen 'scr-general
               (key "a" "Loose A" (lambda () 'ok))
-              (panel "P" (key "b" "B" (lambda () 'ok))))
+              (panel "P" (key "b" "B" (lambda () 'ok))))))
             """)
-        let root = "(lookup-tree \"scr-general\")"
-        // No "General" category is created — loose atoms no longer bucket into one.
+        let root = "(configuration-tree-ref cfg \"scr-general\")"
+        // No "General" panel is created — loose atoms no longer bucket into one.
         #expect(try engine.evaluate("(find-panel \(root) \"General\")") == .false)
-        // The loose key rides the screen's 'loose region (the renderer reads it
-        // back to draw a bare, header-less row block above the panel grid).
-        #expect(try engine.evaluate("(pair? (node-renderer-payload \(root) 'loose))") == .true)
+        // The loose key rides the display value's 'loose refs (the renderer
+        // draws them as a bare, header-less row block above the panel grid).
+        #expect(try engine.evaluate("(pair? (node-display-ref \(root) 'loose))") == .true)
         // The explicit panel passed through, and dispatch stays transparent for
         // both the loose key and the panel key.
-        #expect(try engine.evaluate("(category? (find-panel \(root) \"P\"))") == .true)
+        #expect(try engine.evaluate("(pair? (find-panel \(root) \"P\"))") == .true)
         #expect(try engine.evaluate("(command? (find-child \(root) \"a\"))") == .true)
         #expect(try engine.evaluate("(command? (find-child \(root) \"b\"))") == .true)
     }
 
     @Test func screenWithoutLooseAtomsHasNoLooseRegion() throws {
         let engine = try loadLayout()
-        try engine.evaluate("(screen 'scr-nogeneral (panel \"P\" (key \"b\" \"B\" (lambda () 'ok))))")
-        let root = "(lookup-tree \"scr-nogeneral\")"
-        // No General category, and no 'loose marker when every child is a panel.
+        try engine.evaluate("(define cfg (configuration (screen 'scr-nogeneral (panel \"P\" (key \"b\" \"B\" (lambda () 'ok))))))")
+        let root = "(configuration-tree-ref cfg \"scr-nogeneral\")"
+        // No General panel, and no 'loose entry when every child is a panel.
         #expect(try engine.evaluate("(find-panel \(root) \"General\")") == .false)
-        #expect(try engine.evaluate("(node-renderer-payload \(root) 'loose)") == .false)
+        #expect(try engine.evaluate("(node-display-ref \(root) 'loose)") == .false)
     }
 
-    @Test func screenLiftsLooseBlockChildrenIntoDispatch() throws {
+    @Test func looseBlockDigitRangeResolvesInDispatch() throws {
         let engine = try loadLayout()
-        // A live-list block placed LOOSE at the screen top level (not wrapped in
-        // a panel) lifts its hidden dispatch range into the screen's children so
-        // the digits resolve transparently, while the block itself rides the
-        // 'loose region for the renderer to draw bare.
+        // A live-list block placed LOOSE at the screen top level (not wrapped
+        // in a panel) stays a dispatch atom among the children — its hidden
+        // digit range expands at read time (dispatch-children) so the digits
+        // resolve transparently, while the display's loose refs place the
+        // block for the renderer to draw bare.
         try engine.evaluate("""
-            (screen 'scr-loose-block
+            (define cfg (configuration (screen 'scr-loose-block
               (key "a" "Loose A" (lambda () 'ok))
-              (fake-list-block))
+              (fake-list-block))))
             """)
-        let root = "(lookup-tree \"scr-loose-block\")"
+        let root = "(configuration-tree-ref cfg \"scr-loose-block\")"
         #expect(try engine.evaluate("(range-command? (find-child \(root) \"1\"))") == .true)
         #expect(try engine.evaluate("(command? (find-child \(root) \"a\"))") == .true)
         #expect(try engine.evaluate("(find-panel \(root) \"General\")") == .false)
     }
 
-    @Test func screenComposesLooseListOnLeaveHook() throws {
+    @Test func screenLeavesBlockHooksOnTheBlockAtom() throws {
         let engine = try loadLayout()
-        // A LOOSE list block's on-leave-fn (chip clear) must compose onto the
-        // screen group's on-leave, exactly as a panel-embedded list's does.
-        try engine.evaluate("(screen 'scr-loose-hooks (fake-list-block))")
-        #expect(try engine.evaluate("(procedure? (node-on-leave (lookup-tree \"scr-loose-hooks\")))") == .true)
+        // Block hooks are NOT composed into the node's own on-leave (the
+        // sugar is a veneer — display-dsl-surface-k23): they stay on the
+        // block atom, and run-on-leave fires them structurally from the
+        // children. The node's 'on-leave is the user's raw hook or #f.
+        try engine.evaluate("(define cfg (configuration (screen 'scr-loose-hooks (fake-list-block))))")
+        #expect(try engine.evaluate("(not (node-on-leave (configuration-tree-ref cfg \"scr-loose-hooks\")))") == .true)
+    }
+
+    @Test func runOnLeaveFiresUserHookThenBlockHooksStructurally() throws {
+        let engine = try loadLayout()
+        // The firing contract: the node's own hook first, then each block
+        // child's hook fn in declaration order — loose and panel-embedded
+        // alike, since both are flat children under ADR-0011.
+        try engine.evaluate("""
+            (define fired '())
+            (define (mk-block id)
+              (list (cons 'type 'window-list)
+                    (cons 'id id)
+                    (cons 'on-leave-fn (lambda () (set! fired (cons id fired))))))
+            (define cfg (configuration
+              (screen 'scr-fire 'on-leave (lambda () (set! fired (cons 'user fired)))
+                (mk-block 'loose-blk)
+                (panel "W" (mk-block 'panel-blk)))))
+            (define root (configuration-tree-ref cfg "scr-fire"))
+            (run-on-leave root)
+            """)
+        #expect(try engine.evaluate("(equal? (reverse fired) '(user loose-blk panel-blk))") == .true)
+        // The node's own on-leave is the user's raw hook — no composed
+        // wrapper closure.
+        #expect(try engine.evaluate("(procedure? (node-on-leave root))") == .true)
+    }
+
+    @Test func runOnEnterFiresBlockHooksOnBareGroupsToo() throws {
+        let engine = try loadLayout()
+        // The bare surface gets the same firing for free: a block child
+        // of a plain tree-root/group fires its hooks with no sugar
+        // involved — hook wiring derives from structure, not authoring
+        // surface.
+        try engine.evaluate("""
+            (define entered '())
+            (define blk
+              (list (cons 'type 'window-list)
+                    (cons 'on-enter-fn (lambda () (set! entered (cons 'blk entered))))))
+            (define broot (tree-root 'bare-fire blk))
+            (run-on-enter broot)
+            """)
+        #expect(try engine.evaluate("(equal? entered '(blk))") == .true)
     }
 
     @Test func screenAcceptsLifecycleKeywords() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
-            (screen 'scr-life 'display-name "Title" 'exit-on-unknown #t
-              (panel "P" (key "c" "C" (lambda () 'ok))))
+            (define cfg (configuration (screen 'scr-life 'display-name "Title" 'exit-on-unknown #t
+              (panel "P" (key "c" "C" (lambda () 'ok))))))
             """)
-        let root = "(lookup-tree \"scr-life\")"
+        let root = "(configuration-tree-ref cfg \"scr-life\")"
         #expect(try engine.evaluate("(equal? (node-display-name \(root)) \"Title\")") == .true)
         #expect(try engine.evaluate("(node-exit-on-unknown? \(root))") == .true)
     }
 
     // entry-exit-slot-wiring-k47: 'entry/'exit ride through `screen` onto
-    // the node alongside 'on-enter/'on-leave, distinct from the pre-
-    // existing boolean 'auto-entry keyword (renamed from 'entry to make
-    // room for this pair — a naming collision found while wiring it).
+    // the node alongside 'on-enter/'on-leave.
     @Test func screenAcceptsEntryExitKeywords() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
-            (screen 'scr-entry-exit 'entry (lambda () 'e) 'exit (lambda () 'x)
-              (panel "P" (key "c" "C" (lambda () 'ok))))
+            (define cfg (configuration (screen 'scr-entry-exit 'entry (lambda () 'e) 'exit (lambda () 'x)
+              (panel "P" (key "c" "C" (lambda () 'ok))))))
             """)
-        let root = "(lookup-tree \"scr-entry-exit\")"
+        let root = "(configuration-tree-ref cfg \"scr-entry-exit\")"
         #expect(try engine.evaluate("(procedure? (node-entry \(root)))") == .true)
         #expect(try engine.evaluate("(procedure? (node-exit \(root)))") == .true)
     }
 
-    @Test func screenAutoEntryFalseStillSuppressesTheEntryTableRowIndependentlyOfEntryExit() throws {
+    @Test func screenLeavesPanelBlockHooksOnTheBlockAtomToo() throws {
         let engine = try loadLayout()
-        try engine.evaluate("(import (modaliser fsm))")
-        try engine.evaluate("""
-            (screen 'scr-auto-entry-off 'auto-entry #f
-              'entry (lambda () 'e) 'exit (lambda () 'x)
-              (panel "P" (key "c" "C" (lambda () 'ok))))
-            """)
-        let root = "(lookup-tree \"scr-auto-entry-off\")"
-        // 'auto-entry #f suppressed the automatic entry-table row...
-        #expect(try engine.evaluate("(fsm-entry-ref \"scr-auto-entry-off\")") == .false)
-        // ...independently of the unrelated 'entry/'exit action-slot pair,
-        // which still reached the node.
-        #expect(try engine.evaluate("(procedure? (node-entry \(root)))") == .true)
-        #expect(try engine.evaluate("(procedure? (node-exit \(root)))") == .true)
-    }
-
-    @Test func screenComposesEmbeddedListOnLeaveHook() throws {
-        let engine = try loadLayout()
-        // The embedded list's on-leave-fn (chip clear) must be composed
-        // onto the screen group's on-leave (via panel-grid-head's hook merge).
-        try engine.evaluate("(screen 'scr-hooks (panel \"Windows\" (fake-list-block)))")
-        #expect(try engine.evaluate("(procedure? (node-on-leave (lookup-tree \"scr-hooks\")))") == .true)
+        // Same contract for a panel-embedded list: the hook stays on the
+        // block atom (fired structurally by run-on-leave), never composed
+        // onto the screen group's own on-leave.
+        try engine.evaluate("(define cfg (configuration (screen 'scr-hooks (panel \"Windows\" (fake-list-block)))))")
+        #expect(try engine.evaluate("(not (node-on-leave (configuration-tree-ref cfg \"scr-hooks\")))") == .true)
     }
 
     @Test func screenExpandsTopLevelSplices() throws {
@@ -317,15 +357,15 @@ struct LayoutDslTests {
         try engine.evaluate("""
             (define sp2 (walk 'screen-walk-test "Walk"
               (key "h" "Left" (lambda () 'ok))))
-            (screen 'scr-splice sp2 (panel "P" (key "c" "C" (lambda () 'ok))))
+            (define cfg (configuration (screen 'scr-splice sp2 (panel "P" (key "c" "C" (lambda () 'ok))))))
             """)
         // The spliced key lands in the loose region and dispatches from the root.
-        #expect(try engine.evaluate("(command? (find-child (lookup-tree \"scr-splice\") \"h\"))") == .true)
+        #expect(try engine.evaluate("(command? (find-child (configuration-tree-ref cfg \"scr-splice\") \"h\"))") == .true)
     }
 
     // MARK: - open
 
-    @Test func openLowersToNavigableGroupWithPanelGrid() throws {
+    @Test func openLowersToNavigableGroupWithStructuredDisplay() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
             (define o (open "s" "Splits"
@@ -334,17 +374,18 @@ struct LayoutDslTests {
         #expect(try engine.evaluate("(group? o)") == .true)
         #expect(try engine.evaluate("(equal? (node-key o) \"s\")") == .true)
         #expect(try engine.evaluate("(equal? (node-label o) \"Splits\")") == .true)
-        #expect(try engine.evaluate("(eq? (node-renderer o) 'panel-grid)") == .true)
+        #expect(try engine.evaluate("(pair? (node-display-ref o 'panels))") == .true)
     }
 
     @Test func openDispatchDescendsThroughItsPanels() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
-            (screen 'scr-open
-              (open "s" "Splits"
-                (panel "P" (key "x" "X" (lambda () 'ok)))))
+            (define cfg (configuration
+              (screen 'scr-open
+                (open "s" "Splits"
+                  (panel "P" (key "x" "X" (lambda () 'ok)))))))
             """)
-        let root = "(lookup-tree \"scr-open\")"
+        let root = "(configuration-tree-ref cfg \"scr-open\")"
         // Pressing "s" descends into the open group (navigable, not flattened).
         #expect(try engine.evaluate("(group? (find-child \(root) \"s\"))") == .true)
         // Inside the open, the panel's key dispatches transparently.
@@ -357,7 +398,7 @@ struct LayoutDslTests {
             (define o (open "s" "Splits" 'cols 2
               (panel "P" (key "x" "X" (lambda () 'ok)))))
             """)
-        #expect(try engine.evaluate("(= (node-renderer-payload o 'cols) 2)") == .true)
+        #expect(try engine.evaluate("(= (node-display-ref o 'cols) 2)") == .true)
     }
 
     @Test func openAcceptsEntryExitKeywords() throws {
@@ -376,14 +417,14 @@ struct LayoutDslTests {
             (define o (open "s" "Splits" 'layout 'grid
               (panel "P" (key "x" "X" (lambda () 'ok)))))
             """)
-        #expect(try engine.evaluate("(eq? (node-renderer-payload o 'layout) 'grid)") == .true)
+        #expect(try engine.evaluate("(eq? (node-display-ref o 'layout) 'grid)") == .true)
     }
 
     // MARK: - order (manual-panel-order-k24)
 
-    // 'order rides as opaque renderer metadata ('keys | 'declared) the
-    // panel-grid renderer reads back; stored only when authored so absence
-    // means "inherit" (panel-explicit > screen/open default > 'keys).
+    // 'order ('keys | 'declared) rides the display value; stored only when
+    // authored so absence means "inherit" (panel-explicit > screen/open
+    // default > 'keys — resolved by resolve-display).
 
     @Test func panelCarriesOrderWhenDeclared() throws {
         let engine = try loadLayout()
@@ -414,14 +455,14 @@ struct LayoutDslTests {
 
     @Test func screenCarriesOrderWhenGiven() throws {
         let engine = try loadLayout()
-        try engine.evaluate("(screen 'scr-order 'order 'declared (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
-        #expect(try engine.evaluate("(eq? (node-renderer-payload (lookup-tree \"scr-order\") 'order) 'declared)") == .true)
+        try engine.evaluate("(define cfg (configuration (screen 'scr-order 'order 'declared (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))))")
+        #expect(try engine.evaluate("(eq? (node-display-ref (configuration-tree-ref cfg \"scr-order\") 'order) 'declared)") == .true)
     }
 
     @Test func screenAbsentOrderHasNoPayload() throws {
         let engine = try loadLayout()
-        try engine.evaluate("(screen 'scr-noorder (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))")
-        #expect(try engine.evaluate("(node-renderer-payload (lookup-tree \"scr-noorder\") 'order)") == .false)
+        try engine.evaluate("(define cfg (configuration (screen 'scr-noorder (panel \"P\" (key \"c\" \"C\" (lambda () 'ok))))))")
+        #expect(try engine.evaluate("(node-display-ref (configuration-tree-ref cfg \"scr-noorder\") 'order)") == .false)
     }
 
     @Test func screenRejectsUnknownOrder() throws {
@@ -437,136 +478,349 @@ struct LayoutDslTests {
             (define o (open "s" "Splits" 'order 'declared
               (panel "P" (key "x" "X" (lambda () 'ok)))))
             """)
-        #expect(try engine.evaluate("(eq? (node-renderer-payload o 'order) 'declared)") == .true)
+        #expect(try engine.evaluate("(eq? (node-display-ref o 'order) 'declared)") == .true)
     }
 
-    // MARK: - fragment
+    // MARK: - splice
 
-    @Test func fragmentProducesTransparentSpliceNode() throws {
+    @Test func spliceProducesTransparentSpliceNode() throws {
         let engine = try loadLayout()
-        try engine.evaluate("(define frag (fragment (key \"c\" \"Center\" (lambda () 'ok))))")
+        try engine.evaluate("(define frag (splice (key \"c\" \"Center\" (lambda () 'ok))))")
         // A 'kind 'splice node — expand-splices hoists its children, so
-        // nothing downstream ever sees the fragment.
+        // nothing downstream ever sees the splice.
         #expect(try engine.evaluate("(eq? (cdr (assoc 'kind frag)) 'splice)") == .true)
     }
 
-    @Test func fragmentSplicesIdenticallyToInlineInPanel() throws {
+    @Test func spliceExpandsIdenticallyToInlineInPanel() throws {
         let engine = try loadLayout()
-        // Sharing the same action object + key nodes makes node-tree equality
-        // exact (lambdas compare by identity), so this is a true "splices
-        // identically to inline content" assertion.
+        // Splices SURVIVE construction now (dsl-purification-k9) — the
+        // authored splice node stays in the panel's children so the merge can
+        // hoist any carried tree — and expansion happens downstream. Sharing
+        // the same action object + key nodes makes the expanded-view equality
+        // exact (lambdas compare by identity).
         try engine.evaluate("""
             (define act (lambda () 'ok))
             (define kc (key "c" "Center"   act))
             (define km (key "m" "Maximise" act))
-            (define window-ops (fragment kc km))
-            (define p-frag   (panel "Windows" window-ops))
-            (define p-inline (panel "Windows" kc km))
+            (define window-ops (splice kc km))
+            (define p-spliced (panel "Windows" window-ops))
+            (define p-inline  (panel "Windows" kc km))
             """)
-        #expect(try engine.evaluate("(equal? p-frag p-inline)") == .true)
+        // The splice node itself is preserved in the children …
+        #expect(try engine.evaluate("(pair? (filter splice? (node-children p-spliced)))") == .true)
+        // … and the expanded view is identical to inline authoring.
+        #expect(try engine.evaluate("""
+            (equal? (expand-splices (node-children p-spliced))
+                    (node-children p-inline))
+            """) == .true)
     }
 
-    @Test func fragmentSplicesIdenticallyToInlineInScreen() throws {
+    @Test func spliceExpandsIdenticallyToInlineInScreen() throws {
         let engine = try loadLayout()
         try engine.evaluate("""
             (define act (lambda () 'ok))
             (define pa (panel "A" (key "a" "A" act)))
             (define pb (panel "B" (key "b" "B" act)))
-            (define panels-frag (fragment pa pb))
-            (screen 'scr-frag-eq   panels-frag)
-            (screen 'scr-inline-eq pa pb)
+            (define shared (splice pa pb))
+            (define cfg (configuration
+              (screen 'scr-splice-eq   shared)
+              (screen 'scr-inline-eq pa pb)))
             """)
         #expect(try engine.evaluate("""
-            (equal? (node-children (lookup-tree "scr-frag-eq"))
-                    (node-children (lookup-tree "scr-inline-eq")))
+            (equal? (expand-splices (node-children (configuration-tree-ref cfg "scr-splice-eq")))
+                    (node-children (configuration-tree-ref cfg "scr-inline-eq")))
             """) == .true)
     }
 
-    @Test func fragmentDefinedOnceSplicedIntoTwoSitesDispatches() throws {
+    @Test func spliceDefinedOnceSplicedIntoTwoSitesDispatches() throws {
         let engine = try loadLayout()
         // A genuinely shared window-ops set, defined once and spliced into two
         // separate screens (DRY) — the leaf's proof, not a contrived example.
         try engine.evaluate("""
             (define act (lambda () 'ok))
             (define window-ops
-              (fragment
+              (splice
                 (key "c" "Center"   act)
                 (key "m" "Maximise" act)))
-            (screen 'scr-global (panel "Windows" window-ops))
-            (screen 'scr-finder (panel "Layout"  window-ops))
+            (define cfg (configuration
+              (screen 'scr-global (panel "Windows" window-ops))
+              (screen 'scr-finder (panel "Layout"  window-ops))))
+            (define scr-global-root (configuration-tree-ref cfg "scr-global"))
+            (define scr-finder-root (configuration-tree-ref cfg "scr-finder"))
             """)
         // The shared keys dispatch transparently from BOTH sites.
-        #expect(try engine.evaluate("(command? (find-child (lookup-tree \"scr-global\") \"c\"))") == .true)
-        #expect(try engine.evaluate("(command? (find-child (lookup-tree \"scr-global\") \"m\"))") == .true)
-        #expect(try engine.evaluate("(command? (find-child (lookup-tree \"scr-finder\") \"c\"))") == .true)
-        #expect(try engine.evaluate("(command? (find-child (lookup-tree \"scr-finder\") \"m\"))") == .true)
+        #expect(try engine.evaluate("(command? (find-child scr-global-root \"c\"))") == .true)
+        #expect(try engine.evaluate("(command? (find-child scr-global-root \"m\"))") == .true)
+        #expect(try engine.evaluate("(command? (find-child scr-finder-root \"c\"))") == .true)
+        #expect(try engine.evaluate("(command? (find-child scr-finder-root \"m\"))") == .true)
     }
 
-    @Test func fragmentOfPanelsDispatchesAtScreenLevel() throws {
+    @Test func spliceOfPanelsDispatchesAtScreenLevel() throws {
         let engine = try loadLayout()
-        // A fragment may carry panels (screen-level reuse); they splice in as
+        // A splice may carry panels (screen-level reuse); they splice in as
         // real panels alongside inline ones.
         try engine.evaluate("""
             (define act (lambda () 'ok))
             (define shared-panels
-              (fragment
+              (splice
                 (panel "A" (key "a" "A" act))
                 (panel "B" (key "b" "B" act))))
-            (screen 'scr-panels shared-panels (panel "C" (key "c" "C" act)))
+            (define cfg (configuration
+              (screen 'scr-panels shared-panels (panel "C" (key "c" "C" act)))))
             """)
-        let root = "(lookup-tree \"scr-panels\")"
+        let root = "(configuration-tree-ref cfg \"scr-panels\")"
         #expect(try engine.evaluate("(command? (find-child \(root) \"a\"))") == .true)
         #expect(try engine.evaluate("(command? (find-child \(root) \"b\"))") == .true)
         #expect(try engine.evaluate("(command? (find-child \(root) \"c\"))") == .true)
-        // The spliced panels survive as real panels (categories).
-        #expect(try engine.evaluate("(category? (find-panel \(root) \"A\"))") == .true)
-        #expect(try engine.evaluate("(category? (find-panel \(root) \"B\"))") == .true)
+        // The spliced panels land in the display value's panel clauses,
+        // exactly as inline ones do.
+        #expect(try engine.evaluate("(pair? (find-panel \(root) \"A\"))") == .true)
+        #expect(try engine.evaluate("(pair? (find-panel \(root) \"B\"))") == .true)
     }
 
-    @Test func fragmentComposesWithWalkInPanel() throws {
+    @Test func spliceComposesWithWalkInPanel() throws {
         let engine = try loadLayout()
-        // A fragment whose contents include a walk — both are 'kind
+        // A splice whose contents include a walk — both are 'kind
         // 'splice, so the nested splice hoists via expand-splices'
         // recursion. Proves splices compose inside a panel body.
         try engine.evaluate("""
             (define act (lambda () 'ok))
             (define sset (walk 'frag-compose-walk "Walk"
                            (key "h" "Left" act)))
-            (define frag2 (fragment (key "c" "Center" act) sset))
+            (define frag2 (splice (key "c" "Center" act) sset))
             (define p (panel "Nav" frag2))
             """)
-        #expect(try engine.evaluate("(command? (find-child p \"c\"))") == .true)  // from fragment
+        #expect(try engine.evaluate("(command? (find-child p \"c\"))") == .true)  // from splice
         #expect(try engine.evaluate("(command? (find-child p \"h\"))") == .true)  // from nested walk
         // The entry keeps its 'next cross edge, crossing in as before.
         #expect(try engine.evaluate("(eq? (cdr (assoc 'next (find-child p \"h\"))) 'frag-compose-walk)") == .true)
     }
 
-    @Test func fragmentComposesWithWalkInScreen() throws {
+    @Test func spliceComposesWithWalkInScreen() throws {
         let engine = try loadLayout()
-        // Same composition at screen level: a fragment + a walk both
+        // Same composition at screen level: a splice + a walk both
         // spliced into the screen body, their loose keys landing in the loose region.
         try engine.evaluate("""
             (define act (lambda () 'ok))
-            (define ops (fragment (key "c" "Center" act)))
+            (define ops (splice (key "c" "Center" act)))
             (define sset (walk 'frag-screen-walk "Walk" (key "h" "Left" act)))
-            (screen 'scr-compose ops sset (panel "P" (key "p" "P" act)))
+            (define cfg (configuration
+              (screen 'scr-compose ops sset (panel "P" (key "p" "P" act)))))
             """)
-        let root = "(lookup-tree \"scr-compose\")"
-        #expect(try engine.evaluate("(command? (find-child \(root) \"c\"))") == .true)  // fragment
+        let root = "(configuration-tree-ref cfg \"scr-compose\")"
+        #expect(try engine.evaluate("(command? (find-child \(root) \"c\"))") == .true)  // splice
         #expect(try engine.evaluate("(command? (find-child \(root) \"h\"))") == .true)  // walk
         #expect(try engine.evaluate("(command? (find-child \(root) \"p\"))") == .true)  // inline panel
     }
 
-    @Test func fragmentSplicesInsideOpenBody() throws {
+    @Test func spliceSplicesInsideOpenBody() throws {
         let engine = try loadLayout()
-        // The third container body — open — runs expand-splices too, so a
-        // fragment hoists inside a drill-down sub-grid.
+        // The third container body — open — is splice-transparent too, so a
+        // splice dispatches inside a drill-down sub-grid.
         try engine.evaluate("""
             (define act (lambda () 'ok))
-            (define ops (fragment (key "c" "Center" act)))
+            (define ops (splice (key "c" "Center" act)))
             (define o (open "s" "Splits" ops (panel "P" (key "x" "X" act))))
             """)
-        #expect(try engine.evaluate("(command? (find-child o \"c\"))") == .true)  // from fragment
+        #expect(try engine.evaluate("(command? (find-child o \"c\"))") == .true)  // from splice
         #expect(try engine.evaluate("(command? (find-child o \"x\"))") == .true)  // inline panel
+    }
+
+    // MARK: - pure value-builders (dsl-purification-k9)
+
+    @Test func walkSpliceCarriesItsModeTree() throws {
+        let engine = try loadLayout()
+        // The walk's splice carries (mode-id . root-node) under 'tree for the
+        // pure merge to hoist (configuration.sld "WALK HOISTING") …
+        try engine.evaluate("""
+            (define sp (walk 'walk-carried-tree "Walk"
+              (key "h" "Left" (lambda () 'ok))))
+            (define carried (cdr (assoc 'tree sp)))
+            """)
+        #expect(try engine.evaluate("(eq? (car carried) 'walk-carried-tree)") == .true)
+        #expect(try engine.evaluate("(group? (cdr carried))") == .true)
+        // … and the carried root IS the tree the merge hoists into the
+        // configuration's tree set — one shared tree object, no copy.
+        try engine.evaluate("""
+            (define cfg (configuration (tree 'walk-host (tree-root 'walk-host sp))))
+            """)
+        #expect(try engine.evaluate("(eq? (cdr carried) (configuration-tree-ref cfg \"walk-carried-tree\"))") == .true)
+    }
+
+    @Test func screenReturnsTreeContribution() throws {
+        let engine = try loadLayout()
+        // screen is pure: it returns the (tree scope node) contribution the
+        // configuration merge consumes — nothing installs until the handoff.
+        try engine.evaluate("""
+            (define c (screen 'scr-contrib (panel "P" (key "c" "C" (lambda () 'ok)))))
+            """)
+        #expect(try engine.evaluate("(eq? (car c) 'tree)") == .true)
+        #expect(try engine.evaluate("(eq? (cadr c) 'scr-contrib)") == .true)
+        // The contribution's node is exactly what the merged configuration
+        // holds under that scope.
+        #expect(try engine.evaluate("(eq? (caddr c) (configuration-tree-ref (configuration c) \"scr-contrib\"))") == .true)
+    }
+
+    @Test func screenPreservesSpliceNodesInChildren() throws {
+        let engine = try loadLayout()
+        // The authored splice survives in the dispatch children — expansion
+        // moved to lowering/read time — so the merge can hoist its carried
+        // tree; dispatch stays transparent through it.
+        try engine.evaluate("""
+            (define sp (walk 'scr-preserve-walk "Walk" (key "h" "Left" (lambda () 'ok))))
+            (define cfg (configuration
+              (screen 'scr-preserve sp (panel "P" (key "c" "C" (lambda () 'ok))))))
+            """)
+        let root = "(configuration-tree-ref cfg \"scr-preserve\")"
+        #expect(try engine.evaluate("(pair? (filter splice? (node-children \(root))))") == .true)
+        #expect(try engine.evaluate("(command? (find-child \(root) \"h\"))") == .true)
+    }
+
+    // MARK: - two-layer display factoring (ADR-0011)
+    //
+    // Every screen/open carries its COMPLETE Display value under one
+    // 'display entry — rows referenced BY KEY, blocks BY ID, never node
+    // copies — and node-display / node-with-display extract / replace
+    // that single entry wholesale. Since the readers cutover this is the
+    // ONLY place display data lives (the scattered legacy keys and the
+    // category node kind are gone).
+
+    @Test func nodeDisplayExtractsTheSingleDisplayEntry() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("""
+            (define cfg (configuration
+              (screen 'scr-disp 'cols 2 'layout 'grid 'order 'declared
+                (key "a" "Loose" (lambda () 'ok))
+                (panel "P" (key "b" "B" (lambda () 'ok))))))
+            (define d (node-display (configuration-tree-ref cfg "scr-disp")))
+            """)
+        #expect(try engine.evaluate("(= (cdr (assoc 'cols d)) 2)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'layout d)) 'grid)") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'order d)) 'declared)") == .true)
+        // The loose region is key REFS, not node copies.
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'loose d)) '((key . \"a\")))") == .true)
+        // The panel clause: label / span / rows-as-refs.
+        try engine.evaluate("(define p0 (car (cdr (assoc 'panels d))))")
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'label p0)) \"P\")") == .true)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'span p0)) 'narrow)") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'rows p0)) '((key . \"b\")))") == .true)
+        // Dispatch structure never leaks into the display value.
+        #expect(try engine.evaluate("(assoc 'children d)") == .false)
+        #expect(try engine.evaluate("(assoc 'kind d)") == .false)
+        // And no scattered display key rides the node itself any more —
+        // the 'display entry is the display's only home.
+        try engine.evaluate("(define root (configuration-tree-ref cfg \"scr-disp\"))")
+        #expect(try engine.evaluate("(assoc 'renderer root)") == .false)
+        #expect(try engine.evaluate("(assoc 'cols root)") == .false)
+        #expect(try engine.evaluate("(assoc 'loose root)") == .false)
+        #expect(try engine.evaluate("(assoc 'order root)") == .false)
+    }
+
+    @Test func nodeWithDisplayReplacesDisplayWithoutTouchingDispatch() throws {
+        let engine = try loadLayout()
+        try engine.evaluate("""
+            (define cfg (configuration
+              (screen 'scr-redisp 'cols 2
+                (panel "P" (key "b" "B" (lambda () 'ok))))))
+            (define before (configuration-tree-ref cfg "scr-redisp"))
+            (define after (node-with-display before '((cols . 3))))
+            """)
+        // The substituted display is what node-display now reads, whole.
+        #expect(try engine.evaluate("(equal? (node-display after) '((cols . 3)))") == .true)
+        // … and the live key set is untouched (ADR-0011's invariant).
+        #expect(try engine.evaluate("(eq? (find-child after \"b\") (find-child before \"b\"))") == .true)
+    }
+
+    @Test func panelClauseCarriesSpanAndBlockRef() throws {
+        let engine = try loadLayout()
+        // A paneled live-list block: the panel clause auto-promotes to
+        // 'wide and places the block BY REFERENCE (id defaulting to its
+        // 'type), after the row refs; the lifted hidden digit range never
+        // appears among the refs.
+        try engine.evaluate("""
+            (define cfg (configuration
+              (screen 'scr-blk
+                (panel "Windows" (fake-list-block) (key "c" "C" (lambda () 'ok))))))
+            (define d (node-display (configuration-tree-ref cfg "scr-blk")))
+            (define p0 (car (cdr (assoc 'panels d))))
+            """)
+        #expect(try engine.evaluate("(eq? (cdr (assoc 'span p0)) 'wide)") == .true)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'rows p0)) '((key . \"c\") (block . window-list)))") == .true)
+    }
+
+    @Test func looseDisplayRefsPreserveAuthoredInterleaving() throws {
+        let engine = try loadLayout()
+        // Loose rows and loose blocks interleave in the display value's
+        // refs exactly as authored (rows + blocks, declaration order).
+        try engine.evaluate("""
+            (define cfg (configuration
+              (screen 'scr-inter
+                (key "a" "A" (lambda () 'ok))
+                (fake-list-block)
+                (key "b" "B" (lambda () 'ok)))))
+            (define d (node-display (configuration-tree-ref cfg "scr-inter")))
+            """)
+        #expect(try engine.evaluate("""
+            (equal? (cdr (assoc 'loose d))
+                    '((key . "a") (block . window-list) (key . "b")))
+            """) == .true)
+    }
+
+    @Test func nestedOpenCarriesItsOwnDisplayValue() throws {
+        let engine = try loadLayout()
+        // An open is its own display root: it dual-writes its own
+        // 'display entry, disjoint from the enclosing screen's.
+        try engine.evaluate("""
+            (define cfg (configuration
+              (screen 'scr-nest
+                (open "s" "Sub" (panel "P" (key "x" "X" (lambda () 'ok)))))))
+            (define sub (find-child (configuration-tree-ref cfg "scr-nest") "s"))
+            (define d (node-display sub))
+            """)
+        #expect(try engine.evaluate("(pair? (assoc 'panels d))") == .true)
+        #expect(try engine.evaluate("""
+            (equal? (cdr (assoc 'rows (car (cdr (assoc 'panels d)))))
+                    '((key . "x")))
+            """) == .true)
+    }
+
+    @Test func duplicateBlockReferenceIdsErrorAtConstruction() throws {
+        let engine = try loadLayout()
+        // Two same-type blocks in one screen collide on the default
+        // reference id ('type) — a construction-time error naming the
+        // 'id override …
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("""
+                (screen 'scr-dup (fake-list-block) (fake-list-block))
+                """)
+        }
+        // … and an explicit 'id disambiguates: refs use the override.
+        try engine.evaluate("""
+            (define cfg (configuration
+              (screen 'scr-ids
+                (fake-list-block)
+                (cons (cons 'id 'second-list) (fake-list-block)))))
+            (define d (node-display (configuration-tree-ref cfg "scr-ids")))
+            """)
+        #expect(try engine.evaluate("""
+            (equal? (cdr (assoc 'loose d))
+                    '((block . window-list) (block . second-list)))
+            """) == .true)
+    }
+
+    @Test func screenCarriesEmbedChoiceAsDisplayData() throws {
+        let engine = try loadLayout()
+        // Embed is representable as data from this leaf on (spec "Staging");
+        // rendering in place is embed-rendering-k14's business — until then
+        // the marked edge renders as a drill row, so dispatch is unchanged.
+        try engine.evaluate("""
+            (define cfg (configuration
+              (screen 'scr-embed 'embed '("s")
+                (open "s" "Splits" (panel "P" (key "x" "X" (lambda () 'ok)))))))
+            (define scr-embed-root (configuration-tree-ref cfg "scr-embed"))
+            (define d (node-display scr-embed-root))
+            """)
+        #expect(try engine.evaluate("(equal? (cdr (assoc 'embed d)) '(\"s\"))") == .true)
+        #expect(try engine.evaluate("(group? (find-child scr-embed-root \"s\"))") == .true)
     }
 }

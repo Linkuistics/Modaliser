@@ -41,7 +41,7 @@ struct WebSearchTests {
               (set! webview-eval-calls (cons (cons id js) webview-eval-calls)))
             """)
 
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
         try engine.evaluate("(import (modaliser dom))")
@@ -139,7 +139,7 @@ struct WebSearchTests {
 
     @Test func buildWebSearchResultsPrependsPinnedItem() throws {
         let engine = try loadAllModules()
-        let result = try engine.evaluate("""
+        _ = try engine.evaluate("""
             (build-web-search-results "hello" (list "hello world" "hello kitty"))
             """)
         // First item should be the pinned "Search Google for 'hello'" item
@@ -152,7 +152,7 @@ struct WebSearchTests {
 
     @Test func buildWebSearchResultsIncludesSuggestions() throws {
         let engine = try loadAllModules()
-        let items = try engine.evaluate("""
+        _ = try engine.evaluate("""
             (build-web-search-results "test" (list "test one" "test two"))
             """)
         #expect(try engine.evaluate("""
@@ -181,14 +181,15 @@ struct WebSearchTests {
 
         // Open a dynamic chooser with web-search-handler
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search Google…"
-                'dynamic-search web-search-handler
-                'on-select web-search-on-select)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search Google…"
+                  'dynamic-search web-search-handler
+                  'on-select web-search-on-select)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
         try engine.evaluate("(set! webview-eval-calls '())")
 
@@ -215,14 +216,15 @@ struct WebSearchTests {
             """)
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search Google…"
-                'dynamic-search web-search-handler
-                'on-select web-search-on-select)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search Google…"
+                  'dynamic-search web-search-handler
+                  'on-select web-search-on-select)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Search with >= 3 chars — SHOULD trigger HTTP request
@@ -234,20 +236,63 @@ struct WebSearchTests {
                 "Should fire HTTP request for >= 3 chars")
     }
 
+    /// The same query with **no stub installed at all** — the case every test
+    /// above avoids by remembering `set-web-search-fetch!`, and the one that
+    /// used to reach Google Suggest for real.
+    ///
+    /// `http-get` is now the `(modaliser http)` seam, inert until root.scm
+    /// installs a runner (ADR-0023), so the fetch answers `#f` and the handler
+    /// takes its existing "network error" path: the pinned row it pushed before
+    /// firing stands, and nothing is pushed after. That degradation is what
+    /// makes the suite's safety structural rather than per-test discipline
+    /// (test-live-network-contact-k51).
+    @Test func webSearchHandlerReachesNothingWithNoRunnerInstalled() throws {
+        let engine = try loadAllModules()
+        try engine.evaluate("(import (modaliser http))")
+        #expect(try engine.evaluate("(current-http-runner)") == .false,
+                "A bare engine must hold no HTTP runner")
+
+        try engine.evaluate("""
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search Google…"
+                  'dynamic-search web-search-handler
+                  'on-select web-search-on-select)))))))
+            """)
+
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
+        try engine.evaluate("(modal-handle-key \"g\")")
+        try engine.evaluate("(set! webview-eval-calls '())")
+
+        // >= 3 chars, so the handler fires the fetch for real.
+        try engine.evaluate("""
+            (chooser-message-handler (list (cons 'type "search") (cons 'query "hello")))
+            """)
+
+        // Exactly one push — the pinned row from before the fetch. A second
+        // would mean suggestions came back, i.e. something answered.
+        #expect(try engine.evaluate("(length webview-eval-calls)").asInt64() == 1,
+                "Only the pinned row should render; no suggestions can arrive")
+        let js = try engine.evaluate("(cdr (car webview-eval-calls))").asString()
+        #expect(js.contains("Search Google"))
+    }
+
     // MARK: - On Select
 
     @Test func webSearchOnSelectOpensGoogleSearch() throws {
         let engine = try loadAllModules()
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search Google…"
-                'dynamic-search web-search-handler
-                'on-select web-search-on-select)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search Google…"
+                  'dynamic-search web-search-handler
+                  'on-select web-search-on-select)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Push some results
@@ -277,14 +322,15 @@ struct WebSearchTests {
             (define http-get-calls '())
             (set-web-search-fetch! (lambda (url callback)
               (set! http-get-calls (cons url http-get-calls))))
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search Google…"
-                'dynamic-search web-search-handler
-                'on-select web-search-on-select)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search Google…"
+                  'dynamic-search web-search-handler
+                  'on-select web-search-on-select)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
         try engine.evaluate("(set! webview-eval-calls '())")
 
@@ -309,14 +355,15 @@ struct WebSearchTests {
             """)
 
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "g" "Google" (selector
-                'prompt "Search Google…"
-                'dynamic-search web-search-handler
-                'on-select web-search-on-select)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key "g" "Google" (selector
+                  'prompt "Search Google…"
+                  'dynamic-search web-search-handler
+                  'on-select web-search-on-select)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
 
         // Fire two searches

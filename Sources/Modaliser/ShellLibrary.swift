@@ -1,10 +1,19 @@
 import Foundation
 import LispKit
 
-/// Native LispKit library providing shell command execution.
-/// Scheme name: (modaliser shell)
+/// Native LispKit library providing the raw capability to spawn a shell.
+/// Scheme name: (modaliser shell-native)
 ///
-/// Provides: run-shell, run-shell-async
+/// Provides: run-shell-native, run-shell-async-native
+///
+/// **This is not the library backends call.** Spawning a subprocess is the one
+/// native capability that reaches the developer's *own* running tools — a
+/// `tmux select-pane`, an `osascript … tell iTerm2 to …`, an `nvim
+/// --remote-send` — so it is held behind the portable seam `(modaliser shell)`,
+/// which ships inert and is wired to these two procedures by `root.scm` at
+/// bootstrap (ADR-0023). The `-native` suffix is the tell: an import of this
+/// library from anywhere but the host bootstrap is a bypass of that seam, and
+/// `scripts/check-portable-surface.sh` fails the build on one.
 final class ShellLibrary: NativeLibrary {
     private var activeProcesses: Set<Process> = []
 
@@ -13,7 +22,7 @@ final class ShellLibrary: NativeLibrary {
     }
 
     public override class var name: [String] {
-        ["modaliser", "shell"]
+        ["modaliser", "shell-native"]
     }
 
     public override func dependencies() {
@@ -21,8 +30,8 @@ final class ShellLibrary: NativeLibrary {
     }
 
     public override func declarations() {
-        self.define(Procedure("run-shell", runShellFunction))
-        self.define(Procedure("run-shell-async", runShellAsyncFunction))
+        self.define(Procedure("run-shell-native", runShellFunction))
+        self.define(Procedure("run-shell-async-native", runShellAsyncFunction))
     }
 
     /// Terminate all active background processes. Called on app quit.
@@ -35,7 +44,7 @@ final class ShellLibrary: NativeLibrary {
 
     // MARK: - Sync
 
-    /// (run-shell command) -> string
+    /// (run-shell-native command) -> string
     /// Executes a shell command via /bin/zsh -c and returns stdout as a string.
     private func runShellFunction(_ command: Expr) throws -> Expr {
         let commandString = try command.asString()
@@ -57,13 +66,13 @@ final class ShellLibrary: NativeLibrary {
 
     // MARK: - Async
 
-    /// (run-shell-async command callback ['timeout seconds]) -> void
+    /// (run-shell-async-native command callback ['timeout seconds]) -> void
     /// Runs command in background, calls (callback exit-code stdout stderr) on main thread.
     /// On timeout: exit-code = -1, stdout = "", stderr = "timeout".
     private func runShellAsyncFunction(_ command: Expr, _ callback: Expr, _ rest: Arguments) throws -> Expr {
         let commandString = try command.asString()
         guard case .procedure = callback else {
-            throw RuntimeError.custom("eval", "run-shell-async: second argument must be a procedure", [])
+            throw RuntimeError.custom("eval", "run-shell-async-native: second argument must be a procedure", [])
         }
 
         var timeoutSeconds: Double? = nil
@@ -85,7 +94,7 @@ final class ShellLibrary: NativeLibrary {
         }
 
         guard let evaluator = self.context.evaluator else {
-            throw RuntimeError.custom("eval", "run-shell-async: evaluator not available", [])
+            throw RuntimeError.custom("eval", "run-shell-async-native: evaluator not available", [])
         }
 
         let process = Process()

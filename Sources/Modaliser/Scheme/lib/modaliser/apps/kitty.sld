@@ -7,7 +7,7 @@
 ;; with peer backend modules and the façade):
 ;;
 ;;   (import (prefix (modaliser apps kitty) kitty:))
-;;   (kitty:register!)
+;;   (configuration (kitty:fragment) …)
 ;;
 ;; ─── Op surface (13/14) ────────────────────────────────────────────
 ;;
@@ -31,14 +31,14 @@
 ;;      from *outside* a kitty terminal has no socket to connect to.
 ;;      (The recovery notes used `--listen-on=` at launch for probing;
 ;;      this leaf bakes the same idea into the user's config so daily
-;;      use works.) The path is fixed so configure-entry and the
+;;      use works.) The path is fixed so `configure!` and the
 ;;      backend agree without parameter plumbing.
 ;;   3. `enabled_layouts splits,…` — without `splits` listed, kitty's
 ;;      `launch --location=vsplit` silently falls back to the active
 ;;      layout's behaviour. The directional split surface
 ;;      requires the splits layout.
 ;;
-;; configure-entry provisions all three idempotently, backing up the
+;; `configure!` provisions all three idempotently, backing up the
 ;; user's existing kitty.conf first.
 ;;
 ;; ─── Chip rendering ────────────────────────────────────────────────
@@ -65,13 +65,30 @@
 ;; placement accuracy is the [[feedback_chips_are_overlays]] bar.
 
 (define-library (modaliser apps kitty)
-  (export register!
-          backend
-          configure-entry
-          kitty-configured?)
+  (export backend
+          ;; The configuration-value constructor (ADR-0018,
+          ;; library-fragments-k11): a pure fragment carrying the backend
+          ;; record and the digit-jump mode tree. Kitty ships no stock
+          ;; screen — compose this with your own (screen
+          ;; "net.kovidgoyal.kitty" …), whose scope is what makes the
+          ;; screen terminal-like against this record's match-key.
+          fragment
+          ;; Provisioning (ADR-0021): `configure!` writes the three
+          ;; kitty.conf directives the ops ride on, and `configured?` is
+          ;; the cached probe saying whether they are already there. Both
+          ;; are facilities — what kitty needs is kitty's business.
+          ;; Surfacing the action, and retiring the row once the probe
+          ;; passes, is the configuration's call:
+          ;;
+          ;;   (key "C-I" "Configure Kitty" kitty:configure!
+          ;;        'hidden kitty:configured?)
+          configure! configured?)
   (import (scheme base)
           (modaliser dsl)
-          (modaliser state-machine)
+          ;; The contribution constructors for `fragment` — prefixed to
+          ;; keep the bare names (backend, tree, …) clear of this
+          ;; module's own vocabulary.
+          (prefix (modaliser configuration) config:)
           (modaliser util)
           (modaliser shell)
           (modaliser dialogs)
@@ -81,7 +98,6 @@
           (modaliser theming)
           (only (modaliser terminal)
                 make-terminal-backend
-                register-backend!
                 modaliser-tool-path
                 ;; note-backend-query-result!: ADR-0017 Layer 2 — see
                 ;; list-panes-raw below.
@@ -97,7 +113,7 @@
     (define path-prefix
       (string-append "export PATH=" modaliser-tool-path ":$PATH; "))
 
-    ;; Fixed socket path. configure-entry writes the matching
+    ;; Fixed socket path. `configure!` writes the matching
     ;; `listen_on` directive into kitty.conf so this and the user's
     ;; running kitty instance agree without parameter plumbing.
     (define kitty-socket "unix:/tmp/kitty-modaliser")
@@ -281,7 +297,7 @@
     (define (move-pane-up)     (kitty-cli "action move_window up"))
     (define (move-pane-down)   (kitty-cli "action move_window down"))
 
-    ;; ─── configure-entry ────────────────────────────────────────────
+    ;; ─── Provisioning ───────────────────────────────────────────────
     ;;
     ;; Provisions kitty.conf with the three load-bearing directives
     ;; (allow_remote_control, listen_on, enabled_layouts including
@@ -366,13 +382,14 @@
               "echo $ok")))
         "yes"))
 
-    ;; Cached configured? flag — the overlay's 'hidden thunk reads
-    ;; this on every render, so the probe must be cheap. 'unknown
-    ;; forces a one-time lazy probe; iterm-style refresh after
-    ;; provisioning so the entry vanishes without a Modaliser reload.
+    ;; Cached configured? flag — a configuration that gates its setup
+    ;; row on `configured?` has the overlay reading it on every render,
+    ;; so the probe must be cheap. 'unknown forces a one-time lazy probe;
+    ;; iterm-style refresh after provisioning so the row vanishes without
+    ;; a Modaliser reload.
     (define *kitty-configured* 'unknown)
 
-    (define (kitty-configured?)
+    (define (configured?)
       (when (eq? *kitty-configured* 'unknown)
         (set! *kitty-configured* (kitty-probe-configured?)))
       *kitty-configured*)
@@ -396,12 +413,20 @@
         "  - Leave the rest of your config untouched\n\n"
         "You'll need to relaunch Kitty for the changes to take effect."))
 
-    ;; Overlay action: confirm (async, ADR-0014 — the dialog fires through
-    ;; the slim (modaliser dialogs) library so the Scheme thread stays free
-    ;; while it's up), provision, re-probe. Idempotent — if kitty is already
-    ;; configured (e.g. the key was pressed while the entry was hidden) it
-    ;; just syncs the cache and returns, no dialog.
-    (define (kitty-configure!)
+    ;; The provisioning action a configuration binds: confirm (async,
+    ;; ADR-0014 — the dialog fires through the slim (modaliser dialogs)
+    ;; library so the Scheme thread stays free while it's up), provision,
+    ;; re-probe. Idempotent — if kitty is already configured (e.g. the key
+    ;; was pressed while the row was hidden) it just syncs the cache and
+    ;; returns, no dialog.
+    ;;
+    ;; Pairing it with `configured?` as a 'hidden gate is what makes the
+    ;; row retire itself, without a Modaliser reload, since the gate is
+    ;; re-read on the next overlay open after this re-probes:
+    ;;
+    ;;   (key "C-I" "Configure Kitty" kitty:configure!
+    ;;        'hidden kitty:configured?)
+    (define (configure!)
       (if (kitty-probe-configured?)
         (kitty-refresh-configured!)
         (dialog-confirm kitty-configure-dialog-message
@@ -410,14 +435,6 @@
               (run-shell kitty-provision-script)
               (kitty-refresh-configured!)))
           'title "Configure Kitty" 'ok-label "Continue" 'icon "caution")))
-
-    ;; A `(key …)` node bound to Ctrl+Shift+I (same key as iTerm's
-    ;; configure-entry — they're mutually exclusive by frontmost app,
-    ;; so the keybinding can be re-used). The 'hidden thunk lets the
-    ;; entry vanish from the overlay once configured.
-    (define (configure-entry)
-      (cons (cons 'hidden kitty-configured?)
-            (key "C-I" "Configure Kitty" kitty-configure!)))
 
     ;; ─── Digit-jump chip rendering ──────────────────────────────────
 
@@ -650,8 +667,8 @@
               digit-labels
               (lambda (k) (focus-by-digit k)))))
 
-    (define (pane-digit-register!)
-      (register-tree! 'kitty-pane-digit
+    (define (pane-digit-tree)
+      (tree-root 'kitty-pane-digit
         'on-enter
         (lambda ()
           (let ((panes (list-panes-raw)))
@@ -695,8 +712,13 @@
         ;; pane zoom; (supports-zoom?) is the only capability predicate
         ;; that flips to #f for a splitting backend in v1.
         #f
-        kitty-configured?))
+        configured?))
 
-    (define (register!)
-      (register-backend! backend)
-      (pane-digit-register!))))
+    ;; (fragment) → the Kitty Fragment (library-fragments-k11): the
+    ;; backend record plus the digit-jump mode tree its
+    ;; focus-pane-by-digit slot names at fire time. Compose ONE call's
+    ;; value.
+    (define (fragment)
+      (list
+        (config:backend 'kitty backend)
+        (config:tree 'kitty-pane-digit (pane-digit-tree))))))

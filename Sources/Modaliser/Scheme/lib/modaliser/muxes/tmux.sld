@@ -6,7 +6,13 @@
 ;; with peer backend modules and the façade):
 ;;
 ;;   (import (prefix (modaliser muxes tmux) tmux:))
-;;   (tmux:register!)
+;;   (configuration (terminal-contexts (tmux:wiring)) tmux-screen …)
+;;
+;; `wiring` is the integration; the SCREEN — which of the ops below are
+;; surfaced, on which keys, under which labels — is the user's
+;; (ADR-0021). A fresh install does not seed tmux, so the stock
+;; composition ships as `Scheme/examples/tmux.scm`: a complete, working
+;; configuration to copy from (never loaded — see its header).
 ;;
 ;; Once the iTerm (or any host) backend is also registered, ops dispatch
 ;; through (modaliser terminal) — when the focused host pane's foreground
@@ -32,23 +38,50 @@
 ;; cell-dim helper will fix when a per-host leaf lands.
 
 (define-library (modaliser muxes tmux)
-  (export register!
-          backend)
+  (export
+          backend
+          ;; ── The wiring fragment (ADR-0018 / ADR-0013 / ADR-0021) ───
+          ;;
+          ;; Everything tmux's integration needs and nothing a user
+          ;; would want to choose: the Terminal-context-map entry, the
+          ;; backend record, and the machinery-named digit-jump tree the
+          ;; record fires at. Composing tmux into any terminal-like host
+          ;; is one call:
+          ;;
+          ;;   (terminal-contexts (tmux:wiring))
+          ;;
+          ;; The tree scope 'tmux is machinery, not preference: the
+          ;; context entry references it by key, so the screen the user
+          ;; authors must carry that scope or the configuration fails
+          ;; reference-closure validation at load — loudly.
+          wiring
+          ;; ── Ops: the verbs a screen binds (ADR-0021) ───────────────
+          ;;
+          ;; One name per thing tmux can do, all 0-arg thunks that land
+          ;; straight in a `(key K L op)` slot. This is the stable layer:
+          ;; every one is a tmux CLI invocation whose correctness is
+          ;; fixed by tmux itself, not by anybody's preference.
+          focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
+          split-pane-left  split-pane-right  split-pane-up    split-pane-down
+          move-pane-left   move-pane-right   move-pane-up     move-pane-down
+          toggle-pane-zoom)
   (import (scheme base)
           (modaliser dsl)
-          (modaliser state-machine)
           (modaliser util)
           (modaliser shell)
           (modaliser accessibility)
           (modaliser hints)
           (modaliser ax-hints)
           (modaliser theming)
+          ;; The contribution constructors for `context` below —
+          ;; prefixed: the bare names (context, backend, tree) collide
+          ;; with this module's own exports.
+          (prefix (modaliser configuration) config:)
           ;; The façade exports the 14 op names plus the predicates;
           ;; this module defines its own focus-pane-left etc. as the
           ;; record fields, so import only the machinery we need.
           (only (modaliser terminal)
                 make-terminal-backend
-                register-backend!
                 focused-iterm-tty
                 modaliser-tool-path
                 ;; note-backend-query-result!: ADR-0017 Layer 2 — see
@@ -357,8 +390,8 @@
 
     ;; Side-effect: rebuilds *current-panes*, computes chip entries,
     ;; and surfaces them via hints-show. on-leave hides them.
-    (define (pane-digit-register!)
-      (register-tree! 'tmux-pane-digit
+    (define (pane-digit-tree)
+      (tree-root 'tmux-pane-digit
         'on-enter
         (lambda ()
           (let* ((panes (list-panes))
@@ -401,9 +434,26 @@
         toggle-pane-zoom
         configured?))
 
-    ;; Register the backend + the digit-jump mode. Safe to call more
-    ;; than once: register-backend! is last-write-wins on backend
-    ;; symbol; register-tree! replaces any prior tree of the same id.
-    (define (register!)
-      (register-backend! backend)
-      (pane-digit-register!))))
+    ;; ─── The wiring fragment (ADR-0021) ─────────────────────────────
+    ;;
+    ;; tmux's integration and nothing else: the Terminal-context-map
+    ;; entry (exe "tmux" → the 'tmux screen + this backend), the backend
+    ;; record, and the digit-jump mode tree the record's
+    ;; focus-pane-by-digit slot names at fire time.
+    ;;
+    ;; NO SCREEN. Which of the fourteen ops above are surfaced, on which
+    ;; keys, under which labels, is preference and lives in the user's
+    ;; config.scm — `Scheme/examples/tmux.scm` carries the stock
+    ;; composition to copy from. That absence is the contract: a library
+    ;; change can never silently re-take a key the user chose.
+    ;;
+    ;; Activation, outward backspace, and the host's gated "." step-in
+    ;; all derive from the context-map machinery — nothing is authored
+    ;; here.
+    ;;
+    ;; Each call builds fresh tree objects: compose ONE call's value.
+    (define (wiring)
+      (list
+        (config:context "tmux" 'tree 'tmux 'backend 'tmux)
+        (config:backend 'tmux backend)
+        (config:tree 'tmux-pane-digit (pane-digit-tree))))))

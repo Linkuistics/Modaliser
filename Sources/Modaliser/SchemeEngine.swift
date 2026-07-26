@@ -228,8 +228,6 @@ final class SchemeEngine {
         try context.environment.import(InputLibrary.name)
         try context.libraries.register(libraryType: FuzzyMatchLibrary.self)
         try context.environment.import(FuzzyMatchLibrary.name)
-        try context.libraries.register(libraryType: ClipboardHistoryLibrary.self)
-        try context.environment.import(ClipboardHistoryLibrary.name)
         try context.libraries.register(libraryType: HttpLibrary.self)
         try context.environment.import(HttpLibrary.name)
         try context.libraries.register(libraryType: HintsLibrary.self)
@@ -238,6 +236,8 @@ final class SchemeEngine {
         try context.environment.import(AccessibilityLibrary.name)
         try context.libraries.register(libraryType: CursorLibrary.self)
         try context.environment.import(CursorLibrary.name)
+        try context.libraries.register(libraryType: UnixSocketLibrary.self)
+        try context.environment.import(UnixSocketLibrary.name)
     }
 
     /// Evaluate a string of Scheme code and return the result.

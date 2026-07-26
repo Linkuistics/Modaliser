@@ -9,8 +9,10 @@
 ;;    a backend record, a registry, active-backend resolution, the focused-
 ;;    terminal-path walk, the 14 op shims, and 5 capability predicates. Per-
 ;;    backend modules ((modaliser apps iterm), (modaliser muxes tmux), …)
-;;    register populated `<terminal-backend>` records; user configs call the
-;;    façade ops by direction-word name through this module's prefix.
+;;    build populated `<terminal-backend>` records that ride configuration
+;;    values; the handoff installs them (terminal-install-backends!), and
+;;    user configs call the façade ops by direction-word name through this
+;;    module's prefix.
 ;;
 ;; Design notes: the direction-word op names, the façade-only public
 ;; surface, the capability predicates, multi-session tty correlation, and
@@ -34,7 +36,30 @@
           ;; Backend façade — registry & path.
           make-terminal-backend
           terminal-backend?
-          register-backend!
+          ;; Record introspection for the configuration pipeline
+          ;; (context-map-activation-k8): terminal-likeness is capability
+          ;; — a value carries a 'host backend whose match-key is the
+          ;; screen's bundle-id and that implements the two chain probes
+          ;; — so (modaliser activation) reads these off the records a
+          ;; configuration value carries.
+          terminal-backend-symbol
+          terminal-backend-kind
+          terminal-backend-match-key
+          terminal-backend-detect-fg
+          terminal-backend-focused-pane-id
+          ;; Host capabilities (library-fragments-k11, docs/specs/
+          ;; configuration-value.md "Host capabilities, consumed
+          ;; generically"): host-specific glue an inner tool's UI needs —
+          ;; today the canvas-frame probe behind herdr's chip geometry —
+          ;; rides the HOST's backend record as a named-procedure alist
+          ;; and is consumed through the façade at use time ("which host
+          ;; am I in" is runtime state). terminal-backend-capability reads
+          ;; one capability off a record; host-capability resolves the
+          ;; frontmost host backend first. A host lacking a capability
+          ;; answers #f — the consumer degrades that feature, never errors.
+          terminal-backend-capability
+          host-capability
+          terminal-install-backends!
           current-frontmost-bundle-id
           active-backend
           focused-terminal-path
@@ -152,8 +177,10 @@
 
     ;; ─── Backend façade ─────────────────────────────────────────────
     ;;
-    ;; Each backend module builds one <terminal-backend> record and hands
-    ;; it to `register-backend!`. The façade indexes backends two ways:
+    ;; Each backend module builds one <terminal-backend> record; the
+    ;; records a configuration value carries are installed wholesale by
+    ;; the handoff (`terminal-install-backends!`, the façade's engine
+    ;; install point — ADR-0018). The façade indexes backends two ways:
     ;; host-by-bundle-id (`focused-app-bundle-id`) and mux-by-fg-command
     ;; (e.g. "tmux", "zellij"), discriminated by the record's `kind`.
     ;; Each backend's `symbol` (e.g. 'iterm, 'zellij) is what appears in
@@ -168,8 +195,14 @@
     ;; digit-mode-id symbol (or #f when unsupported), not a thunk — the
     ;; façade export of the same name resolves it at fire time (see
     ;; below) rather than dispatching-and-calling it like the other 13.
+    ;;
+    ;; The record constructor is internal; the public make-terminal-backend
+    ;; below wraps it with an OPTIONAL trailing capabilities alist, so the
+    ;; pre-capability 23-argument call shape every backend module (and any
+    ;; hand-built test record) uses keeps working unchanged.
     (define-record-type <terminal-backend>
-      (make-terminal-backend symbol name kind match-key tool-name
+      (make-terminal-backend-record
+                             symbol name kind match-key tool-name
                              detect-foreground-command
                              focused-pane-id
                              focus-pane-left focus-pane-right
@@ -180,7 +213,8 @@
                              move-pane-up    move-pane-down
                              focus-pane-by-digit
                              toggle-pane-zoom
-                             configured?)
+                             configured?
+                             capabilities)
       terminal-backend?
       (symbol                    terminal-backend-symbol)
       (name                      terminal-backend-name)
@@ -208,7 +242,40 @@
       (move-pane-down            terminal-backend-move-pane-down)
       (focus-pane-by-digit       terminal-backend-focus-pane-by-digit)
       (toggle-pane-zoom          terminal-backend-toggle-pane-zoom)
-      (configured?               terminal-backend-configured?))
+      (configured?               terminal-backend-configured?)
+      ;; ((name . procedure) …) — host capabilities (see the export note).
+      (capabilities              terminal-backend-capabilities))
+
+    ;; (make-terminal-backend sym name kind match-key tool-name
+    ;;    <2 probes> <14 op slots> configured? [capabilities])
+    ;; CAPABILITIES, when given, is a ((name . procedure) …) alist of the
+    ;; host-specific glue this backend exposes to inner tools' UIs (e.g.
+    ;; 'canvas-frame on iTerm — see apps/iterm). Omitted → none.
+    (define (make-terminal-backend symbol name kind match-key tool-name
+                                   detect-fg focused-pane-id
+                                   fl fr fu fd sl sr su sd ml mr mu md
+                                   digit zoom configured? . rest)
+      (make-terminal-backend-record
+        symbol name kind match-key tool-name
+        detect-fg focused-pane-id
+        fl fr fu fd sl sr su sd ml mr mu md
+        digit zoom configured?
+        (if (pair? rest) (car rest) '())))
+
+    ;; One capability off B's record: the named procedure, or #f when B
+    ;; does not expose it (the consumer's degrade branch).
+    (define (terminal-backend-capability b name)
+      (let ((kv (assq name (terminal-backend-capabilities b))))
+        (and kv (cdr kv))))
+
+    ;; The frontmost HOST backend's capability NAME, or #f — no host
+    ;; registered for the frontmost app, or a host without it, both
+    ;; degrade the same way. Resolution happens per call: which host the
+    ;; consumer is in is runtime state, never config-time weaving
+    ;; (ADR-0013).
+    (define (host-capability name)
+      (let ((b (resolve-host-backend ((current-frontmost-bundle-id)))))
+        (and b (terminal-backend-capability b name))))
 
     ;; Registry. A list of records; re-registering a symbol replaces the
     ;; previous entry (last-write-wins, the only sensible policy for
@@ -217,7 +284,10 @@
     ;; ([[feedback_lispkit_no_mutable_pairs]]).
     (define *backend-registry* '())
 
-    (define (register-backend! backend)
+    (define (install-backend! backend)
+      (unless (terminal-backend? backend)
+        (error "terminal-install-backends!: not a terminal-backend record"
+               'invalid-backend-record backend))
       (let ((sym (terminal-backend-symbol backend)))
         (set! *backend-registry*
               (cons backend
@@ -231,10 +301,22 @@
         (let ((tool (terminal-backend-tool-name backend)))
           (when tool (probe-backend-tool! sym tool)))))
 
+    ;; (terminal-install-backends! records) — the façade's engine install
+    ;; point (ADR-0018, mirroring fsm-install-graph!): replaces the
+    ;; registry WHOLESALE with RECORDS (a list of <terminal-backend>).
+    ;; Called once by the handoff with the configuration value's backend
+    ;; records; the backend-install tool probe (ADR-0017 Layer 2) fires
+    ;; per record. There is no per-record authoring surface — the retired
+    ;; register-backend! accumulate path (cutover-contract-k13).
+    (define (terminal-install-backends! backends)
+      (set! *backend-registry* '())
+      (for-each install-backend! backends))
+
     ;; ─── Backend tool health (ADR-0017 Layer 2) ─────────────────────
     ;;
     ;; Two detection points, both driven off the SAME per-symbol health
-    ;; table: register-backend! above (configure-entry — eager, once) and
+    ;; table: terminal-install-backends! above (eager, once per
+    ;; install) and
     ;; note-backend-query-result! below (lazy — fired by a backend's own
     ;; query wrapper whenever a query returns #f). A successful query is
     ;; itself proof the tool exists (a genuinely-missing binary can never
@@ -377,10 +459,9 @@
     ;; Frame accessors used internally + by the backward-compat path below.
     (define (frame-fg v) (vector-ref v 3))
 
-    ;; The leaf frame's fg. When no backend is registered yet (e.g. during
-    ;; phase 010 before iTerm's register! in 020), fall back to the legacy
-    ;; iTerm-direct lookup so the user's existing Phase 1 setup keeps
-    ;; working through the cutover (BRIEF "Daily-driver continuity").
+    ;; The leaf frame's fg. When no backend is installed (before the
+    ;; handoff, or a backend-less config), fall back to the legacy
+    ;; iTerm-direct lookup.
     (define (focused-terminal-foreground-command)
       (let ((p (walk-path)))
         (if (null? p)
@@ -441,10 +522,10 @@
 
     ;; ─── Capability predicates ──────────────────────────────────────
     ;;
-    ;; Trees built via `set-local-context-suffix!`-style rebuild see
-    ;; per-press capabilities. The AND with `configured?` is the
-    ;; provisioning-gate (WezTerm pre-configure-entry: ops are defined
-    ;; but the keybinds aren't installed → predicate is #f).
+    ;; Resolved per call against the active backend, so gated rows see
+    ;; live capabilities. The AND with `configured?` is the
+    ;; provisioning-gate (a host whose `configure!` has not run: ops are
+    ;; defined but the keybinds aren't installed → predicate is #f).
 
     (define (op-configured? b accessor)
       (and b (accessor b)

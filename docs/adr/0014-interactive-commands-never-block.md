@@ -24,11 +24,26 @@ appearing but receiving no typing.
 
 ## Decision
 
-An action that raises user-interactive UI (or any long-running external
-process) must not run it through synchronous `run-shell`. It goes through
-`run-shell-async`; any follow-on work lives in the callback,
-continuation-passing style. The Scheme thread returns to idle immediately,
-so the leader and every hotkey stay live while the external UI is up.
+An action that raises user-interactive UI, or that waits on anything whose
+completion is not prompt and bounded, must not hold the Scheme thread while it
+does so. The hazard is the *blocking*, not the mechanism: a synchronous
+`run-shell` is the original offender, but a socket request left waiting on a
+peer that answers only after slow work of its own stalls the tap identically.
+
+Two shapes satisfy this, and which one applies depends on whether a result is
+consumed:
+
+- **A result is consumed** → go async and put the follow-on work in a callback,
+  continuation-passing style: `run-shell-async` for a shell-out, and for
+  Modaliser's own dialogs the `(modaliser dialogs)` / `open-chooser-prompt`
+  panels, which are CPS by construction.
+- **No result is consumed** → do not ask for one. Issue the request and return,
+  rather than waiting on an answer that will be discarded — the socket
+  transport's `unix-socket-send` (ADR-0020). There is nothing to defer, so no
+  callback is warranted.
+
+Either way the Scheme thread returns to idle immediately, so the leader and
+every hotkey stay live.
 
 Modaliser-raised dialogs (the backend error/confirm alerts) go through the
 shared portable `(modaliser dialogs)` library, which owns the AppleScript
@@ -39,23 +54,33 @@ dispatch's job (ADR-0015).
 
 ## Consequences
 
-- herdr's worktree create/remove commands are plain fire-and-forget async
-  commands; every flag Modaliser omits (`--branch`, `--label`, `--path`,
-  `--force`) is optional in herdr's CLI, so there is no missing-argument gap
-  and the prompting UI, if any, stays herdr's own.
-- herdr's tab/workspace rename commands require a `<label>` positionally,
-  and herdr 0.7.3 has no prompt-on-missing-arg feature to collect it — fired
-  bare, the command just hits herdr's own usage-error exit with no UI ever
-  opening. These two ops instead collect the label through a
-  Modaliser-owned `chooser-prompt` (a text-input continuation panel
-  extending the chooser's activating-WebView machinery — CPS-shaped like
-  `dialog-confirm`) before firing, rather than waiting on unshipped
-  herdr-side work (`herdr-rename-prompt-ownership-k9`).
+- **herdr raises no UI of its own for these ops.** This was assumed when the
+  ADR was written and is false: read against herdr 0.7.5's source, no socket
+  method prompts. herdr's branch-name dialog belongs to its TUI key handler,
+  which fills the argument in before calling the same API; a `worktree.create`
+  arriving without a `branch` makes the server generate one. So the herdr ops
+  are not an instance of this ADR's external-UI case at all — they are ordinary
+  commands, and what governs them is whether their *reply* can arrive promptly
+  (ADR-0020's "sent, not called"). Modaliser omits `branch`/`force`
+  deliberately, on their own merits: naming the branch is herdr's business, and
+  omitting `force` is what makes git refuse to delete a dirty worktree.
+- herdr's tab/workspace rename ops require a label and have no prompt of their
+  own to collect it, so they collect it through a Modaliser-owned
+  `chooser-prompt` (a text-input continuation panel extending the chooser's
+  activating-WebView machinery — CPS-shaped like `dialog-confirm`). **That
+  prompt is this ADR's real herdr case**: the interactive UI is Modaliser's,
+  and the CPS is the prompt's. The command it submits is a plain synchronous
+  socket call, answered sub-millisecond.
 - Interactive commands are CPS-shaped where a result is consumed: the code
   after the dialog lives in a callback, not on the next line. That is the
   accepted cost of an unblocked Scheme thread.
 - A future dialog site must use `(modaliser dialogs)` / `run-shell-async` —
   raising interactive UI via synchronous `run-shell` from an action thunk
   reintroduces the stalled-tap bug. That is the reason this ADR exists.
+- The same bar applies to a *blocking* call that raises no UI at all. A
+  synchronous socket request is fine when the peer answers promptly (herdr's
+  queries and its rename commands measure sub-millisecond) and not fine when it
+  answers only after work of its own — the timeout then becomes a routine
+  stall, not a pathological one.
 - `(modaliser dialogs)` stays inside the portable tree (no LispKit-specific
   imports).

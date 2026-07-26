@@ -15,7 +15,7 @@ struct OverlayAssetRegistrationTests {
         guard let schemePath = engine.schemeDirectoryPath else {
             Issue.record("Scheme directory not found"); throw SchemeTestError.noSchemeDir
         }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm))")
         try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
         for file in ["ui/css.scm", "ui/overlay.scm"] {
             try engine.evaluateFile(joinPath(schemePath, file))

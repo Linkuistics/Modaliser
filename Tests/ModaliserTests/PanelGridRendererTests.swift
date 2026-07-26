@@ -21,8 +21,9 @@ struct PanelGridRendererTests {
         guard let schemePath = engine.schemeDirectoryPath else {
             Issue.record("Scheme directory not found"); throw SchemeTestError.noSchemeDir
         }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm))")
         try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
+        try engine.evaluate("(import (modaliser configuration))")
         for file in ["ui/css.scm", "ui/overlay.scm"] {
             try engine.evaluateFile(joinPath(schemePath, file))
         }
@@ -57,9 +58,9 @@ struct PanelGridRendererTests {
     @Test func payloadCarriesTypeAndPanelsArray() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-shape
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-shape")))
+          (define cfg (configuration (screen 'pg-shape
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-shape")))
         """)
         let payload = try engine.evaluate("p").asString()
         #expect(payload.contains("\"type\":\"panel-grid\""))
@@ -70,9 +71,9 @@ struct PanelGridRendererTests {
     @Test func authoredColsAppearInPayload() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-cols 'cols 3
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-cols")))
+          (define cfg (configuration (screen 'pg-cols 'cols 3
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-cols")))
         """)
         #expect(try engine.evaluate("p").asString().contains("\"cols\":3"))
     }
@@ -80,9 +81,9 @@ struct PanelGridRendererTests {
     @Test func absentColsOmittedFromPayload() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-nocols
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-nocols")))
+          (define cfg (configuration (screen 'pg-nocols
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-nocols")))
         """)
         #expect(!(try engine.evaluate("p").asString().contains("\"cols\"")))
     }
@@ -90,9 +91,9 @@ struct PanelGridRendererTests {
     @Test func authoredGridLayoutAppearsInPayload() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-grid 'layout 'grid
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-grid")))
+          (define cfg (configuration (screen 'pg-grid 'layout 'grid
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-grid")))
         """)
         #expect(try engine.evaluate("p").asString().contains("\"layout\":\"grid\""))
     }
@@ -102,9 +103,9 @@ struct PanelGridRendererTests {
         // Omitted layout → no key in the payload; JS sets no data-layout and the
         // base .panel-grid masonry default renders.
         try engine.evaluate("""
-          (screen 'pg-nolayout
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-nolayout")))
+          (define cfg (configuration (screen 'pg-nolayout
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-nolayout")))
         """)
         #expect(!(try engine.evaluate("p").asString().contains("\"layout\"")))
     }
@@ -114,9 +115,9 @@ struct PanelGridRendererTests {
         // 'layout 'grid composes with 'cols and a panel 'span — all three ride
         // the one payload, so the deterministic grid keeps the width hints.
         try engine.evaluate("""
-          (screen 'pg-grid-mix 'layout 'grid 'cols 3
-            (panel "Windows" 'span 'wide (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-grid-mix")))
+          (define cfg (configuration (screen 'pg-grid-mix 'layout 'grid 'cols 3
+            (panel "Windows" 'span 'wide (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-grid-mix")))
         """)
         let payload = try engine.evaluate("p").asString()
         #expect(payload.contains("\"layout\":\"grid\""))
@@ -127,11 +128,11 @@ struct PanelGridRendererTests {
     @Test func panelCarriesLabelSpanAndKeyRows() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-panel
+          (define cfg (configuration (screen 'pg-panel
             (panel "Windows" 'span 'wide
               (key "c" "Center"   (lambda () 'ok))
-              (key "m" "Maximise" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-panel")))
+              (key "m" "Maximise" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-panel")))
         """)
         let payload = try engine.evaluate("p").asString()
         #expect(payload.contains("\"label\":\"Windows\""))
@@ -145,10 +146,10 @@ struct PanelGridRendererTests {
     @Test func looseKeysRenderInLooseRegionNotGeneralPanel() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-general
+          (define cfg (configuration (screen 'pg-general
             (key "z" "Loose Z" (lambda () 'ok))
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-general")))
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-general")))
         """)
         let payload = try engine.evaluate("p").asString()
         // The loose key rides a "loose" array (a bare header-less row block) —
@@ -165,9 +166,9 @@ struct PanelGridRendererTests {
         // No loose atoms → the loose array is empty (the JS renders no
         // .panel-loose block), and the panel still renders.
         try engine.evaluate("""
-          (screen 'pg-panelonly
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-panelonly")))
+          (define cfg (configuration (screen 'pg-panelonly
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-panelonly")))
         """)
         let payload = try engine.evaluate("p").asString()
         #expect(payload.contains("\"loose\":[]"))
@@ -179,10 +180,10 @@ struct PanelGridRendererTests {
         // Loose atoms with no real panels → the panels array is empty (the JS
         // renders no .panel-grid), and the loose rows are present.
         try engine.evaluate("""
-          (screen 'pg-looseonly
+          (define cfg (configuration (screen 'pg-looseonly
             (key "a" "Alpha" (lambda () 'ok))
-            (key "b" "Beta"  (lambda () 'ok)))
-          (define p (panel-grid-payload-json (lookup-tree "pg-looseonly")))
+            (key "b" "Beta"  (lambda () 'ok)))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-looseonly")))
         """)
         let payload = try engine.evaluate("p").asString()
         #expect(payload.contains("\"panels\":[]"))
@@ -195,9 +196,9 @@ struct PanelGridRendererTests {
     @Test func listPanelEmbedsBlockAutoWidesAndHidesLiftedRange() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-list
-            (panel "Live" (fake-list-block)))
-          (define p (panel-grid-payload-json (lookup-tree "pg-list")))
+          (define cfg (configuration (screen 'pg-list
+            (panel "Live" (fake-list-block)))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-list")))
         """)
         let payload = try engine.evaluate("p").asString()
         // Embedded list is serialized through block-json (same path the blocks
@@ -225,9 +226,9 @@ struct PanelGridRendererTests {
           (define (fake-diagram-block)
             (list (cons 'type 'window-diagram)
                   (cons 'panels '())))
-          (screen 'pg-diagram
-            (panel "Layout" (fake-diagram-block)))
-          (define p (panel-grid-payload-json (lookup-tree "pg-diagram")))
+          (define cfg (configuration (screen 'pg-diagram
+            (panel "Layout" (fake-diagram-block)))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-diagram")))
         """)
         let payload = try engine.evaluate("p").asString()
         #expect(payload.contains("\"bare\":true"))
@@ -239,9 +240,9 @@ struct PanelGridRendererTests {
         // A panel embedding a non-diagram live list (window-list) keeps its
         // white card: no "bare" flag in the payload.
         try engine.evaluate("""
-          (screen 'pg-notbare
-            (panel "Live" (fake-list-block)))
-          (define p (panel-grid-payload-json (lookup-tree "pg-notbare")))
+          (define cfg (configuration (screen 'pg-notbare
+            (panel "Live" (fake-list-block)))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-notbare")))
         """)
         #expect(!(try engine.evaluate("p").asString().contains("\"bare\"")))
     }
@@ -250,9 +251,9 @@ struct PanelGridRendererTests {
         let engine = try loadPanelGrid()
         // A plain key-row panel (no embedded block) is never bare.
         try engine.evaluate("""
-          (screen 'pg-keysonly
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-keysonly")))
+          (define cfg (configuration (screen 'pg-keysonly
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-keysonly")))
         """)
         #expect(!(try engine.evaluate("p").asString().contains("\"bare\"")))
     }
@@ -304,9 +305,9 @@ struct PanelGridRendererTests {
         // normalises to an empty label so js-escape-overlay doesn't choke and the
         // JS draws no .panel-head. The title stays config-controlled.
         try engine.evaluate("""
-          (screen 'pg-headerless
-            (panel #f (key "c" "Center" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-headerless")))
+          (define cfg (configuration (screen 'pg-headerless
+            (panel #f (key "c" "Center" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-headerless")))
         """)
         let payload = try engine.evaluate("p").asString()
         #expect(payload.contains("\"label\":\"\""))
@@ -372,12 +373,12 @@ struct PanelGridRendererTests {
     @Test func nestedOpenRendersAsGroupRowInsidePanel() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-nested
+          (define cfg (configuration (screen 'pg-nested
             (panel "Splits"
               (key "c" "Center" (lambda () 'ok))
               (open "f" "Full Toolkit"
-                (panel "More" (key "x" "X" (lambda () 'ok))))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-nested")))
+                (panel "More" (key "x" "X" (lambda () 'ok))))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-nested")))
         """)
         let payload = try engine.evaluate("p").asString()
         // The nested open is an accent group-row inside the Splits panel, not
@@ -389,10 +390,10 @@ struct PanelGridRendererTests {
     @Test func topLevelOpenFoldsIntoLooseRegionAsDrillRow() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-toplevel-open
+          (define cfg (configuration (screen 'pg-toplevel-open
             (open "s" "Splits"
-              (panel "P" (key "x" "X" (lambda () 'ok)))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-toplevel-open")))
+              (panel "P" (key "x" "X" (lambda () 'ok)))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-toplevel-open")))
         """)
         let payload = try engine.evaluate("p").asString()
         // A top-level open folds into the loose region as a single drill row
@@ -403,7 +404,7 @@ struct PanelGridRendererTests {
         #expect(payload.contains("\"isGroup\":true"))
         #expect(payload.contains("\"panels\":[]"))
         // It stays navigable — dispatch is unchanged.
-        let root = "(lookup-tree \"pg-toplevel-open\")"
+        let root = "(configuration-tree-ref cfg \"pg-toplevel-open\")"
         #expect(try engine.evaluate("(group? (find-child \(root) \"s\"))") == .true)
     }
 
@@ -423,16 +424,16 @@ struct PanelGridRendererTests {
                         (list (cons (cons 'hidden #t)
                                     (key-range "x.." "Move" (list "x")
                                       (lambda (k) k)))))))
-          (screen 'pg-loose-diagram
+          (define cfg (configuration (screen 'pg-loose-diagram
             (key "s" "Select" (lambda () 'ok))
-            (fake-diagram-block))
-          (define p (panel-grid-payload-json (lookup-tree "pg-loose-diagram")))
+            (fake-diagram-block))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-loose-diagram")))
         """)
         let payload = try engine.evaluate("p").asString()
         #expect(payload.contains("\"loose\":["))
         #expect(payload.contains("\"type\":\"window-diagram\""))
         #expect(payload.contains("\"panels\":[]"))
-        let root = "(lookup-tree \"pg-loose-diagram\")"
+        let root = "(configuration-tree-ref cfg \"pg-loose-diagram\")"
         #expect(try engine.evaluate("(range-command? (find-child \(root) \"x\"))") == .true)
     }
 
@@ -442,9 +443,9 @@ struct PanelGridRendererTests {
         // and merges the live rows, exactly as a panel-embedded list does — but
         // rides the loose region, not a panel.
         try engine.evaluate("""
-          (screen 'pg-loose-list
-            (fake-list-block))
-          (define p (panel-grid-payload-json (lookup-tree "pg-loose-list")))
+          (define cfg (configuration (screen 'pg-loose-list
+            (fake-list-block))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-loose-list")))
         """)
         let payload = try engine.evaluate("p").asString()
         #expect(payload.contains("\"loose\":["))
@@ -461,9 +462,9 @@ struct PanelGridRendererTests {
     @Test func bootstrapHtmlCarriesPanelGridRenderer() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-html
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
-          (define html (render-overlay-html (lookup-tree "pg-html") '("Root") '()))
+          (define cfg (configuration (screen 'pg-html
+            (panel "Windows" (key "c" "Center" (lambda () 'ok))))))
+          (define html (render-overlay-html (configuration-tree-ref cfg "pg-html") '("Root") '()))
         """)
         let html = try engine.evaluate("html").asString()
         // The custom-body div dispatches to overlayRenderers['panel-grid'] on load.
@@ -513,6 +514,159 @@ struct PanelGridRendererTests {
         #expect(js.contains("PANEL_GRID_TARGET_RATIO"))
     }
 
+    // MARK: - embedded sections (embed-rendering-k14; ADR-0011)
+
+    @Test func embedTargetRidesSectionsArrayAndLosesDrillRow() throws {
+        let engine = try loadPanelGrid()
+        // 'embed '("a") → the open's target serializes as a section of THIS
+        // display root (key/keyHtml/label/rows), and its drill row disappears
+        // from the loose region — the section replaces the row.
+        try engine.evaluate("""
+          (define cfg (configuration (screen 'pg-embed 'embed '("a")
+            (key "x" "Xylophone" (lambda () 'ok))
+            (open "a" "Agents"
+              (key "j" "Jump" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-embed")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"sections\":["))
+        #expect(payload.contains("\"key\":\"a\""))
+        #expect(payload.contains("\"label\":\"Agents\""))
+        #expect(payload.contains("\"label\":\"Jump\""))
+        // No drill row for the embedded open (a loose drill row would carry
+        // "isGroup":true right after the Agents label).
+        #expect(!payload.contains("\"label\":\"Agents\",\"isGroup\":true"))
+        // The non-embedded loose key still renders as a loose row.
+        #expect(payload.contains("\"label\":\"Xylophone\""))
+        // At the anchor no section is active.
+        #expect(!payload.contains("\"activeSection\""))
+        // Dispatch is untouched: the embedded key still navigates.
+        let root = "(configuration-tree-ref cfg \"pg-embed\")"
+        #expect(try engine.evaluate("(group? (find-child \(root) \"a\"))") == .true)
+    }
+
+    @Test func embedKeyInsidePanelLosesAccentGroupRow() throws {
+        let engine = try loadPanelGrid()
+        // An embedded open declared INSIDE a panel loses its accent group-row
+        // there too — the section replaces it wherever the drill row lived.
+        try engine.evaluate("""
+          (define cfg (configuration (screen 'pg-embed-panel 'embed '("a")
+            (panel "Tools"
+              (key "c" "Center" (lambda () 'ok))
+              (open "a" "Agents"
+                (key "j" "Jump" (lambda () 'ok)))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-embed-panel")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"sections\":["))
+        #expect(!payload.contains("\"label\":\"Agents\",\"isGroup\":true"))
+        #expect(payload.contains("\"label\":\"Center\""))
+    }
+
+    @Test func inactiveSectionRendersStaticSkeletonWithoutBlockRender() throws {
+        let engine = try loadPanelGrid()
+        // The binding contract (spec "The two-layer node model"): an unvisited
+        // embedded section renders its STATIC rows only — its live-list block
+        // does not serialize, so on-render-fn never fires (no early
+        // evaluation). Span stays 'wide (block presence, not serialization,
+        // decides it — structure is stable across restyles).
+        try engine.evaluate("""
+          (define cfg (configuration (screen 'pg-embed-static 'embed '("a")
+            (open "a" "Agents"
+              (key "j" "Jump" (lambda () 'ok))
+              (panel "Live" (fake-list-block))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-embed-static")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(try engine.evaluate("(= render-fires 0)") == .true)
+        #expect(!payload.contains("\"type\":\"window-list\""))
+        #expect(payload.contains("\"span\":\"wide\""))
+        #expect(payload.contains("\"label\":\"Jump\""))
+    }
+
+    @Test func activeSectionPopulatesListAndMarksActive() throws {
+        let engine = try loadPanelGrid()
+        // With the Visit on the section (active-key passed), the section's
+        // live-list block serializes through block-json — the come-to-rest
+        // snapshot populates — and the payload carries the active-section
+        // marker plus the display root's identity for the JS restyle protocol.
+        try engine.evaluate("""
+          (define cfg (configuration (screen 'pg-embed-active 'embed '("a")
+            (open "a" "Agents"
+              (key "j" "Jump" (lambda () 'ok))
+              (panel "Live" (fake-list-block))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-embed-active")
+                                             "a" "pg-embed-active"))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        #expect(payload.contains("\"activeSection\":\"a\""))
+        #expect(payload.contains("\"rootId\":\"pg-embed-active\""))
+        #expect(payload.contains("\"list\":{"))
+        #expect(payload.contains("\"type\":\"window-list\""))
+        #expect(payload.contains("\"app\":\"Safari\""))
+        #expect(try engine.evaluate("(= render-fires 1)") == .true)
+    }
+
+    @Test func sectionWithoutListIsNarrow() throws {
+        let engine = try loadPanelGrid()
+        try engine.evaluate("""
+          (define cfg (configuration (screen 'pg-embed-narrow 'embed '("a")
+            (open "a" "Agents"
+              (key "j" "Jump" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-embed-narrow")))
+        """)
+        let payload = try engine.evaluate("p").asString()
+        // The section's own span (the only span in this payload — no panels).
+        #expect(payload.contains("\"span\":\"narrow\""))
+    }
+
+    @Test func bootstrapHtmlCarriesRootIdAndSections() throws {
+        let engine = try loadPanelGrid()
+        // The initial paint routes through the same anchoring as pushes: the
+        // data-payload carries rootId (scope + anchor path) and the sections,
+        // so a later within-root push can hit the JS restyle fast path.
+        try engine.evaluate("""
+          (define cfg (configuration (screen 'pg-embed-html 'embed '("a")
+            (open "a" "Agents"
+              (key "j" "Jump" (lambda () 'ok))))))
+          (define html (render-overlay-html (configuration-tree-ref cfg "pg-embed-html") '("Root") '()))
+        """)
+        let html = try engine.evaluate("html").asString()
+        #expect(html.contains("\"rootId\":\"pg-embed-html\""))
+        #expect(html.contains("\"sections\":["))
+    }
+
+    @Test func overlayJsImplementsRestyleProtocol() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let js = try String(contentsOfFile: joinPath(schemePath, "ui/overlay.js"), encoding: .utf8)
+        // Section cards join the panel grid; a same-root push with a moved
+        // active section restyles (marker toggle + active-section content
+        // refresh) instead of rebuilding the persistent root.
+        #expect(js.contains("renderEmbedSection"))
+        #expect(js.contains("restylePanelGridActiveSection"))
+        #expect(js.contains("data-root-id"))
+        #expect(js.contains("data-active-section"))
+        #expect(js.contains("data-embed-key"))
+    }
+
+    @Test func baseCssDefinesEmbedSectionDimming() throws {
+        let engine = try loadPanelGrid()
+        guard let schemePath = engine.schemeDirectoryPath else {
+            Issue.record("scheme path"); throw SchemeTestError.noSchemeDir
+        }
+        let css = try String(contentsOfFile: joinPath(schemePath, "base.css"), encoding: .utf8)
+        // Dimming is the display's statement of liveness (active rows ≡ live
+        // keys): sections dim at the anchor; everything but the active
+        // section dims while one is visited.
+        #expect(css.contains(".embed-section"))
+        #expect(css.contains("--embed-dim"))
+        #expect(css.contains(".embed-section--active"))
+        #expect(css.contains("[data-active-section]"))
+    }
+
     // MARK: - row order (manual-panel-order-k24)
 
     // Rows declared "z" then "a" discriminate the two orderings: declaration
@@ -523,11 +677,11 @@ struct PanelGridRendererTests {
     @Test func panelDefaultSortsRowsByKey() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-order-default
+          (define cfg (configuration (screen 'pg-order-default
             (panel "Layouts"
               (key "z" "Zulu"  (lambda () 'ok))
-              (key "a" "Alpha" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-order-default")))
+              (key "a" "Alpha" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-order-default")))
         """)
         let payload = try engine.evaluate("p").asString()
         // No 'order keyword → key-sorted: Alpha ("a") precedes Zulu ("z").
@@ -537,11 +691,11 @@ struct PanelGridRendererTests {
     @Test func panelOrderDeclaredPreservesAuthoredRowOrder() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-order-declared
+          (define cfg (configuration (screen 'pg-order-declared
             (panel "Layouts" 'order 'declared
               (key "z" "Zulu"  (lambda () 'ok))
-              (key "a" "Alpha" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-order-declared")))
+              (key "a" "Alpha" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-order-declared")))
         """)
         let payload = try engine.evaluate("p").asString()
         // 'order 'declared → declaration order: Zulu before Alpha.
@@ -551,11 +705,11 @@ struct PanelGridRendererTests {
     @Test func panelExplicitOrderKeysSortsRows() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-order-keys
+          (define cfg (configuration (screen 'pg-order-keys
             (panel "Layouts" 'order 'keys
               (key "z" "Zulu"  (lambda () 'ok))
-              (key "a" "Alpha" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-order-keys")))
+              (key "a" "Alpha" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-order-keys")))
         """)
         let payload = try engine.evaluate("p").asString()
         // Explicit 'order 'keys → sorted, same as the default.
@@ -565,11 +719,11 @@ struct PanelGridRendererTests {
     @Test func screenOrderDeclaredInheritedByPanel() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-order-screen 'order 'declared
+          (define cfg (configuration (screen 'pg-order-screen 'order 'declared
             (panel "Layouts"
               (key "z" "Zulu"  (lambda () 'ok))
-              (key "a" "Alpha" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-order-screen")))
+              (key "a" "Alpha" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-order-screen")))
         """)
         let payload = try engine.evaluate("p").asString()
         // The panel has no explicit 'order → inherits the screen default 'declared.
@@ -579,11 +733,11 @@ struct PanelGridRendererTests {
     @Test func panelOrderOverridesScreenDefault() throws {
         let engine = try loadPanelGrid()
         try engine.evaluate("""
-          (screen 'pg-order-override 'order 'declared
+          (define cfg (configuration (screen 'pg-order-override 'order 'declared
             (panel "Layouts" 'order 'keys
               (key "z" "Zulu"  (lambda () 'ok))
-              (key "a" "Alpha" (lambda () 'ok))))
-          (define p (panel-grid-payload-json (lookup-tree "pg-order-override")))
+              (key "a" "Alpha" (lambda () 'ok))))))
+          (define p (panel-grid-payload-json (configuration-tree-ref cfg "pg-order-override")))
         """)
         let payload = try engine.evaluate("p").asString()
         // Panel's explicit 'order 'keys wins over the screen's 'declared default.

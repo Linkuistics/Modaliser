@@ -8,7 +8,7 @@ import Testing
 /// These tests run without Kitty being installed or running. The
 /// shell-out helpers cleanly return #f / empty in that case, which is
 /// the contract the façade expects, so we can verify wiring,
-/// registration, configure-entry shape, and the capability matrix
+/// installation, the provisioning surface, and the capability matrix
 /// end-to-end without a real session. Hand-verification of the 13
 /// supported ops + chip rendering against a live Kitty window is the
 /// leaf's separate "Done when" item.
@@ -17,26 +17,28 @@ struct ModaliserAppsKittyLibraryTests {
     @Test func importsAndExposesProcedures() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser apps kitty))")
-        // Public surface mirrors wezterm plus configure-entry / probe.
-        // Ops live on the façade; this module just exports
-        // the registration and configure plumbing.
-        _ = try engine.evaluate("register!")
+        // Public surface mirrors wezterm plus the provisioning pair.
+        // Ops live on the façade; this module exports the pure fragment
+        // constructor, the backend record, and the configure plumbing.
+        // No `configure-entry`: the key, the label and the choice to
+        // hide-when-done are decisions the configuration authors around
+        // these two facilities (ADR-0021).
+        _ = try engine.evaluate("fragment")
         _ = try engine.evaluate("backend")
-        _ = try engine.evaluate("configure-entry")
-        _ = try engine.evaluate("kitty-configured?")
+        _ = try engine.evaluate("configure!")
+        _ = try engine.evaluate("configured?")
     }
 
-    /// (register!) installs the backend into the façade's registry,
-    /// keyed by 'kitty + bundle-id "net.kovidgoyal.kitty". When the
-    /// frontmost app is Kitty, the façade walks the path and resolves
-    /// to this backend.
-    @Test func registerInstallsKittyBackend() throws {
+    /// (terminal-install-backends! (list backend)) installs the backend
+    /// into the façade's registry, keyed by 'kitty + bundle-id
+    /// "net.kovidgoyal.kitty". When the frontmost app is Kitty, the
+    /// façade walks the path and resolves to this backend.
+    @Test func installedBackendResolvesThroughFacade() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser apps kitty) (modaliser terminal))
+          (import (modaliser apps kitty) (modaliser terminal))
         """)
-        try engine.evaluate("(register!)")
+        try engine.evaluate("(terminal-install-backends! (list backend))")
 
         let pathLen = try engine.evaluate("""
           (parameterize ((current-frontmost-bundle-id
@@ -55,28 +57,30 @@ struct ModaliserAppsKittyLibraryTests {
         #expect(inChain == .true)
     }
 
-    /// (register!) also wires the digit-pick mode so that the backend's
+    /// (fragment) also carries the digit-pick mode so that the backend's
     /// focus-pane-by-digit symbol ('kitty-pane-digit) names a real tree
-    /// for the façade's resolver to hand a procedure-valued 'next.
-    @Test func registerInstallsDigitPickTree() throws {
+    /// in the installed graph for the façade's resolver to hand a
+    /// procedure-valued 'next.
+    @Test func fragmentCarriesDigitPickTree() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
+          (import (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
                   (modaliser apps kitty))
         """)
-        try engine.evaluate("(register!)")
-        #expect(try engine.evaluate("(lookup-tree \"kitty-pane-digit\")") != .false)
+        try engine.evaluate("(fsm-install-graph! (lower-configuration (config:configuration (fragment))))")
+        #expect(try engine.evaluate("(fsm-state-ref \"kitty-pane-digit\")") != .false)
     }
 
     /// Capability matrix: Kitty is 13/14 — zoom is the gap (Kitty
     /// has no native single-pane zoom). (supports-zoom?) returns
-    /// #f; the other three predicates all return #t once configure-
-    /// entry has run.
+    /// #f; the other three predicates all return #t once `configure!`
+    /// has run.
     ///
     /// In this test no kitty.conf exists (or none with the marker), so
-    /// `kitty-configured?` is #f and *all* capability predicates short-
+    /// `configured?` is #f and *all* capability predicates short-
     /// circuit on the configured? AND. That's the provisioning-gate
-    /// behaviour. To exercise the matrix shape we register
+    /// behaviour. To exercise the matrix shape we install
     /// a stub-host backend with the same kind/match-key whose
     /// configured? is constant #t and re-run.
     @Test func backendCapabilityMatrix() throws {
@@ -85,9 +89,9 @@ struct ModaliserAppsKittyLibraryTests {
           (import (modaliser apps kitty) (modaliser terminal))
         """)
         #expect(try engine.evaluate("(terminal-backend? backend)") == .true)
-        try engine.evaluate("(register-backend! backend)")
+        try engine.evaluate("(terminal-install-backends! (list backend))")
 
-        // Pre-configure-entry: configured? is #f, so EVERY capability
+        // Pre-provisioning: configured? is #f, so EVERY capability
         // predicate returns #f. This is the provisioning gate.
         for predicate in [
             "(supports-splits?)",
@@ -104,7 +108,9 @@ struct ModaliserAppsKittyLibraryTests {
 
         // Stub a constant-configured? backend at the same key so the
         // matrix shape (zoom #f, others #t) is testable without a
-        // real kitty.conf on disk.
+        // real kitty.conf on disk. terminal-install-backends! replaces
+        // the registry wholesale, so the stub is now the resolver's
+        // only candidate — the same shadowing the old re-register gave.
         try engine.evaluate("""
           (define ops (lambda () 'x))
           (define stub
@@ -117,7 +123,7 @@ struct ModaliserAppsKittyLibraryTests {
               ops
               #f                ;; toggle-pane-zoom — the Kitty gap
               (lambda () #t)))
-          (register-backend! stub)
+          (terminal-install-backends! (list stub))
         """)
 
         // splits / move-pane / digit-jump: present.

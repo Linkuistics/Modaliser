@@ -10,7 +10,7 @@
 ;; with peer backend modules and the façade):
 ;;
 ;;   (import (prefix (modaliser apps alacritty) alacritty:))
-;;   (alacritty:register!)
+;;   (configuration (alacritty:fragment) …)
 ;;
 ;; ─── Op surface (0/14) ────────────────────────────────────────────
 ;;
@@ -60,37 +60,61 @@
 ;; Alacritty, that mux's backend owns chip rendering (e.g. the tmux
 ;; backend's per-pane geometry over the Alacritty host frame).
 ;;
-;; ─── configure-entry (optional) ───────────────────────────────────
+;; ─── Provisioning (optional) ──────────────────────────────────────
 ;;
 ;; Useful only when Alacritty was installed via the (Gatekeeper-
 ;; deprecated) brew cask: that path leaves `com.apple.quarantine` on
 ;; the .app, which macOS uses to silently refuse `open`. The recipe
 ;; is one xattr call.
 ;;
-;; The entry is hidden when there is *nothing for the user to do*:
+;; `configured?` reports #t — nothing for the user to do — in two
+;; cases:
 ;;
 ;;   - Alacritty isn't installed at all (nothing to configure).
 ;;   - Alacritty is installed and quarantine-free (e.g. direct DMG).
 ;;
-;; It is visible only when /Applications/Alacritty.app exists *and*
-;; carries the quarantine xattr. Removing the xattr is non-
-;; destructive — Alacritty's binary itself is unchanged. This is
-;; the optional companion to the recommended
-;; install path (direct GitHub-releases DMG), which never sets
-;; quarantine in the first place.
+;; It reports #f — there IS something to do, so a row gated on it
+;; shows — only when /Applications/Alacritty.app exists *and* carries
+;; the quarantine xattr. Removing the xattr is non-destructive —
+;; Alacritty's binary itself is unchanged. This is the optional
+;; companion to the recommended install path (direct GitHub-releases
+;; DMG), which never sets quarantine in the first place.
 
 (define-library (modaliser apps alacritty)
-  (export register!
-          configure-entry
-          backend)
+  (export ;; Provisioning (ADR-0021): `configure!` strips the quarantine
+          ;; xattr the brew cask leaves behind, and `configured?` is the
+          ;; cached probe saying whether there is anything to strip. Both
+          ;; are facilities — what macOS blocks is macOS's business.
+          ;; Surfacing the action, and hiding the row when the probe says
+          ;; there is nothing to do, is the configuration's call:
+          ;;
+          ;;   (key "C-I" "Configure Alacritty" alacritty:configure!
+          ;;        'hidden alacritty:configured?)
+          configure! configured?
+          backend
+          ;; The configuration-value constructor (ADR-0018,
+          ;; library-fragments-k11): a pure fragment carrying the
+          ;; detection-only backend record — no digit tree (no pane ops)
+          ;; and no stock screen. Compose with your own (screen
+          ;; "org.alacritty" …), whose scope is what makes the screen
+          ;; terminal-like against this record's match-key; splits come
+          ;; from a mux context inside (that is the point of a
+          ;; detection-only host).
+          fragment)
   (import (scheme base)
-          (modaliser dsl)
+          ;; No (modaliser dsl): this library authors no keys and no
+          ;; labels (ADR-0021), and its fragment carries a backend record
+          ;; rather than a tree, so it needs none of the tree DSL.
+          ;;
+          ;; The contribution constructors for `fragment` — prefixed to
+          ;; keep the bare names (backend, tree, …) clear of this
+          ;; module's own vocabulary.
+          (prefix (modaliser configuration) config:)
           (modaliser util)
           (modaliser shell)
           (modaliser dialogs)
           (only (modaliser terminal)
                 make-terminal-backend
-                register-backend!
                 tty-foreground-command
                 modaliser-tool-path))
   (begin
@@ -141,13 +165,13 @@
       (let ((tty (first-alacritty-tty)))
         (and tty (tty-foreground-command tty))))
 
-    ;; ─── configure-entry ────────────────────────────────────────────
+    ;; ─── Provisioning ───────────────────────────────────────────────
     ;;
-    ;; Probe: `xattr` lists extended attributes one per line. The entry
-    ;; is "needed" (configured? = #f) only when /Applications/
+    ;; Probe: `xattr` lists extended attributes one per line. Work is
+    ;; "needed" (configured? = #f) only when /Applications/
     ;; Alacritty.app exists AND `xattr` mentions com.apple.quarantine.
     ;; A missing .app or a quarantine-free .app both report configured?
-    ;; = #t, keeping the entry hidden.
+    ;; = #t, so a row gated on it stays hidden.
 
     (define alacritty-app-path "/Applications/Alacritty.app")
 
@@ -172,22 +196,22 @@
           ((string=? out "clean")       'clean)
           (else                         'no-app))))
 
-    ;; Cached state — the overlay's 'hidden thunk reads
-    ;; alacritty-configured? on every render, so the probe must be
-    ;; cheap (one xattr call, but still). 'unknown forces a one-time
-    ;; lazy probe; the refresh hook re-runs after the action so the
-    ;; entry disappears without a Modaliser reload.
+    ;; Cached state — a configuration that gates its setup row on
+    ;; `configured?` has the overlay reading it on every render, so the
+    ;; probe must be cheap (one xattr call, but still). 'unknown forces a
+    ;; one-time lazy probe; the refresh hook re-runs after the action so
+    ;; the row disappears without a Modaliser reload.
     (define *alacritty-state* 'unknown)
 
     (define (alacritty-refresh-state!)
       (set! *alacritty-state* (alacritty-probe-state))
       *alacritty-state*)
 
-    (define (alacritty-configured?)
+    (define (configured?)
       (when (eq? *alacritty-state* 'unknown)
         (alacritty-refresh-state!))
-      ;; Hidden = configured? truthy. Both 'clean and 'no-app hide
-      ;; the entry; only 'quarantined surfaces it.
+      ;; Hidden = configured? truthy. Both 'clean and 'no-app hide a
+      ;; gated row; only 'quarantined surfaces it.
       (not (eq? *alacritty-state* 'quarantined)))
 
     (define alacritty-configure-dialog-message
@@ -203,12 +227,13 @@
         "GitHub-releases DMG never sets this attribute; the brew "
         "cask does.)"))
 
-    ;; The action itself: re-probe (the user may have fixed it manually
-    ;; since the entry rendered); if still quarantined, confirm (async,
-    ;; ADR-0014 — through the slim (modaliser dialogs) library so the
-    ;; Scheme thread stays free while the dialog is up), run xattr, re-probe
-    ;; so the cache flips to 'clean and the entry hides.
-    (define (alacritty-configure!)
+    ;; The provisioning action a configuration binds: re-probe (the user
+    ;; may have fixed it manually since the row rendered); if still
+    ;; quarantined, confirm (async, ADR-0014 — through the slim
+    ;; (modaliser dialogs) library so the Scheme thread stays free while
+    ;; the dialog is up), run xattr, re-probe so the cache flips to
+    ;; 'clean and a row gated on `configured?` hides itself.
+    (define (configure!)
       (if (not (eq? (alacritty-probe-state) 'quarantined))
         (alacritty-refresh-state!)
         (dialog-confirm alacritty-configure-dialog-message
@@ -220,14 +245,6 @@
                   alacritty-app-path "\" 2>/dev/null"))
               (alacritty-refresh-state!)))
           'title "Configure Alacritty" 'ok-label "Continue" 'icon "caution")))
-
-    ;; A `(key …)` node bound to Ctrl+Shift+I — same key as iTerm's
-    ;; and Kitty's configure-entry. They're mutually exclusive by
-    ;; frontmost app (and Alacritty's entry vanishes the moment the
-    ;; xattr is gone), so the keybinding can be re-used.
-    (define (configure-entry)
-      (cons (cons 'hidden alacritty-configured?)
-            (key "C-I" "Configure Alacritty" alacritty-configure!)))
 
     ;; ─── Backend record ─────────────────────────────────────────────
     ;;
@@ -254,10 +271,10 @@
         #f #f #f #f                       ; move-pane-{l,r,u,d}
         #f                                ; focus-pane-by-digit
         #f                                ; toggle-pane-zoom
-        alacritty-configured?))
+        configured?))
 
-    ;; Register the backend. Safe to call more than once: register-
-    ;; backend! is last-write-wins on backend symbol. No pane-digit
-    ;; tree to register — detection-only.
-    (define (register!)
-      (register-backend! backend))))
+    ;; (fragment) → the Alacritty Fragment (library-fragments-k11):
+    ;; just the detection-only backend record. Compose ONE call's value.
+    (define (fragment)
+      (list
+        (config:backend 'alacritty backend)))))

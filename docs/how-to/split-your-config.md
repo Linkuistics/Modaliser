@@ -42,7 +42,7 @@ glance.
              (prefix (modaliser window-actions) window:))  ; blocks
      (begin
        (define window-panels
-         (fragment
+         (splice
            (panel "Layout"
              (window:layout-block
                (("d" "f" "g"))
@@ -61,10 +61,10 @@ glance.
              (window:list-block 'chips? #t))))))
    ```
 
-   The library exports `window-panels` as a **fragment** — a reusable
-   chunk of layout (here, three panels). A fragment is transparent:
-   whatever container you splice it into hoists its panels in place, so
-   the result is identical to writing them inline.
+   The library exports `window-panels` as a **splice** — a reusable
+   chunk of layout (here, three panels). A splice is transparent:
+   whatever container you splice it into renders its panels in place,
+   so the result is identical to writing them inline.
 
 4. **Import it from `config.scm`** and splice it into a drill-down:
 
@@ -77,8 +77,8 @@ glance.
    ```
 
    `(open "w" "Windows" …)` makes a navigable sub-screen; the
-   `window-panels` fragment supplies its grid. You can splice the same
-   fragment into any number of screens, panels, or `open`s.
+   `window-panels` splice supplies its grid. You can splice the same
+   chunk into any number of screens, panels, or `open`s.
 
 5. **Save and relaunch.** Tap F18 → `w` to confirm the imported
    drill-down still renders.
@@ -102,16 +102,19 @@ A larger config might end up as:
 │   ├── windows.sld             ; (me windows)
 │   ├── zed.sld                 ; (me zed)         — per-app tree for Zed
 │   └── search.sld              ; (me search)      — fuzzy-finder factories
-└── sys/
-    └── modaliser/              ; auto-mirrored from the .app — read-only
-        ├── dsl.sld
-        ├── apps/safari.sld
-        ├── …
+└── sys/                        ; auto-mirrored from the .app — read-only
+    ├── README.md               ; generated; restates the mirror contract
+    └── scheme/                 ; the whole bundled Scheme tree
+        ├── default-config.scm  ; what a fresh install would seed
+        └── lib/modaliser/
+            ├── dsl.sld
+            ├── apps/safari.sld
+            ├── …
 ```
 
-`sys/modaliser/` is rewritten on every Modaliser launch when the
-bundle's fingerprint changes — **don't edit anything inside it**.
-Browse it freely to read bundled libraries.
+`sys/scheme/` is wiped and re-copied whenever the installed bundle's
+fingerprint changes — **don't edit anything inside it**. Browse it
+freely to read bundled libraries.
 
 ## Forking a bundled library
 
@@ -120,17 +123,18 @@ options expose, copy the file out of `sys/` into your prefix:
 
 ```bash
 mkdir -p ~/.config/modaliser/modaliser/apps
-cp ~/.config/modaliser/sys/modaliser/apps/iterm.sld \
+cp ~/.config/modaliser/sys/scheme/lib/modaliser/apps/iterm.sld \
    ~/.config/modaliser/modaliser/apps/iterm.sld
 ```
 
 The user-config root sits *before* `sys/` on the lookup path, so your
 fork wins. Edit your copy — Modaliser will pick it up on next launch.
 
-Keep forks rare: every bundle update is a chance for upstream drift,
-so a fork is now your responsibility to maintain. Prefer raising a
-library option (or an issue) when the customisation you want feels
-broadly useful.
+Keep forks rare: a fork opts that file out of the always-fresh
+[upgrade contract](../reference/library-system.md#the-upgrade-contract),
+so every bundle update is a chance for upstream drift you now maintain.
+Prefer raising a library option (or an issue) when the customisation
+you want feels broadly useful.
 
 ## Related
 

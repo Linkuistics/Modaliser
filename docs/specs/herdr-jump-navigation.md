@@ -16,9 +16,10 @@ The herdr entry node's top level becomes a **jump surface**: chips label every
 visible target — full-size chips on the current tab's panes, **mini-chips** at
 the end of each sidebar Spaces/Agents entry and just above each tab title —
 and typing a target's lowercase **jump label** focuses it directly. Named
-operations and the five drills move to capitals. Contexts nest: `.` steps from
-the outer iTerm node into the herdr node; backspace steps outward; leader
-activation lands at the innermost detected context's entry point.
+operations and the five drills move to capitals (with one deliberate
+lowercase/capital exception — see the plane rule below). Contexts nest: `.`
+steps from the outer iTerm node into the herdr node; backspace steps outward;
+leader activation lands at the innermost detected context's entry point.
 
 ## Decisions
 
@@ -27,6 +28,26 @@ activation lands at the innermost detected context's entry point.
   surface: `P` Panes, `T` Tabs, `S` Spaces, `W` Worktrees, `A` Agents,
   `Q` Quit. Digits remain list-row selectors inside drills and stay out of
   the jump space.
+  - **One exception**: the `c` Copy Mode / `C` Scrollback pair — a lowercase
+    key that is not a jump label and a capital that is not a drill. herdr has
+    two distinct text-inspection ops (`copy_mode` in the live pane,
+    `edit_scrollback` on the buffer); they are each other's nearest
+    neighbour and are reached for together, so they are kept as a case pair
+    rather than split across planes.
+    `c` is therefore excluded from the label pools below; `C` needs no
+    exclusion, since the pools are lowercase-only and a capital cannot
+    collide with a label by construction. The exclusion is load-bearing, not
+    cosmetic: a static edge shadows a provider-supplied one (`fsm-step!`
+    takes the first live match, static edges first), so a `c` label would be
+    silently unreachable rather than an error.
+
+    Since ADR-0021 the *binding* is the configuration's (the stock
+    composition's `c`), while the *exclusion* stays in the library's pools.
+    They do not move together, and deliberately so: rebind Copy Mode
+    elsewhere and `c` simply goes unused, but a pool that handed `c` out
+    would mint an unreachable label for whatever key that config **did**
+    bind statically. Reserving the pair costs two letters and removes a
+    silent-failure mode.
 - **Jump space scope**: one flat, simultaneous space over every *visibly
   drawn* target across four axes — current tab's panes, focused workspace's
   tab bar, sidebar Spaces entries, sidebar Agents entries. Worktrees are
@@ -61,15 +82,18 @@ activation lands at the innermost detected context's entry point.
   consumed first char. Backspace returns to the un-narrowed state; Escape
   exits and clears chips. A jump firing is Terminal: focus moves, the modal
   exits.
-- **Chip timing** (jump-chip-paint-bypasses-overlay-delay-k46): chips —
-  full-size and mini, un-narrowed and narrowed — paint the instant the
-  machine comes to rest, riding the FSM state's unconditional entry/exit
-  slots (authored as `'entry`/`'exit` on the herdr screen and the
-  narrowing prefix states), never the overlay's show delay. Chips are the
-  primary fast-jump aid: a muscle-memory press sees them; only the
-  overlay's own HTML (breadcrumbs, panels, the Jump legend) keeps the
-  delayed no-flash behaviour, and every other tree's `'on-enter`/
-  `'on-leave` hooks stay presentation-gated as before.
+- **Chip timing** (defer-chips-to-overlay-k33): chips — full-size and
+  mini, un-narrowed and narrowed — paint when the overlay actually
+  displays, riding the FSM state's presentation-paired show/hide slots
+  (authored as `'on-enter`/`'on-leave` on the herdr screen and in the
+  narrowing prefix states' payloads), the same timing every other tree's
+  hooks already use. A muscle-memory press fast enough to never raise the
+  overlay paints nothing at all: chips are an aid to *choosing* a target,
+  and dispatch never depended on them — the provider lowers its jump
+  edges at come-to-rest regardless. Only the FIRST paint waits out the
+  delay; a narrowing descent lands with the overlay already open, so its
+  repaint is synchronous. Clearing pairs structurally rather than by
+  convention — a paint that never fired leaves nothing to strand.
 - **Legend** (jump-space-legend-overlay-k40): the herdr top-level screen
   carries a "Jump" legend panel — one row per assigned target, all four
   kinds, listed in stable-axis order (spaces → agents → tabs → panes):
@@ -132,11 +156,15 @@ activation lands at the innermost detected context's entry point.
 6. **Paint-pipeline geometry** — the chip paint pipeline's one live-AX
    dependency (the calibrated grid host-frame) is a parameter,
    `current-herdr-host-frame` in `blocks/herdr-list`; a test whose dispatch
-   path can reach a paint hook (e.g. narrowing's `'entry`) parameterises it
-   — alongside `current-herdr-list-runner` for the pipeline's own
-   `pane layout`/`ui layout` queries — so no AX scan and no live herdr
-   query ever run from a test. Painting itself is still verified only via
-   seam 4.
+   path can reach a paint hook (e.g. narrowing's `'on-enter`) parameterises
+   it, so no AX scan runs from a test even when a query IS answered. Since
+   the paint hooks became presentation-gated (defer-chips-to-overlay-k33)
+   a test that installs no overlay host cannot reach them at all, but the
+   seam stays: a test that *does* stub `show-overlay` reopens the path. The
+   pipeline's own `pane.layout`/`ui.layout` queries need no second seam:
+   they ride the same `current-herdr-query-runner` every other herdr read
+   goes through (`(modaliser muxes herdr-socket)`), so one stub closes the
+   whole read surface. Painting itself is still verified only via seam 4.
 
 ## Out of scope
 

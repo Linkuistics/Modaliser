@@ -8,18 +8,19 @@ mechanism resolves this.
 
 ## Setup
 
-In `config.scm`, list the remote-viewer bundle IDs in `set-leaders!`:
+In `config.scm`, list the remote-viewer bundle IDs in each leader
+spec's `'arm-when-frontmost` keyword:
 
 ```scheme
-(set-leaders! 'global-keycode F18
-              'local-keycode  F17
-              'arm-when-frontmost '("com.p5sys.jump.mac.viewer"))
+(leaders
+  (leader 'global F18 'arm-when-frontmost '("com.p5sys.jump.mac.viewer"))
+  (leader 'local  F17 'arm-when-frontmost '("com.p5sys.jump.mac.viewer")))
 ```
 
-`arm-when-frontmost` is applied to **both** the global (F18) and local
-(F17) leaders — which is what you want, so that both leaders are
-reachable through the viewer. (For per-scope control, call
-`set-global-leader!` / `set-local-leader!` separately.)
+Give the keyword to **both** the global (F18) and local
+(F17) leader specs — which is what you want, so that both leaders are
+reachable through the viewer. (Each `leader` spec carries its own
+keywords, so per-scope control is just giving them different values.)
 
 `arm-when-frontmost` takes bundle IDs of remote-desktop *viewer* apps.
 Find a viewer's bundle ID with:
@@ -95,7 +96,7 @@ modal open on the remote when you actually wanted the host.
 
 ## Related
 
-- [reference/dsl.md](../reference/dsl.md) — `set-leaders!` signature
-  and keyword set.
+- [reference/dsl.md](../reference/dsl.md) — `leader`/`leaders`
+  signature and keyword set.
 - [add-a-per-app-tree.md](add-a-per-app-tree.md) — per-app trees,
   including how to find bundle IDs.

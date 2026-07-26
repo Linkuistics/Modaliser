@@ -20,6 +20,15 @@
 ;; renderer registers the owning list each render pass and reads back the
 ;; selected index; the footer advertises the nav keys while a cursor is active.
 (import (modaliser list-cursor))
+;; The pure display-resolution seam (ADR-0011): resolve-display turns a
+;; node's (children, display value) into the render plan this file
+;; serializes; sort-rows is the canonical row-key sort the list path
+;; shares with it.
+;; Selective: display-dsl also exports the bare clause constructors,
+;; whose `panel` shares its name with the sugar form already imported
+;; into this top-level environment from (modaliser dsl) — importing the
+;; whole library here would shadow the form user configs call.
+(import (only (modaliser display-dsl) resolve-display sort-rows))
 
 ;; ─── Overlay State ────────────────────────────────────────────
 
@@ -240,7 +249,7 @@
     ;; Use modal-stack-empty? rather than reading modal-stack directly:
     ;; LispKit captures a stale binding for top-level identifiers when
     ;; referenced from a .scm file loaded outside a define-library. The
-    ;; accessor lives inside (modaliser state-machine), so it always
+    ;; accessor lives inside (modaliser fsm), so it always
     ;; reads the live mutable cell.
     ((not (modal-stack-empty?)) #t)
     (else #f)))
@@ -326,15 +335,74 @@
       (let ((n (string-length (key-display-text (node-key (car rest))))))
         (loop (cdr rest) (if (> n best) n best))))))
 
+;; ─── Display-root anchoring (embed-rendering-k14; ADR-0011) ──────
+;;
+;; The unit the overlay renders is the DISPLAY ROOT (CONTEXT.md): one
+;; persistent layout spanning a node and its embedded sections. When the
+;; Visit sits on an embedded section — the current path's last key is
+;; marked in its parent's 'embed list — the PARENT is what renders (the
+;; anchor), with that section active; the section restyles rather than
+;; swapping the body. Everywhere else the anchor is the current node
+;; itself and rendering is unchanged. One resolution shared by the
+;; initial paint, the push update, and the DOM-shape tracker
+;; (current-node-renderer), so the three can never disagree about which
+;; node's display is on screen.
+
+;; (display-anchor node path) → (anchor-path active-key)
+;; active-key is the embedded section's key (PATH's last), or #f when
+;; PATH addresses an ordinary display root of its own.
+(define (display-anchor node path)
+  (if (null? path)
+    (list path #f)
+    (let* ((rev         (reverse path))
+           (last-key    (car rev))
+           (parent-path (reverse (cdr rev)))
+           (parent      (if (null? parent-path) node (navigate-to-path node parent-path))))
+      (if (and parent
+               (let ((em (node-display-ref parent 'embed)))
+                 (and em (member last-key em) #t)))
+        (list parent-path last-key)
+        (list path #f)))))
+
+;; (panel-grid-node? node) → #t when NODE renders through the
+;; panel-grid path. Derived from the DISPLAY VALUE'S SHAPE (ADR-0011 —
+;; the former 'renderer 'panel-grid marker retired at the readers
+;; cutover): layout structure ('panels, 'loose, 'embed, 'cols, 'layout)
+;; selects the grid; a display holding only breadcrumb / row-order data
+;; (a walk's display-name, a plain group's 'order) keeps the built-in
+;; list renderer.
+(define (panel-grid-node? node)
+  (let ((d (and node (node-display node))))
+    (and (pair? d)
+         (or (assoc 'panels d) (assoc 'loose d) (assoc 'embed d)
+             (assoc 'cols d) (assoc 'layout d))
+         #t)))
+
+;; (display-root-id node anchor-path) → string identity of the display
+;; root: the tree's scope plus the anchor's key path. Rides the payload
+;; as "rootId" so the JS can tell a within-root update (restyle the
+;; active-section marker) from a root swap (rebuild the body) — path
+;; identity, stable across content refreshes of the same root.
+(define (display-root-id node anchor-path)
+  (let* ((entry (assoc 'scope node))
+         (scope (and entry (cdr entry)))
+         (scope-str (cond ((symbol? scope) (symbol->string scope))
+                          ((string? scope) scope)
+                          (else ""))))
+    (string-join (cons scope-str anchor-path) "/")))
+
 (define (render-overlay-body root-segments node path)
-  (let* ((current  (if (null? path) node (navigate-to-path node path)))
+  (let* ((anchor      (display-anchor node path))
+         (anchor-path (car anchor))
+         (active-key  (cadr anchor))
+         (current  (if (null? anchor-path) node (navigate-to-path node anchor-path)))
          (segments (append root-segments (path-labels node path)))
          (walk?    (any-on-path? node path node-walk?))
-         (cls      (if walk? "overlay walk" "overlay"))
-         (renderer (and current (node-renderer current))))
+         (cls      (if walk? "overlay walk" "overlay")))
     (cond
-      (renderer
-        (render-overlay-custom cls segments current renderer path))
+      ((panel-grid-node? current)
+        (render-overlay-custom cls segments current 'panel-grid path
+                               active-key (display-root-id node anchor-path)))
       (else
         (render-overlay-default cls segments current path)))))
 
@@ -363,15 +431,17 @@
                                 "overlay-footer")))
         (make-raw-html (footer-html-for-path path))))))
 
-;; (render-overlay-custom cls segments current renderer path) → div
+;; (render-overlay-custom cls segments current renderer path active-key root-id) → div
 ;; Custom renderers receive a payload built from the group's metadata
 ;; (renderer-emitted) plus the standard breadcrumb header + footer chrome.
 ;; The body is a single <div data-renderer="TYPE"> carrying the JSON
 ;; payload as a data-payload attribute; JS reads it on load and calls
 ;; into the renderer registry. Initial-render payload mirrors what
-;; push-overlay-update sends for incremental updates.
-(define (render-overlay-custom cls segments current renderer path)
-  (let* ((payload-json (renderer-body-json renderer current))
+;; push-overlay-update sends for incremental updates. ACTIVE-KEY /
+;; ROOT-ID are the display-root anchoring values (display-anchor above)
+;; the panel-grid payload carries for embed rendering.
+(define (render-overlay-custom cls segments current renderer path active-key root-id)
+  (let* ((payload-json (renderer-body-json renderer current active-key root-id))
          ;; data-payload is single-quoted so the inner JSON's double
          ;; quotes don't need HTML entity-encoding. JS reads via
          ;; getAttribute('data-payload') + JSON.parse, which sees the
@@ -451,24 +521,26 @@
 ;; offer clears the cursor — so a screen with no live list leaves its keys
 ;; inert. Both initial paint and incremental push route through here, so the
 ;; cursor registration can never diverge between the two.
-(define (renderer-body-json renderer current)
+;; Optional trailing args (active-key root-id) are the display-root
+;; anchoring values for embed rendering; the 2-arg form (tests, callers
+;; with no embed in play) behaves as before.
+(define (renderer-body-json renderer current . opt)
   (list-cursor-begin-pass!)
   (let ((body (cond
-                ((eq? renderer 'panel-grid) (panel-grid-payload-json current))
+                ((eq? renderer 'panel-grid) (apply panel-grid-payload-json current opt))
                 (else (error "overlay: unknown renderer marker" renderer)))))
     (list-cursor-end-pass!)
     body))
 
 ;; ─── Panel-grid renderer (layout DSL; ADR-0011 / ADR-0012) ───────
 ;;
-;; A `screen` (or a drilled-into `open`) lowered from the layout DSL is a
-;; group carrying 'renderer 'panel-grid + an optional authored 'cols / 'layout
-;; and a 'loose region. Its DIRECT children are the dispatch children (loose
-;; atoms / folded opens, lifted block keys, and the panel categories); the
-;; categories render as grid cells, while the loose region rides the 'loose
-;; marker (bare-loose-rows-k23). This serializes exactly the alist shape the
-;; lowering (dsl.sld lower-panel-grid-body / make-panel-node) emits — the
-;; renderer owns the JSON, the DSL owns the alist; the contract was co-designed.
+;; A `screen` (or a drilled-into `open`) is a group whose flat children
+;; are the dispatch atoms and whose single 'display entry holds the
+;; Display value. This path serializes the RENDER PLAN the pure
+;; resolve-display seam ((modaliser display-dsl)) produces from those
+;; two — resolution logic lives portable-side; the overlay only walks
+;; the plan, firing the runtime-only bits (hidden thunks, block
+;; on-render-fn) as it serializes.
 ;;
 ;; Shape: {"type":"panel-grid"[,"cols":N][,"layout":S],
 ;;         "loose":[<row>|<block>,…],"panels":[<panel>,…]}
@@ -485,36 +557,116 @@
 ;;   "panels" = the masonry grid of real panel cards. Empty array → no .panel-grid.
 ;;   "layout" = 'masonry (omitted — the CSS default) | 'grid (deterministic);
 ;;              overlay.js reflects it onto .panel-grid as data-layout.
-(define (panel-grid-payload-json current)
-  (let* ((cols       (node-renderer-payload current 'cols))
-         (layout     (node-renderer-payload current 'layout))
-         ;; Screen/open-wide row-ordering default each panel inherits unless it
-         ;; sets its own 'order; #f → the panel's ultimate 'keys default
-         ;; (manual-panel-order-k24).
-         (order      (node-renderer-payload current 'order))
-         (loose      (or (node-renderer-payload current 'loose) '()))
+;; Optional trailing args (active-key root-id) — embed rendering
+;; (embed-rendering-k14): ACTIVE-KEY is the embedded section the Visit
+;; sits on (#f at the anchor itself), ROOT-ID the display root's
+;; identity for the JS restyle protocol. The 1-arg form (tests, plain
+;; screens) emits the same payload with no activeSection/rootId.
+(define (panel-grid-payload-json current . opt)
+  (let* ((active-key (if (pair? opt) (car opt) #f))
+         (root-id    (if (and (pair? opt) (pair? (cdr opt))) (cadr opt) #f))
+         (plan       (resolve-display (node-children current)
+                                      (node-display current)))
+         (cols       (cdr (assoc 'cols plan)))
+         (layout     (cdr (assoc 'layout plan)))
          ;; Serialize the loose region FIRST so a loose live-list claims the
          ;; selection cursor ahead of any panel list (first offer wins — see
-         ;; block-json / list-cursor-offer!).
-         (loose-json (loose-region-json loose))
-         (panels     (panels-json (node-children current) order)))
+         ;; block-json / list-cursor-offer!). The plan has already dropped
+         ;; embedded keys' drill rows (the section replaces the row) and
+         ;; resolved panel membership + row order.
+         (loose-json (loose-region-json (cdr (assoc 'loose plan))))
+         (panels     (map plan-panel->json (cdr (assoc 'panels plan))))
+         (section-pairs (cdr (assoc 'sections plan)))
+         (sections   (map (lambda (s)
+                            (section->json (car s) (cdr s)
+                                           (equal? (car s) active-key)))
+                          section-pairs)))
     (string-append
       "{\"type\":\"panel-grid\""
+      (if root-id (string-append ",\"rootId\":\"" (js-escape-overlay root-id) "\"") "")
       (if cols (string-append ",\"cols\":" (number->string cols)) "")
       (if layout (string-append ",\"layout\":\"" (symbol->string layout) "\"") "")
+      (if (null? section-pairs)
+        ""
+        (string-append ",\"sections\":[" (string-join sections ",") "]"))
+      (if active-key
+        (string-append ",\"activeSection\":\"" (js-escape-overlay active-key) "\"")
+        "")
       ",\"loose\":["  (string-join loose-json ",") "]"
       ",\"panels\":[" (string-join panels ",") "]}")))
 
-;; (loose-region-json loose) → list of JSON strings, declaration order.
-;; Each item the lowering placed in the loose region is either a loose node —
+;; ─── Embedded sections (embed-rendering-k14; ADR-0011) ───────────
+;;
+;; One section per 'embed key, in embed-list order (the plan's
+;; 'sections pairs, targets resolved by resolve-display): the key's
+;; target (a group — validated at lowering) renders as a card of the
+;; parent's display root. The binding contracts
+;; (docs/specs/configuration-value.md "The two-layer node model"):
+;;   • An UNVISITED section renders its STATIC rows — no gate or provider
+;;     evaluation, and its live-list block does not serialize (no
+;;     on-render-fn fires), so detection cost stays once-per-landing.
+;;   • The ACTIVE section (the Visit is on it) serializes fully: its
+;;     live-list block goes through the same block-json path a panel's
+;;     list does, so the come-to-rest snapshot populates the section.
+;;   • Structure is stable across the two states (same rows source, same
+;;     span), so the JS can restyle without rebuilding the root.
+
+;; (section->json key target active?) → section JSON object string.
+;; Rows are the target's dispatch atoms in their flat authored order
+;; (splice-expanded, blocks partitioned out — the same view its own
+;; drilled screen would list), ordered by the target's display 'order
+;; ('declared preserves authoring, default key-sorts). span is 'wide
+;; when the target carries a live-list block (stable whether or not the
+;; block serializes this render).
+(define (section->json key target active?)
+  (let* ((order    (or (node-display-ref target 'order) 'keys))
+         (children (remove loose-block?
+                           (expand-splices (node-children target))))
+         (rows     (filtered-rows (if (eq? order 'declared)
+                                    children
+                                    (sort-rows children))))
+         (block    (section-list-block target))
+         (span     (if block 'wide 'narrow))
+         (raw-label (node-label target))
+         (label    (if (string? raw-label) raw-label "")))
+    (string-append
+      "{\"key\":\""      (js-escape-overlay key)
+      "\",\"keyHtml\":\"" (js-escape-overlay (key-display-html key))
+      "\",\"label\":\""  (js-escape-overlay label)
+      "\",\"span\":\""   (symbol->string span) "\""
+      ",\"rows\":["      (string-join rows ",") "]"
+      (if (and active? block)
+        (string-append ",\"list\":" (block-json block))
+        "")
+      "}")))
+
+;; The target's first live-list block — a loose block of its own render
+;; plan, else the first of its plan panels' 'list slots. Presence
+;; decides the section's span; serialization (block-json — which fires
+;; on-render-fn) happens only for the active section (resolve-display
+;; is pure, so probing here fires nothing).
+(define (section-list-block target)
+  (let* ((plan  (resolve-display (node-children target)
+                                 (node-display target)))
+         (loose-blocks (filter loose-block? (cdr (assoc 'loose plan))))
+         (panel-blocks (filter-map (lambda (p) (cdr (assoc 'list p)))
+                                   (cdr (assoc 'panels plan)))))
+    (cond
+      ((pair? loose-blocks) (car loose-blocks))
+      ((pair? panel-blocks) (car panel-blocks))
+      (else #f))))
+
+;; (loose-region-json items) → list of JSON strings, declaration order.
+;; Each item of the plan's loose region is either a loose node —
 ;; serialized to the shared entry-row shape (entry->row-json), so a folded
 ;; top-level open becomes a drill row — or a loose block-spec (a diagram /
 ;; live-list), serialized through the SAME block-json path the panels use (so
 ;; on-render-fn fires, live rows merge, and the selection cursor is offered).
 ;; The JS tells the two apart by shape: a block carries "type", a row "key".
-;; Hidden / nested-category nodes drop out (entry->row-json returns #f).
-(define (loose-region-json loose)
-  (let loop ((rest loose) (acc '()))
+;; Hidden nodes drop out here (entry->row-json returns #f — 'hidden may
+;; be a runtime thunk, so the pure plan cannot pre-filter them).
+(define (loose-region-json items)
+  (let loop ((rest items) (acc '()))
     (cond
       ((null? rest) (reverse acc))
       ((loose-block? (car rest))
@@ -529,48 +681,24 @@
 (define (loose-block? x)
   (and (pair? x) (assoc 'type x) #t))
 
-;; (panels-json children screen-order) → list of panel JSON strings.
-;; The screen/open group's children are loose nodes, lifted block-children, and
-;; the real panels (categories). Only the categories render as grid cells —
-;; loose nodes and lifted keys belong to the loose region / dispatch, so they
-;; are skipped here. SCREEN-ORDER is the grid-wide row-ordering default a panel
-;; inherits when it carries no explicit 'order (manual-panel-order-k24).
-(define (panels-json children screen-order)
-  (let loop ((rest children) (acc '()))
-    (cond
-      ((null? rest) (reverse acc))
-      ((category? (car rest))
-       (loop (cdr rest) (cons (panel->json (car rest) screen-order) acc)))
-      (else (loop (cdr rest) acc)))))
-
-;; (panel->json category screen-order) → panel JSON object string
-;; Rows come from the category's dispatch children (hidden + nested-category
-;; entries filtered exactly as the list path does — this also drops the lifted,
-;; 'hidden digit range of an embedded list, which the list section renders
-;; instead). 'span is always present (make-panel-node defaults it); 'list is
-;; present only when the panel embeds a live list.
-;;
-;; Row order resolves panel-explicit 'order > SCREEN-ORDER (the grid-wide
-;; default) > 'keys (manual-panel-order-k24). 'keys key-sorts the rows (the
-;; historic behaviour); 'declared preserves declaration order — node-children is
-;; already in authored order, so it's the verbatim, unsorted list. Dispatch is
-;; order-independent (find-child), so this is presentation only.
-(define (panel->json category screen-order)
-  (let* ((raw-label  (node-label category))
+;; (plan-panel->json p) → panel JSON object string, from one of the
+;; plan's resolved panels: membership, row order (panel-explicit >
+;; grid default > 'keys), embed-row exclusion and the block partition
+;; are already resolved by resolve-display; this only serializes —
+;; filtering hidden rows (a runtime concern) and firing the block's
+;; on-render-fn via block-json.
+(define (plan-panel->json p)
+  (let* ((raw-label  (cdr (assoc 'label p)))
          ;; A panel authored with a falsy label — (panel #f …) — is HEADERLESS:
-         ;; node-label hands back #f, which js-escape-overlay (string->list)
-         ;; can't take, so normalise to "". The JS reads an empty label as "draw
-         ;; no .panel-head" (renderPanel), so the title is config-controlled —
-         ;; the renderer never decides a panel's header away (window-diagram-
-         ;; polish-k31; cf. the overlay-structure-is-config rule).
+         ;; #f can't go through js-escape-overlay (string->list), so normalise
+         ;; to "". The JS reads an empty label as "draw no .panel-head"
+         ;; (renderPanel), so the title is config-controlled — the renderer
+         ;; never decides a panel's header away (window-diagram-polish-k31;
+         ;; cf. the overlay-structure-is-config rule).
          (label      (if (string? raw-label) raw-label ""))
-         (span       (or (node-renderer-payload category 'span) 'narrow))
-         (order      (or (node-renderer-payload category 'order) screen-order 'keys))
-         (children   (node-children category))
-         (rows       (filtered-rows (if (eq? order 'declared)
-                                      children
-                                      (sort-children children))))
-         (list-block (node-renderer-payload category 'list))
+         (span       (cdr (assoc 'span p)))
+         (rows       (filtered-rows (cdr (assoc 'rows p))))
+         (list-block (cdr (assoc 'list p)))
          (bare?      (panel-bare? list-block)))
     (string-append
       "{\"label\":\""  (js-escape-overlay label)
@@ -596,7 +724,7 @@
          (and t (eq? (cdr t) 'window-diagram)))))
 
 ;; (filtered-rows children) → list of JSON strings (each a row)
-;; entry->row-json returns #f for category / hidden nodes; filter-map drops them.
+;; entry->row-json returns #f for hidden nodes; filter-map drops them.
 (define (filtered-rows children)
   (filter-map entry->row-json children))
 
@@ -613,9 +741,8 @@
          #t)))
 
 ;; (entry->row-json c) → JSON string OR #f if skipped
-;; Skips hidden entries and nested category nodes (categories inside
-;; categories — dispatch flattens through them via find-child, so
-;; emitting a bogus empty row here would be inconsistent with dispatch).
+;; Skips hidden entries — 'hidden may be a runtime thunk, which is why
+;; the pure render plan leaves the filtering here.
 (define (entry->row-json c)
   (let* ((hidden? (node-hidden? c))
          (k (node-key c))
@@ -623,7 +750,6 @@
          (is-grp (group? c))
          (has-next (and (command? c) (node-next c))))
     (cond
-      ((category? c) #f)
       (hidden? #f)
       (else
        (string-append "{\"key\":\"" (js-escape-overlay (key-display-html k))
@@ -706,55 +832,30 @@
       ((not (symbol? (car (car xs)))) #f)
       (else (loop (cdr xs))))))
 
-;; Sort children alphabetically by key (insertion sort).
-;;
-;; Comparator is case-insensitive on the primary, with a stable tiebreak
-;; that places lowercase before its uppercase variant — so the visible
-;; order is "a A b B …" rather than ASCII's "A B … a b …" or a strict
-;; lowercase-only ordering. Mixed-case configs read more naturally that
-;; way; the user model is "letters in the alphabet, lowercase first".
-(define (sort-key-lt? a b)
-  ;; Categories and other entries without a binding key carry #f here;
-  ;; coerce to "" so they sort before any letter rather than crashing.
-  (let* ((a (or a ""))
-         (b (or b ""))
-         (la (string-downcase a))
-         (lb (string-downcase b)))
-    (cond
-      ((string<? la lb) #t)
-      ((string<? lb la) #f)
-      ;; Same letter, different case: lowercase first. ASCII gives
-      ;; uppercase a LOWER code point, so a > b under string<? means
-      ;; a is the lowercase variant.
-      (else (string>? a b)))))
-
-(define (sort-children children)
-  (define (insert item sorted)
-    (cond
-      ((null? sorted) (list item))
-      ((sort-key-lt? (node-key item) (node-key (car sorted)))
-       (cons item sorted))
-      (else (cons (car sorted) (insert item (cdr sorted))))))
-  (let loop ((rest children) (sorted '()))
-    (if (null? rest)
-      sorted
-      (loop (cdr rest) (insert (car rest) sorted)))))
-
 ;; (ordered-children current) → child nodes in render order.
-;; Key-sorted by default; declaration order when the group carries
-;; 'order 'declared. The non-panel-grid analogue of panel->json's panel-
-;; explicit 'order handling (manual-panel-order-k24): it lets a plain group —
-;; e.g. a `walk`-registered mode with 'order 'declared — opt its rows out
-;; of key-sorting, so the latched walk matches the declaration-ordered entry
-;; point it splices from (iterm-nav-declared-order-k38). Both default-render
-;; paths (initial render + push update) route through here so they can never
-;; disagree on order. Dispatch is key-addressed (find-child), so this is
-;; presentation only.
+;; Key-sorted by default (sort-rows — the canonical row sort from
+;; (modaliser display-dsl): case-insensitive, lowercase before its own
+;; uppercase, "a A b B …"); declaration order when the group's display
+;; value carries 'order 'declared. The list-path analogue of the plan
+;; panels' 'order handling (manual-panel-order-k24): it lets a plain
+;; group — e.g. a `walk`-registered mode with 'order 'declared — opt its
+;; rows out of key-sorting, so the latched walk matches the
+;; declaration-ordered entry point it splices from
+;; (iterm-nav-declared-order-k38). Both default-render paths (initial
+;; render + push update) route through here so they can never disagree
+;; on order. Dispatch is key-addressed (find-child), so this is
+;; presentation only. The flat view expands surviving splices and drops
+;; block atoms (their visible rendering is a display-value concern; a
+;; block's hidden digit rows never render).
 (define (ordered-children current)
-  (let ((children (if current (flatten-categories (node-children current)) '())))
-    (if (eq? (and current (node-renderer-payload current 'order)) 'declared)
+  (let ((children
+          (if current
+            (filter (lambda (c) (and (pair? c) (assoc 'kind c)))
+                    (expand-splices (node-children current)))
+            '())))
+    (if (eq? (and current (node-display-ref current 'order)) 'declared)
       children
-      (sort-children children))))
+      (sort-rows children))))
 
 ;; (overlay-full-css) → string
 ;; The concatenated CSS stack that ends up inside the overlay's <style>
@@ -788,22 +889,28 @@
 ;; Sends {rootSegments: [...], path: [...], entries: [...]} so the JS
 ;; can render the breadcrumb identically to the initial Scheme render.
 ;;
-;; Dispatches on (node-renderer current): a typed payload {type, …} is
-;; emitted for custom renderers; otherwise the built-in list payload
-;; (handled by overlayRenderers.list in overlay.js).
+;; Dispatches on the display value's shape (panel-grid-node?): a typed
+;; {type:"panel-grid", …} payload for a structured display; otherwise
+;; the built-in list payload (handled by overlayRenderers.list in
+;; overlay.js).
 (define (push-overlay-update node path)
-  (let* ((current (if (null? path) node (navigate-to-path node path)))
-         (renderer (and current (node-renderer current))))
+  (let* ((anchor      (display-anchor node path))
+         (anchor-path (car anchor))
+         (active-key  (cadr anchor))
+         (current (if (null? anchor-path) node (navigate-to-path node anchor-path))))
     (cond
-      (renderer
+      ((panel-grid-node? current)
         ;; Custom-renderer payload carries both the renderer body (block
         ;; list or panel grid, per renderer-body-json) AND the chrome
         ;; (breadcrumb segments, walk flag, footer HTML) so the JS update
         ;; can refresh the header/footer alongside the body. Without this,
         ;; navigating from the root list into a custom-renderer group leaves
         ;; stale chrome from the previous depth — notably the root footer
-        ;; with no backspace hint.
-        (let* ((body (renderer-body-json renderer current))
+        ;; with no backspace hint. The body is the display ANCHOR's (the
+        ;; parent, when the Visit sits on an embedded section); the chrome
+        ;; stays the honest full path.
+        (let* ((body (renderer-body-json 'panel-grid current active-key
+                                         (display-root-id node anchor-path)))
                (segments-json (path-segments-json node path))
                (path-json     (path-keys-json path))
                (walk?         (any-on-path? node path node-walk?))
@@ -813,7 +920,7 @@
                          ",\"path\":"         path-json
                          ",\"walk\":"         (if walk? "true" "false")
                          ",\"footer\":\""     (js-escape-overlay footer-html) "\""))
-               ;; body looks like `{"type":"blocks","blocks":[…]}`; splice
+               ;; body looks like `{"type":"panel-grid",…}`; splice
                ;; the chrome fields in just before the closing brace.
                (open  (substring body 0 (- (string-length body) 1)))
                (with-chrome (string-append open chrome "}")))
@@ -923,12 +1030,19 @@
   (when (equal? (alist-ref msg 'type "") "cancel")
     (modal-exit)))
 
-;; (current-node-renderer node path) → symbol or #f
-;; Renderer of the node addressed by `path` within `node`. Reused by show
-;; and update impls to track DOM shape.
+;; (current-node-renderer node path) → 'panel-grid or #f
+;; Render path of the node whose display root covers `path` within
+;; `node` — the display ANCHOR (display-anchor), not the current node
+;; itself: while the Visit sits on an embedded section, the parent's
+;; panel-grid stays on screen, so the DOM-shape tracker must report the
+;; parent's path even when the section's own node would use a different
+;; one. Derived from the anchor's display shape (panel-grid-node?).
+;; Reused by show and update impls to track DOM shape.
 (define (current-node-renderer node path)
-  (let ((current (if (null? path) node (navigate-to-path node path))))
-    (and current (node-renderer current))))
+  (let* ((anchor      (display-anchor node path))
+         (anchor-path (car anchor))
+         (current (if (null? anchor-path) node (navigate-to-path node anchor-path))))
+    (and (panel-grid-node? current) 'panel-grid)))
 
 ;; (overlay-show-impl node path) — create panel if needed, render content
 (define (overlay-show-impl node path)
@@ -978,7 +1092,7 @@
     ;; with no stale selection.
     (list-cursor-clear!)))
 
-;; Install overlay implementations into the state-machine.
+;; Install overlay implementations into the modal engine ((modaliser fsm)).
 (set-show-overlay!   overlay-show-impl)
 (set-update-overlay! overlay-update-impl)
 (set-hide-overlay!   overlay-hide-impl)

@@ -1,24 +1,27 @@
 # The layout DSL surface is `screen` / `panel` / `open` over the unchanged dispatch atoms
 
-- **Status:** accepted (refines [ADR-0011](0011-presentation-first-layout-spec-lowers-to-operational-node-tree.md) §"layout DSL"); the "no flag-day" consequence was **reversed 2026-06-24** — see [Amendment](#amendment-2026-06-24--the-flag-day-happened-after-all)
+- **Status:** accepted (refines [ADR-0011](0011-dispatch-structure-with-attached-display.md) — the sugar surface over the two-layer node model); the "no flag-day" consequence was **reversed 2026-06-24** — see [Amendment](#amendment-2026-06-24--the-flag-day-happened-after-all)
 
 ADR-0011 inverts authoring to a presentation-first layout spec that **lowers** to
 the operational node-tree. This ADR fixes the *concrete surface*. The layout
-introduces exactly three new container forms — **`screen`** (registers a tree
-under a scope; its body is an implicit grid of panels; optional `'cols N`,
-default CSS-intrinsic auto-fit), **`panel`** (a transparent visual card; optional
+introduces exactly three new container forms — **`screen`** (a tree under a
+scope — a pure constructor returning a tree contribution, ADR-0018; its body
+is an implicit grid of panels; optional `'cols N`, default CSS-intrinsic
+auto-fit), **`panel`** (a transparent visual card; optional
 `'span 'narrow|'wide|'full`, auto-`wide` when it holds a live-list block), and
 **`open`** (a navigable drill-down into a sub-screen) — over the **unchanged
 dispatch atoms** `key` / `keys` / `key-range` / `selector` / `group` /
 `sticky-set` and the lifecycle keywords, because those atoms *are* the
 operational IR the state machine reads; renaming them buys nothing. Reusable
-chunks splice in via a **`fragment`** form built on the existing `expand-splices`.
+chunks splice in via a **`splice`** form (formerly `fragment` — renamed when
+"Fragment" became the configuration term, ADR-0018) built on the existing
+`expand-splices`.
 
 ## Considered options
 
 1. **Tight rename — `screen`/`panel`/`open` + unchanged atoms** (chosen). The
    authored leaves stay identical to the IR they lower to; smallest new surface;
-   `state-machine.sld` is literally untouched.
+   the dispatch layer is literally untouched.
 2. **Full presentation-first leaves** (`cmd`/`open`/`live-list` wrapping the
    atoms). Rejected: a second name plus an indirection layer over
    `key`/`selector`/list-block, for a uniform "new DSL" feel the author never
@@ -34,12 +37,14 @@ chunks splice in via a **`fragment`** form built on the existing `expand-splices
 
 ## Consequences
 
-- **`panel` lowers to a `category` node** (`'kind 'category`) carrying an added
-  `'span`; **`screen`/`open`** lower to a tree-root / `group` node carrying
-  `'renderer 'panel-grid` (plus `'cols` when authored). So
-  `flatten-categories` / `find-child` / `node-renderer-payload` need **no
-  change** — the panel's presentation metadata rides the opaque-extras
-  pass-through `group` already implements.
+- **The sugar compiles onto the bare surface** (ADR-0011): `screen`/`open`
+  lower to a tree-root / `group` whose children are flat dispatch atoms, and
+  `panel` becomes a display-value clause referencing its rows by key —
+  attached as the node's single `'display` entry, pinned by the sugar≡bare
+  equivalence test. Nothing panel-shaped lands among dispatch children.
+  (Originally `panel` lowered to a `'kind 'category` child and dispatch
+  tunneled through it via `flatten-categories`; the two-layer representation
+  change retired that shape.)
 - Loose top-level keys under a `screen` (outside any `panel`) pack into an
   implicit **"General"** panel — the presentation-first analogue of today's
   `pack-node-runs` misc bucket.
@@ -47,9 +52,12 @@ chunks splice in via a **`fragment`** form built on the existing `expand-splices
   `pack-node-runs`) **keep working unchanged**, so nothing breaks before configs
   migrate: real configs move to the new surface in `config-migration-k8`, and the
   old forms are deprecated in `docs-tests-k9`. No flag-day.
-- The `'panel-grid` renderer marker is the contract with the panel-grid renderer
-  (`panel-grid-renderer-k4`); the exact panel-spec metadata shape is co-designed
-  there.
+- The renderer contract with the panel-grid renderer is the display
+  value's shape: the overlay derives the panel-grid render path from a
+  structured display ('panels/'loose/'embed/'cols/'layout present) and
+  serializes the pure `resolve-display` plan. (The original contract was
+  a `'renderer 'panel-grid` marker stamped on the group; the two-layer
+  representation change made the marker derivable and retired it.)
 - Portability preserved: all new forms stay within `(scheme …)` / `(srfi …)` /
   `(modaliser …)`; `check-portable-surface.sh` stays green.
 
@@ -74,9 +82,10 @@ plain `(group …)` drill-downs use flows CSS-intrinsic auto-fit columns
 rather than a Scheme-computed count.
 
 So "the old forms keep working unchanged" holds **only up to the k15
-commit**; thereafter they are gone. The dispatch atoms, the lowering
-contract, and the `'panel-grid` renderer marker — the substance of this
-ADR — are unaffected.
+commit**; thereafter they are gone. The dispatch atoms and the lowering
+contract — the substance of this ADR — are unaffected. (The
+`'panel-grid` renderer marker later retired separately, derived from the
+display value's shape — see the renderer-contract Consequence above.)
 
 ## Amendment (2026-06-24) — no implicit "General" panel
 

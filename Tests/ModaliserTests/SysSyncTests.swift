@@ -56,4 +56,66 @@ struct SysSyncTests {
         let after = try String(contentsOfFile: copiedPath, encoding: .utf8)
         #expect(after == "modified after sync")  // unchanged — sync was a no-op
     }
+
+    @Test func emptyBundleTreeFailsTheSync() throws {
+        let fm = FileManager.default
+        let bundle = NSTemporaryDirectory() + "modaliser-syssync-\(UUID().uuidString)"
+        try fm.createDirectory(atPath: bundle + "/lib", withIntermediateDirectories: true)
+        let userConfig = makeUserConfigDir()
+        let result = SysSync.sync(bundleSchemeDir: bundle, userConfigDir: userConfig)
+        #expect(result == nil)
+        #expect(!fm.fileExists(atPath: userConfig + "/sys/scheme"))
+        #expect(!fm.fileExists(atPath: userConfig + "/sys/.bundle-fingerprint"))
+    }
+
+    @Test func emptyBundleDoesNotReadAsAlreadySynced() throws {
+        let fm = FileManager.default
+        let bundle = try makeBundleDir()
+        let userConfig = makeUserConfigDir()
+        _ = SysSync.sync(bundleSchemeDir: bundle, userConfigDir: userConfig)
+        // Empty fingerprint file + file-less bundle tree used to compare
+        // "" == "" and report the stale mirror as already synced.
+        try fm.removeItem(atPath: userConfig + "/sys/.bundle-fingerprint")
+        let emptyBundle = NSTemporaryDirectory() + "modaliser-syssync-\(UUID().uuidString)"
+        try fm.createDirectory(atPath: emptyBundle + "/lib", withIntermediateDirectories: true)
+        let result = SysSync.sync(bundleSchemeDir: emptyBundle, userConfigDir: userConfig)
+        #expect(result == nil)
+    }
+
+    @Test func syncWritesGeneratedReadmeAtSysRoot() throws {
+        let bundle = try makeBundleDir()
+        let userConfig = makeUserConfigDir()
+        _ = SysSync.sync(bundleSchemeDir: bundle, userConfigDir: userConfig)
+        let readme = try String(contentsOfFile: userConfig + "/sys/README.md", encoding: .utf8)
+        #expect(readme.contains("do not edit"))
+        #expect(readme.contains("sys/scheme/default-config.scm"))
+    }
+
+    @Test func resyncRestoresEditedReadme() throws {
+        let bundle = try makeBundleDir()
+        let userConfig = makeUserConfigDir()
+        _ = SysSync.sync(bundleSchemeDir: bundle, userConfigDir: userConfig)
+        let readmePath = userConfig + "/sys/README.md"
+        try "user edits".write(toFile: readmePath, atomically: true, encoding: .utf8)
+        // A new bundle file changes the fingerprint, forcing a real re-sync.
+        try "(bar)".write(toFile: bundle + "/lib/modaliser/bar.sld", atomically: true, encoding: .utf8)
+        _ = SysSync.sync(bundleSchemeDir: bundle, userConfigDir: userConfig)
+        let readme = try String(contentsOfFile: readmePath, encoding: .utf8)
+        #expect(readme.contains("do not edit"))
+    }
+
+    @Test func unremovableStaleMirrorFailsTheSync() throws {
+        // Pins the failure contract around the remove step: a mirror that
+        // cannot be wiped must fail the sync (nil), never cache success.
+        let fm = FileManager.default
+        let bundle = try makeBundleDir()
+        let userConfig = makeUserConfigDir()
+        _ = SysSync.sync(bundleSchemeDir: bundle, userConfigDir: userConfig)
+        let sysRoot = userConfig + "/sys"
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: sysRoot)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sysRoot) }
+        try "(bar)".write(toFile: bundle + "/lib/modaliser/bar.sld", atomically: true, encoding: .utf8)
+        let result = SysSync.sync(bundleSchemeDir: bundle, userConfigDir: userConfig)
+        #expect(result == nil)
+    }
 }

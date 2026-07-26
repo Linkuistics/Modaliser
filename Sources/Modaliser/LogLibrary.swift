@@ -14,7 +14,12 @@ import os
 /// Provides: log-line
 final class LogLibrary: NativeLibrary {
 
-    private static let logger = Logger(subsystem: "dev.antony.Modaliser", category: "scheme")
+    /// The one os.Logger subsystem the whole app logs under, so
+    /// `log show --predicate 'subsystem == "dev.antony.Modaliser"'` sees
+    /// Scheme's lines and the host's boot diagnostics together.
+    static let subsystem = "dev.antony.Modaliser"
+
+    private static let logger = Logger(subsystem: subsystem, category: "scheme")
 
     public required init(in context: Context) throws {
         try super.init(in: context)

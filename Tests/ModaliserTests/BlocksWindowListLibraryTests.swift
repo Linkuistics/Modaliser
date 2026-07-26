@@ -40,14 +40,16 @@ struct BlocksWindowListLibraryTests {
     @Test func windowListPayloadCarriesEmptyWindowsByDefault() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { Issue.record("scheme path"); return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
         try engine.evaluateFile(schemePath + "/ui/css.scm")
         try engine.evaluateFile(schemePath + "/ui/overlay.scm")
         try engine.evaluate("(import (modaliser blocks window-list))")
+        // screen is pure now: it returns a tree contribution; render from the
+        // node the merged configuration value carries.
         try engine.evaluate("""
-          (screen 'w (panel "Win" (make-window-list-block)))
-          (define html (render-overlay-html (lookup-tree "w") '("Root") '()))
+          (define cfg (configuration (screen 'w (panel "Win" (make-window-list-block)))))
+          (define html (render-overlay-html (configuration-tree-ref cfg "w") '("Root") '()))
         """)
         let html = try engine.evaluate("html").asString()
         #expect(html.contains("\"type\":\"window-list\""))
@@ -57,14 +59,14 @@ struct BlocksWindowListLibraryTests {
     @Test func windowListRegistersJsAndCss() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else { Issue.record("scheme path"); return }
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch) (modaliser dsl) (modaliser dom))")
         try engine.evaluateFile(schemePath + "/ui/css.scm")
         try engine.evaluateFile(schemePath + "/ui/overlay.scm")
         try engine.evaluate("(import (modaliser blocks window-list))")
         try engine.evaluate("""
-          (screen 'w (panel "Win" (make-window-list-block)))
-          (define html (render-overlay-html (lookup-tree "w") '("Root") '()))
+          (define cfg (configuration (screen 'w (panel "Win" (make-window-list-block)))))
+          (define html (render-overlay-html (configuration-tree-ref cfg "w") '("Root") '()))
         """)
         let html = try engine.evaluate("html").asString()
         #expect(html.contains("overlayBlockRenderers['window-list']"))

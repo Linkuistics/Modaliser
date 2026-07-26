@@ -41,10 +41,11 @@ struct OverlayIntegrationTests {
                 (when h (h msg))))
             """)
 
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
         try engine.evaluate("(import (modaliser dom))")
+        try engine.evaluate("(import (modaliser fsm) (modaliser configuration))")
         let files = [
             "ui/css.scm",
             "ui/overlay.scm",
@@ -59,16 +60,17 @@ struct OverlayIntegrationTests {
 
     // MARK: - Overlay lifecycle with modal
 
-    @Test func modalEnterOpensOverlay() throws {
+    @Test func modalActivateOpensOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
         #expect(try engine.evaluate("(overlay-open?)") == .false)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
 
         #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
@@ -80,11 +82,12 @@ struct OverlayIntegrationTests {
     @Test func modalExitClosesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         try engine.evaluate("(modal-exit)")
@@ -94,13 +97,14 @@ struct OverlayIntegrationTests {
     @Test func groupNavigationUpdatesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
               (group "w" "Windows"
                 (key "c" "Center" (lambda () 'ok))
-                (key "m" "Maximize" (lambda () 'ok))))
+                (key "m" "Maximize" (lambda () 'ok))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         // Navigate into group
@@ -122,11 +126,12 @@ struct OverlayIntegrationTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define action-fired #f)
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () (set! action-fired #t))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () (set! action-fired #t))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         try engine.evaluate("(modal-handle-key \"s\")")
@@ -138,13 +143,14 @@ struct OverlayIntegrationTests {
     @Test func stepBackUpdatesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
               (key "s" "Safari" (lambda () 'ok))
               (group "w" "Windows"
-                (key "c" "Center" (lambda () 'ok))))
+                (key "c" "Center" (lambda () 'ok))))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"w\")")
 
         // Step back to root
@@ -169,11 +175,12 @@ struct OverlayIntegrationTests {
         // is purely navigational.
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         try engine.evaluate("(modal-step-back)")
@@ -189,13 +196,14 @@ struct OverlayIntegrationTests {
         let engine = try loadAllModules()
         try engine.evaluate("""
             (define test-result #f)
-            (register-tree! 'global
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
               (group "w" "Windows"
-                (key "c" "Center" (lambda () (set! test-result 'centered)))))
+                (key "c" "Center" (lambda () (set! test-result 'centered)))))))))
             """)
 
         // Enter modal directly
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
 
@@ -214,11 +222,12 @@ struct OverlayIntegrationTests {
     @Test func leaderToggleClosesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         // Toggle off via F18 through modal-key-handler
@@ -230,11 +239,12 @@ struct OverlayIntegrationTests {
     @Test func escapeClosesOverlay() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         try engine.evaluate("(modal-key-handler ESCAPE 0)")
@@ -247,11 +257,12 @@ struct OverlayIntegrationTests {
         // modal or closing the overlay. Escape is the sole exit key.
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("(overlay-open?)") == .true)
 
         // Press 'x' which has no binding → modal and overlay both stay.
@@ -265,11 +276,12 @@ struct OverlayIntegrationTests {
     @Test func modalExitIsIdempotent() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-exit)")
         #expect(try engine.evaluate("modal-active?") == .false)
 
@@ -284,11 +296,12 @@ struct OverlayIntegrationTests {
     @Test func overlayCancelMessageExitsModal() throws {
         let engine = try loadAllModules()
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok)))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+              (key "s" "Safari" (lambda () 'ok)))))))
             """)
 
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         #expect(try engine.evaluate("(overlay-open?)") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
 
@@ -318,12 +331,15 @@ struct OverlayIntegrationTests {
 
     @Test func overlayContentMatchesCurrentPosition() throws {
         let engine = try loadAllModules()
+        // Pure rendering over the built tree — no graph install needed.
         try engine.evaluate("""
-            (register-tree! 'global
-              (key "s" "Safari" (lambda () 'ok))
-              (group "w" "Windows"
-                (key "c" "Center" (lambda () 'ok))
-                (key "f" "Full Screen" (lambda () 'ok))))
+            (define cfg (configuration
+              (tree 'global (tree-root 'global
+                (key "s" "Safari" (lambda () 'ok))
+                (group "w" "Windows"
+                  (key "c" "Center" (lambda () 'ok))
+                  (key "f" "Full Screen" (lambda () 'ok)))))))
+            (define global-root (configuration-tree-ref cfg "global"))
             """)
 
         // At root: should show "s" and "w" entries. The rendered document
@@ -333,7 +349,7 @@ struct OverlayIntegrationTests {
         // Scope the "Safari" checks to the entry-label markup (>Safari<) so
         // they test the visible entry, not an incidental CSS substring.
         let rootHtml = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '())
+            (render-overlay-html global-root '("Global") '())
             """).asString()
         #expect(rootHtml.contains(">Safari<"))
         #expect(rootHtml.contains("Windows"))
@@ -341,7 +357,7 @@ struct OverlayIntegrationTests {
 
         // After navigating into group: should show "c" and "f"
         let groupHtml = try engine.evaluate("""
-            (render-overlay-html (lookup-tree "global") '("Global") '("w"))
+            (render-overlay-html global-root '("Global") '("w"))
             """).asString()
         #expect(groupHtml.contains("Center"))
         #expect(groupHtml.contains("Full Screen"))

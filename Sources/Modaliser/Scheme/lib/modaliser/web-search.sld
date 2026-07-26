@@ -195,6 +195,13 @@
     ;; HTTP function (indirection allows test stubbing via
     ;; set-web-search-fetch! — `set!` from outside the library would
     ;; modify the importer's binding, not this one).
+    ;;
+    ;; What it captures is the (modaliser http) *seam*, which dispatches
+    ;; through `current-http-runner` at call time and holds no runner until
+    ;; root.scm installs one (ADR-0023). So the suite's inability to reach
+    ;; Google Suggest no longer rests on every test remembering this setter:
+    ;; an unbootstrapped engine answers `#f` here — the same "network error"
+    ;; the handler below already keeps showing just the pinned item for.
     (define web-search-fetch http-get)
 
     (define (set-web-search-fetch! proc)

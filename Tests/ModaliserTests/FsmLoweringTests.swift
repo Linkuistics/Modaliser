@@ -3,15 +3,14 @@ import Testing
 import LispKit
 @testable import Modaliser
 
-// Lowering tests for fsm-core: the layout lowering (register-tree! /
-// screen in state-machine.sld / dsl.sld) builds the operational tree
-// straight into (modaliser fsm) states + edges (graph-model-k8 /
-// lower-and-shadow-k10), and since dispatch-cutover-k11 that graph is
-// what dispatch actually runs on (docs/specs/fsm-graph.md "Lowering and
-// the façade"; ADR-0015). These assert the shape of the lowered graph;
-// LayoutDslTests/ConfigDslTests cover that user-visible dispatch
-// behaviour is unchanged through the façade.
-@Suite("FSM shadow lowering (register-tree! / screen mirror into (modaliser fsm))")
+// Lowering tests: the pure lower (lower-configuration, fsm.sld) turns a
+// Configuration value's trees — tree-root / screen / walk built — into
+// states + edges (graph-model-k8 / closed-graph-lowering-k7), and that
+// graph is what dispatch runs on (docs/specs/fsm-graph.md "Lowering and
+// the façade"; ADR-0015, ADR-0018). These assert the shape of the
+// lowered graph; LayoutDslTests/ConfigDslTests cover that user-visible
+// dispatch behaviour is unchanged through the modal façade.
+@Suite("FSM lowering (lower-configuration: value → closed graph)")
 struct FsmLoweringTests {
 
     private func loadFsmLowering() throws -> SchemeEngine {
@@ -19,11 +18,17 @@ struct FsmLoweringTests {
         try engine.evaluate("""
           (import (modaliser util)
                   (modaliser keymap)
-                  (modaliser state-machine)
+                  (modaliser configuration)
                   (modaliser fsm))
         """)
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
+        // Shared shorthand: lower the given contributions as ONE value and
+        // install the resulting graph (build-value-then-install).
+        try engine.evaluate("""
+          (define (install-config! . contribs)
+            (fsm-install-graph! (lower-configuration (apply configuration contribs))))
+        """)
         return engine
     }
 
@@ -32,9 +37,9 @@ struct FsmLoweringTests {
     @Test func groupBecomesRestingStateWithUpEdgeToItsLoweringParent() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (register-tree! 'grp-test
+          (install-config! (tree 'grp-test (tree-root 'grp-test
             (group "f" "Find"
-              (key "a" "A" (lambda () 'ok))))
+              (key "a" "A" (lambda () 'ok))))))
         """)
         #expect(try engine.evaluate("(eq? (fsm-state-class \"grp-test\") 'resting)") == .true)
         #expect(try engine.evaluate("(eq? (fsm-state-class \"grp-test/f\") 'resting)") == .true)
@@ -52,8 +57,8 @@ struct FsmLoweringTests {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
           (define fired #f)
-          (register-tree! 'term-test
-            (key "a" "A" (lambda () (set! fired #t))))
+          (install-config! (tree 'term-test (tree-root 'term-test
+            (key "a" "A" (lambda () (set! fired #t))))))
         """)
         #expect(try engine.evaluate("(eq? (fsm-state-class \"term-test/a\") 'terminal)") == .true)
         try engine.evaluate("((fsm-behavior-proc (fsm-state-entry \"term-test/a\")))")
@@ -63,8 +68,8 @@ struct FsmLoweringTests {
     @Test func nonTerminalCommandBecomesTransientWithACyclicSelfAutoEdge() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (register-tree! 'walk-test
-            (key "h" "Left" (lambda () 'ok) 'next 'self))
+          (install-config! (tree 'walk-test (tree-root 'walk-test
+            (key "h" "Left" (lambda () 'ok) 'next 'self))))
         """)
         #expect(try engine.evaluate("(eq? (fsm-state-class \"walk-test/h\") 'transient)") == .true)
         #expect(try engine.evaluate("""
@@ -78,9 +83,10 @@ struct FsmLoweringTests {
     @Test func crossEdgeNextTargetsTheNamedTreeAsACallEdge() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (register-tree! 'cross-target (key "z" "Z" (lambda () 'ok)))
-          (register-tree! 'cross-source
-            (key "h" "Focus" (lambda () 'ok) 'next 'cross-target))
+          (install-config!
+            (tree 'cross-target (tree-root 'cross-target (key "z" "Z" (lambda () 'ok))))
+            (tree 'cross-source (tree-root 'cross-source
+              (key "h" "Focus" (lambda () 'ok) 'next 'cross-target))))
         """)
         #expect(try engine.evaluate("(eq? (fsm-state-class \"cross-source/h\") 'transient)") == .true)
         #expect(try engine.evaluate("""
@@ -104,8 +110,8 @@ struct FsmLoweringTests {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
           (define (resolver) 'somewhere)
-          (register-tree! 'dyn-test
-            (key "h" "Focus" (lambda () 'ok) 'next resolver))
+          (install-config! (tree 'dyn-test (tree-root 'dyn-test
+            (key "h" "Focus" (lambda () 'ok) 'next resolver))))
         """)
         #expect(try engine.evaluate("""
           (let ((target (cdr (assoc 'target (car (fsm-state-edges "dyn-test/h"))))))
@@ -120,8 +126,8 @@ struct FsmLoweringTests {
         try engine.evaluate("""
           (define chooser-arg #f)
           (set-open-chooser! (lambda (node) (set! chooser-arg node)))
-          (register-tree! 'sel-test
-            (key "f" "Find" (selector 'prompt "Find…")))
+          (install-config! (tree 'sel-test (tree-root 'sel-test
+            (key "f" "Find" (selector 'prompt "Find…")))))
         """)
         #expect(try engine.evaluate("(eq? (fsm-state-class \"sel-test/f\") 'terminal)") == .true)
         try engine.evaluate("((fsm-behavior-proc (fsm-state-entry \"sel-test/f\")))")
@@ -133,8 +139,8 @@ struct FsmLoweringTests {
     @Test func panelChildrenAttachDirectlyToTheEnclosingGroupWithNoStateOfItsOwn() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (screen 'panel-test
-            (panel "Windows" (key "c" "Center" (lambda () 'ok))))
+          (install-config! (screen 'panel-test
+            (panel "Windows" (key "c" "Center" (lambda () 'ok)))))
         """)
         // The panel itself never became a state...
         #expect(try engine.evaluate("(fsm-state-ref \"panel-test/Windows\")") == .false)
@@ -151,9 +157,9 @@ struct FsmLoweringTests {
     @Test func literalKeyShadowsARangeCoveringTheSameKeyInTheEdgeSet() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (register-tree! 'shadow-test
+          (install-config! (tree 'shadow-test (tree-root 'shadow-test
             (keys '("1" ..) "Space <n>" (lambda (k i ks) 'ranged))
-            (key "1" "Special" (lambda () 'special)))
+            (key "1" "Special" (lambda () 'special)))))
         """)
         // Trigger "1" resolves to the LITERAL command, not the range.
         #expect(try engine.evaluate("""
@@ -175,8 +181,8 @@ struct FsmLoweringTests {
     @Test func exitOnUnknownIsInheritedAndStampedOnEveryDescendantState() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (register-tree! 'unk-test 'exit-on-unknown #t
-            (group "f" "Find" (key "a" "A" (lambda () 'ok))))
+          (install-config! (tree 'unk-test (tree-root 'unk-test 'exit-on-unknown #t
+            (group "f" "Find" (key "a" "A" (lambda () 'ok))))))
         """)
         #expect(try engine.evaluate("(fsm-state-exit-on-unknown? \"unk-test\")") == .true)
         #expect(try engine.evaluate("(fsm-state-exit-on-unknown? \"unk-test/f\")") == .true)
@@ -185,7 +191,8 @@ struct FsmLoweringTests {
     @Test func exitOnUnknownDefaultsToForgivingWhenUndeclared() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (register-tree! 'forgiving-test (key "a" "A" (lambda () 'ok)))
+          (install-config! (tree 'forgiving-test
+            (tree-root 'forgiving-test (key "a" "A" (lambda () 'ok)))))
         """)
         #expect(try engine.evaluate("(fsm-state-exit-on-unknown? \"forgiving-test\")") == .false)
     }
@@ -197,10 +204,10 @@ struct FsmLoweringTests {
         try engine.evaluate("""
           (define entered #f)
           (define left #f)
-          (register-tree! 'hook-test
+          (install-config! (tree 'hook-test (tree-root 'hook-test
             'on-enter (lambda () (set! entered #t))
             'on-leave (lambda () (set! left #t))
-            (key "a" "A" (lambda () 'ok)))
+            (key "a" "A" (lambda () 'ok)))))
         """)
         #expect(try engine.evaluate("(fsm-state-entry \"hook-test\")") == .false)
         #expect(try engine.evaluate("(fsm-state-exit \"hook-test\")") == .false)
@@ -211,7 +218,7 @@ struct FsmLoweringTests {
     }
 
     // MARK: - Unconditional entry/exit hooks (entry-exit-slot-wiring-k47):
-    // `group`/`register-tree!`'s optional 'entry/'exit keyword pair lowers
+    // `group`/`tree-root`'s optional 'entry/'exit keyword pair lowers
     // straight onto the state's own entry/exit slots — distinct from
     // 'on-enter/'on-leave, which lower onto the presentation-gated show/
     // hide pair (see onEnterOnLeaveLowerToShowHideNotEntryExit above). No
@@ -224,10 +231,10 @@ struct FsmLoweringTests {
         try engine.evaluate("""
           (define entered #f)
           (define left #f)
-          (register-tree! 'entry-exit-lower-test
+          (install-config! (tree 'entry-exit-lower-test (tree-root 'entry-exit-lower-test
             'entry (lambda () (set! entered #t))
             'exit (lambda () (set! left #t))
-            (key "a" "A" (lambda () 'ok)))
+            (key "a" "A" (lambda () 'ok)))))
         """)
         #expect(try engine.evaluate("(fsm-state-show \"entry-exit-lower-test\")") == .false)
         #expect(try engine.evaluate("(fsm-state-hide \"entry-exit-lower-test\")") == .false)
@@ -242,16 +249,16 @@ struct FsmLoweringTests {
         try engine.evaluate("""
           (define entered #f)
           (define shown #f)
-          (register-tree! 'entry-timing-test
+          (install-config! (tree 'entry-timing-test (tree-root 'entry-timing-test
             'entry (lambda () (set! entered #t))
             'on-enter (lambda () (set! shown #t))
-            (key "a" "A" (lambda () 'ok)))
+            (key "a" "A" (lambda () 'ok)))))
         """)
         // Default modal-overlay-delay (1.0s) never gets a chance to elapse in
         // this synchronous test — the delayed after-delay callback simply
         // never runs — so 'shown staying #f also proves 'on-enter's gated
         // behaviour is unaffected by 'entry existing alongside it.
-        try engine.evaluate("(modal-enter (lookup-tree \"entry-timing-test\") F18)")
+        try engine.evaluate("(modal-activate! \"entry-timing-test\" '() F18)")
         #expect(try engine.evaluate("entered") == .true)
         #expect(try engine.evaluate("shown") == .false)
         try engine.evaluate("(modal-exit)")
@@ -262,12 +269,12 @@ struct FsmLoweringTests {
         try engine.evaluate("""
           (define root-exited #f)
           (define child-exited #f)
-          (register-tree! 'exit-timing-test
+          (install-config! (tree 'exit-timing-test (tree-root 'exit-timing-test
             'exit (lambda () (set! root-exited #t))
             (group "g" "G" 'exit (lambda () (set! child-exited #t))
-              (key "a" "A" (lambda () 'ok))))
+              (key "a" "A" (lambda () 'ok))))))
         """)
-        try engine.evaluate("(modal-enter (lookup-tree \"exit-timing-test\") F18)")
+        try engine.evaluate("(modal-activate! \"exit-timing-test\" '() F18)")
         #expect(try engine.evaluate("root-exited") == .false)
         // Descending into the child group ends the root's Visit — 'exit
         // fires unconditionally (navigate-away), even though the overlay
@@ -282,119 +289,29 @@ struct FsmLoweringTests {
 
     // MARK: - display-name / renderer payloads ride the state's presentation payload
 
-    @Test func payloadCarriesTheOriginalNodeIncludingDisplayNameAndRendererMarkers() throws {
+    @Test func payloadCarriesTheOriginalNodeIncludingItsDisplayValue() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (screen 'payload-test 'display-name "Title"
-            (panel "P" (key "c" "C" (lambda () 'ok))))
+          (install-config! (screen 'payload-test 'display-name "Title"
+            (panel "P" (key "c" "C" (lambda () 'ok)))))
         """)
         #expect(try engine.evaluate("""
-          (equal? (cdr (assoc 'display-name (fsm-state-payload "payload-test"))) "Title")
+          (equal? (node-display-name (fsm-state-payload "payload-test")) "Title")
         """) == .true)
         #expect(try engine.evaluate("""
-          (eq? (cdr (assoc 'renderer (fsm-state-payload "payload-test"))) 'panel-grid)
-        """) == .true)
-    }
-
-    // MARK: - Entry rows: `screen` adds one; `walk`'s internal mode-id doesn't
-
-    @Test func screenAddsAnUngatedEntryRowForItsScope() throws {
-        let engine = try loadFsmLowering()
-        try engine.evaluate("(screen 'entry-base-test (key \"a\" \"A\" (lambda () 'ok)))")
-        #expect(try engine.evaluate("(fsm-entry-ref \"entry-base-test\")") != .false)
-        #expect(try engine.evaluate("""
-          (equal? (cdr (assoc 'target (fsm-entry-ref "entry-base-test"))) "entry-base-test")
+          (pair? (node-display-ref (fsm-state-payload "payload-test") 'panels))
         """) == .true)
     }
 
-    @Test func walkModeIdRegistrationGetsNoEntryRow() throws {
-        let engine = try loadFsmLowering()
-        try engine.evaluate("""
-          (walk 'entry-walk-test "Walk" (key "h" "Left" (lambda () 'ok)))
-        """)
-        #expect(try engine.evaluate("(fsm-entry-ref \"entry-walk-test\")") == .false)
-    }
-
-    @Test func suffixVariantEntryRefinesItsBaseOutrankingItInSpecificity() throws {
-        let engine = try loadFsmLowering()
-        try engine.evaluate("""
-          (screen 'com.example.variant-test (key "a" "A" (lambda () 'ok)))
-          (screen "com.example.variant-test/herdr" (key "a" "A" (lambda () 'ok)))
-        """)
-        #expect(try engine.evaluate("""
-          (fsm-entry-more-specific? "com.example.variant-test/herdr" "com.example.variant-test")
-        """) == .true)
-        #expect(try engine.evaluate("""
-          (equal? (cdr (assoc 'refines (fsm-entry-ref "com.example.variant-test/herdr")))
-                  "com.example.variant-test")
-        """) == .true)
-    }
-
-    @Test func suffixVariantRegisteredBeforeItsBaseOmitsRefinesInsteadOfErroring() throws {
-        // Ordering isn't guaranteed for a hand-written config — the base
-        // entry simply doesn't exist yet, so `refines` is omitted instead
-        // of raising fsm-entry!'s "unknown entry" error.
-        let engine = try loadFsmLowering()
-        #expect(throws: Never.self) {
-            try engine.evaluate("""
-              (screen "com.example.out-of-order/herdr" (key "a" "A" (lambda () 'ok)))
-              (screen 'com.example.out-of-order (key "a" "A" (lambda () 'ok)))
-            """)
-        }
-        #expect(try engine.evaluate("""
-          (cdr (assoc 'refines (fsm-entry-ref "com.example.out-of-order/herdr")))
-        """) == .false)
-    }
-
-    // MARK: - Nested-context entry points (ADR-0013): outward up edges
-    // crossing tree boundaries, and the gated step-in edge that enters them.
-
-    @Test func registerTreeUpEdgeMakesTheNestedEntryOutrankItsContainer() throws {
-        let engine = try loadFsmLowering()
-        try engine.evaluate("""
-          (screen 'outer-nest-test (key "a" "A" (lambda () 'ok)))
-          (screen 'inner-nest-test 'auto-entry #f (key "b" "B" (lambda () 'ok)))
-          (register-tree-up-edge! 'inner-nest-test 'outer-nest-test)
-          (register-tree-entry-gated! 'inner-nest-test (lambda () #t))
-        """)
-        // Ranked by structural nesting (the up edge), not a 'refines stamp.
-        #expect(try engine.evaluate("""
-          (fsm-entry-more-specific? "inner-nest-test" "outer-nest-test")
-        """) == .true)
-        #expect(try engine.evaluate("""
-          (cdr (assoc 'refines (fsm-entry-ref "inner-nest-test")))
-        """) == .false)
-        #expect(try engine.evaluate("""
-          (equal? (cdr (assoc 'target (fsm-up-edge "inner-nest-test"))) "outer-nest-test")
-        """) == .true)
-    }
-
-    @Test func registerTreeUpEdgeAndEntryGatedAreIdempotent() throws {
-        // A second wiring call (config reload, a mux's register! called
-        // twice) must not raise fsm-edge!'s "state already has an up edge"
-        // or fsm-entry!'s "duplicate entry name" — mirrors register-tree!'s
-        // own safe-to-call-more-than-once contract.
-        let engine = try loadFsmLowering()
-        try engine.evaluate("""
-          (screen 'outer-idem-test (key "a" "A" (lambda () 'ok)))
-          (screen 'inner-idem-test 'auto-entry #f (key "b" "B" (lambda () 'ok)))
-        """)
-        #expect(throws: Never.self) {
-            try engine.evaluate("""
-              (register-tree-up-edge! 'inner-idem-test 'outer-idem-test)
-              (register-tree-up-edge! 'inner-idem-test 'outer-idem-test)
-              (register-tree-entry-gated! 'inner-idem-test (lambda () #t))
-              (register-tree-entry-gated! 'inner-idem-test (lambda () #f))
-            """)
-        }
-    }
+    // MARK: - The gated step-in edge (an authored cross-tree key edge)
 
     @Test func stepInLowersToAGatedKeyEdgeWithNoStateOfItsOwn() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (screen 'step-in-target-test (key "a" "A" (lambda () 'ok)))
-          (screen 'step-in-source-test
-            (step-in "." "In" 'step-in-target-test (lambda () #t)))
+          (install-config!
+            (screen 'step-in-target-test (key "a" "A" (lambda () 'ok)))
+            (screen 'step-in-source-test
+              (step-in "." "In" 'step-in-target-test (lambda () #t))))
         """)
         // No intermediate state was created for the "." child...
         #expect(try engine.evaluate("(fsm-state-ref \"step-in-source-test/.\")") == .false)
@@ -412,20 +329,22 @@ struct FsmLoweringTests {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
           (define gate-open #f)
-          (screen 'gate-target-test (key "a" "A" (lambda () 'ok)))
-          (screen 'gate-source-test
-            ;; An always-live sibling key, exactly like the real iTerm
-            ;; screen: with ONLY the gated step-in, gating it off would
-            ;; leave zero live key edges and the root would classify as
-            ;; terminal (halting on activation) rather than resting.
-            (key "x" "X" (lambda () 'ok))
-            (step-in "." "In" 'gate-target-test (lambda () gate-open)))
+          (define cfg (configuration
+            (screen 'gate-target-test (key "a" "A" (lambda () 'ok)))
+            (screen 'gate-source-test
+              ;; An always-live sibling key, exactly like the real iTerm
+              ;; screen: with ONLY the gated step-in, gating it off would
+              ;; leave zero live key edges and the root would classify as
+              ;; terminal (halting on activation) rather than resting.
+              (key "x" "X" (lambda () 'ok))
+              (step-in "." "In" 'gate-target-test (lambda () gate-open)))))
+          (fsm-install-graph! (lower-configuration cfg))
         """)
         // Gate closed at visit start: "." is not a live edge — falls to the
         // ordinary unknown-key policy (forgiving default — swallowed).
-        try engine.evaluate("(modal-enter (lookup-tree \"gate-source-test\") F18)")
+        try engine.evaluate("(modal-activate! \"gate-source-test\" '() F18)")
         try engine.evaluate("(modal-handle-key \".\")")
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"gate-source-test\"))") == .true)
+        #expect(try engine.evaluate("(eq? modal-root-node (configuration-tree-ref cfg \"gate-source-test\"))") == .true)
         #expect(try engine.evaluate("modal-active?") == .true)
         try engine.evaluate("(modal-exit)")
 
@@ -433,46 +352,9 @@ struct FsmLoweringTests {
         // target, immediately — a plain group descent, not a delayed
         // cross-tree call.
         try engine.evaluate("(set! gate-open #t)")
-        try engine.evaluate("(modal-enter (lookup-tree \"gate-source-test\") F18)")
+        try engine.evaluate("(modal-activate! \"gate-source-test\" '() F18)")
         try engine.evaluate("(modal-handle-key \".\")")
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"gate-target-test\"))") == .true)
-        #expect(try engine.evaluate("(null? modal-stack)") == .true)
-    }
-
-    @Test func breadcrumbAndPathStayScopedToTheNestedTreeUntilBackspacingOut() throws {
-        // Regression coverage for the invariant dispatch-cutover-k11 baked
-        // into fsm-tree-root/derive-current-path — "a registered tree's
-        // root carries no up edge, so the ancestor chain never crosses a
-        // tree boundary" — which ADR-0013's outward up edge deliberately
-        // breaks. fsm-tree-root/derive-current-path must stop the climb at
-        // the nested tree's OWN root, not the container's.
-        let engine = try loadFsmLowering()
-        try engine.evaluate("""
-          (screen 'crumb-outer-test (key "a" "A" (lambda () 'ok)))
-          (screen 'crumb-inner-test 'auto-entry #f
-            (group "g" "Group" (key "b" "B" (lambda () 'ok))))
-          (register-tree-up-edge! 'crumb-inner-test 'crumb-outer-test)
-        """)
-        try engine.evaluate("(modal-enter (lookup-tree \"crumb-inner-test\") F18)")
-        // At the nested root: path empty, root is the nested tree's OWN
-        // root — the up edge must not make the root resolve outward.
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"crumb-inner-test\"))") == .true)
-        #expect(try engine.evaluate("(null? modal-current-path)") == .true)
-
-        // A level deeper: the path is relative to the nested root, not the
-        // container — exactly where an unbounded ancestor walk would have
-        // produced a corrupted (too-long, wrongly-rooted) path.
-        try engine.evaluate("(modal-handle-key \"g\")")
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"crumb-inner-test\"))") == .true)
-        #expect(try engine.evaluate("(equal? modal-current-path '(\"g\"))") == .true)
-        #expect(try engine.evaluate("(null? modal-stack)") == .true)
-
-        // Backspace out: two ordinary up-edge moves (structural, then the
-        // declared cross-tree one) — never a return-stack pop.
-        try engine.evaluate("(modal-step-back)") // g -> crumb-inner-test root
-        try engine.evaluate("(modal-step-back)") // crumb-inner-test -> crumb-outer-test
-        #expect(try engine.evaluate("(eq? modal-root-node (lookup-tree \"crumb-outer-test\"))") == .true)
-        #expect(try engine.evaluate("(null? modal-current-path)") == .true)
+        #expect(try engine.evaluate("(eq? modal-root-node (configuration-tree-ref cfg \"gate-target-test\"))") == .true)
         #expect(try engine.evaluate("(null? modal-stack)") == .true)
     }
 
@@ -481,7 +363,8 @@ struct FsmLoweringTests {
     @Test func walkRegisteredModeMembersCarryCyclicAutoEdgesBackToTheModeRoot() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (walk 'cyclic-walk-test "Walk" (key "h" "Left" (lambda () 'ok)))
+          (install-config! (screen 'cyclic-walk-host
+            (walk 'cyclic-walk-test "Walk" (key "h" "Left" (lambda () 'ok)))))
         """)
         #expect(try engine.evaluate("(eq? (fsm-state-class \"cyclic-walk-test/h\") 'transient)") == .true)
         #expect(try engine.evaluate("""
@@ -493,8 +376,8 @@ struct FsmLoweringTests {
     @Test func walkSpliceEntryCopyCarriesACallEdgeIntoTheModeAtItsOwnSpliceSite() throws {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
-          (screen 'walk-entry-site-test
-            (walk 'cyclic-walk-entry-test "Walk" (key "h" "Left" (lambda () 'ok))))
+          (install-config! (screen 'walk-entry-site-test
+            (walk 'cyclic-walk-entry-test "Walk" (key "h" "Left" (lambda () 'ok)))))
         """)
         #expect(try engine.evaluate("(eq? (fsm-state-class \"walk-entry-site-test/h\") 'transient)") == .true)
         #expect(try engine.evaluate("""
@@ -507,7 +390,7 @@ struct FsmLoweringTests {
     }
 
     // MARK: - DSL provider wiring (dsl-provider-wiring-k24): `group` /
-    // `register-tree!` thread an optional 'provider onto the lowered FSM
+    // `tree-root` thread an optional 'provider onto the lowered FSM
     // state, mirroring on-enter/on-leave — but straight onto the state's
     // 'provider slot rather than show/hide, since a provider's live edges/
     // synthetic states are what dispatch itself consults. Toy case only —
@@ -517,15 +400,15 @@ struct FsmLoweringTests {
         let engine = try loadFsmLowering()
         try engine.evaluate("""
           (define fired #f)
-          (register-tree! 'provider-wiring-test
+          (install-config! (tree 'provider-wiring-test (tree-root 'provider-wiring-test
             (group "g" "G" 'provider
               (lambda ()
                 (list (cons 'edges (list (edge "j" 'provided-target)))
                       (cons 'states (list (provided-state 'provided-target
                                             'entry (lambda () (set! fired #t)))))))
-              (key "a" "A" (lambda () 'ok))))
+              (key "a" "A" (lambda () 'ok))))))
         """)
-        try engine.evaluate("(modal-enter (lookup-tree \"provider-wiring-test\") F18)")
+        try engine.evaluate("(modal-activate! \"provider-wiring-test\" '() F18)")
         try engine.evaluate("(modal-handle-key \"g\")")
         // "j" was never declared on the group directly — only the provider,
         // run at come-to-rest, contributes it for this Visit.
@@ -534,25 +417,9 @@ struct FsmLoweringTests {
         try engine.evaluate("(modal-exit)")
     }
 
-    // MARK: - Re-registration (rebuild-tree!) doesn't raise a duplicate-id error
+    // MARK: - The whole bundled config hands off to a well-formed, live graph
 
-    @Test func reRegisteringTheSameScopeDoesNotRaiseADuplicateStateIdError() throws {
-        // rebuild-tree! / mux register! call register-tree! more than once
-        // for the SAME scope by design; (modaliser fsm) has no delete
-        // primitive, so only the first registration is mirrored.
-        let engine = try loadFsmLowering()
-        #expect(throws: Never.self) {
-            try engine.evaluate("""
-              (register-tree! 'rebuild-test (key "a" "A" (lambda () 'ok)))
-              (register-tree! 'rebuild-test (key "a" "A" (lambda () 'ok)))
-            """)
-        }
-        #expect(try engine.evaluate("(fsm-state-ref \"rebuild-test\")") != .false)
-    }
-
-    // MARK: - The whole bundled config lowers to a well-formed, live graph
-
-    @Test func defaultConfigLowersEveryScreenToAResolvableEntryRow() throws {
+    @Test func defaultConfigHandsOffAndResolvesActivationThroughTheContextMap() throws {
         let engine = try SchemeEngine()
         guard let schemePath = engine.schemeDirectoryPath else {
             Issue.record("Scheme directory not found")
@@ -569,7 +436,6 @@ struct FsmLoweringTests {
         try engine.evaluate("""
           (import (modaliser util)
                   (modaliser keymap)
-                  (modaliser state-machine)
                   (modaliser fsm))
         """)
         try engine.evaluate("(import (modaliser event-dispatch))")
@@ -585,11 +451,38 @@ struct FsmLoweringTests {
 
         try engine.evaluateFile(schemePath + "/default-config.scm")
 
-        #expect(try engine.evaluate("(fsm-entry-ref \"global\")") != .false)
-        #expect(try engine.evaluate("(fsm-entry-ref \"com.googlecode.iterm2\")") != .false)
+        // The config's own (modaliser:start! …) ran: the value is
+        // installed, and its graph is the engine's live graph.
+        try engine.evaluate("""
+          (import (modaliser configuration)
+                  (modaliser activation)
+                  (modaliser handoff))
+        """)
+        #expect(try engine.evaluate("(configuration? (modaliser:configuration))") == .true)
+        for scope in ["global", "com.googlecode.iterm2", "herdr", "nvim", "zellij"] {
+            #expect(try engine.evaluate("(and (fsm-state-ref \"\(scope)\") #t)") == .true,
+                    "missing installed state \(scope)")
+        }
+
+        // Activation resolves through the installed value's context map
+        // (the entry table's replacement): iTerm alone lands on the
+        // iTerm screen; an iTerm→herdr chain lands on herdr with the
+        // host screen seeded for the outward backspace.
+        try engine.evaluate("""
+          (define (frame sym fg) (cons sym (vector 'pane "p" 'fg fg)))
+          (define installed (modaliser:configuration))
+        """)
         #expect(try engine.evaluate("""
-          (fsm-entry-more-specific? "com.googlecode.iterm2/herdr" "com.googlecode.iterm2")
+          (equal? (resolve-activation 'local "com.googlecode.iterm2"
+                    (list (frame 'iterm "zsh")) installed)
+                  '((root . "com.googlecode.iterm2") (stack)))
         """) == .true)
+        #expect(try engine.evaluate("""
+          (equal? (resolve-activation 'local "com.googlecode.iterm2"
+                    (list (frame 'iterm "herdr") (frame 'herdr "zsh")) installed)
+                  '((root . "herdr") (stack "com.googlecode.iterm2")))
+        """) == .true)
+
         // The global root's "b" (Browser, per ConfigDslTests) key resolves
         // to a reachable, registered fsm state.
         #expect(try engine.evaluate("""

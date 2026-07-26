@@ -1,31 +1,27 @@
-;; (modaliser apps iterm) — iTerm dynamic-pane builder and Walk focus mode.
-;;
-;; The dynamic iTerm tree is rebuilt on every leader press (via
-;; set-local-context-suffix!) so pane bindings track the current pane
-;; layout. Pane chips are painted while the overlay is visible; each
-;; chip's digit focuses that pane by UUID (race-free, no event injection).
+;; (modaliser apps iterm) — the iTerm host: the backend record (with the
+;; 'canvas-frame host capability) and the digit-jump mode tree, composed
+;; through one pure `wiring` fragment (ADR-0018), plus the pane/tab ops
+;; and list blocks a screen binds.
 ;;
 ;; Quick start (prefix-style import — recommended; bare exports like
-;; `register!`, `tree`, etc. collide with peer libraries):
+;; `wiring`, `pane-list-block`, etc. collide with peer libraries):
 ;;   (import (prefix (modaliser apps iterm) iterm:))
-;;   (iterm:register!)
+;;   (configuration (iterm:wiring) iterm-screen …)
+;;
+;; That is the WIRING half only. The iTerm SCREEN — which of the ops
+;; below are surfaced, on which keys, under which labels — is
+;; configuration, not facility (ADR-0021): it lives in the user's
+;; config.scm as a (screen 'com.googlecode.iterm2 …), and
+;; default-config.scm ships the stock composition to read and edit.
 ;;
 ;; Chip appearance (font size, colour, border, etc.) lives in the .chip
 ;; CSS rule in base.css / ~/.config/modaliser/theme.css — see
 ;; (modaliser theming). Pass overrides by editing CSS, not by threading
 ;; option alists through the library.
 ;;
-;; Defaults mirror the bundled seed: digit pane labels 1..0, transient
-;; tree with "c Copy Mode"; "h/j/k/l Focus <dir>" (each fires the
-;; corresponding Cmd+Alt+arrow keystroke AND crosses into the Walk
-;; 'iterm-panes-focus mode, so subsequent hjkl presses keep moving
-;; without another leader press); "z Toggle Zoom"; and a "x Split"
-;; group. The 'iterm-panes-focus tree contains only the Cmd+Alt+arrow
-;; hjkl focus moves, each cycling back to itself.
-;;
-;; If you've already installed your own (set-local-context-suffix! …),
-;; pass 'install-context-suffix? #f and call context-suffix-handler
-;; from inside your own composed handler.
+;; Pane selection is the pane-list block: chips + a row list + digits
+;; dispatching by session UUID, re-snapshotted on every overlay open —
+;; no per-press tree rebuild.
 ;;
 ;; Pane selection bridges AX → iTerm AppleScript by walk-order index:
 ;; AX gives us each pane's frame (chip placement) and a 0-based 'idx
@@ -38,11 +34,56 @@
 ;; source needs no escaping.
 
 (define-library (modaliser apps iterm)
-  (export rebuild-tree!
-          focus-mode-tree
-          focus-mode-register!
-          context-suffix-handler
-          register!
+  (export ;; ── The wiring fragment (ADR-0018 / ADR-0021) ──────────────
+          ;;
+          ;; Everything iTerm's integration needs and nothing a user
+          ;; would want to choose: the backend record (whose
+          ;; 'canvas-frame capability feeds inner tools' chip geometry,
+          ;; and whose match-key is what makes a screen under
+          ;; 'com.googlecode.iterm2 terminal-like) and the
+          ;; machinery-named digit-jump tree the record fires at.
+          ;;
+          ;;   (configuration (iterm:wiring) my-iterm-screen …)
+          ;;
+          ;; The iTerm SCREEN is configuration, not facility (ADR-0021),
+          ;; so it lives in the user's own config.scm; the seeded
+          ;; default-config.scm carries the stock composition to read and
+          ;; edit. Two scope symbols crossing the boundary are machinery,
+          ;; not preference: 'com.googlecode.iterm2 (the backend's
+          ;; match-key — a screen authored under any other scope is not
+          ;; terminal-like) and 'iterm-pane-digit (the record's
+          ;; focus-pane-by-digit slot names it by key).
+          wiring
+          ;; ── Ops: the verbs a screen binds (ADR-0021) ───────────────
+          ;;
+          ;; One name per thing iTerm can do, all 0-arg thunks that land
+          ;; straight in a `(key K L op)` slot. This is the stable layer:
+          ;; every one of them is a synthesized keystroke whose
+          ;; correctness is fixed by iTerm's own key map (the shipped
+          ;; Cmd+Alt+Arrow focus defaults, or a binding `configure!`
+          ;; provisions), not by anybody's preference.
+          focus-pane-left  focus-pane-right  focus-pane-up    focus-pane-down
+          split-pane-left  split-pane-right  split-pane-up    split-pane-down
+          move-pane-left   move-pane-right   move-pane-up     move-pane-down
+          toggle-pane-zoom copy-mode
+          rename-tab! new-tab! close-tab!
+          ;; The tab list is a vertical strip, so "previous"/"next" is the
+          ;; direction-free naming; which of h/j/k/l reaches each is the
+          ;; screen's call.
+          tab-focus-prev tab-focus-next tab-move-prev tab-move-next
+          ;; ── Provisioning ───────────────────────────────────────────
+          ;;
+          ;; `configure!` writes the eight iTerm key bindings the split,
+          ;; move, copy-mode and zoom ops ride on; `configured?` is the
+          ;; cached probe saying whether they are already there. Both are
+          ;; facilities — what iTerm needs is iTerm's business. Surfacing
+          ;; the action, and retiring the row once the probe passes, is
+          ;; the configuration's:
+          ;;
+          ;;   (key "C-I" "Configure iTerm" iterm:configure!
+          ;;        'hidden iterm:configured?)
+          configure! configured?
+          ;; ── Blocks and the ops behind them ─────────────────────────
           default-pane-labels
           pane-list-block
           select-session-by-id
@@ -52,16 +93,13 @@
           ;; `sessions of current tab of current window`, NOT an all-tabs AX
           ;; scroll-area count.
           iterm-list-session-ids
-          configure-entry iterm-configured?
           ;; Test seam (ADR-0014): a parameterized indirection point a test
           ;; can override so no test quits/reconfigures a real iTerm
           ;; (feedback_no_live_env_mutation_in_tests) — mirrors
-          ;; current-dialog-runner / current-herdr-async-runner.
+          ;; current-dialog-runner / current-herdr-send-runner.
           current-iterm-provision-runner)
   (import (scheme base)
           (modaliser dsl)
-          (modaliser state-machine)
-          (modaliser event-dispatch)
           (modaliser util)
           (modaliser shell)
           (modaliser dialogs)
@@ -81,19 +119,16 @@
                   move-pane-left  move-pane-right  move-pane-up  move-pane-down
                   focus-pane-by-digit toggle-pane-zoom)
           (modaliser theming)
+          ;; The contribution constructors for `fragment` below. Prefixed:
+          ;; the bare names (tree, backend, context, …) collide with too
+          ;; much of this module's own vocabulary.
+          (prefix (modaliser configuration) config:)
           (modaliser blocks iterm-panes)
           (modaliser blocks iterm-tabs))
   (begin
 
     (define default-pane-labels
       (list "1" "2" "3" "4" "5" "6" "7" "8" "9" "0"))
-
-    ;; Returns a thunk that fires send-keystroke on call. The thunk
-    ;; lands cleanly as the third arg of `(key K L …)`: the macro
-    ;; evaluates the call eagerly, gets a procedure back, and uses it
-    ;; as the action thunk.
-    (define (keystroke mods key-name)
-      (lambda () (send-keystroke mods key-name)))
 
     ;; Query iTerm for the UUIDs of every session in the focused window's
     ;; current tab. iTerm's `id of every session` returns "U1, U2, ..."
@@ -167,10 +202,15 @@
 
     ;; The 14th op. iTerm's user-visible zoom toggle is the provisioned
     ;; Cmd+Shift+Return binding (see iterm-binding-specs: maximize active
-    ;; pane). configure-entry writes it; the user's tree already proxies
-    ;; "z Toggle Zoom" through the same keystroke.
+    ;; pane), which `configure!` writes.
     (define (toggle-pane-zoom)
       (send-keystroke '(cmd shift) "return"))
+
+    ;; iTerm's own copy mode, on the provisioned Cmd+Shift+C binding (see
+    ;; iterm-binding-specs). Not a pane op — it rides the same
+    ;; provisioning, so it lives beside them.
+    (define (copy-mode)
+      (send-keystroke '(cmd shift) "c"))
 
     ;; UUID of the focused iTerm session. AppleScript's `is running`
     ;; guard prevents probe-time Launch Services auto-launch — see
@@ -194,12 +234,85 @@
       (cond ((focused-iterm-tty) => tty-foreground-command)
             (else #f)))
 
+    ;; ─── Tab operations ──────────────────────────────────────────
+    ;;
+    ;; Moved in from the seeded iTerm app-tree (library-fragments-k11):
+    ;; the stock tree below binds them, and they are exported as
+    ;; composition blocks for user-built trees.
+
+    ;; Tab rename — clicks iTerm's Window > Tab > Edit Tab Title menu via
+    ;; System Events. iTerm opens its inline tab-bar editor; the user
+    ;; types the new title and presses Enter inside iTerm.
+    ;;
+    ;; iTerm's `tab` class advertises a writable `title` property but
+    ;; rejects writes at runtime (AppleEvent -10000). `name of session`
+    ;; *is* writable and surfaces in the tab bar, but shell title escapes
+    ;; (\e]0;…\a from precmd hooks) clobber it on the next prompt — and
+    ;; it's not the per-tab override the menu sets. The menu click is the
+    ;; only path to the real override.
+    (define (rename-tab!)
+      (run-shell
+       (string-append
+        "osascript -e 'tell application \"System Events\" to tell process \"iTerm2\" "
+        "to click menu item \"Edit Tab Title\" of menu \"Tab\" "
+        "of menu item \"Tab\" of menu \"Window\" of menu bar 1' "
+        "2>/dev/null")))
+
+    ;; New tab inheriting the current session's profile, so it matches
+    ;; whatever you're in now rather than the default profile. The profile
+    ;; is read and used entirely inside AppleScript — nothing crosses into
+    ;; the shell, so there is nothing to escape. (Inside `tell current
+    ;; window`, `current session` already resolves to that window; adding
+    ;; `of current window` there would double-resolve and error.)
+    (define (new-tab!)
+      (run-shell
+       (string-append
+        "osascript -e 'tell application \"iTerm\" to tell current window "
+        "to create tab with profile (profile name of current session)' "
+        "2>/dev/null")))
+
+    ;; Close the focused tab. iTerm raises its own "a job is running"
+    ;; confirmation when the tab has a live process, so no extra guard.
+    (define (close-tab!)
+      (run-shell
+       (string-append
+        "osascript -e 'tell application \"iTerm\" to "
+        "close (current tab of current window)' "
+        "2>/dev/null")))
+
+    ;; ─── The 'canvas-frame host capability ───────────────────────
+    ;;
+    ;; The host-specific glue an inner tool's chip geometry needs
+    ;; (docs/specs/configuration-value.md "Host capabilities, consumed
+    ;; generically"; CONTEXT.md "Grid frame"): given an inner tool's
+    ;; canvas cell totals, the calibrated pixel frame that canvas maps
+    ;; onto — measured top-left character cell (the grid origin and true
+    ;; cell size) composed with the raw AXScrollArea frame through the
+    ;; host-neutral calibrated-grid-frame. #f when iTerm is unreachable;
+    ;; the consumer (herdr's chip painting) skips painting then. Rides
+    ;; the backend record below and is consumed through the terminal
+    ;; façade's (host-capability 'canvas-frame) — no inner tool names
+    ;; iTerm.
+    ;;
+    ;; Replace-mode caveat: the probe takes the FIRST AXScrollArea. When
+    ;; the inner tool owns the sole one (herdr in replace mode) the frame
+    ;; is right; among several splits it may be the wrong one — chips can
+    ;; land on the wrong pixels, ops are unaffected (documented v1
+    ;; limitation, docs/reference/terminal-detection.md).
+    (define (canvas-frame-probe total-w total-h)
+      (calibrated-grid-frame
+        (ax-first-visible-char-bounds "com.googlecode.iterm2")
+        (let ((areas (ax-find-elements-named
+                       "com.googlecode.iterm2" "AXScrollArea" "AXStaticText")))
+          (and (pair? areas) (car areas)))
+        total-w total-h))
+
     ;; ─── iTerm key-binding provisioning ──────────────────────────
     ;;
-    ;; The pane ops above, plus the overlay's copy-mode and zoom
-    ;; keys, need eight entries in iTerm's GlobalKeyMap.
-    ;; `configure-entry` surfaces a one-shot overlay action that adds
-    ;; them; it stays hidden once iTerm is configured.
+    ;; The pane ops above, plus the copy-mode and zoom ops, need eight
+    ;; entries in iTerm's GlobalKeyMap. `configure!` adds them and
+    ;; `configured?` reports whether they are already there; a
+    ;; configuration binds the first and gates the row on the second.
     ;;
     ;; Each spec is (plist-key action-code json-text human-desc).
     ;; Values are copied verbatim from what iTerm 3.6 writes when the
@@ -352,12 +465,13 @@
                 "echo $ok")))
           "yes")))
 
-    ;; Cached configured? flag. The overlay's 'hidden thunk reads
-    ;; iterm-configured? on every render, so the probe must be cheap
-    ;; — hence the cache. 'unknown forces a one-time lazy probe.
+    ;; Cached configured? flag. A configuration that gates its setup row
+    ;; on `configured?` has the overlay reading it on every render, so
+    ;; the probe must be cheap — hence the cache. 'unknown forces a
+    ;; one-time lazy probe.
     (define *iterm-configured* 'unknown)
 
-    (define (iterm-configured?)
+    (define (configured?)
       (when (eq? *iterm-configured* 'unknown)
         (set! *iterm-configured* (iterm-probe-configured?)))
       *iterm-configured*)
@@ -389,15 +503,23 @@
     (define current-iterm-provision-runner
       (make-parameter run-shell-async))
 
-    ;; Overlay action: confirm (async, ADR-0014 — the dialog fires through
-    ;; the slim (modaliser dialogs) library so the Scheme thread stays free
-    ;; while it's up), provision (also async — the quit-then-poll-pgrep
-    ;; loop below is a multi-second blocking window if run synchronously;
+    ;; The provisioning action a configuration binds: confirm (async,
+    ;; ADR-0014 — the dialog fires through the slim (modaliser dialogs)
+    ;; library so the Scheme thread stays free while it's up), provision
+    ;; (also async — the quit-then-poll-pgrep loop below is a
+    ;; multi-second blocking window if run synchronously;
     ;; iterm-refresh-configured! moves into the callback so it only runs
     ;; once provisioning has actually finished), re-probe. Idempotent — if
     ;; iTerm is already configured (e.g. the key was pressed while the
-    ;; entry was hidden) it just syncs the cache and returns, no dialog.
-    (define (iterm-configure!)
+    ;; row was hidden) it just syncs the cache and returns, no dialog.
+    ;;
+    ;; Pairing it with `configured?` as a 'hidden gate is what makes the
+    ;; row retire itself — without a Modaliser reload, since the gate is
+    ;; re-read on the next overlay open after this re-probes:
+    ;;
+    ;;   (key "C-I" "Configure iTerm" iterm:configure!
+    ;;        'hidden iterm:configured?)
+    (define (configure!)
       (if (iterm-probe-configured?)
         (iterm-refresh-configured!)
         (dialog-confirm iterm-configure-dialog-message
@@ -408,187 +530,6 @@
                   (iterm-refresh-configured!)))))
           'title "Configure iTerm" 'ok-label "Continue" 'icon "caution")))
 
-    ;; A `(key …)` node for the iTerm tree, bound to Ctrl+Shift+I.
-    ;; Its 'hidden property is the iterm-configured? thunk, so the
-    ;; entry renders only while iTerm is unconfigured and vanishes —
-    ;; without a Modaliser reload — on the next overlay open after
-    ;; iterm-configure! re-probes.
-    (define (configure-entry)
-      (cons (cons 'hidden iterm-configured?)
-            (key "C-I" "Configure iTerm" iterm-configure!)))
-
-    ;; Build a single (key-range ...) node covering every labelled pane.
-    ;; Display key is "<first>.." reflecting actually-bound count (so a
-    ;; 3-pane window reads "1.." rather than the full label list). If
-    ;; AppleScript returns fewer UUIDs than AX found scroll areas, those
-    ;; panes are dropped from the range. Returns a 0- or 1-element list
-    ;; so the caller's (append (iterm-pane-bindings …) …) keeps splicing
-    ;; cleanly.
-    (define (iterm-pane-bindings labelled-panes session-ids range-label)
-      (let loop ((ps labelled-panes) (label->sid '()) (keys '()))
-        (cond
-          ((null? ps)
-           (cond
-             ((null? keys) '())
-             (else
-               (let* ((alist  label->sid)
-                      (ks     (reverse keys))
-                      (first  (car ks))
-                      (display (string-append first ".."))) ; e.g. "1.."
-                 (list
-                   (key-range display range-label
-                     ks
-                     (lambda (k)
-                       (let ((entry (assoc k alist)))
-                         (when entry
-                           (iterm-select-session-by-id (cdr entry)))))))))))
-          (else
-            (let* ((entry (car ps))
-                   (label (car entry))
-                   (pane  (cdr entry))
-                   (idx   (cdr (assoc 'idx pane)))
-                   (sid   (and (< idx (length session-ids))
-                               (list-ref session-ids idx))))
-              (loop (cdr ps)
-                    (if sid (cons (cons label sid) label->sid) label->sid)
-                    (if sid (cons label keys)                  keys)))))))
-
-    ;; Rebuild and re-register the 'com.googlecode.iterm2 tree from
-    ;; the current iTerm pane layout. Cheap when iTerm isn't running
-    ;; (AX returns empty, no panes contribute to the range).
-    ;;
-    ;; Chip styling is no longer threaded through opts. Hint chips read
-    ;; their resolved appearance from (current-chip-theme), driven by
-    ;; the .chip rule in base.css + ~/.config/modaliser/theme.css. The
-    ;; old 'hint-options keyword raises a migration error.
-    (define (rebuild-tree! . opts)
-      (let ((alist (apply props->alist opts)))
-        ;; Guard runs before any AX / AppleScript work so a stale config
-        ;; passing the legacy keyword fails fast instead of paying the
-        ;; full discovery cost first.
-        (when (assoc 'hint-options alist)
-          (error
-            "rebuild-tree!: 'hint-options removed — edit .chip in ~/.config/modaliser/theme.css instead"))
-        (let* ((labels       (alist-ref alist 'pane-labels default-pane-labels))
-               (range-label  (alist-ref alist 'pane-range-label "Focus Pane <n>"))
-               (focus-mode-id (alist-ref alist 'focus-mode-id 'iterm-panes-focus))
-               (raw-panes    (ax-find-elements-named
-                               "com.googlecode.iterm2" "AXScrollArea" "AXStaticText"))
-               (panes        (label-pairs labels raw-panes))
-               (session-ids  (iterm-list-session-ids)))
-        (apply screen 'com.googlecode.iterm2
-          'on-enter (lambda ()
-                      (hints-show
-                        (ax-target-hints panes (current-chip-theme 'normal))))
-          'on-leave (lambda () (hints-hide))
-          (append
-            (iterm-pane-bindings panes session-ids range-label)
-            (list
-              (key "c" "Copy Mode" (keystroke '(cmd shift) "c"))
-              (key "z" "Toggle Zoom" (keystroke '(cmd shift) "return"))
-              ;; hjkl: focus-move AND cross into the Walk focus mode in a
-              ;; single press. First leader → h moves left and lands the
-              ;; user in 'iterm-panes-focus, so subsequent hjkl keys keep
-              ;; moving without another leader. The overlay paints a ↻
-              ;; marker on each (via 'next). Grouped into a "Focus" panel
-              ;; so the cluster reads as one semantic unit at the top of
-              ;; the overlay.
-              (panel "Focus"
-                (key "h" "Left"  focus-pane-left  'next focus-mode-id)
-                (key "j" "Down"  focus-pane-down  'next focus-mode-id)
-                (key "k" "Up"    focus-pane-up    'next focus-mode-id)
-                (key "l" "Right" focus-pane-right 'next focus-mode-id))
-              ;; Right/down split directly; left/up split-then-swap.
-              ;; All four refocus the new pane by UUID — see
-              ;; split-pane-* for the iTerm bindings the swap step
-              ;; depends on.
-              (group "x" "Split"
-                (key "h" "Left"  split-pane-left)
-                (key "j" "Down"  split-pane-down)
-                (key "k" "Up"    split-pane-up)
-                (key "l" "Right" split-pane-right))
-              ;; Move Pane modal — m enters a group whose hjkl keys swap
-              ;; the focused pane with its neighbour in that direction.
-              ;; Each press swaps and stays in the group (each key
-              ;; carries 'next 'self, a cyclic edge); any other key exits
-              ;; (per 'exit-on-unknown #t). Depends on the same iTerm
-              ;; bindings as split-pane-left/up.
-              (group "m" "Move Pane"
-                'exit-on-unknown #t
-                (key "h" "Left"  move-pane-left  'next 'self)
-                (key "j" "Down"  move-pane-down  'next 'self)
-                (key "k" "Up"    move-pane-up    'next 'self)
-                (key "l" "Right" move-pane-right 'next 'self))))))))
-
-    ;; Walk focus-mode children. Pure hjkl focus moves, entered from the
-    ;; transient tree via any of its hjkl keys (each carries 'next → here,
-    ;; a cross edge) or from any other leaf declaring 'next 'iterm-panes-focus.
-    ;; Each key here carries 'next 'self so it cycles back to itself.
-    (define (focus-mode-tree)
-      (list
-        (key "h" "Left"  focus-pane-left  'next 'self)
-        (key "j" "Down"  focus-pane-down  'next 'self)
-        (key "k" "Up"    focus-pane-up    'next 'self)
-        (key "l" "Right" focus-pane-right 'next 'self)))
-
-    (define (focus-mode-register! . opts)
-      (let* ((alist     (apply props->alist opts))
-             (id        (alist-ref alist 'focus-mode-id 'iterm-panes-focus))
-             (disp-name (alist-ref alist 'display-name "Focus")))
-        (apply register-tree! id
-          'exit-on-unknown #t
-          'display-name disp-name
-          (focus-mode-tree))))
-
-    ;; Variant string for the focused iTerm pane, used by the
-    ;; (modaliser event-dispatch) dispatcher to select sub-tree variants
-    ;; like 'com.googlecode.iterm2/nvim. Returns #f if no variant applies.
-    ;;
-    ;; Side-effect: refreshes the iTerm pane snapshot so chip rendering
-    ;; and digit dispatch see the current pane layout. When 'rebuild? is
-    ;; #t (default), also rebuilds the library's stock iTerm tree —
-    ;; necessary if the library owns the tree (its key-range bakes UUIDs
-    ;; at tree-build time). Pass 'rebuild? #f if your config inlines its
-    ;; own (screen 'com.googlecode.iterm2 …) — the rebuild would
-    ;; clobber the inline tree, and inline trees typically use
-    ;; (iterm:pane-list-block …) which reads the snapshot directly at
-    ;; render time.
-    ;;
-    ;; Accepts the same trailing opts as rebuild-tree! ('pane-labels,
-    ;; 'pane-range-label, 'focus-mode-id). They are forwarded to the
-    ;; rebuild call so per-press registrations honour the user's
-    ;; customisation rather than reverting to the library's neutral
-    ;; defaults. register! captures opts in a closure for this reason;
-    ;; users composing their own handler can pass opts at call site too.
-    (define (context-suffix-handler bundle-id . opts)
-      (cond
-        ((equal? bundle-id "com.googlecode.iterm2")
-         (let* ((alist     (apply props->alist opts))
-                (rebuild?  (alist-ref alist 'rebuild? #t))
-                (forwarded
-                  (let loop ((kvs opts) (acc '()))
-                    (cond
-                      ((null? kvs) (reverse acc))
-                      ((null? (cdr kvs))
-                       (error "context-suffix-handler: odd keyword/value list"))
-                      ((eq? (car kvs) 'rebuild?)
-                       (loop (cddr kvs) acc))
-                      (else
-                       (loop (cddr kvs)
-                             (cons (cadr kvs) (cons (car kvs) acc))))))))
-           (if rebuild?
-               (apply rebuild-tree! forwarded)
-               (iterm-panes-refresh!))
-           (let ((cmd (focused-terminal-foreground-command)))
-             (cond
-               ((not cmd) #f)
-               ((string-contains? cmd "nvim") "/nvim")
-               ((or (string-contains? cmd "zellij")
-                    (string-contains? cmd "zj"))
-                (if (focused-nvim-socket) "/zellij+nvim" "/zellij"))
-               (else #f)))))
-        (else #f)))
-
     ;; A standalone "pick a digit to focus a pane" mode. The façade's
     ;; (terminal:focus-pane-by-digit) resolver names this tree as the
     ;; procedure-valued 'next target on a config's digit-jump binding.
@@ -597,8 +538,8 @@
     ;; populated for focus-by-digit's lookup) and paints chips; on-leave
     ;; hides them. The single hidden key-range dispatches by digit and
     ;; exits the mode automatically (Terminal — no 'next — by default).
-    (define (pane-digit-register!)
-      (register-tree! 'iterm-pane-digit
+    (define (pane-digit-tree)
+      (tree-root 'iterm-pane-digit
         'on-enter
         (lambda ()
           (iterm-panes-refresh!)
@@ -614,7 +555,10 @@
     ;; (modaliser terminal). Same procedures the iterm:focus-pane-*
     ;; etc. exports point at — registering doesn't duplicate
     ;; implementations, it just lets the façade dispatch to them when
-    ;; iTerm is frontmost.
+    ;; iTerm is frontmost. The trailing capabilities alist is the host
+    ;; glue inner tools consume generically through the façade
+    ;; (library-fragments-k11) — today the canvas-frame probe behind
+    ;; herdr's chip geometry.
     (define (iterm-terminal-backend)
       (make-terminal-backend
         ;; tool-name #f: iTerm2 is entirely AppleScript-driven — no CLI
@@ -627,48 +571,39 @@
         move-pane-left   move-pane-right   move-pane-up     move-pane-down
         'iterm-pane-digit
         toggle-pane-zoom
-        iterm-configured?))
+        configured?
+        (list (cons 'canvas-frame canvas-frame-probe))))
 
-    ;; One-stop convenience: register the dynamic iTerm tree, the Walk
-    ;; focus mode, the digit-pick mode, the <terminal-backend> record
-    ;; with the façade, and install the context-suffix handler.
+    ;; ─── Tab operations, continued ─────────────────────────────────
     ;;
-    ;; Options:
-    ;;   'install-tree? BOOL (default #t)
-    ;;     #f to skip the (rebuild-tree! …) call. Use when you've
-    ;;     written your own (screen 'com.googlecode.iterm2 …) by
-    ;;     hand and don't want this thunk to clobber it — the backend
-    ;;     record is still registered with the façade so
-    ;;     (terminal:focus-pane-*) / (terminal:split-pane-*) etc. work.
-    ;;   'install-context-suffix? BOOL (default #t)
-    ;;     #f if you compose your own context-suffix handler — yours
-    ;;     can then call (context-suffix-handler bid …opts) to delegate
-    ;;     the iTerm branch.
-    (define (register! . opts)
-      (let* ((alist (apply props->alist opts))
-             (install-tree?    (alist-ref alist 'install-tree? #t))
-             (install-suffix?  (alist-ref alist 'install-context-suffix? #t))
-             (forwarded
-               (let loop ((kvs opts) (acc '()))
-                 (cond
-                   ((null? kvs) (reverse acc))
-                   ((null? (cdr kvs))
-                    (error "register!: odd keyword/value list"))
-                   ((memq (car kvs) '(install-tree? install-context-suffix?))
-                    (loop (cddr kvs) acc))
-                   (else
-                    (loop (cddr kvs)
-                          (cons (cadr kvs) (cons (car kvs) acc))))))))
-        (when install-tree?
-          (apply rebuild-tree! forwarded))
-        (apply focus-mode-register! forwarded)
-        (pane-digit-register!)
-        (register-backend! (iterm-terminal-backend))
-        (when install-suffix?
-          (set-local-context-suffix!
-            (lambda (bundle-id)
-              (apply context-suffix-handler
-                     bundle-id 'rebuild? install-tree? forwarded))))))
+    ;; The tab strip is vertical, so the direction-free naming: a screen
+    ;; decides which of h/j/k/l reaches "previous" and which "next".
+    (define (tab-focus-prev) (send-keystroke '(cmd shift) "["))      ; ⌘⇧[
+    (define (tab-focus-next) (send-keystroke '(cmd shift) "]"))      ; ⌘⇧]
+    (define (tab-move-prev)  (send-keystroke '(alt shift cmd) "["))  ; ⌥⇧⌘[
+    (define (tab-move-next)  (send-keystroke '(alt shift cmd) "]"))  ; ⌥⇧⌘]
+
+    ;; ─── The wiring fragment (ADR-0018 / ADR-0021) ─────────────────
+    ;;
+    ;; `wiring` returns a pure Fragment carrying iTerm's INTEGRATION and
+    ;; nothing else —
+    ;;
+    ;;   (configuration (iterm:wiring) my-iterm-screen …)
+    ;;
+    ;; — the backend record (whose match-key is what makes a screen under
+    ;; 'com.googlecode.iterm2 terminal-like, and whose 'canvas-frame
+    ;; capability feeds inner tools' chip geometry) and the digit-jump
+    ;; mode tree the record's focus-pane-by-digit slot names at fire
+    ;; time. No key, no label: the screen is the configuration's, built
+    ;; from the ops and blocks exported above.
+    ;;
+    ;; Each call builds fresh tree objects, so compose ONE call's value;
+    ;; two calls' contributions under the same scope are a genuine merge
+    ;; conflict, not a diamond.
+    (define (wiring)
+      (list
+        (config:backend 'iterm (iterm-terminal-backend))
+        (config:tree 'iterm-pane-digit (pane-digit-tree))))
 
     ;; ─── Block-based pane selection ────────────────────────────────
     ;;

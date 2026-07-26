@@ -6,7 +6,7 @@ import Testing
 struct ModaliserDslLibraryTests {
     @Test func keyConstructsCommandAlist() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser dsl) (modaliser fsm))")
         try engine.evaluate("""
           (define k (key "s" "Safari" (lambda () 'ok)))
         """)

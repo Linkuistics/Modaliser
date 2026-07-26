@@ -37,7 +37,7 @@ struct KeyRangeTests {
             (define (webview-eval id js)
               (set! webview-eval-calls (cons (cons id js) webview-eval-calls)))
             """)
-        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser state-machine))")
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
         try engine.evaluate("(import (modaliser event-dispatch))")
         try engine.evaluate("(import (modaliser dsl))")
         try engine.evaluate("(import (modaliser dom))")
@@ -73,43 +73,43 @@ struct KeyRangeTests {
     @Test func findChildMatchesAnyKeyInRange() throws {
         let engine = try loadStack()
         try engine.evaluate("""
-            (register-tree! 'global
+            (define global-root (tree-root 'global
               (key-range "1..9" "Space <n>"
                 '("1" "2" "3" "4" "5" "6" "7" "8" "9")
-                (lambda (k) k)))
+                (lambda (k) k))))
             """)
         // Every digit in the range resolves to the same range node.
         for digit in ["1", "5", "9"] {
             let found = try engine.evaluate("""
-                (range-command? (find-child (lookup-tree "global") "\(digit)"))
+                (range-command? (find-child global-root "\(digit)"))
                 """)
             #expect(found == .true)
         }
         // A digit outside the range list does not match.
         #expect(try engine.evaluate("""
-            (find-child (lookup-tree "global") "0")
+            (find-child global-root "0")
             """) == .false)
     }
 
     @Test func literalKeyWinsOverOverlappingRange() throws {
         let engine = try loadStack()
         try engine.evaluate("""
-            (register-tree! 'global
+            (define global-root (tree-root 'global
               (key-range "1..9" "Space <n>"
                 '("1" "2" "3" "4" "5" "6" "7" "8" "9")
                 (lambda (k) 'range))
-              (key "5" "Special Five" (lambda () 'literal)))
+              (key "5" "Special Five" (lambda () 'literal))))
             """)
         // The literal binding for "5" carves a slot out of the range.
         #expect(try engine.evaluate("""
-            (command? (find-child (lookup-tree "global") "5"))
+            (command? (find-child global-root "5"))
             """) == .true)
         #expect(try engine.evaluate("""
-            (node-label (find-child (lookup-tree "global") "5"))
+            (node-label (find-child global-root "5"))
             """).asString() == "Special Five")
         // Other digits still resolve to the range.
         #expect(try engine.evaluate("""
-            (range-command? (find-child (lookup-tree "global") "3"))
+            (range-command? (find-child global-root "3"))
             """) == .true)
     }
 
@@ -119,12 +119,13 @@ struct KeyRangeTests {
         let engine = try loadStack()
         try engine.evaluate("""
             (define received '())
-            (register-tree! 'global
-              (key-range "1..9" "Space <n>"
-                '("1" "2" "3" "4" "5" "6" "7" "8" "9")
-                (lambda (k) (set! received (cons k received)))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key-range "1..9" "Space <n>"
+                  '("1" "2" "3" "4" "5" "6" "7" "8" "9")
+                  (lambda (k) (set! received (cons k received)))))))))
             """)
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"3\")")
         #expect(try engine.evaluate("(car received)").asString() == "3")
         // Transient: after firing a leaf the modal exits.
@@ -135,11 +136,12 @@ struct KeyRangeTests {
         let engine = try loadStack()
         try engine.evaluate("""
             (define received '())
-            (register-tree! 'global
-              (key-range "1..9" "Space <n>"
-                '("1" "2" "3") (lambda (k) (set! received (cons k received)))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (key-range "1..9" "Space <n>"
+                  '("1" "2" "3") (lambda (k) (set! received (cons k received)))))))))
             """)
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"9\")")
         #expect(try engine.evaluate("(length received)").asInt64() == 0)
     }
@@ -212,12 +214,13 @@ struct KeyRangeTests {
         let engine = try loadStack()
         try engine.evaluate("""
             (define received #f)
-            (register-tree! 'global
-              (keys '("1" "2" "3" "4" "5") "Space <n>"
-                (lambda (k i ks)
-                  (set! received (list k i (length ks))))))
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global (tree-root 'global
+                (keys '("1" "2" "3" "4" "5") "Space <n>"
+                  (lambda (k i ks)
+                    (set! received (list k i (length ks))))))))))
             """)
-        try engine.evaluate("(modal-enter (lookup-tree \"global\") F18)")
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
         try engine.evaluate("(modal-handle-key \"4\")")
         #expect(try engine.evaluate("(car received)").asString() == "4")
         #expect(try engine.evaluate("(cadr received)").asInt64() == 3)

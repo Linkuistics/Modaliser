@@ -1,11 +1,14 @@
-;; (modaliser json) — a small, portable recursive-descent JSON reader.
+;; (modaliser json) — a small, portable JSON reader and writer.
 ;;
-;; Why this exists. Socket-API muxes (herdr) drive Modaliser by emitting
-;; compact single-line, nested JSON on stdout. The multiline awk parsers
-;; the tmux/zellij/wezterm backends use do NOT transfer to compact
-;; single-line output, and the tree has no general JSON reader — each
-;; backend rolled its own ad-hoc extractor. This library is the shared,
-;; testable answer: `herdr` output → Scheme data, once.
+;; Why this exists. Socket-API muxes (herdr) speak compact single-line,
+;; nested JSON. The multiline awk parsers the tmux/zellij/wezterm backends
+;; use do NOT transfer to compact single-line output, and the tree had no
+;; general JSON reader — each backend rolled its own ad-hoc extractor.
+;; This library is the shared, testable answer, in both directions:
+;; `herdr` output → Scheme data, and Scheme data → a herdr request line
+;; (ADR-0020's socket transport builds `{"id","method","params"}` with
+;; json-write rather than by string-appending, so escaping is decided in
+;; exactly one place).
 ;;
 ;; Portability. Depends ONLY on (scheme base) + (scheme char) — no
 ;; hashtable library, no host JSON primitive — so it belongs in the
@@ -32,7 +35,7 @@
 ;; unaffected.
 
 (define-library (modaliser json)
-  (export json-parse json-ref)
+  (export json-parse json-ref json-write)
   (import (scheme base)
           (scheme char))
   (begin
@@ -158,4 +161,94 @@
                   (error "json-parse: malformed number" tok)))))
 
         (skip-ws)
-        (parse-value)))))
+        (parse-value)))
+
+    ;; ─── Writer ─────────────────────────────────────────────────────
+    ;;
+    ;; json-parse's mirror over the same representation, so a socket-API
+    ;; backend can build a request line without rolling its own encoder —
+    ;; the ad-hoc-per-backend outcome this library exists to prevent.
+    ;;
+    ;; Objects are emitted in alist order rather than sorted, which makes a
+    ;; request line deterministic and therefore assertable in a test.
+    ;; Output is compact (no spaces): these lines go on a socket, not to a
+    ;; human.
+    ;;
+    ;; The representation's one ambiguity is inherited, not introduced: #f
+    ;; means JSON `false`, so an "absent" value must be omitted from the
+    ;; alist rather than written as #f. Symbols other than `null` and any
+    ;; other unsupported value raise — a caller building a request from
+    ;; malformed data is a programming error, not a wire condition.
+    (define (json-write value)
+      (let ((out (open-output-string)))
+        (write-json value out)
+        (get-output-string out)))
+
+    (define (write-json v out)
+      (cond
+        ((eq? v 'null)  (write-string "null" out))
+        ((eq? v #t)     (write-string "true" out))
+        ((eq? v #f)     (write-string "false" out))
+        ((string? v)    (write-json-string v out))
+        ((number? v)    (write-string (number->string v) out))
+        ((vector? v)    (write-json-array v out))
+        ;; '() is the empty OBJECT (parse-object's result), not an empty
+        ;; array — #() is the empty array. Both directions agree.
+        ((null? v)      (write-string "{}" out))
+        ((pair? v)      (write-json-object v out))
+        (else (error "json-write: unsupported value" v))))
+
+    (define (write-json-array vec out)
+      (write-char #\[ out)
+      (let loop ((k 0))
+        (when (< k (vector-length vec))
+          (when (> k 0) (write-char #\, out))
+          (write-json (vector-ref vec k) out)
+          (loop (+ k 1))))
+      (write-char #\] out))
+
+    (define (write-json-object alist out)
+      (write-char #\{ out)
+      (let loop ((rest alist) (first? #t))
+        (unless (null? rest)
+          (let ((entry (car rest)))
+            (unless (and (pair? entry) (string? (car entry)))
+              (error "json-write: object entry is not a (string . value) pair" entry))
+            (unless first? (write-char #\, out))
+            (write-json-string (car entry) out)
+            (write-char #\: out)
+            (write-json (cdr entry) out)
+            (loop (cdr rest) #f))))
+      (write-char #\} out))
+
+    ;; Escapes exactly what JSON requires: the two structural characters
+    ;; (" and \) and every control character below U+0020. Everything else
+    ;; — including `/` and non-ASCII — goes out verbatim, which parse-string
+    ;; reads back unchanged. The five short forms are used where they exist
+    ;; because they are what a human debugging a captured line expects.
+    (define (write-json-string s out)
+      (write-char #\" out)
+      (let loop ((k 0))
+        (when (< k (string-length s))
+          (let* ((c (string-ref s k))
+                 (n (char->integer c)))
+            (cond
+              ((char=? c #\")      (write-string "\\\"" out))
+              ((char=? c #\\)      (write-string "\\\\" out))
+              ((char=? c #\newline)(write-string "\\n" out))
+              ((char=? c #\return) (write-string "\\r" out))
+              ((char=? c #\tab)    (write-string "\\t" out))
+              ((= n 8)             (write-string "\\b" out))
+              ((= n 12)            (write-string "\\f" out))
+              ((< n 32)            (write-string (unicode-escape n) out))
+              (else                (write-char c out))))
+          (loop (+ k 1))))
+      (write-char #\" out))
+
+    ;; \u00XX — control codes only, so two hex digits always suffice and
+    ;; the leading "00" is a constant.
+    (define (unicode-escape n)
+      (let ((hex "0123456789abcdef"))
+        (string-append "\\u00"
+                       (string (string-ref hex (quotient n 16))
+                               (string-ref hex (remainder n 16))))))))

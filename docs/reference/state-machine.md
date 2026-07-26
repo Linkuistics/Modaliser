@@ -2,13 +2,11 @@
 
 How Modaliser's modal dispatch works: an **explicit FSM graph** — states
 and labelled edges as first-class data — run by a step engine, with a
-compatibility façade deriving the overlay's `(node, path)` contract from
-it. The graph model and step engine are
-[`(modaliser fsm)`](../../Sources/Modaliser/Scheme/lib/modaliser/fsm.sld);
-the façade that lowers layout-spec trees into the graph and drives
-dispatch through it is
-[`(modaliser state-machine)`](../../Sources/Modaliser/Scheme/lib/modaliser/state-machine.sld).
-This page is the conceptual companion to both. See
+modal façade deriving the overlay's `(node, path)` contract from the
+engine's configuration. All of it — graph model, step engine, the pure
+lower function, and the façade — lives in one library,
+[`(modaliser fsm)`](../../Sources/Modaliser/Scheme/lib/modaliser/fsm.sld).
+This page is its conceptual companion. See
 [ADR-0015](../adr/0015-explicit-fsm-graph.md) for why the model is shaped
 this way, and [docs/specs/fsm-graph.md](../specs/fsm-graph.md) for the
 full settled design this page tracks.
@@ -89,13 +87,13 @@ provider"). The herdr entry node's jump space is the first shipped
 consumer: its `'provider` (`herdr-jump-provider`, `(modaliser muxes
 herdr)`) gathers each visit's live jump targets and lowers them to
 per-visit key edges and narrowing prefix states — see
-[terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md#worked-example-the-herdr-nested-entry-point).
+[terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md#worked-example-herdr).
 
 (For the actual implementation, see `move-to!`, `fsm-step!`,
-`fsm-step-back!`, `fsm-activate!`, `fsm-halt!` in `fsm.sld`, and
-`modal-handle-key`, `modal-step-back`, `modal-enter`, `modal-exit` in
-`state-machine.sld`, which replay the matching overlay/hook side effects
-around each of those calls.)
+`fsm-step-back!`, `fsm-activate!`, `fsm-halt!` for the step engine, and
+`modal-handle-key`, `modal-step-back`, `modal-activate!`, `modal-exit`
+for the façade that replays the matching overlay/hook side effects
+around each of those calls — all in `fsm.sld`.)
 
 ## The `'next` edge and Terminal nodes
 
@@ -117,7 +115,7 @@ no outgoing edge at all.
   | `'next` value | Edge kind | Effect |
   |---|---|---|
   | `'self` | **cyclic** | Re-arm in place: the visit continues at the same owner (only descending into a group would move it), so nothing changes except a snapshot refresh. No return-stack push. |
-  | a registered tree's id (symbol) | **cross**, and a **call** edge | Push a return frame, switch to the target state — the FSM's own edge-following, not a separate primitive a config calls. |
+  | the scope id of a tree in the configuration (symbol) | **cross**, and a **call** edge | Push a return frame, switch to the target state — the FSM's own edge-following, not a separate primitive a config calls. |
   | a 0-arg procedure | **dynamic**, and also a **call** edge | Resolved at fire time to a symbol or `#f` (e.g. a façade's "whichever backend is frontmost"). The *existence* of the edge is still static — a procedure-valued `'next` is never Terminal, even where it resolves to `#f`. A return frame pushes whenever it resolves to a real target — cross edges always push, whether the target was static or resolved at fire time. If it resolves to `#f`, the engine halts *after* the action already ran instead (fail-safe: it never releases capture wrongly, only declines to release early). |
 
 The overlay paints a `↻` marker on any cell carrying `'next`, regardless
@@ -134,8 +132,9 @@ panes without another leader.
 
 ## Walk — a collection of cyclic members
 
-A **Walk** is a registered collection whose member leaves cycle back to
-it via `'next 'self` (CONTEXT.md). Being a Walk is **derived**, not
+A **Walk** is a collection in the configuration's tree set whose member
+leaves cycle back to it via `'next 'self` (CONTEXT.md). Being a Walk is
+**derived**, not
 declared: `(node-walk? node)` is true iff `node` has at least one direct
 command/range-command child declaring `'next 'self` — the same
 structural test the engine itself makes at the graph level (`walk-root?`
@@ -144,12 +143,13 @@ flag — a `group` / `screen` / `open` accepts nothing like an old
 `'sticky` keyword at all.
 
 ```scheme
-(register-tree! 'iterm-panes-focus
-  'exit-on-unknown #t
-  (key "h" "Left"  (λ () (focus-pane! 'left))  'next 'self)
-  (key "j" "Down"  (λ () (focus-pane! 'down))  'next 'self)
-  (key "k" "Up"    (λ () (focus-pane! 'up))    'next 'self)
-  (key "l" "Right" (λ () (focus-pane! 'right)) 'next 'self))
+(tree 'iterm-panes-focus
+  (tree-root 'iterm-panes-focus
+    'exit-on-unknown #t
+    (key "h" "Left"  (λ () (focus-pane! 'left))  'next 'self)
+    (key "j" "Down"  (λ () (focus-pane! 'down))  'next 'self)
+    (key "k" "Up"    (λ () (focus-pane! 'up))    'next 'self)
+    (key "l" "Right" (λ () (focus-pane! 'right)) 'next 'self)))
 ```
 
 Firing `h` re-arms the same collection instead of exiting, so `h j h h`
@@ -158,14 +158,15 @@ chains four pane-focus moves on one leader press.
 **Walk-root overlay timing.** A tree whose root is a Walk shows the
 overlay *immediately* on entry (no delay) — the overlay is the mode
 indicator, so the user must always know they're inside one. Transient
-trees use the configured delay (`set-overlay-delay!`).
+trees use the configured delay (the `overlay-delay` setting).
 
 **Authoring a Walk.** The `(walk MODE-ID DISPLAY-NAME key…)` DSL form
-(see [dsl.md](dsl.md#walk-mode-id-display-name-key)) packages the whole
-pattern in one call: it registers the mode tree with each member
-decorated `'next 'self`, and returns a splice of the same keys
-decorated `'next MODE-ID` for you to drop at the entry point(s) — one
-key list, no duplication.
+(see [dsl.md](dsl.md#walk-mode-id-display-name-order-keysdeclared-key)) packages the whole
+pattern in one call: it returns a splice of the keys decorated
+`'next MODE-ID` for you to drop at the entry point(s), carrying the
+mode tree — the same keys decorated `'next 'self` — inside it for the
+`configuration` merge to hoist into the tree set. One key list, no
+duplication.
 
 ## Backspace and the return stack
 
@@ -216,29 +217,27 @@ state is stamped with its own effective policy — rather than walked
 live on every keypress; the engine (`fsm-step!`) enforces it directly
 off that stamp.
 
-## Activation: the entry table
+## Activation: screen set + context map
 
-A leader press resolves through the graph's **entry table**
-(CONTEXT.md "Entry table" / "Entry point") rather than a direct
-scope lookup: `(screen 'scope …)` auto-registers an entry row for its
-scope, so the entry table enumerates exactly the leader-activatable
-scopes. A plain scope's row is ungated (always passes); a bundle-id/suffix
-variant's row (via the [suffix hook](../how-to/terminal-pane-aware-tree.md))
-is gated on that variant's own suffix currently matching, and stamped as
-a **scope refinement** of its base. Among entries whose gate currently
-passes, the **most specific** wins — specificity is derived, never
-hand-ranked: an explicit scope refinement outranks its base, or
-up-edge containment (a nested entry point outranks its container)
-decides; ties fall to declaration order. Up-edge containment is what
-ranks the herdr entry node above the plain iTerm node whenever both
-pass ([ADR-0013](../adr/0013-nested-context-entry-points.md)):
-`register-tree-up-edge!` stamps the nested root's outward edge and
-`register-tree-entry-gated!` registers its detection-gated row —
-`(screen scope 'auto-entry #f …)` on that call suppresses the automatic
-bundle-id/suffix row `screen` would otherwise add. Any state id is also
-directly activatable programmatically (`fsm-activate!`), bypassing the
-entry table entirely — this is what `modal-enter` uses once it already
-has a tree in hand.
+A leader press resolves through **`resolve-activation`**
+(`(modaliser activation)`) — a pure function of leader kind, frontmost
+bundle-id, the live detection chain, and the installed configuration
+value (CONTEXT.md "Entry point";
+[configuration-value spec](../specs/configuration-value.md)). A
+`'global` press lands on the `'global` tree. A `'local` press looks the
+frontmost bundle-id up in the value's tree set, falling back to
+`'global`; when that screen is **terminal-like** and the chain contains
+mapped contexts, activation lands in the **innermost mapped** context's
+tree instead, with the **return stack seeded** one frame per outer
+context — the chain itself is the containment order, so nothing ranks
+entries and no activation registry exists
+([ADR-0013](../adr/0013-nested-context-entry-points.md)). The graph
+carries no entry rows at all: activation is resolved *outside* the
+graph, then `modal-activate!` enters the resolved root with the seeded
+stack. Programmatic entry by scope symbol routes through the same
+resolution (`resolve-direct-activation`), seeding outward frames when
+the live chain contains that context — otherwise the stack is empty and
+backspace at the root is honestly a no-op.
 
 ## Hook gating: `on-enter` / `on-leave`
 
@@ -263,10 +262,80 @@ presentation-paired half of a visit, distinct from `entry`/`exit`, which
 fire unconditionally at the visit's boundaries regardless of whether the
 overlay ever displays it.
 
+What *calls* them at runtime, though, is the **façade**, not those slots.
+`run-on-enter` / `run-on-leave` (`fsm.sld`) read `'on-enter` / `'on-leave`
+off whatever alist `modal-current-node` resolves to — the state's carried
+payload — at the two moments the overlay starts and stops showing the
+node. The engine's own `show`/`hide` slots fire only when a host signals
+`fsm-mark-displayed!`, and no host does; they are exercised by tests
+alone. Lowering keeps them populated so the slot model stays complete, but
+hook *behaviour* lives in the façade's two runners. That is also why the
+reason below reaches `'on-leave` and not `hide`: `hide` is always fired
+with no arguments.
+
+### The exit reason
+
+`'on-leave` may declare **one argument**. If it does, it receives a symbol
+saying why the visit ended:
+
+| Reason | When |
+|---|---|
+| `'navigate` | The modal moved elsewhere and stayed up — a descent, a cross edge, a backspace pop. The default. |
+| `'confirm` | Return exited the modal (with no [selection cursor](dsl.md#live-lists--the-selection-cursor) to activate). |
+| `'cancel` | Escape; the leader key pressed again (the modal's catch-all sees it before any hotkey); a key that maps to no character and nothing else consumed (an arrow with no selection cursor active); or an unknown key under [`'exit-on-unknown`](#exit-on-unknown). |
+| `'exit` | The modal ended some other way — a Terminal leaf fired, backspace halted a Walk root, or `(modal-exit)` was called with no reason. |
+
+Every authoring surface that takes `'on-leave` reaches it: `group`,
+`tree-root`, `screen`, and `open` all funnel through the same
+`run-on-leave`. (The `walk` form takes no hooks of its own — it builds
+its mode root internally; author the root with `tree-root`, or use a
+plain `group` of `'next 'self` members, when you need one.) A nullary
+`'on-leave` is unaffected — both spellings are valid and there is nothing
+to opt into. Block hook fns (`'on-leave-fn`, see
+[renderer-protocol.md](renderer-protocol.md#block-hooks)) are **always**
+called with no arguments; no reason reaches them.
+
+The shipped `Recent Tabs` Walk in `default-config.scm` is the worked
+example — Return commits Dia's tab switcher, anything else cancels it
+(the keystroke protocol is in
+[libraries.md](libraries.md#modaliser-input)):
+
+```scheme
+(group "r" "Recent Tabs"
+  'exit-on-unknown #t
+  'on-enter (λ () (send-key-down "ctrl") (dia:tab-step))
+  'on-leave (λ (reason)
+              (unless (eq? reason 'confirm) (send-keystroke "escape"))
+              (send-key-up "ctrl")))         ; release on every exit path
+```
+
+**How the arity is decided.** R7RS has no portable way to ask a procedure
+how many arguments it accepts, so `(modaliser fsm)` does not ask: it ships
+a predicate cell answering "assume nullary", and `root.scm` installs the
+real check (`procedure-arity-includes?`, a LispKit primitive) at boot via
+`set-on-leave-accepts-reason!`. Same host-installs-the-capability shape as
+the Shell and HTTP seams
+([ADR-0023](../adr/0023-native-reach-is-host-installed.md)), reached for a
+different reason — [portability](portability.md#semantic-constraints-beyond-imports),
+not quarantine.
+
+That difference has one practical consequence. Those seams are *inert*
+until installed: every call degrades to a value the caller already
+handles. This predicate's default does **not** degrade — under it a 1-arg
+`'on-leave` is called with zero arguments, raising `function expects 1
+argument, but received 0 arguments`. The app never sees that (`root.scm`
+installs the predicate before any config is loaded), but a bare
+`SchemeEngine()` under `swift test` never runs `root.scm`, so a test
+driving a reason-aware hook must install the predicate itself:
+
+```scheme
+(set-on-leave-accepts-reason! (lambda (t) (procedure-arity-includes? t 1)))
+```
+
 ## Unconditional hooks: `'entry` / `'exit`
 
-A group (and, by extension, `register-tree!`, `screen`, and `open` — see
-[dsl.md](dsl.md#group-k-l-keyword-value-children)) accepts an optional
+A group (and, by extension, `tree-root`, `screen`, and `open` — see
+[dsl.md](dsl.md#group-k-l-keyword-value--children)) accepts an optional
 `'entry`/`'exit` keyword pair, authoring the *other* half of a resting
 state's action slots: unlike `'on-enter`/`'on-leave` (gated onto
 `show`/`hide`, fired only once/if the overlay's delayed show elapses),
@@ -274,20 +343,28 @@ state's action slots: unlike `'on-enter`/`'on-leave` (gated onto
 `fsm-activate!` at leader press — and `'exit` at Visit end (navigate-away
 or `modal-exit`), **both regardless of whether the overlay ever
 displays**. This is the escape hatch for hooks that must not wait out
-`modal-overlay-delay` — e.g. a jump-space's chip paint/clear, the
-primary fast-jump aid (jump-chip-paint-bypasses-overlay-delay-k46):
+`modal-overlay-delay` — a non-visual side effect that has to be armed the
+moment the mode is entered, whether or not the user ever sees it:
 
 ```scheme
 (group "j" "Jump"
-  'entry paint-jump-chips!
-  'exit  clear-jump-chips!
+  'entry suspend-app-auto-refresh!
+  'exit  resume-app-auto-refresh!
   …)
 ```
 
+Reach for it only when the hook is *not* presentation. Anything the user
+sees belongs on `'on-enter`/`'on-leave`, so that it appears with the
+overlay rather than flashing ahead of it — herdr's jump chips were the
+one exception and stopped being one at
+defer-chips-to-overlay-k33, leaving the shipped tree with no
+`'entry`/`'exit` group hook at all.
+
 Author-only: a `screen`/`open`'s embedded live-list block hooks
-(`on-enter-fn`/`on-leave-fn`) compose only onto the gated `on-enter`/
-`on-leave` pair, never onto `entry`/`exit` — blocks are presentation, so
-their hooks belong on the pair that shares that timing contract.
+(`on-enter-fn`/`on-leave-fn`) fire from `run-on-enter`/`run-on-leave`
+alongside the gated `on-enter`/`on-leave` pair, never from `entry`/
+`exit` — blocks are presentation, so their hooks belong on the pair that
+shares that timing contract.
 
 `'entry`/`'exit` lower straight onto the resulting state's `entry`/`exit`
 slots — the same slots a command/range-command leaf's own body already
@@ -298,10 +375,40 @@ instants (`fsm.sld`'s `move-to!`/`end-old-visit!`) — `'on-enter`/
 `'on-leave` were simply the only keywords wired to reach them, via the
 presentation-gated `show`/`hide` detour.
 
+### Both slots take an optional argument
+
+Like `'on-leave` [above](#the-exit-reason), each of this pair may declare
+**one argument** — and, because these are the engine's own slots, the
+engine passes it directly:
+
+| Slot | Argument | Values |
+|---|---|---|
+| `'entry` | the **arriving key** | The dispatch key string that led here (`"1"`, `"h"`, …), or `#f` when no keypress did: leader activation, an auto-edge hop, a backspace return-stack pop. |
+| `'exit` | the **leaving reason** | The same four symbols `'on-leave` receives — `'navigate`, `'confirm`, `'cancel`, `'exit` — from the same events. |
+
+The arriving key earns its place on a state several edges can reach: a
+provider's synthetic target shared by every jump label reads it to learn
+*which* label fired. It is the same value the range-command leaf machinery
+forwards to a `keys` / `key-range` action.
+
+Arity is decided the same way, by one host-installed predicate
+(`set-fsm-accepts-arg!`, installed in `root.scm` beside the `'on-leave`
+one) — a pure arity check, indifferent to which slot it guards. Its
+uninstalled default carries the same caveat: a 1-arg `'entry` or `'exit`
+raises an argument-count error in an engine that never ran `root.scm`, so
+a test exercising one installs the predicate itself.
+
+Note the asymmetry with `'on-leave`, which is *also* fired with a reason
+but from an entirely different place — the façade, off the carried
+payload, only if the overlay showed
+([above](#hook-gating-on-enter--on-leave)). A node carrying both hooks
+sees `'exit` on every visit end and `'on-leave` only on the displayed
+ones; the reason value agrees across the two.
+
 ## Edge providers: `'provider`
 
-A group (and, by extension, `register-tree!` and `screen` — see
-[dsl.md](dsl.md#group-k-l-keyword-value-children)) accepts an optional
+A group (and, by extension, `tree-root` and `screen` — see
+[dsl.md](dsl.md#group-k-l-keyword-value--children)) accepts an optional
 `'provider` keyword: a 0-arg procedure lowered straight onto the resulting
 state's `'provider` slot (`fsm.sld`, dsl-provider-wiring-k24). Unlike
 `'on-enter`/`'on-leave`, which are presentation-gated onto `show`/`hide`, a
@@ -336,10 +443,11 @@ Precedence among a group's children is resolved **once, at lowering**
    commits if no literal match exists for that key.
 2. **First-range wins.** If multiple ranges include the same key,
    declaration order picks the winner.
-3. **Panels are transparent.** `(panel "X" (key …) …)` flattens
-   in dispatch — typing a child key dispatches as if the children
-   were direct group siblings. Panels only affect overlay
-   rendering, not key paths.
+3. **Panels are transparent.** `(panel "X" (key …) …)` never becomes a
+   node: its rows *are* direct children of the enclosing group, and the
+   panel survives only in that group's display value. So typing a child
+   key dispatches exactly as if no panel had been written — panels affect
+   overlay rendering only, never key paths.
 
 The winner of that precedence becomes one key edge per distinct trigger
 string on the group's lowered state — a fixed part of the graph, not a
@@ -357,15 +465,18 @@ Typing `b` from the global root fires the browser binding — the
 
 ## Lowering and the façade
 
-`register-tree!` (and the layout forms — `screen`, `open`, `walk` — that
-call it) lowers the operational node-tree into `(modaliser fsm)` states
-and edges as it registers: a group becomes a resting state with an
+**`lower-configuration`** is the pure lower function
+([ADR-0018](../adr/0018-configuration-as-one-explicit-value.md)): it
+takes a merged configuration value and returns a **fresh, closed
+graph** — every tree in the value's tree set (contributed and
+walk-hoisted alike) lowers through one internal walk (`lower-node!`,
+its sole caller). A group becomes a resting state with an
 implicit `'up` edge to its lowering parent and one key edge per distinct
 dispatch trigger; a command or range-command leaf becomes a transient or
 Terminal state per [above](#the-next-edge-and-terminal-nodes); a
 selector always lowers Terminal (opening the chooser *is* its entry
-action). Every state's payload carries the *original* node alist —
-`display-name`, panel-grid renderer markers and all — so
+action). Every state's payload carries the *original* node alist — its
+`'display` entry, the whole Display value, included — so
 `modal-root-node`/`modal-current-node` get their carried presentation
 values for free. A state's id is its scope string (the tree root) or its
 parent's id plus `"/"` plus its own dispatch key, so the up-edge chain
@@ -373,18 +484,23 @@ from any descendant always terminates at its own tree's root, never
 crossing into another tree (a cross edge is a **call**, tracked on the
 return stack, not an up edge).
 
-Since this cutover, that graph **is** what dispatch runs on — lowering
-is no longer a passive shadow. `(modaliser state-machine)` keeps every
-exported name from before the refactor, each now **derived** from the
-engine's configuration (`fsm-current-state` / `fsm-return-stack`) after
+The result is validated **closed over its authored references** — key-
+edge targets, `'next` cross/call ids, up-edges must all resolve, as
+load-time errors naming the offending ids. Providers' visit-scoped
+synthetic states and dynamic `'next` resolvers stay outside static
+closure (the two deliberate runtime carve-outs). Installing the lowered
+graph is the Handoff's business (`modaliser:start!`,
+[dsl.md](dsl.md#modaliserstart-config)); the installed graph **is**
+what dispatch runs on.
+
+The **modal façade** — the modal-* names the overlay and configs read —
+is **derived** from the engine's configuration (`fsm-current-state` /
+`fsm-return-stack`) after
 every `fsm-step!` / `fsm-step-back!` / `fsm-activate!` / `fsm-halt!`,
 rather than mutated by hand-rolled tree-walking:
 `modal-current-path` reads the up-edge chain, `modal-root-node` /
 `modal-current-node` return the carried presentation payloads,
-`modal-stack` mirrors `fsm-return-stack`. The overlay's `(node, path)`
-contract is unchanged. Callers that pass a raw inline tree straight to
-`modal-enter` (tests do this) are lowered on the fly if it isn't
-registered yet, so bypassing `register-tree!` still works.
+`modal-stack` mirrors `fsm-return-stack`.
 
 ## Modal state inspection
 
@@ -392,7 +508,7 @@ For configs that need to introspect modal state from a hook or action —
 every value below is derived from the engine's configuration, not
 independently tracked:
 
-| Export (from `(modaliser state-machine)`) | Meaning |
+| Export (from `(modaliser fsm)`) | Meaning |
 |---|---|
 | `modal-active?` | `#t` while a modal is up. |
 | `modal-current-node` | The presentation payload of the node the user is currently navigated to. |
@@ -405,7 +521,7 @@ independently tracked:
 The procedural forms exist because LispKit snapshots mutable
 variable imports at compile time; closures that need to see live
 mutations must call through a procedure. See the comments around
-`overlay-open?` in `state-machine.sld` for the full rule.
+`overlay-open?` in `fsm.sld` for the full rule.
 
 ## See also
 
@@ -416,4 +532,4 @@ mutations must call through a procedure. See the comments around
 - [how-to/walk-mode.md](../how-to/walk-mode.md) — recipe for
   building a Walk focus-movement mode.
 - [how-to/terminal-pane-aware-tree.md](../how-to/terminal-pane-aware-tree.md)
-  — the suffix hook and entry-table scope refinement in practice.
+  — the Terminal context map and chain-seeded activation in practice.

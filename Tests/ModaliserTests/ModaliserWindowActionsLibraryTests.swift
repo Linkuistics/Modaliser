@@ -100,7 +100,7 @@ struct ModaliserWindowActionsLibraryTests {
 
     @Test func listBlockExposesWindowRangeAsBlockChild() throws {
         let engine = try SchemeEngine()
-        try engine.evaluate("(import (modaliser dsl) (modaliser state-machine) (modaliser window-actions))")
+        try engine.evaluate("(import (modaliser dsl) (modaliser fsm) (modaliser window-actions))")
         try engine.evaluate("""
           (define b (list-block 'chips? #t))
           (define bc (cdr (assoc 'block-children b)))

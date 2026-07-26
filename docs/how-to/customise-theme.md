@@ -17,7 +17,8 @@ body, banded headers, soft mono keycaps, an indigo accent, IBM Plex type.
 ## Steps
 
 1. **Open or create `~/.config/modaliser/theme.css`.** Modaliser
-   reveals the config dir from the menu bar icon's **Settings…** item.
+   reveals the config dir from the menu bar icon's **Reveal Config in
+   Finder** item.
 
 2. **Set the host theme — the single biggest-effect change.** One
    colour pair recolours the overlay header band, the chooser header,

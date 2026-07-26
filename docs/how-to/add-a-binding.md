@@ -11,8 +11,9 @@ keystroke replay, or a shell-command trigger.
 
 ## Steps
 
-1. **Open your config.** The menu bar icon's **Settings…** item reveals
-   `~/.config/modaliser/` in Finder. Open `config.scm` in your editor.
+1. **Open your config.** The menu bar icon's **Open Config…** item opens
+   `config.scm` in your editor (**Reveal Config in Finder** opens
+   `~/.config/modaliser/` instead, if you want to pick a file).
 
 2. **Find `(screen 'global …)`.** Everything after the leading keyword
    block is content — `(panel …)` cards holding `(key …)` rows, plus
@@ -95,7 +96,7 @@ present in the seeded default config.
 ## Related
 
 - [reference/dsl.md](../reference/dsl.md) — every layout form
-  (`screen`, `panel`, `open`, `fragment`) and dispatch atom, with
+  (`screen`, `panel`, `open`, `splice`) and dispatch atom, with
   signatures.
 - [reference/keyboard.md](../reference/keyboard.md) — navigation keys
   inside the modal (Escape, Backspace, …).

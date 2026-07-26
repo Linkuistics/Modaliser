@@ -54,17 +54,28 @@ global tree: one binding under `w` that maximises the current window.
 Replace `~/.config/modaliser/config.scm` with:
 
 ```scheme
-(import (modaliser dsl)
-        (modaliser keyboard)   ; F18, F17 keycode constants
-        (modaliser leader)     ; set-leaders!
-        (modaliser window))    ; move-window
+(import (modaliser dsl)            ; screen / panel / key / …
+        (modaliser configuration)  ; configuration, leaders, leader
+        (modaliser handoff)        ; modaliser:start!
+        (modaliser keyboard)       ; F18, F17 keycode constants
+        (modaliser window))        ; move-window
 
-(set-leaders! 'global-keycode F18
-              'local-keycode  F17)
+(modaliser:start!
+  (configuration
+    (leaders
+      (leader 'global F18)
+      (leader 'local  F17))
 
-(screen 'global
-  (key "w" "Maximise" (λ () (move-window 0 0 1 1))))
+    (screen 'global
+      (key "w" "Maximise" (λ () (move-window 0 0 1 1))))))
 ```
+
+This is every config's skeleton: the forms inside `(configuration …)`
+build **data** — fragments of one configuration value — and the single
+`(modaliser:start! …)` call at the top installs the assembled value
+and arms the leaders. Everything you add in the rest of this tutorial
+slots inside that `configuration` call; the handoff line never
+changes.
 
 `move-window` takes four unit fractions of the primary screen — x, y,
 width, height. Pass it `0 0 1 1` and the focused window covers the
@@ -151,8 +162,9 @@ coexisting:
 
 ```scheme
 (import (modaliser dsl)
+        (modaliser configuration)
+        (modaliser handoff)
         (modaliser keyboard)
-        (modaliser leader)
         (modaliser window)
         (prefix (modaliser window-actions) window:))
 
@@ -220,8 +232,8 @@ binding idiom from `open`: `open` baked its key and label in
 to give it its key and label.
 
 Once you spot this pattern, every factory in the codebase reads the
-same way: `(settings:actions)`, `(launcher:find-application)`,
-`(web-search:google)` — they all return nodes that get decorated by
+same way: `(launcher:find-application)`, `(web-search:google)`,
+`(launcher:find-file)` — they all return nodes that get decorated by
 the wrapping `(key …)`.
 
 Add the selector to the *Actions* panel (you'll already have
@@ -345,9 +357,10 @@ Press `j`, `k` — bottom half, top half. Press Esc — the overlay
 closes and you're back in your app.
 
 That's the **modal pattern**. The reader is now *inside* a mode and
-stays until they explicitly exit. iTerm's `Focus` mode (look at
-[`Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld) later) is the
-same shape applied to iTerm pane navigation.
+stays until they explicitly exit. The seeded config's `Focus` walks
+(look at
+[`Sources/Modaliser/Scheme/default-config.scm`](../../Sources/Modaliser/Scheme/default-config.scm) later) are the
+same shape applied to terminal pane navigation.
 
 Notice the cost, though: to start arranging a window you press *three*
 keys — `w`, `a`, `h`. That's one too many for something you might do
@@ -355,16 +368,18 @@ dozens of times an hour. Step 7 fixes it with a small refactor.
 
 ## Step 7 — The `'next` edge: fire AND cross, in one press
 
-Look at iTerm's `Focus` mode — open
-[`Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld) and find the
-`Focus` panel and its `focus-mode-tree`. It binds hjkl too, but you
-don't press an `a` first when you're in iTerm; the very first `h`
-*both* moves pane-focus *and* puts you in the focus Walk. How?
+Look at herdr's `Focus` mode — open
+[`Sources/Modaliser/Scheme/default-config.scm`](../../Sources/Modaliser/Scheme/default-config.scm) and find the
+`Focus` panel inside `herdr-screen`, alongside `herdr-focus-walk`. It
+binds hjkl too, but you don't press an `a` first when you're in herdr;
+the very first `h` *both* moves pane-focus *and* puts you in the focus
+Walk. How?
 
 `'next`. A trailing keyword on a `(key …)` binding: when the binding
 fires, the state machine (a) runs the action, then (b) follows the
-edge named by the value. Here the value is a registered tree's id — a
-**cross edge** — so navigation transitions into the Walk registered
+edge named by the value. Here the value is the scope id of another
+tree in your configuration — a
+**cross edge** — so navigation transitions into the Walk carried
 under that id. One key press does two jobs. The overlay paints a `↻`
 marker on any cell carrying `'next`, so you can tell which keys
 transition.
@@ -373,12 +388,13 @@ The refactor: take the four hjkl bindings out of the `(group "a" …)`
 in Step 6, give them `'next 'window-arrange` (a cross edge, not the
 `'next 'self` cyclic edge you just used inside the Walk itself), and
 put them directly into the `w` drill-down (say, an `Arrange` panel).
-Register a *separate* tree named `'window-arrange` for the modal
+Declare a *separate* tree named `'window-arrange` for the modal
 navigation to land in — its own members carry `'next 'self` so it's a
 Walk in its own right:
 
 ```scheme
-;; A new top-level form, outside (screen 'global …):
+;; A sibling fragment inside (configuration …), next to the global
+;; screen:
 
 (screen 'window-arrange
   'exit-on-unknown #t
@@ -408,10 +424,11 @@ halves. Esc exits. Compare: Step 6 needed `w a h`; Step 7 needs `w h`.
 
 Two concepts arrived together here. The obvious one is the `'next`
 cross edge — fire-and-cross as a single press. The other is quieter
-but more useful: **Walks are *named, top-level trees*** registered
+but more useful: **Walks are *named, top-level trees*** declared
 with their own `screen`. The launcher screen (`'global`), a per-app
 screen (e.g. `'com.googlecode.iterm2`), and the Walk screen
-(`'window-arrange`) are all sibling top-level forms — they look
+(`'window-arrange`) are all sibling fragments in your `configuration`
+call — they look
 structurally identical; the only difference is what *references* them
 and what `'next` each member declares. Once you've seen three screens
 alongside each other, "screen" becomes the unit of mental composition
@@ -445,17 +462,19 @@ A Walk the reader enters and stays inside until an unrecognised
 key exits. Step 6 built it the explicit way (a parent key `a` opening
 a group whose members each declare `'next 'self`). Step 7 refactored
 to the `'next` cross-edge shape the rest of the system uses (a binding
-both fires and transitions into a separately-registered Walk, in one
+both fires and transitions into a separately-declared Walk, in one
 key press). The two forms are equivalent for the same end state; the
 cross edge costs one less keystroke per session.
 
 When a feature should be "stay in this tiny vocabulary until I tell
-you to leave", this is the shape. The canonical example is iTerm's
+you to leave", this is the shape. The canonical example is herdr's
 pane Focus — open
-[`Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld`](../../Sources/Modaliser/Scheme/lib/modaliser/apps/iterm.sld) and read
-the `Focus` panel alongside the `focus-mode-tree` definition. It's
-structurally identical to your `w` drill-down's hjkl + `'window-arrange`
-tree.
+[`Sources/Modaliser/Scheme/default-config.scm`](../../Sources/Modaliser/Scheme/default-config.scm) and read
+the `Focus` panel inside `herdr-screen` alongside the
+`herdr-focus-walk` definition. It's structurally identical to your `w`
+drill-down's hjkl + `'window-arrange` tree — and, being config rather
+than library, it is yours to rebind
+([ADR-0021](../adr/0021-decision-free-libraries.md)).
 
 ### Why this matters
 

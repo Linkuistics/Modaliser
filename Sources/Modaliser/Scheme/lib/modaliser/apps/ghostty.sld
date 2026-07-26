@@ -7,7 +7,7 @@
 ;; with peer backend modules and the façade):
 ;;
 ;;   (import (prefix (modaliser apps ghostty) ghostty:))
-;;   (ghostty:register!)
+;;   (configuration (ghostty:fragment) …)
 ;;
 ;; ─── Op surface (13/14) ────────────────────────────────────────────
 ;;
@@ -84,11 +84,20 @@
 ;; swap it here.
 
 (define-library (modaliser apps ghostty)
-  (export register!
-          backend)
+  (export backend
+          ;; The configuration-value constructor (ADR-0018,
+          ;; library-fragments-k11): a pure fragment carrying the backend
+          ;; record and the digit-jump mode tree. Ghostty ships no stock
+          ;; screen — compose this with your own (screen
+          ;; "com.mitchellh.ghostty" …), whose scope is what makes the
+          ;; screen terminal-like against this record's match-key.
+          fragment)
   (import (scheme base)
           (modaliser dsl)
-          (modaliser state-machine)
+          ;; The contribution constructors for `fragment` — prefixed to
+          ;; keep the bare names (backend, tree, …) clear of this
+          ;; module's own vocabulary.
+          (prefix (modaliser configuration) config:)
           (modaliser util)
           (modaliser shell)
           (modaliser accessibility)
@@ -96,8 +105,7 @@
           (modaliser ax-hints)
           (modaliser theming)
           (only (modaliser terminal)
-                make-terminal-backend
-                register-backend!))
+                make-terminal-backend))
   (begin
 
     ;; ─── AppleScript wrapper ────────────────────────────────────────
@@ -285,8 +293,8 @@
               digit-labels
               (lambda (k) (focus-by-digit k)))))
 
-    (define (pane-digit-register!)
-      (register-tree! 'ghostty-pane-digit
+    (define (pane-digit-tree)
+      (tree-root 'ghostty-pane-digit
         'on-enter
         (lambda ()
           (let* ((rects (host-rects))
@@ -334,9 +342,11 @@
         toggle-pane-zoom
         configured?))
 
-    ;; Register the backend + the digit-jump mode. Safe to call more
-    ;; than once: register-backend! is last-write-wins on backend
-    ;; symbol; register-tree! replaces any prior tree of the same id.
-    (define (register!)
-      (register-backend! backend)
-      (pane-digit-register!))))
+    ;; (fragment) → the Ghostty Fragment (library-fragments-k11): the
+    ;; backend record plus the digit-jump mode tree its
+    ;; focus-pane-by-digit slot names at fire time. Compose ONE call's
+    ;; value.
+    (define (fragment)
+      (list
+        (config:backend 'ghostty backend)
+        (config:tree 'ghostty-pane-digit (pane-digit-tree))))))

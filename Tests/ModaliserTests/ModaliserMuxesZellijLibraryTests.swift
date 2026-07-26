@@ -7,7 +7,7 @@ import Testing
 ///
 /// These tests run without a zellij session being attached. The shell-out
 /// helpers cleanly return #f or empty in that case, which is the
-/// contract the façade expects, so we can verify wiring and registration
+/// contract the façade expects, so we can verify wiring and installation
 /// end-to-end without a real session. Hand-verification of the 14 ops
 /// against a live iTerm + zellij session is the leaf's separate
 /// "Done when" item.
@@ -16,23 +16,33 @@ struct ModaliserMuxesZellijLibraryTests {
     @Test func importsAndExposesProcedures() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser muxes zellij))")
-        // The only public exports are register! and backend; the ops
-        // live on the façade, not here. Both must bind without error.
-        _ = try engine.evaluate("register!")
+        // `wiring` and `backend` are the integration; the fourteen ops
+        // are the verbs a user's screen binds (ADR-0021). All must bind
+        // without error — each op name is public contract now.
+        _ = try engine.evaluate("wiring")
         _ = try engine.evaluate("backend")
+        for op in [
+            "focus-pane-left", "focus-pane-right", "focus-pane-up", "focus-pane-down",
+            "split-pane-left", "split-pane-right", "split-pane-up", "split-pane-down",
+            "move-pane-left", "move-pane-right", "move-pane-up", "move-pane-down",
+            "toggle-pane-zoom"
+        ] {
+            #expect(try engine.evaluate("(procedure? \(op))") == .true,
+                    "expected \(op) to be an exported 0-arg op")
+        }
     }
 
-    /// (register!) installs the backend into the façade's registry,
-    /// keyed by 'zellij + match-key "zellij". With a stubbed host
-    /// pointing at the bundle and reporting "zellij" as its foreground
-    /// command, the façade walks the path and the leaf is this backend.
-    @Test func registerInstallsZellijBackend() throws {
+    /// terminal-install-backends! installs the backend into the façade's
+    /// registry, keyed by 'zellij + match-key "zellij". With a stubbed
+    /// host pointing at the bundle and reporting "zellij" as its
+    /// foreground command, the façade walks the path and the leaf is
+    /// this backend. (One replace-wholesale call installs BOTH records —
+    /// the façade registry holds exactly what the list carries.)
+    @Test func installedBackendResolvesThroughFacade() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser muxes zellij) (modaliser terminal))
+          (import (modaliser muxes zellij) (modaliser terminal))
         """)
-        try engine.evaluate("(register!)")
 
         // A stub host that claims zellij is in the focused pane. The path
         // walk descends from host into the zellij backend; without a live
@@ -49,7 +59,7 @@ struct ModaliserMuxesZellijLibraryTests {
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x)
               (lambda () #t)))
-          (register-backend! stub-host)
+          (terminal-install-backends! (list backend stub-host))
         """)
 
         let pathLen = try engine.evaluate("""
@@ -67,17 +77,31 @@ struct ModaliserMuxesZellijLibraryTests {
         #expect(inChain == .true)
     }
 
-    /// (register!) also wires the digit-pick mode so that the backend's
-    /// focus-pane-by-digit symbol ('zellij-pane-digit) names a real tree
-    /// for the façade's resolver to hand a procedure-valued 'next.
-    @Test func registerInstallsDigitPickTree() throws {
+    /// ADR-0021's line, read off the fragment itself: (wiring) carries
+    /// the context-map entry, the backend record and the machinery-named
+    /// digit-jump tree — the last so the backend's focus-pane-by-digit
+    /// symbol ('zellij-pane-digit) names a real tree for the façade's
+    /// resolver to hand a procedure-valued 'next.
+    ///
+    /// And NO tree under 'zellij. That absence is the contract, not an
+    /// omission: the screen the context entry resolves to is the
+    /// configuration's to author, so a library change can never silently
+    /// re-take a key the user chose.
+    @Test func wiringCarriesIntegrationAndNoScreen() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
+          (import (modaliser fsm)
+                  (prefix (modaliser configuration) config:)
                   (modaliser muxes zellij))
         """)
-        try engine.evaluate("(register!)")
-        #expect(try engine.evaluate("(lookup-tree \"zellij-pane-digit\")") != .false)
+        try engine.evaluate("(define w (config:configuration (wiring)))")
+        #expect(try engine.evaluate("""
+          (and (equal? (config:configuration-context-ref w "zellij")
+                       '((tree . zellij) (backend . zellij)))
+               (pair? (config:configuration-tree-ref w 'zellij-pane-digit))
+               ;; The one the composition must supply.
+               (not (config:configuration-tree-ref w 'zellij)))
+        """) == .true)
     }
 
     /// The exported `backend` record is shape-correct: matches as a mux
@@ -90,7 +114,7 @@ struct ModaliserMuxesZellijLibraryTests {
           (import (modaliser muxes zellij) (modaliser terminal))
         """)
         #expect(try engine.evaluate("(terminal-backend? backend)") == .true)
-        try engine.evaluate("(register-backend! backend)")
+        // Both records go in ONE replace-wholesale install.
         try engine.evaluate("""
           (define h
             (make-terminal-backend
@@ -101,7 +125,7 @@ struct ModaliserMuxesZellijLibraryTests {
               (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
               (lambda () 'x) (lambda () 'x)
               (lambda () #t)))
-          (register-backend! h)
+          (terminal-install-backends! (list backend h))
         """)
         // All four capability predicates should report support: zellij
         // gives us the full 14-op surface (all 12 splits/focus/move +

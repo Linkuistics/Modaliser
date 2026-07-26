@@ -51,7 +51,7 @@
 
     ;; alist-ref returns the default (or #f) on a MISSING key. That makes it
     ;; the right tool for the (let ((e (assoc k a))) (if e (cdr e) DEFAULT))
-    ;; accessors (e.g. state-machine's node-*). It is deliberately NOT used to
+    ;; accessors (e.g. fsm's node-*). It is deliberately NOT used to
     ;; mechanically rewrite the many bare (cdr (assoc 'k a)) sites (window-actions
     ;; js-cell, the app/mux libraries, …): those omit a default ON PURPOSE — the
     ;; key is guaranteed present by construction, so the bare cdr is a presence

@@ -2,10 +2,11 @@ import Foundation
 import Testing
 @testable import Modaliser
 
-/// Tests for `(modaliser json)` — the small portable recursive-descent
-/// JSON reader that the socket-API mux backends (herdr) parse their
-/// compact single-line output with. Objects read back as alists (walked
-/// by `json-ref`), arrays as vectors, scalars as themselves.
+/// Tests for `(modaliser json)` — the small portable JSON reader and
+/// writer the socket-API mux backends (herdr) speak through. Objects read
+/// back as alists (walked by `json-ref`), arrays as vectors, scalars as
+/// themselves; `json-write` renders that same representation back onto
+/// the wire.
 @Suite("(modaliser json) library")
 struct ModaliserJsonLibraryTests {
     private func engine() throws -> SchemeEngine {
@@ -88,5 +89,69 @@ struct ModaliserJsonLibraryTests {
         let e = try engine()
         let r = try e.evaluate("(json-ref (json-parse \"{\\\"p\\\":\\\"a\\\\/b c\\\"}\") \"p\")")
         #expect(r == .makeString("a/b c"))
+    }
+
+    // ─── json-write ─────────────────────────────────────────────────
+    //
+    // The writer is json-parse's mirror over the same representation, so
+    // the herdr socket transport can build its `{"id","method","params"}`
+    // request line without a per-backend ad-hoc encoder.
+
+    @Test func writesScalars() throws {
+        let e = try engine()
+        #expect(try e.evaluate("(json-write 42)") == .makeString("42"))
+        #expect(try e.evaluate("(json-write -7)") == .makeString("-7"))
+        #expect(try e.evaluate("(json-write #t)") == .makeString("true"))
+        #expect(try e.evaluate("(json-write #f)") == .makeString("false"))
+        #expect(try e.evaluate("(json-write 'null)") == .makeString("null"))
+        #expect(try e.evaluate("(json-write \"hi\")") == .makeString("\"hi\""))
+    }
+
+    /// Objects keep their alist order, so a request line is deterministic
+    /// and therefore assertable in a test.
+    @Test func writesObjectsInAlistOrder() throws {
+        let e = try engine()
+        let r = try e.evaluate("""
+          (json-write '(("method" . "pane.focus") ("params" . (("pane_id" . "wC:p4")))))
+        """)
+        #expect(r == .makeString("{\"method\":\"pane.focus\",\"params\":{\"pane_id\":\"wC:p4\"}}"))
+    }
+
+    /// The two empty containers stay distinguishable, exactly as they are
+    /// on the read side: '() is the empty object, #() the empty array.
+    @Test func writesEmptyContainersDistinctly() throws {
+        let e = try engine()
+        #expect(try e.evaluate("(json-write '())") == .makeString("{}"))
+        #expect(try e.evaluate("(json-write #())") == .makeString("[]"))
+    }
+
+    @Test func writesArraysAsVectors() throws {
+        let e = try engine()
+        #expect(try e.evaluate("(json-write #(1 \"a\" #t))") == .makeString("[1,\"a\",true]"))
+    }
+
+    /// A herdr tab/workspace label is arbitrary user text and reaches the
+    /// wire through this escaper — the apostrophe that `sq-escape` existed
+    /// for is unremarkable here, but a quote, a backslash, or a newline
+    /// would produce an unparseable request line if left raw.
+    @Test func escapesStringsForTheWire() throws {
+        let e = try engine()
+        #expect(try e.evaluate("(json-write \"it's\")") == .makeString("\"it's\""))
+        #expect(try e.evaluate("(json-write \"a\\\"b\")") == .makeString("\"a\\\"b\""))
+        #expect(try e.evaluate("(json-write \"a\\\\b\")") == .makeString("\"a\\\\b\""))
+        #expect(try e.evaluate("(json-write \"a\\nb\")") == .makeString("\"a\\nb\""))
+        // Other control characters take the \u form.
+        #expect(try e.evaluate("(json-write (string (integer->char 1)))") == .makeString("\"\\u0001\""))
+    }
+
+    /// The property that matters: anything json-parse produces, json-write
+    /// renders back to something json-parse reads identically.
+    @Test func roundTripsThroughJsonParse() throws {
+        let e = try engine()
+        let same = try e.evaluate("""
+          (let ((src "{\\"a\\":[1,{\\"b\\":\\"x y\\"},true,null],\\"c\\":{}}"))
+            (equal? (json-parse src) (json-parse (json-write (json-parse src)))))
+        """)
+        #expect(same == .true)
     }
 }

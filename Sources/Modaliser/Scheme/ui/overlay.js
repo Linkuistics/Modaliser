@@ -145,6 +145,27 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
   var root = container
     || document.querySelector('.overlay-custom-body[data-renderer="panel-grid"]');
   if (!root) return;
+
+  // Restyle fast path (embed-rendering-k14): an update for the SAME display
+  // root whose active section changed only moves the active-section marker —
+  // the persistent root structure is restyled, never rebuilt. Falls through
+  // to the full rebuild for root swaps and same-state content refreshes
+  // (e.g. a cyclic re-arm refreshing a live list).
+  if (!container && restylePanelGridActiveSection(root, data)) {
+    notifyResize();
+    return;
+  }
+
+  // The display root's identity + active-section marker. data-root-id lets a
+  // later push detect "same root" (restyle) vs "different root" (rebuild);
+  // data-active-section drives the dim/highlight CSS: absent → embedded
+  // sections dim (their keys are not live); present → everything but the
+  // active section dims (active rows ≡ live keys).
+  if (data.rootId) root.setAttribute('data-root-id', data.rootId);
+  else root.removeAttribute('data-root-id');
+  if (data.activeSection) root.setAttribute('data-active-section', data.activeSection);
+  else root.removeAttribute('data-active-section');
+
   while (root.firstChild) root.removeChild(root.firstChild);
 
   // Loose region (bare-loose-rows-k23): a screen's loose top-level rows,
@@ -158,10 +179,13 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
   var looseEl = loose.length ? renderLoose(loose) : null;
   if (looseEl) root.appendChild(looseEl);
 
-  // The masonry grid of real panel cards. Empty array (a loose-only screen)
+  // The masonry grid of real panel cards, plus the embedded sections
+  // (embed-rendering-k14) — section cards join the same grid so masonry /
+  // balance / span placement cover them. Empty (a loose-only screen)
   // → no .panel-grid, so nothing renders an empty box.
   var panels = data.panels || [];
-  if (panels.length) {
+  var sections = data.sections || [];
+  if (panels.length || sections.length) {
     var grid = document.createElement('div');
     grid.className = 'panel-grid';
     // Authored packing mode; absent, base.css packs as masonry. Only
@@ -172,6 +196,9 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
     }
     for (var i = 0; i < panels.length; i++) {
       grid.appendChild(renderPanel(panels[i]));
+    }
+    for (var i = 0; i < sections.length; i++) {
+      grid.appendChild(renderEmbedSection(sections[i], data.activeSection));
     }
     root.appendChild(grid);
     // Column count: an authored `cols` hard-pins the track count and skips
@@ -184,7 +211,7 @@ window.overlayRenderers['panel-grid'] = function(data, container) {
     if (typeof data.cols === 'number') {
       grid.style.setProperty('--panel-grid-cols', String(data.cols));
     } else {
-      balancePanelGridColumns(grid, panels);
+      balancePanelGridColumns(grid, panels.concat(sections));
     }
   }
 
@@ -389,6 +416,88 @@ function renderPanel(panel) {
     card.appendChild(renderPanelList(panel.list));
   }
   return card;
+}
+
+// renderEmbedSection — an embedded section card (embed-rendering-k14,
+// ADR-0011): the target of an 'embed-marked edge rendered as a section of
+// the parent's display root. A .panel grid item like any card, plus
+// .embed-section + data-embed-key for the restyle protocol; the header
+// carries the edge's keycap (the fired key — it highlights when the
+// section activates) beside the target's label.
+function renderEmbedSection(section, activeKey) {
+  var card = document.createElement('div');
+  var className = 'panel embed-section panel-span-' + (section.span || 'narrow');
+  if (section.key === activeKey) className += ' embed-section--active';
+  card.className = className;
+  card.setAttribute('data-embed-key', section.key);
+
+  var head = document.createElement('div');
+  head.className = 'panel-head embed-section-head';
+  var keyBadge = document.createElement('span');
+  keyBadge.className = 'entry-key embed-section-key';
+  keyBadge.innerHTML = section.keyHtml || escapeHtml(section.key);  // ready key-display-html
+  head.appendChild(keyBadge);
+  head.appendChild(document.createTextNode(section.label || ''));
+  card.appendChild(head);
+
+  renderEmbedSectionBody(card, section);
+  return card;
+}
+
+// renderEmbedSectionBody — (re)draw a section card's content below its
+// header: key rows + optional live list. Split out so the restyle path can
+// refresh the newly active section's content (its come-to-rest snapshot
+// populates — rows and list) inside the persistent card, without touching
+// the card's header or the rest of the root.
+function renderEmbedSectionBody(card, section) {
+  var old = card.querySelectorAll(':scope > .panel-rows, :scope > .panel-list');
+  for (var i = 0; i < old.length; i++) card.removeChild(old[i]);
+  var rows = section.rows || [];
+  if (rows.length) {
+    var body = document.createElement('div');
+    body.className = 'panel-rows';
+    for (var i = 0; i < rows.length; i++) {
+      body.appendChild(renderPanelRow(rows[i]));
+    }
+    card.appendChild(body);
+  }
+  if (section.list && section.list.type) {
+    card.appendChild(renderPanelList(section.list));
+  }
+}
+
+// restylePanelGridActiveSection — the restyle protocol (embed-rendering-k14):
+// when a push-update addresses the display root already in the DOM
+// (data-root-id matches payload.rootId) and only the ACTIVE SECTION moved,
+// toggle the marker attribute + section classes and refresh the newly
+// active section's content — the root's structure persists. Returns true
+// when it handled the update; false falls through to the full rebuild
+// (different root, or a same-state content refresh such as a cyclic
+// re-arm's live-list update).
+function restylePanelGridActiveSection(root, data) {
+  if (!data.rootId) return false;
+  if (root.getAttribute('data-root-id') !== data.rootId) return false;
+  var current = root.getAttribute('data-active-section') || null;
+  var next = data.activeSection || null;
+  if (current === next) return false;
+  if (next === null) root.removeAttribute('data-active-section');
+  else root.setAttribute('data-active-section', next);
+  var cards = root.querySelectorAll('.embed-section');
+  var sections = data.sections || [];
+  for (var i = 0; i < cards.length; i++) {
+    var key = cards[i].getAttribute('data-embed-key');
+    var isActive = key === next;
+    cards[i].classList.toggle('embed-section--active', isActive);
+    if (isActive) {
+      for (var j = 0; j < sections.length; j++) {
+        if (sections[j].key === key) {
+          renderEmbedSectionBody(cards[i], sections[j]);
+          break;
+        }
+      }
+    }
+  }
+  return true;
 }
 
 // renderPanelRow — the canonical key-row renderer: keycap / arrow / label.

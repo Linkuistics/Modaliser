@@ -13,32 +13,36 @@ import Testing
 ///
 ///   * detect-fg-command's `pgrep -x alacritty` returns no pids; the
 ///     loop runs zero times and we get an empty echo (→ #f).
-///   * configure-entry's probe shells `[ -d /Applications/Alacritty.app ]`
-///     and reports 'no-app, which makes `alacritty-configured?` return
-///     #t — the configure-entry stays hidden, exactly as intended for
-///     a machine without Alacritty.
+///   * the provisioning probe shells `[ -d /Applications/Alacritty.app ]`
+///     and reports 'no-app, which makes `configured?` return #t — a row
+///     gated on it stays hidden, exactly as intended for a machine
+///     without Alacritty.
 @Suite("(modaliser apps alacritty) library")
 struct ModaliserAppsAlacrittyLibraryTests {
     @Test func importsAndExposesProcedures() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("(import (modaliser apps alacritty))")
-        // Public surface: register!, configure-entry, backend.
-        _ = try engine.evaluate("register!")
-        _ = try engine.evaluate("configure-entry")
+        // Public surface: fragment, the provisioning pair, backend.
+        // No `configure-entry` — the key, the label and the choice to
+        // hide-when-done are decisions the configuration authors around
+        // these two facilities (ADR-0021).
+        _ = try engine.evaluate("fragment")
+        _ = try engine.evaluate("configure!")
+        _ = try engine.evaluate("configured?")
         _ = try engine.evaluate("backend")
     }
 
-    /// (register!) installs the backend keyed by 'alacritty +
-    /// bundle-id "org.alacritty". When the frontmost app is Alacritty,
-    /// the façade resolves it; the focused-terminal-path has length 1
-    /// (host frame only — no mux discovered without a running shell).
-    @Test func registerInstallsAlacrittyBackend() throws {
+    /// (terminal-install-backends! (list backend)) installs the backend
+    /// keyed by 'alacritty + bundle-id "org.alacritty". When the
+    /// frontmost app is Alacritty, the façade resolves it; the
+    /// focused-terminal-path has length 1 (host frame only — no mux
+    /// discovered without a running shell).
+    @Test func installedBackendResolvesThroughFacade() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
-          (import (modaliser dsl) (modaliser state-machine)
-                  (modaliser apps alacritty) (modaliser terminal))
+          (import (modaliser apps alacritty) (modaliser terminal))
         """)
-        try engine.evaluate("(register!)")
+        try engine.evaluate("(terminal-install-backends! (list backend))")
 
         let pathLen = try engine.evaluate("""
           (parameterize ((current-frontmost-bundle-id
@@ -66,7 +70,7 @@ struct ModaliserAppsAlacrittyLibraryTests {
           (import (modaliser apps alacritty) (modaliser terminal))
         """)
         #expect(try engine.evaluate("(terminal-backend? backend)") == .true)
-        try engine.evaluate("(register-backend! backend)")
+        try engine.evaluate("(terminal-install-backends! (list backend))")
 
         // All four coarse predicates are #f on Alacritty alone.
         for pred in ["supports-splits?",
@@ -92,24 +96,17 @@ struct ModaliserAppsAlacrittyLibraryTests {
         }
     }
 
-    /// `(configure-entry)` returns a (cons (hidden . thunk) keynode)
-    /// pair. The thunk is alacritty-configured? — true (= hidden) on
-    /// any machine where /Applications/Alacritty.app doesn't exist or
-    /// exists without com.apple.quarantine. The test machine is
-    /// expected to be in one of those two states (no alacritty in
-    /// CI), so the entry should report hidden = #t.
-    @Test func configureEntryHiddenWhenNoApp() throws {
+    /// `configured?` is the gate a configuration hands to 'hidden, so
+    /// it is the surviving behavioural claim once the row itself moved
+    /// to user space (ADR-0021). It reports #t — nothing to do, hide the
+    /// row — on any machine where /Applications/Alacritty.app doesn't
+    /// exist or exists without com.apple.quarantine. The test machine is
+    /// expected to be in one of those two states (no alacritty in CI).
+    @Test func configuredWhenNoQuarantinedApp() throws {
         let engine = try SchemeEngine()
         try engine.evaluate("""
           (import (modaliser apps alacritty))
         """)
-        // The car of the entry is (hidden . thunk); call the thunk.
-        let hidden = try engine.evaluate("""
-          (let* ((entry (configure-entry))
-                 (hidden-pair (car entry))
-                 (thunk (cdr hidden-pair)))
-            (thunk))
-        """)
-        #expect(hidden == .true)
+        #expect(try engine.evaluate("(configured?)") == .true)
     }
 }
