@@ -344,16 +344,26 @@ label → target-name mapping, kind-tagged, in stable-axis order
 assignment so it always agrees with the chips; its narrowed variant on a
 prefix state lists only survivors with their remaining key.
 
-**Plane rule** — the herdr top level's key discipline: lowercase letters
-belong to the jump space (plus `b` Jump-to-Blocked — itself a jump); every
-named operation or drill moves to a capital (`P` Panes, `T` Tabs, `S` Spaces,
+**Plane rule** — the disjoint split a screen keeps between the keys its
+**Edge provider** may hand out as labels and the keys it binds statically.
+Not decoration: the two share one key space and a static edge is matched
+first, so an overlapping label is silently unreachable rather than an error.
+Every jump surface needs one; which split is free.
+
+Both shipped surfaces put labels on lowercase and the named surface on
+capitals. **herdr's** is the top level's discipline: lowercase letters belong
+to the jump space (plus `b` Jump-to-Blocked — itself a jump); every named
+operation or drill moves to a capital (`P` Panes, `T` Tabs, `S` Spaces,
 `W` Worktrees, `A` Agents, `Q` Quit). Digits stay list-row selectors inside
 drills, out of the jump space. One deliberate exception: the `c` **Copy mode
 (herdr)** / `C` **Scrollback (herdr)** pair — a lowercase key that is not a jump
 label and a capital that is not a drill — kept as a case pair because the two
 ops are each other's nearest neighbour and are reached for together. `c` is
 consequently excluded from the jump label pools; a capital needs no such
-exclusion (the pools are lowercase-only).
+exclusion (the pools are lowercase-only). **Paneru's** is wholly the user's,
+since the library authors neither plane (ADR-0021): the **Strip listing**'s
+labels come from the config's alphabets and the **Paneru ops** from its keys,
+and nothing checks that they are disjoint.
 
 **Mini-chip** — the compact chip variant painted over a herdr sidebar entry
 (at the end of the entry's row) or a tab title (just above it); sibling of
@@ -871,6 +881,10 @@ paneru window's id, app name, title, focused and floating flags, plus the
 An unmatched target still occupies its place and still consumes a jump label
 (so a transient join miss costs one dead key rather than renumbering every
 label below it), but it gets no dispatch edge.
+
+The **Plane rule** (Jump-navigation domain) applies to this screen and is
+entirely the user's to keep here: the library authors neither the labels nor
+the op keys, so nothing can check that the two planes stay disjoint.
 
 **Strip snapshot** — the per-**Visit** gather → join → label-assign result:
 the **Strip targets** paired with their assigned labels. Taken by the strip

@@ -482,6 +482,19 @@ per-press decision.
 Typing `b` from the global root fires the browser binding — the
 `panel` wrapper is invisible to dispatch.
 
+**Static edges beat provider edges.** The two share one key space: a
+provider's edges are appended *after* the state's own
+(`classify-and-snapshot`), and `fsm-step!` follows the first live match.
+So a key bound statically on a state shadows the same key coming from
+that state's provider — silently, since a shadowed provided edge is not
+an error. Any surface that mints labels per Visit therefore needs a
+**plane rule**: a disjoint split between the keys the provider may hand
+out and the keys the screen binds. Both shipped jump surfaces put labels
+on lowercase and the named surface on capitals — see
+[herdr-jump-navigation](../specs/herdr-jump-navigation.md) ("Plane rule")
+and [libraries.md](libraries.md#the-plane-rule) for paneru's. Overlap is
+the trap; which disjoint split you pick is free.
+
 ## Lowering and the façade
 
 **`lower-configuration`** is the pure lower function

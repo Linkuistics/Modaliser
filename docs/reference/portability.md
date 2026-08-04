@@ -37,7 +37,8 @@ user-shipped `.sld` file may import from:
    - *Pure-Scheme* libraries are everything under
      `Sources/Modaliser/Scheme/lib/modaliser/` (`dsl`,
      `configuration`, `handoff`, `fsm`, `window-actions`, `terminal`,
-     the `apps/*` / `muxes/*` / `tools/*` / `blocks/*` sets, …). This
+     the `apps/*` / `muxes/*` / `wms/*` / `tools/*` / `blocks/*`
+     sets, …). This
      whole tree obeys the convention below and ports verbatim across
      hosts.
    - *Native* libraries (`shell-native`, `http-native`, `app`,

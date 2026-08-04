@@ -244,11 +244,18 @@ struct ConfigDslTests {
     /// The same seam, extended over `Scheme/examples/*.scm` (ADR-0021).
     ///
     /// An example is a complete, working configuration for a setup a
-    /// fresh install does not seed — tmux and Chrome today. It is never loaded at
+    /// fresh install does not seed — tmux, Chrome and paneru today. It is never
+    /// loaded at
     /// runtime, so nothing else would notice it rotting; evaluating each
     /// one into its OWN fresh engine (a configuration installs once, and
     /// two examples would collide on scope) turns "an example stopped
     /// composing" into a red suite instead of silent rot.
+    ///
+    /// What this can and cannot catch depends on how the example is written.
+    /// `paneru.scm` branches on `installed?`, which is false here (no shell
+    /// runner — ADR-0023), so it names BOTH branches' screens as values and
+    /// selects between them: an inline `if` would leave the paneru half
+    /// unevaluated and a renamed op would sail through green.
     @Test func exampleConfigsLoadWithoutErrors() throws {
         guard let schemePath = try SchemeEngine().schemeDirectoryPath else {
             throw SchemeTestError.noSchemeDir

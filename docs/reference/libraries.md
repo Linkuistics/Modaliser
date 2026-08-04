@@ -19,6 +19,7 @@ apart, the recommended import style is **prefix-style**:
         (prefix (modaliser apps dia)        dia:)
         (prefix (modaliser muxes herdr)     herdr:)
         (prefix (modaliser muxes zellij)    zellij:)
+        (prefix (modaliser wms paneru)      paneru:)
         (prefix (modaliser window-actions)  window:)
         (prefix (modaliser launchers)       launcher:)
         (prefix (modaliser settings-menu)   settings:)
@@ -366,6 +367,187 @@ corner is `'corner` (default `'top-right`).
 | `display-list-block` | `(display-list-block 'chips? #t ['labels '(…)] ['corner 'top-right])` | Display-chip block carrying its move/focus dispatch keys. |
 | `move-focused-window-to-display` | `(move-focused-window-to-display id)` | Proportional move of the focused window to display `id`. |
 | `remap-frame` | `(remap-frame win src tgt)` | Pure: `(newX newY newW newH)` for the proportional remap (exported for tests). |
+
+---
+
+### `(modaliser wms paneru)`
+
+Keyboard control of [paneru](https://github.com/karinushka/paneru), an
+**external** sliding window manager: windows live on an infinite
+horizontal strip and opening one never resizes its neighbours. A daemon
+owns the strip; the `paneru` binary talks to it over a Unix socket, and
+Modaliser is a *client* of it. paneru ships no keyboard layer of its own
+(its `paneru.toml` `[bindings]` section is empty), so this library is
+how it gets one.
+
+`wms/` is a category peer to `apps/`, `muxes/` and `tools/`. Unlike a
+mux, paneru sits behind **no façade**: no backend record, no `wiring`,
+no Terminal-context-map entry — it owns the desktop rather than living
+inside a pane, so there is nothing for a façade to dispatch to.
+
+Its ops do **not** map onto `(modaliser window-actions)`'s geometry ops
+and are not a backend for them: absolute rects on a bounded screen and
+relative motion along an unbounded strip are different vocabularies.
+When paneru drives the desktop you compose the window screen from
+*these* ops instead — see **the composition** below.
+
+**Imports:**
+
+```scheme
+(import (prefix (modaliser wms paneru) paneru:))
+```
+
+**Exports:**
+
+| Export | Signature | Description |
+|---|---|---|
+| `focus-west` / `focus-east` | `(focus-west)` | Move focus one column along the strip. |
+| `swap-west` / `swap-east` | `(swap-west)` | Move the focused window one column along the strip. |
+| `grow` / `shrink` | `(grow)` | Next / previous entry in paneru's own `preset_column_widths`. |
+| `center` | `(center)` | Scroll the strip to centre the focused window. |
+| `installed?` | `(installed?)` → boolean | `command -v paneru` on the derived tool path (ADR-0017). The composition predicate. |
+| `strip-provider` | `(strip-provider [keyword value]...)` → 1-arg proc | The **Edge provider** for a state's `'provider` slot; mints this Visit's jump labels. |
+| `strip-listing` | `(strip-listing)` → block spec | The **Strip listing** block, drawing the provider's snapshot. |
+| `parse-strip-windows` | `(parse-strip-windows text)` → rows | Pure. Query payload → the active workspace's rows, in strip order (exported for tests). |
+| `join-strip-targets` | `(join-strip-targets rows enumeration)` → targets | Pure. Recovers each row's `ownerPid` by id join (exported for tests). |
+| `strip-focus-choice` | `(strip-focus-choice target)` → alist | Pure. One target → the choice alist `focus-window` reads (exported for tests). |
+| `strip-provider-result` | `(strip-provider-result assigned owner-id panel-label)` → alist | Pure. A label assignment → `'edges` + `'states` (exported for tests). |
+
+**Seven ops, not twenty.** The rest of paneru's surface — `resize`,
+`fullwidth`, `stack`/`unstack`, `equalize`, `balance`, `manage`, the
+workspace verbs, the display verbs, `focus first`/`last`/`<n>` — is
+deliberately absent. Each further op is one line here when someone wants
+it, rather than speculative surface. Every op is fire-and-forget: the
+daemon acknowledges nothing and **silently discards** an unrecognised
+command, so a wrong wire form fails invisibly (which is why each op's
+exact command string is pinned by a test).
+
+#### The Strip listing
+
+The paneru screen carries the active virtual workspace's windows as
+overlay rows, in strip order, each reachable by a **jump label**. Rows
+come from paneru; focusing comes from Modaliser, joined on window id —
+paneru knows the strip's membership and order, Modaliser holds the
+`ownerPid` that `focus-window` needs, and neither has the other's half
+(**ADR-0024**; `window focus <n>` is *not* used, because a column number
+is not derivable from a listed window and stacked columns make position
+arithmetic silently wrong).
+
+Dispatch is **provider-minted**, not a static key range: `strip-provider`
+runs at come-to-rest — before any render — and returns exactly the edges
+this Visit's strip earns. A one-key label edges straight to its window; a
+two-key label narrows into a prefix state whose second keys finish the
+jump and whose backspace un-narrows. The block draws the *same* snapshot
+the provider took, so the rows and the live labels cannot disagree, and a
+label pressed faster than the overlay appears still dispatches.
+
+**`strip-provider` options:**
+
+| Keyword | Default | Description |
+|---|---|---|
+| `'single-alphabet` | `'()` | Ordered one-char strings: the one-key labels. |
+| `'leader-alphabet` | `'()` | First key of a two-key label, once the singles run out. |
+| `'second-alphabet` | `'()` | Second key of a two-key label. |
+| `'panel-label` | `""` | Panel label for the **narrowed** listing a leader drills into. |
+| `'enumerate` | `list-current-space-windows` | 0-arg thunk supplying the window enumeration the id join reads. A test seam; leave it alone otherwise. |
+
+`'enumerate` is **not** a performance knob. Swapping in the wider,
+cached, staler `list-windows` was measured at 13 ms against the default's
+14 — inside the noise, same tail. It is a lever on the join's *hit rate*,
+should that ever prove a problem in practice, and nothing else.
+
+All three alphabets come from **you**. Jump labels are keys and no
+library file may author a key (ADR-0021), so none is defaulted — an
+omitted alphabet yields fewer labels, never a library-chosen letter.
+Escalation is automatic and minimal ([`(modaliser
+jump-labels)`](#modaliser-jump-labels)): a strip no longer than
+`'single-alphabet` never touches the leaders, and past that only the
+minimum number of leaders is promoted. Past *both* pools the tail renders
+with a blank key and no dispatch, the existing list-block convention.
+
+#### The plane rule
+
+**Provider edges and static edges share one key space, and static edges
+match first.** So any key you bind to an op is silently unreachable as a
+jump label — no error, no warning, just a label drawn on a row that does
+nothing. The library authors neither side, so it cannot enforce this: the
+split is yours to keep. `examples/paneru.scm` splits the way herdr's jump
+space does — **labels on lowercase, ops on capitals**. Any disjoint split
+works; overlap is the trap.
+
+#### The composition
+
+One `if` at config load (ADR-0018), choosing between two `open` bodies —
+`open` is a procedure, so a whole drill-down is a value you can name and
+splice:
+
+```scheme
+(define windows-screen
+  (if (paneru:installed?)
+      (open "w" "Windows"
+        'provider (paneru:strip-provider
+                    'single-alphabet '("h" "j" "k" "l" "n" "m" "u" "i" "o" "p")
+                    'leader-alphabet '("a" "s" "d" "f")
+                    'second-alphabet '("h" "j" "k" "l" "n" "m" "u" "i" "o" "p")
+                    'panel-label     "Jump")
+        (panel "Move"
+          (key "H" "Focus West" paneru:focus-west)
+          (key "L" "Focus East" paneru:focus-east)
+          (key "S" "Swap West"  paneru:swap-west)
+          (key "D" "Swap East"  paneru:swap-east))
+        (panel "Size"
+          (key "G" "Grow"   paneru:grow)
+          (key "R" "Shrink" paneru:shrink)
+          (key "C" "Center" paneru:center))
+        (panel "Strip"
+          (paneru:strip-listing)))
+
+      (open "w" "Windows"
+        (panel #f (window:default-layout-block))
+        (panel "Windows" (window:list-block 'chips? #t)))))
+```
+
+The predicate tests **installation, not liveness**. A liveness test would
+make the meaning of `"w"` depend on whether Modaliser or the paneru
+daemon won the startup race; installation cannot race. A daemon that is
+down degrades quietly instead — the query answers nothing, the listing is
+empty, no label dispatches — which is the established empty-output path
+(ADR-0017, ADR-0023). Under `swift test` no shell runner is installed, so
+the predicate is false and the paneru screen never composes at all.
+
+`examples/paneru.scm` is the complete, working version of the above —
+never loaded, mirrored into
+`~/.config/modaliser/sys/scheme/examples/` for you to copy from.
+
+#### What `'next 'self` costs here
+
+The provider runs on the **dispatch path**: every come-to-rest re-runs
+it, a cyclic `'next 'self` re-arm included. So binding the relative-motion
+ops with `'next 'self` — which re-arms the screen in place, the natural
+shape for a run of moves — makes each press pay the whole pipeline
+synchronously, before the next key is handled. Measured on an
+eleven-window strip in a **release** build:
+
+| Stage | Median |
+|---|---|
+| `paneru query state --json` | 14 ms |
+| Window enumeration (AX sweep) | 13 ms |
+| `parse-strip-windows` | 5 ms |
+| `join-strip-targets` | 2 ms |
+| **Come-to-rest total** | **≈34 ms** |
+
+Per *deliberate* press that is a bargain: re-entering the screen runs the
+same provider, so `'next 'self` pays the same ≈34 ms and saves two
+keystrokes. What keeps it out of the reference composition is the
+**tail** — the AX sweep ranges 8–29 ms warm and past 200 ms cold, and
+Modaliser does not filter auto-repeat, so *holding* Focus West queues
+work faster than it drains and the strip keeps sliding after release.
+Add `'next 'self` if you press deliberately; leave it off if you hold
+keys down. Full table, method and ruling:
+[paneru-window-management spec](../specs/paneru-window-management.md)
+decision 4. (Re-running the measurement requires `-c release` — a debug
+build inflates the interpreted stages 2–5× and misattributes the cost to
+the JSON read.)
 
 ---
 
@@ -733,6 +915,27 @@ Block constructor behind `(display:display-list-block …)` from
 `(modaliser display-actions)`; reach for that wrapper rather than this directly.
 Paints one round display chip per display into the `'displays` hint group and
 renders one overlay row per display.
+
+### `(modaliser blocks paneru-strip)`
+
+Renderer for the **Strip listing**. Reach for
+[`(paneru:strip-listing)`](#modaliser-wms-paneru) rather than this
+directly — that wrapper closes the block over the strip Edge provider's
+snapshot, which is the whole point of it.
+
+Display-only, mirroring `(modaliser blocks herdr-jump-legend)`: it
+dispatches nothing, because the jump labels reach the keyboard as
+provider edges. **It never queries** — its render hook reads a cell the
+provider already filled, which inverts `window-list`'s contract (whose
+`on-render-fn` *is* its data source) and is the main reason this is a
+separate block rather than a parameterised `window-list`. It paints no
+chips: paneru scrolls the strip under animation, so a chip's rect is
+stale the moment it is drawn.
+
+| Export | Description |
+|---|---|
+| `make-paneru-strip-block` | `(make-paneru-strip-block ['assigned-fn THUNK])` — the thunk returns the `((label . target) …)` snapshot. Rows are threaded in rather than imported, so this block knows nothing of paneru. |
+| `paneru-strip-rows` | Pure snapshot → row payload (`label`, `app`, `title`, `focused`), exported for tests. |
 
 ### `(modaliser blocks window-diagram)`
 

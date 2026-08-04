@@ -112,14 +112,14 @@ the doc comments on `ModaliserContext` for the deadlock reasoning).
 - `Sources/Modaliser/Scheme/lib/modaliser/**.sld` — the **portable library tree**.
   R7RS `define-library` files that form the user-facing stdlib (`dsl`,
   `configuration`, `handoff`, `activation`, `fsm`, `window-actions`,
-  `terminal`, `apps/*`, `blocks/*`, `muxes/*`, …).
+  `terminal`, `apps/*`, `blocks/*`, `muxes/*`, `wms/*`, …).
 - `Sources/Modaliser/Scheme/ui/*.scm` (`css.scm`, `overlay.scm`, `chooser.scm`) —
   **host-specific** UI plumbing, flat-`include`d by `root.scm` (not `import`ed). These
   lean on LispKit-specific bindings (WebView, JSON) and intentionally stay outside the
   portable tree.
 
 Beside them, `Sources/Modaliser/Scheme/examples/*.scm` are complete, **never-loaded**
-configurations for setups a fresh install does not seed (tmux, Chrome) — reference
+configurations for setups a fresh install does not seed (tmux, Chrome, paneru) — reference
 material a user copies from, carried by the `sys/` mirror like everything else. They
 are load-tested (`ConfigDslTests.exampleConfigsLoadWithoutErrors`) so an example that
 stops composing is a red suite rather than silent rot.

@@ -481,9 +481,10 @@
     ;;
     ;; 'enumerate is the second test seam (see the header): a 0-arg thunk
     ;; returning Modaliser's window enumeration, defaulting to the
-    ;; current-space AX sweep. It doubles as the cost lever — passing the
-    ;; wider, cached, staler `list-windows` instead is a one-line swap if the
-    ;; sweep ever proves too expensive on the dispatch path.
+    ;; current-space AX sweep. It is NOT a cost lever, though it was once
+    ;; offered as one: the wider, cached, staler `list-windows` measured 13ms
+    ;; against this one's 14, inside the noise and with the same tail. What a
+    ;; swap would buy is a different HIT RATE for the join, nothing else.
     ;;
     ;; OWNER-ID is the id of the state this provider was lowered onto, handed
     ;; over by the engine (provider-state-id-k9). It is the parent of every
@@ -493,9 +494,17 @@
     ;; **This runs on the dispatch path.** Every come-to-rest re-runs it — a
     ;; cyclic `'next 'self` re-arm included — so each press of a repeatable op
     ;; pays the whole pipeline synchronously, before the next key is handled.
-    ;; Measured at ~66ms on an 11-window strip, of which the JSON read is 36ms
-    ;; and the subprocess spawn only 13 — which is why the reference
-    ;; composition ships WITHOUT `'next 'self`. The full table, the ruling and
+    ;; Measured at ~34ms on an 11-window strip in a RELEASE build (14ms
+    ;; subprocess spawn, 13ms window enumeration, 5ms parse, 2ms join).
+    ;; Re-measure with `-c release` or the interpreted stages inflate 2-5x and
+    ;; the JSON read looks like the dominant term when it is the smallest.
+    ;;
+    ;; ~34ms per DELIBERATE press is not what rules `'next 'self` out — leaving
+    ;; and re-entering the screen runs this same provider, so it costs the same
+    ;; and two more keystrokes. The tail is: the enumeration ranges 8-29ms warm
+    ;; and past 200ms cold, and KeyboardCapture filters no auto-repeat, so a
+    ;; HELD op queues work faster than it drains. The reference composition
+    ;; therefore ships without `'next 'self`; the full table, the ruling and
     ;; the method are in docs/specs/paneru-window-management.md decision 4.
     (define (strip-provider . opts)
       (let* ((alist       (apply props->alist opts))
