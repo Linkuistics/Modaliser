@@ -91,6 +91,64 @@ struct ModaliserJsonLibraryTests {
         #expect(r == .makeString("a/b c"))
     }
 
+    /// Truncated input **raises** — it does not spin. `peek` answers `#\x0`
+    /// past the end of the string rather than an end sentinel, and
+    /// `parse-string`'s scan advances on any character that is not `"` or
+    /// `\`, so an unterminated literal used to loop forever consing NULs.
+    ///
+    /// The distinction is the whole point. Every caller wraps `json-parse` in
+    /// a `guard` and degrades to no data on a raise; none of them can catch a
+    /// hang. `(modaliser wms paneru)`'s strip parse runs at come-to-rest — on
+    /// the main thread, between one keypress and the next — so a truncated
+    /// payload there would wedge the modal rather than show an empty listing.
+    ///
+    /// The cases are ordered by *where* the input stops: mid-key, mid-value,
+    /// and immediately after the opening quote. All three enter the same scan.
+    @Test(arguments: [
+        #"{\"virtual_workspaces\":[{\"act"#,
+        #"{\"app_name\":\"iTerm"#,
+        #"{\"k\":\""#,
+        #"[\"unterminated"#,
+    ])
+    func raisesRatherThanSpinningOnAnUnterminatedString(_ truncated: String) throws {
+        let e = try engine()
+        #expect(
+            try e.evaluate("(eq? 'raised (guard (x (#t 'raised)) (json-parse \"\(truncated)\")))")
+                == .true,
+            "expected a raise, not a hang, for: \(truncated)")
+    }
+
+    /// Input that is not JSON at all raises **guardably** — an `error`, which
+    /// `(guard (e (#t …)) …)` catches, not a host type error that escapes it.
+    ///
+    /// The distinction is not academic. `parse-value` falls through to
+    /// `parse-number` for any character that starts no object, array, string
+    /// or literal, so this is where shell noise and empty output land — and
+    /// LispKit's `string->number` raises a *type* error on an empty string
+    /// rather than answering #f. That error is not caught by `guard`, so every
+    /// caller's degradation path was bypassed and the failure reached the host
+    /// as a broken evaluation instead of "no data".
+    ///
+    /// Empty output is the case that matters most: it is exactly what
+    /// `run-shell` answers when no runner is installed, when a binary is
+    /// missing, or when a daemon is down.
+    /// The last case takes the other branch — a token made of number
+    /// characters that is still not a number — so both ways out of
+    /// `parse-number` are pinned as guardable.
+    @Test(arguments: [
+        "",
+        "paneru: command not found",
+        "<html>",
+        "1.2.3",
+    ])
+    func raisesGuardablyOnInputThatIsNotJson(_ garbage: String) throws {
+        let e = try engine()
+        #expect(
+            try e.evaluate("(eq? 'raised (guard (x (#t 'raised)) (json-parse \"\(garbage)\")))")
+                == .true,
+            "expected a guardable raise for: \(garbage.isEmpty ? "(empty output)" : garbage)")
+    }
+
     // ─── json-write ─────────────────────────────────────────────────
     //
     // The writer is json-parse's mirror over the same representation, so

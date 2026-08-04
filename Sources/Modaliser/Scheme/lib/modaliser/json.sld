@@ -126,6 +126,22 @@
           (let loop ((acc '()))
             (let ((c (peek)))
               (cond
+                ;; End of input inside a string literal. This clause is
+                ;; load-bearing, not defensive: `peek` answers #\x0 past the
+                ;; end rather than an end sentinel, and the `else` branch
+                ;; below advances on ANY character — so without it an
+                ;; unterminated literal spins forever, consing NULs, instead
+                ;; of raising. Every other scanner here is already bounded
+                ;; (skip-ws and parse-number test `i < n`; the object and
+                ;; array scanners fall through to `error` on #\x0), so this
+                ;; was the one unbounded loop in the reader.
+                ;;
+                ;; A truncated payload is not hypothetical: json-parse's
+                ;; callers feed it whatever a CLI printed, and (modaliser wms
+                ;; paneru)'s parse runs at come-to-rest — on the main thread,
+                ;; between a keypress and the next one. Raising degrades
+                ;; (callers already wrap this in `guard`); spinning does not.
+                ((>= i n) (error "json-parse: unterminated string"))
                 ((char=? c #\") (advance!) (list->string (reverse acc)))
                 ((char=? c #\\)
                  (advance!)
@@ -152,13 +168,31 @@
               (char=? c #\-) (char=? c #\+)
               (char=? c #\.) (char=? c #\e) (char=? c #\E)))
 
+        ;; parse-value falls through to here for ANY character that does not
+        ;; start an object, array, string or literal — so this is where every
+        ;; piece of non-JSON input lands, not just a bad number. Shell noise
+        ;; ("paneru: command not found") and empty output both arrive with the
+        ;; cursor on a character that consumes no number token at all.
+        ;;
+        ;; The empty-token case is checked BEFORE `string->number` sees it,
+        ;; deliberately: LispKit's `string->number` raises a type error on an
+        ;; empty string rather than answering #f, and that error is not the
+        ;; guardable kind — it escapes the `(guard (e (#t #f)) …)` every caller
+        ;; wraps this in and reaches the host as a failed evaluation. Raising
+        ;; our own `error` instead keeps ALL malformed input on one guardable
+        ;; path, which is what lets a caller degrade to no data (ADR-0017's
+        ;; empty-output shape) instead of breaking a leader press.
         (define (parse-number)
           (let ((start i))
             (let loop ()
               (when (and (< i n) (number-char? (peek))) (advance!) (loop)))
             (let ((tok (substring str start i)))
-              (or (string->number tok)
-                  (error "json-parse: malformed number" tok)))))
+              (if (= (string-length tok) 0)
+                  (error "json-parse: expected a value" (peek))
+                  (let ((num (string->number tok)))
+                    (if (number? num)
+                        num
+                        (error "json-parse: malformed number" tok)))))))
 
         (skip-ws)
         (parse-value)))

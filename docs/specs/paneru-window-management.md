@@ -264,18 +264,53 @@ existing `window-list` block pays a comparable enumeration cost, but only at
 change in kind, not a smaller version of the same thing, and the comparison
 against `key-range` above does not capture it.
 
-This is accepted rather than eliminated. Two levers are already in the design,
-and one obligation falls on the implementation:
+This is accepted rather than eliminated. Two levers are already in the design:
 
 - The enumeration is an injectable option (decision 3), so a composition can pass
   the cached, wider `list-windows` instead of the uncached AX sweep
   `list-current-space-windows` performs over every regular running application.
 - `'next 'self` is the user's call (decision 5), so a composition that finds the
   cost unacceptable drops it and re-enters the screen per op.
-- **`paneru-strip-list-k7` measures the come-to-rest cost** on a strip of
-  realistic size and records the number in the reference docs. If it is not
-  comfortably inside a keypress budget, the reference composition ships without
-  `'next 'self` on the six repeatable ops, and says why.
+
+**Measured (2026-08-04, `paneru-strip-list-k7`, an 11-window strip — the live
+one this spec was written against):**
+
+| Stage | Median | Notes |
+|---|---|---|
+| `paneru query state --json` | **13 ms** | `/bin/zsh -c` spawn (≈3 ms) + the daemon's socket round trip |
+| Window enumeration | **11 ms** | `list-current-space-windows`, an uncached AX sweep |
+| `parse-strip-windows` | **36 ms** | the JSON read, over a 1689-byte payload |
+| `join-strip-targets` | **6 ms** | |
+| Assign + lower | **<1 ms** | |
+| **Come-to-rest total** | **≈66 ms** | synchronous, before the next key is handled |
+
+**Ruling: the reference composition ships without `'next 'self`.** 66 ms per
+press is not comfortably inside a keypress budget — a held or quickly repeated
+Focus West would spend most of its interval in the provider, on the main thread,
+ahead of the next key. A composition that wants cyclic re-arm can add `'next
+'self` itself and pay for it knowingly; the shipped example does not make that
+choice on the user's behalf.
+
+**The cost is not where this decision predicted.** The paragraph above assumed
+the subprocess spawn and the AX sweep, and named the two levers accordingly.
+Neither is the dominant term: **the interpreted JSON read is 55% of the total**,
+and it scales linearly with strip length (a 20-window strip roughly doubles it),
+so the two levers between them can remove at most a third of a cost that grows
+with exactly the thing the listing is for. `paneru query state` emits the same
+JSON with or without `--json` and paneru's narrower subcommands
+(`virtual-workspaces`, `active`) do not carry less window data, so the payload
+cannot simply be made smaller. Making the read cheap is its own concern, tracked
+as `strip-parse-cost-k10`; if it lands, this ruling is worth revisiting, because
+`'next 'self` is the ergonomically better default and only the cost rules it out.
+
+Measurement method, for anyone re-running it: the query was timed as `/bin/zsh
+-c` from outside the process (matching `ShellLibrary`'s own spawn), and the
+Scheme stages through `SchemeEngine.evaluate` in a throwaway test — the harness
+baseline is 0.03 ms, so it contributes nothing. The join's *hit rate* cannot be
+measured that way: `swift test` is not an accessibility-trusted process, so
+`_AXUIElementGetWindow` yields `windowId` 0 for every window and every row
+misses. That is a harness artefact, not a property of the join — which is also
+precisely why the enumeration had to become an injectable seam.
 
 **This does not reopen ADR-0018.** The decision that composition happens at
 config load fixes *which screen the user gets*; per-Visit edge provision inside
