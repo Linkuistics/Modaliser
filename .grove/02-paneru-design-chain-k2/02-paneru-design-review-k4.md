@@ -2,6 +2,7 @@
 
 **Kind:** review-design
 **Reviews:** paneru-design-k3
+**Producer launch:** {"producer":"paneru-design-k3","session":"paneru-design-k3","generation":"k3","harness":"claude","model":"opus"}
 
 ## Goal
 

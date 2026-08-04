@@ -838,9 +838,10 @@ gap that rules out position-arithmetic targeting.
 (`window focus east`, `window swap west`, `window grow`, `window center`, …).
 A **facility**, not a decision (ADR-0021): its correctness is fixed by
 paneru's own CLI. Which ops reach which keys is the user's `config.scm`.
-_Avoid_: the underscored spelling (`window_focus_east`) — that is the *TOML
-binding name* in `paneru.toml`, not the send-cmd wire form, which is
-space-separated.
+Fire-and-forget: the daemon acknowledges nothing and silently discards an
+unrecognised command, so a wrong wire form fails invisibly. _Avoid_: the
+underscored spelling (`window_focus_east`) — that is the *TOML binding name*
+in `paneru.toml`, not the send-cmd wire form, which is space-separated.
 
 **Paneru-installed composition** — the load-time branch that decides whether
 the user's window screen is composed from **Paneru ops** or from
@@ -855,4 +856,21 @@ paneru's. A daemon that is down degrades to the established empty-output path
 joined on `windowId` against Modaliser's own window enumeration to recover the
 `ownerPid` that `focus-window` requires. Paneru contributes the *ordering and
 membership*; Modaliser contributes the *focusing*. Deliberately renders as
-overlay rows with jump labels and paints no **Chip**.
+overlay rows with jump labels and paints no **Chip**. It renders the **Strip
+snapshot** rather than querying — the rows and the live jump labels are the
+same data, so they cannot disagree.
+
+**Strip target** — one row of the **Strip listing**, in strip order: the
+paneru window's id, app name, title, focused and floating flags, plus the
+`ownerPid` the id join recovered — or `#f` when the join found no match.
+An unmatched target still occupies its place and still consumes a jump label
+(so a transient join miss costs one dead key rather than renumbering every
+label below it), but it gets no dispatch edge.
+
+**Strip snapshot** — the per-**Visit** gather → join → label-assign result:
+the **Strip targets** paired with their assigned labels. Taken by the strip
+**Edge provider** at come-to-rest and read by the **Strip listing** at render.
+The provider always runs first, so a label pressed faster than the overlay
+appears still dispatches. _Avoid_: re-querying paneru inside the block —
+that reintroduces the two-sources-can-disagree bug the snapshot exists to
+prevent.
