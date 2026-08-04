@@ -29,7 +29,7 @@ reachable by a **jump label**.
 The listing's rows come from paneru; its focusing comes from Modaliser, joined
 on window id (ADR-0024). Labels are prefix-free one- or two-key sequences from
 the user's own alphabets, and they reach the keyboard as **provided edges**: an
-**Edge provider** on the screen's root mints exactly the labels this Visit's
+**Edge provider** on the window node mints exactly the labels this Visit's
 strip earns, and the block renders the same snapshot the provider took. Nothing
 about the composition is dynamic — which screen the user gets is fixed once, at
 config load (ADR-0018).
@@ -99,7 +99,7 @@ Exported surface:
 | `grow` `shrink` | op | `paneru send-cmd window grow\|shrink` — next/previous `preset_column_widths` entry |
 | `center` | op | `paneru send-cmd window center` |
 | `installed?` | predicate | `command -v paneru` through the derived tool path (ADR-0017); the **Paneru-installed composition** test |
-| `strip-provider` | constructor | keyword opts → the 0-arg Edge provider for a `'provider` slot |
+| `strip-provider` | constructor | keyword opts (three alphabets, `'panel-label`, `'enumerate`) → the Edge provider for a `'provider` slot; invoked with its owning state's id |
 | `strip-listing` | constructor | → the Strip-listing block spec, reading the same snapshot |
 | `parse-strip-windows` | pure | payload text → strip rows |
 | `join-strip-targets` | pure | strip rows × window enumeration → **Strip targets** |
@@ -127,7 +127,8 @@ tool path is imported narrowly from `(modaliser terminal)`, as every CLI-native
 backend already does. It is the one slightly awkward dependency in the file — a
 non-terminal library reaching into the terminal façade for a string — and it is
 accepted rather than fixed here; relocating `modaliser-tool-path` to a neutral
-home is a separate concern with eight other callers.
+home is a separate concern that six other library files outside `terminal.sld`
+already share (tmux, zellij, alacritty, wezterm, kitty, iterm-panes).
 
 **`send-cmd` has no error channel.** Probed against the live daemon
 (2026-08-04): an unrecognised command exits 0 and prints nothing — the daemon
@@ -157,10 +158,16 @@ against the enumeration's `windowId`. A row that finds no match keeps its place
 with `owner-pid` `#f`.
 
 Taking the enumeration as an *argument* rather than calling the primitive is what
-keeps this a pure function: the live path passes `list-current-space-windows`,
-and a test passes a canned list. It also makes the choice of enumeration a
-one-line decision to revisit — `list-windows` is the wider, staler alternative if
-the join's hit rate ever proves a problem in practice.
+keeps this a pure function: the caller passes it, and a test passes a canned list.
+
+**Which enumeration the caller passes is itself injectable.** `strip-provider`
+takes an `'enumerate` option — a 0-arg thunk defaulting to
+`list-current-space-windows` — because the provider is where the live call
+actually happens, and a provider test that let the real AX sweep run would assert
+against the developer's live desktop (see **Test seams**). The option doubles as
+the lever decision 4's cost paragraph names: `list-windows` is the wider, cached,
+staler alternative, a one-line swap if the join's hit rate or the sweep's cost
+ever proves a problem in practice.
 
 **Unmatched rows still consume a label.** They render as ordinary rows and their
 label dispatches to nothing, exactly as ADR-0024 anticipates. The reason is
@@ -170,8 +177,8 @@ A row that momentarily fails to join costs one dead key, not a reshuffled strip.
 
 ### 4. Dispatch is provider-minted, not a static key range
 
-The screen's root carries an **Edge provider** — `strip-provider`'s result on a
-`'provider` slot. Each Visit it queries paneru, parses, joins, assigns labels
+The paneru window node carries an **Edge provider** — `strip-provider`'s result
+on its `'provider` slot. Each Visit it queries paneru, parses, joins, assigns labels
 via `jump-labels-assign`, stores the result as the **Strip snapshot**, and
 returns this Visit's edges and synthetic states:
 
@@ -185,6 +192,47 @@ returns this Visit's edges and synthetic states:
 This shape is `(modaliser muxes herdr)`'s jump provider, minus the parts paneru
 does not have: one target kind instead of four, one label pool instead of
 per-axis pools, no chips, no dim-state narrowing.
+
+**The prefix state, in full.** A two-key label needs a provided *resting* state,
+and a resting provided state is the one kind whose shape is constrained: it
+survives as a Visit owner across keystrokes, so the presentation façade reads it
+the way it reads a permanent state. Three things about it are therefore not
+free-form, and `paneru-strip-list-k7` should not have to rediscover them —
+`muxes/herdr.sld` records the same three at length, having found each the hard
+way:
+
+- **Its id is `<owner-id>/<leader>`**, the convention permanent child states use
+  (`fsm-child-id`). `strip-id-prefix` derives a breadcrumb segment by
+  `substring`-ing the parent's id off the child's, so any other shape yields a
+  garbled segment or raises outright.
+- **Its `'up` edge targets `<owner-id>`**, or backspace does not un-narrow and
+  `ancestors-within-tree` stops the climb early.
+- **Its `'payload` carries the two-layer node shape** that `screen` lowers a
+  registered root's payload into: a `'children` list holding the block, plus a
+  `'display` clause with one panel referencing it. `fsm-resolved-payload` hands
+  this alist to the façade as `modal-current-node`, and the panel-grid renderer
+  resolves `'children` + `'display` off whatever that is (ADR-0011) — so the
+  *unchanged* renderer draws the narrowed listing. A prefix state with no payload
+  resolves to `#f`, and the user narrows into a leader to find nothing on screen
+  and no indication of which second keys are live.
+
+The payload closes `blocks/paneru-strip` over the **survivor rows** — this
+leader's targets only. That is what decision 1's caller-supplied thunk earns its
+keep for. The panel's label rides in from the user, as `'panel-label` on
+`strip-provider`: a label authored in a library file sits inside ADR-0021's
+spirit even where `check-decision-free.sh`'s grep cannot see it, and the user is
+already naming the un-narrowed panel one line away.
+
+**The prefix state carries its own small `'provider`** too, re-minting exactly
+the Terminal states its own second-key edges target — closed over the
+`(second-key . target)` pairs the owner's provider already computed, so there is
+no second paneru query and no re-narrowing. This is not an optimisation but a
+requirement: provided states are Visit-scoped, and stepping into the prefix state
+*begins a new Visit* whose provided table holds only what that state's own
+provider returns. Without it, the second key resolves to a state nobody minted.
+
+`<owner-id>` throughout is the id of the state the provider is lowered onto,
+supplied to the provider as its argument (decision 5).
 
 Three reasons this is a provider rather than a `key-range`:
 
@@ -203,6 +251,31 @@ Three reasons this is a provider rather than a `key-range`:
   still dispatches, and — because the block reads the provider's snapshot rather
   than re-querying — the listing and the dispatch can never disagree. The
   alternative shape needs a refresh-on-miss patch to reach the same place.
+
+**What the provider's timing costs.** The third reason above has a matching
+bill, and both sides belong in the spec. `'next 'self` on the repeatable ops
+(decision 5) makes each op a transient that auto-edges back to the paneru node,
+and *every* come-to-rest — a cyclic re-arm included — re-runs
+`classify-and-snapshot`, hence the provider. So each press of Focus West pays,
+synchronously and before the next key can be handled: one
+`paneru query state --json` subprocess spawn, plus one window enumeration. The
+existing `window-list` block pays a comparable enumeration cost, but only at
+*render*, behind `modal-overlay-delay`. Moving it onto the dispatch path is a
+change in kind, not a smaller version of the same thing, and the comparison
+against `key-range` above does not capture it.
+
+This is accepted rather than eliminated. Two levers are already in the design,
+and one obligation falls on the implementation:
+
+- The enumeration is an injectable option (decision 3), so a composition can pass
+  the cached, wider `list-windows` instead of the uncached AX sweep
+  `list-current-space-windows` performs over every regular running application.
+- `'next 'self` is the user's call (decision 5), so a composition that finds the
+  cost unacceptable drops it and re-enters the screen per op.
+- **`paneru-strip-list-k7` measures the come-to-rest cost** on a strip of
+  realistic size and records the number in the reference docs. If it is not
+  comfortably inside a keypress budget, the reference composition ships without
+  `'next 'self` on the six repeatable ops, and says why.
 
 **This does not reopen ADR-0018.** The decision that composition happens at
 config load fixes *which screen the user gets*; per-Visit edge provision inside
@@ -233,7 +306,8 @@ The branch is one `if` at config load over `installed?`, choosing between two
         'provider (paneru:strip-provider
                     'single-alphabet paneru-labels
                     'leader-alphabet '("a" "s" "d" "f")
-                    'second-alphabet paneru-labels)
+                    'second-alphabet paneru-labels
+                    'panel-label     "Strip")
         (panel "Move"
           (key "H" "Focus West"  paneru:focus-west  'next 'self)
           (key "L" "Focus East"  paneru:focus-east  'next 'self)
@@ -265,15 +339,63 @@ Three things about this surface are load-bearing:
   overlap is the trap.
 - **`'next 'self` on the relative-motion ops is the user's call**, and the
   natural one: focus and swap are repeated, so re-arming in place beats
-  re-entering the screen. `center` is terminal.
+  re-entering the screen. `center` is terminal, and the per-press cost recorded
+  in decision 4 is the reason that call is worth making deliberately.
 
-**One DSL change is required.** `open` does not currently accept `'provider`,
-though `screen` and `group` do and `open`'s own docstring records the slot as
-unwired only because no caller needed it. Threading the keyword through `open`'s
-argument parse into the existing `dispatch-head` call is mechanical, and it is
-the whole change. (The alternative, authoring the paneru window surface as a
-separate registered `screen` reached by a `'next` edge, works today but changes
-the breadcrumb and backspace shape for no gain.)
+`'panel-label` names the panel of the *narrowed* legend the prefix state renders
+(decision 4). It is a second label rather than a reuse of the `(panel "Strip" …)`
+above because the two are different renders, and ADR-0021 puts both in the user's
+hands.
+
+**Two engine changes are required, and together they are the whole of it.**
+
+`open` does not currently accept `'provider`. `screen` and `group` both do, and
+`open`'s own docstring records the slot as unwired only because no caller needed
+it; threading the keyword through `open`'s argument parse into its existing
+`dispatch-head` call is indeed mechanical. It is *not* sufficient on its own, and
+an earlier reading of this spec that said so is corrected here.
+
+A provider must know **the id of the state it is lowered onto**, because that id
+is the prefix state's parent and its up-edge target (decision 4). Nothing hands
+it over today: providers are invoked with zero arguments in
+`classify-and-snapshot`, and the engine's own `%fsm-visit-owner` is set *after*
+the provider runs — so at provider time it holds the previous owner on first
+entry and this node's own id on a re-arm. Inconsistent, therefore unusable.
+
+**So the provider calling convention gains one argument: the id of the state
+whose provider is running.** The engine already has the value —
+`resolve-state-def` puts `'id` on every def, permanent and provided alike, and
+`def-id` reads it — so the engine side is a single call site. Exactly three
+providers exist in the tree, all of them library code: `muxes/herdr`'s root jump
+provider, its per-prefix-state provider, and `activation.sld`'s
+`compose-step-in-provider` wrapper. All three accept the argument; only paneru's
+uses it. `provider-state-id-k9` owns this, ahead of `paneru-strip-list-k7`.
+
+Three alternatives were weighed and none is free:
+
+- **A registered tree under a library-declared machinery scope** — herdr's shape,
+  and the only option that solves the id problem by *fixing* the id rather than
+  discovering it. Rejected because it moves the whole paneru window surface out
+  of the user's `open` and into a library-constructed tree reached by a
+  `step-in`: a registered tree root ends `ancestors-within-tree`, so the
+  breadcrumb stops showing the path in and backspace stops walking back out. A
+  visible regression in the surface the requirements grilling settled, paid to
+  avoid a one-line engine change.
+- **`strip-provider` takes the enclosing state's id as an argument** — cheapest
+  of all, and rejected because the user would then be authoring a raw FSM id
+  string (`"global/w"`) with nothing validating it, which breaks silently the
+  moment the screen is nested one level deeper.
+- **Single-key labels only, escalation out of the first slice** — rejected as
+  outside the workstream's stated bounds: escalating labels are in the root
+  brief's Done-when, and the strip is unbounded by construction. Ten digits
+  against twelve live windows is the motivating case, not an edge one.
+
+The change carries a documentation surface that lands in the same commit, since
+three sites currently state the opposite and point at `group` instead:
+`dsl.sld`'s `open` docstring, `docs/reference/dsl.md`, and
+`docs/reference/state-machine.md` — the last also gaining the provider's new
+argument in its contract description. `provider-state-id-k9` owns all of it; no
+other leaf in this workstream touches `fsm.sld` or `dsl.sld`.
 
 ### 6. Degradation
 
@@ -284,7 +406,7 @@ error.
 |---|---|
 | paneru not installed | predicate is false; the non-paneru screen composes. Nothing else in this spec runs. |
 | paneru installed, daemon down | the query returns empty; the parse yields no rows; zero edges, empty listing. The established empty-output path (ADR-0017, ADR-0023). |
-| No shell runner installed (a bare engine) | identical to "daemon down", by the same path. |
+| No shell runner installed (a bare engine) | `run-shell` returns `""`, so the probe fails and **row 1** applies — not row 2. Under `swift test` the paneru screen therefore never composes at all. |
 | A strip row that does not join | listed, labelled, no edge — its label does nothing (ADR-0024). |
 | More windows than the label pools cover | the tail renders with a blank key and no dispatch — the existing list-block convention. |
 | A wrong `send-cmd` wire form | nothing happens, silently. Covered only by the op tests (decision 2). |
@@ -296,19 +418,37 @@ paneru won the startup race.
 
 ## Test seams
 
-**One seam: `current-shell-runner`** (`(modaliser shell)`, ADR-0023). Every
-outward call in this spec — the `command -v` probe, the state query, all seven
-ops — goes through it, so one canned runner closes the whole surface. Driving the
-seam count to one was an explicit goal of the requirements grilling, not an
-accident of what happened to be easy.
+**Two seams.** The requirements grilling aimed at one, and one is what the
+*shell* path costs. The second is not a shell path at all: the provider's gather
+also reads Modaliser's own window enumeration, and that call is neither pure nor
+deterministic.
 
-Tested through it:
+1. **`current-shell-runner`** (`(modaliser shell)`, ADR-0023) — the `command -v`
+   probe, the state query, and all seven ops. One canned runner closes the whole
+   outward *shell* surface.
+2. **The enumeration**, injected as `strip-provider`'s `'enumerate` option
+   (decision 3), defaulting to `list-current-space-windows`.
+
+The second seam was added because the alternative was worse, not because it was
+wanted. `WindowCache.listCurrentSpaceWindows` performs an uncached AX sweep of
+every regular running application, so a provider test that let it run would
+assert an edge/state set determined by whatever happened to be open on the
+developer's desktop at that moment — vacuous when the desktop is quiet, flaky
+when it is not. The suite already calls the primitive once as a deliberate shape
+smoke test (`WindowLibraryTests.swift`), so this is a **determinism** fix, not an
+isolation one: ADR-0023's reaches-nothing-outside-the-process property is
+untouched either way.
+
+Tested through the seams:
 
 1. **`installed?`** — a canned runner returning a path, and returning `""`.
 2. **The seven ops** — assert each op's exact command string. This is the only
    thing standing between a mistyped wire form and silence (decision 2).
-3. **The provider's gather** — a canned runner returning a captured payload,
-   asserting the snapshot and the resulting edge/state set.
+3. **The provider's gather** — a canned runner returning a captured payload and a
+   canned enumeration, asserting the Strip snapshot and the resulting edge/state
+   set. Where a leader is assigned, that includes the prefix state's id, its
+   up-edge target, and that its payload carries the two-layer shape decision 4
+   requires — the three things a wrong answer to breaks silently.
 
 Tested by direct call, no seam needed:
 
@@ -323,10 +463,11 @@ Tested by direct call, no seam needed:
    tail, an unmatched target.
 7. **The block's rows** — Strip targets in, row payload out.
 
-`list-current-space-windows` is never called from a test, because the join takes
-the enumeration as an argument (decision 3). The live AX enumeration stays on the
-live path only, which is what keeps this work inside the suite's
-reaches-nothing-outside-the-process property without adding a second seam.
+`list-current-space-windows` is never *reached* from a test: the join takes the
+enumeration as an argument and the provider takes it as an injectable option, so
+the live AX sweep stays on the live path. That is what makes test 3's assertion
+mean something — and, incidentally, what keeps the suite's cost flat as the
+listing grows.
 
 ## Out of scope
 
@@ -348,6 +489,12 @@ reaches-nothing-outside-the-process property without adding a second seam.
   (decision 4), with the criterion recorded there.
 - **Relocating `modaliser-tool-path`** out of `(modaliser terminal)`
   (decision 2).
+- **Simplifying `muxes/herdr` onto the provider's new id argument** (decision 5).
+  herdr's hardcoded `herdr-jump-scope` becomes redundant once a provider is
+  handed its owner's id, but it is correct today and its provider is the
+  regression surface for that engine change — so herdr accepts the argument and
+  ignores it. Doing both at once would mean the same commit widens the engine and
+  rewrites its only existing consumer.
 - **Any change to `blocks/window-list` or the non-paneru window screen**
   (decision 1).
 

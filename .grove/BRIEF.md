@@ -34,8 +34,13 @@ empirically against the live daemon rather than surveyed.
    impl leaves: library surface, block design, and the reuse-vs-new call on the
    existing `window-list` block.
 2. **paneru-ops** — the op library and the installation predicate.
-3. **paneru-strip-list** — query → parse → join → block, with label assignment.
-4. **paneru-docs** — reference docs and the example config.
+3. **provider-state-id** — the engine prerequisite the review surfaced: an
+   **Edge provider** learns the id of the state it is lowered onto, and `open`
+   gains `'provider`. Added during design integration, not planning; without it
+   a two-key jump label cannot mint a usable narrowing prefix state, so it
+   sequences ahead of the listing.
+4. **paneru-strip-list** — query → parse → join → block, with label assignment.
+5. **paneru-docs** — reference docs and the example config.
 
 ## Pointers
 
@@ -85,6 +90,25 @@ outcome:**
    that it owns the desktop rather than living inside a pane.
 9. **No chips.** The listing is overlay rows only.
 
+**Decisions taken during design integration** (`paneru-design-integrate-k5`),
+correcting two the spec got wrong:
+
+10. **The provider learns its own state id; `open` gains `'provider`.** The spec
+    had claimed threading the keyword was "the whole change". It is not: a
+    provided *resting* prefix state's id must read `<owner-id>/<leader>`, and no
+    provider can know its owner today. Chosen over a registered tree under a
+    machinery scope (herdr's shape — solves it, but costs the breadcrumb and
+    backspace behaviour of the surface the grilling settled), over passing a raw
+    FSM id from config, and over dropping escalation. Cheap because
+    `resolve-state-def` already stamps `'id` on every def and only three
+    providers exist in the tree.
+11. **Two test seams, not one.** Note 7's one-seam goal survives for the *shell*
+    path only. The provider also reads Modaliser's own window enumeration —
+    an uncached AX sweep of every running app — so it takes an injectable
+    `'enumerate`. Not an isolation fix (the suite already calls the primitive
+    deliberately) but a determinism one: without it the provider test asserts
+    against the developer's live desktop.
+
 **Open, deliberately deferred:** cross-workspace listing and jumping; the
 remaining ~13 paneru ops; whether a floating window should be marked as such in
-the listing.
+the listing; simplifying `muxes/herdr` onto the provider's new id argument.

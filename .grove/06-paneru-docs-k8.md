@@ -34,6 +34,12 @@ composition is the thing a reader most needs to see written out.
   shipped exports.
 - `docs/reference/portability.md` mentions `wms/` if it enumerates the tree's
   categories.
+- The **plane rule** is stated where a user will meet it: provider edges and
+  static edges share one key space and static edges match first, so any letter
+  bound to an op is silently unreachable as a jump label. The library cannot
+  enforce it, so the docs carrying it is the whole mitigation (spec decision 5).
+- The measured come-to-rest cost from `paneru-strip-list-k7` is recorded, so a
+  user choosing `'next 'self` knows what it costs (spec decision 4).
 - The **Paneru-window-management domain** in `CONTEXT.md` still matches what
   shipped — correct any term the implementation moved.
 

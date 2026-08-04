@@ -295,7 +295,12 @@ simply absent (the key falls to the unknown-key policy).
 run at the gate-snapshot instant returning extra edges and synthetic states
 (jump labels, narrowing prefix states), valid for that Visit only.
 Narrowing needs no bespoke machinery: a prefix state is an ordinary
-provided resting state whose up-edge un-narrows.
+provided resting state whose up-edge un-narrows. It is called with **the id
+of the state it is lowered onto** — not decoration: a provided *resting*
+state's id must read `<owner-id>/<key>` and its up-edge must target
+`<owner-id>`, or the breadcrumb derivation garbles or raises, so a provider
+that mints one cannot be written without knowing its owner. _Avoid_: reading
+the owner from the visit owner — that is set *after* the provider runs.
 
 **Entry table** — RETIRED: the graph-carried activation
 registry with gated rows and derived specificity ranking. Activation is

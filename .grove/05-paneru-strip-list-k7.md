@@ -27,14 +27,24 @@ paneru query state --json      (through current-shell-runner, ADR-0023)
   └─ render  → overlay rows. NO chips.
 ```
 
-Parse and join are **pure functions**, tested by direct call. That is the whole
-reason the seam count is one; do not introduce a second seam for them.
+Parse and join are **pure functions**, tested by direct call — do not put a seam
+under either. The spec's **Test seams** section names the two that do exist:
+`current-shell-runner`, and the window enumeration injected as `strip-provider`'s
+`'enumerate`. The second is deliberate (design integration, F2): without it the
+provider test asserts against whatever is open on the developer's desktop.
 
 Two cases the design must not lose: a **stacked** column contributes several
 rows, each independently focusable — the case `window focus <n>` cannot express
 at all. A row paneru reports but Modaliser's enumeration does not is **not
 focusable** and degrades to a label that does nothing (ADR-0024 Consequences);
 it must not raise.
+
+**The narrowing prefix state is the sharp edge here**, and `provider-state-id-k9`
+must land first. Spec decision 4 states its three non-negotiable properties (id
+shape, up-edge target, the two-layer payload) plus the own-`'provider` that
+re-mints its Terminal states. Every one of them fails *silently* or with a
+confusing `substring` raise if guessed at; `muxes/herdr.sld` is the working
+precedent for all four.
 
 ## Done when
 
@@ -44,6 +54,12 @@ it must not raise.
 - Parse tests cover: multiple workspaces with one active; an empty workspace; a
   `floating` window; a row with no matching enumeration entry; malformed JSON
   degrading rather than raising.
+- A provider test asserts a leader's prefix state: its id, its up-edge target,
+  and that its payload carries the two-layer shape the renderer needs.
+- **The come-to-rest cost is measured** on a realistic strip and the number
+  recorded in the reference docs (spec decision 4). If it is not comfortably
+  inside a keypress budget, the reference composition drops `'next 'self` from
+  the six repeatable ops and says why.
 - Both check scripts pass; `swift test` green and still fully offline.
 
 ## Notes

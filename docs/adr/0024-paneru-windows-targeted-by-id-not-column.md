@@ -71,8 +71,14 @@ what the user means.
 
 The join is a **pure function** over two lists, and the payload parse is a pure
 function over a string. Neither is a new test seam: both are tested by direct
-call, and the outward calls they sit behind go through the existing
-`(modaliser shell)` runner (ADR-0023).
+call.
+
+The two sides they join reach outward by different routes, and only one of them
+is a shell call. Paneru's side goes through the existing `(modaliser shell)`
+runner (ADR-0023). Modaliser's side is the window enumeration, which is an AX
+sweep — so whatever gathers the two for the join takes the enumeration as an
+injected argument, canned in a test rather than swept live. See
+`docs/specs/paneru-window-management.md` → **Test seams**.
 
 ## Consequences
 
