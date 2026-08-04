@@ -315,13 +315,18 @@
 ;;                            Walk) where typing a non-binding key should
 ;;                            hand control back to the underlying app.
 ;;   'provider PROC         — an FSM edge provider (CONTEXT.md "Edge
-;;                            provider"): a 0-arg procedure run each time
+;;                            provider"): a 1-arg procedure run each time
 ;;                            the group comes to rest, returning an alist
 ;;                            of extra 'edges / 'states for that Visit
 ;;                            only (docs/specs/fsm-graph.md). Lowers
 ;;                            straight onto the state's 'provider slot —
 ;;                            unlike on-enter/on-leave, it is not
-;;                            presentation-gated.
+;;                            presentation-gated. Its argument is the id of
+;;                            the state it was lowered onto: a provider
+;;                            minting a provided RESTING state (a narrowing
+;;                            prefix state) must id it `<owner-id>/<key>`
+;;                            and point its 'up edge at `<owner-id>`, which
+;;                            is not derivable any other way.
 ;;   'entry THUNK / 'exit THUNK — the unconditional action-slot pair
 ;;                            (CONTEXT.md "Action slots"): 'entry fires at
 ;;                            come-to-rest of a Visit (including
@@ -855,8 +860,8 @@
 ;; identically (display-dsl-surface-k23).
 ;; PROVIDER (a procedure, or #f) is an FSM edge provider (see `group`'s
 ;; docstring) riding straight through to the registered root's/group's
-;; 'provider slot — #f from `open` (no caller needs it there yet; see
-;; `open`'s own docstring).
+;; 'provider slot. Both callers — `screen` and `open` — pass it
+;; identically (provider-state-id-k9 wired `open`'s).
 ;; ENTRY / EXIT (procedures, or #f) are the unconditional action-slot
 ;; pair (CONTEXT.md "Action slots") — blocks are presentation, so their
 ;; hook fns fire only with the gated show/hide pair, never on
@@ -938,32 +943,36 @@
 ;; sub-screen — the panel-native replacement for the old (key K L (overlay …))
 ;; idiom. Its children are the flat lowered sub-grid; its display value
 ;; carries the panel clauses (+ 'cols / 'layout / 'embed). Keywords:
-;; on-enter / on-leave /
-;; exit-on-unknown / cols / layout / order / entry / exit / embed — not
-;; 'display-name, which
-;; is a breadcrumb-root override that a child group (vs. a registered tree
-;; root) has no use for. No 'provider keyword either (dsl-provider-wiring-
-;; k24): drop to the lower-level `group` form directly if a sub-drill ever
-;; needs one — nothing under `open` does yet. 'entry/'exit (the
-;; unconditional action-slot pair — see `group`'s docstring) ride straight
-;; through to `group`, same as on-enter/on-leave.
+;; on-enter / on-leave / exit-on-unknown / provider / cols / layout /
+;; order / entry / exit / embed — not 'display-name, which is a
+;; breadcrumb-root override that a child group (vs. a registered tree
+;; root) has no use for. 'entry/'exit (the unconditional action-slot pair
+;; — see `group`'s docstring) ride straight through to `group`, same as
+;; on-enter/on-leave, and so does 'provider (an FSM edge provider — see
+;; `group`'s docstring again), landing on the group's own 'provider slot
+;; exactly as `screen` threads one onto a tree root. A sub-drill whose
+;; content is per-Visit dynamic — paneru's Strip listing is the first —
+;; declares it here rather than dropping to the bare `group` form
+;; (provider-state-id-k9; before it, `open` dropped the slot).
 (define (open key label . args)
   (let loop ((rest args)
-             (on-enter #f) (on-leave #f) (exit-unk #f) (cols #f) (layout #f) (order #f)
+             (on-enter #f) (on-leave #f) (exit-unk #f) (provider #f)
+             (cols #f) (layout #f) (order #f)
              (entry #f) (exit #f) (embed #f))
     (cond
       ((and (pair? rest) (symbol? (car rest)) (pair? (cdr rest))
-            (memq (car rest) '(on-enter on-leave exit-on-unknown cols layout order entry exit embed)))
+            (memq (car rest) '(on-enter on-leave exit-on-unknown provider cols layout order entry exit embed)))
        (case (car rest)
-         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave exit-unk cols layout order entry exit embed))
-         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) exit-unk cols layout order entry exit embed))
-         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave (cadr rest) cols layout order entry exit embed))
-         ((cols)            (loop (cddr rest) on-enter on-leave exit-unk (cadr rest) layout order entry exit embed))
-         ((entry)           (loop (cddr rest) on-enter on-leave exit-unk cols layout order (cadr rest) exit embed))
-         ((exit)            (loop (cddr rest) on-enter on-leave exit-unk cols layout order entry (cadr rest) embed))
-         ((layout)          (loop (cddr rest) on-enter on-leave exit-unk cols (cadr rest) order entry exit embed))
-         ((order)           (loop (cddr rest) on-enter on-leave exit-unk cols layout (cadr rest) entry exit embed))
-         ((embed)           (loop (cddr rest) on-enter on-leave exit-unk cols layout order entry exit (cadr rest)))))
+         ((on-enter)        (loop (cddr rest) (cadr rest) on-leave exit-unk provider cols layout order entry exit embed))
+         ((on-leave)        (loop (cddr rest) on-enter (cadr rest) exit-unk provider cols layout order entry exit embed))
+         ((exit-on-unknown) (loop (cddr rest) on-enter on-leave (cadr rest) provider cols layout order entry exit embed))
+         ((provider)        (loop (cddr rest) on-enter on-leave exit-unk (cadr rest) cols layout order entry exit embed))
+         ((cols)            (loop (cddr rest) on-enter on-leave exit-unk provider (cadr rest) layout order entry exit embed))
+         ((entry)           (loop (cddr rest) on-enter on-leave exit-unk provider cols layout order (cadr rest) exit embed))
+         ((exit)            (loop (cddr rest) on-enter on-leave exit-unk provider cols layout order entry (cadr rest) embed))
+         ((layout)          (loop (cddr rest) on-enter on-leave exit-unk provider cols (cadr rest) order entry exit embed))
+         ((order)           (loop (cddr rest) on-enter on-leave exit-unk provider cols layout (cadr rest) entry exit embed))
+         ((embed)           (loop (cddr rest) on-enter on-leave exit-unk provider cols layout order entry exit (cadr rest)))))
       (else
        ;; Keyword values validate in the d: clause constructors, as in
        ;; `screen`.
@@ -972,7 +981,7 @@
               (loose    (cadr lowered))
               (panels   (caddr lowered))
               (head     (dispatch-head on-enter on-leave exit-unk
-                                       #f entry exit)))
+                                       provider entry exit)))
          (apply d:with-display
                 (apply group key label (append head children))
                 (display-clauses #f cols layout order embed

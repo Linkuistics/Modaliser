@@ -725,13 +725,27 @@
 ;; resting if any key edge survives, terminal otherwise. Auto edges are
 ;; never gate-filtered — an auto edge is unconditional once its state is
 ;; entered; its only dynamic aspect is resolve-target on its target.
+;;
+;; A provider is called with ONE argument: the id of the state it is
+;; lowered onto (CONTEXT.md "Edge provider"). A provider that mints a
+;; provided RESTING state — a narrowing prefix state — cannot be written
+;; without it: that state's id must read `<owner-id>/<key>` and its 'up
+;; edge must target `<owner-id>`, or strip-id-prefix garbles the
+;; breadcrumb and ancestors-within-tree stops the climb early. The value
+;; is right here (resolve-state-def stamps 'id on every def, provided or
+;; permanent), and %fsm-visit-owner is NOT a substitute — it is still the
+;; PREVIOUS owner at this point (set below, after the snapshot). Unlike
+;; entry/exit, the argument is unconditional rather than arity-dispatched:
+;; fsm-accepts-arg?'s portable default is always-#f, so a provider that
+;; genuinely needs its owner would silently receive nothing under any host
+;; that never installed the predicate.
 (define (classify-and-snapshot def)
   (let* ((static-edges (def-edges def))
          (auto (find (lambda (e) (eq? (edge-trigger e) 'auto)) static-edges)))
     (if auto
       (values 'transient (list auto) '())
       (let* ((provider (def-provider def))
-             (result (if provider ((fsm-behavior-proc provider)) '()))
+             (result (if provider ((fsm-behavior-proc provider) (def-id def)) '()))
              (extra-edges (provider-result-edges result))
              (extra-states (provider-result-states result))
              (live (filter edge-live? (append static-edges extra-edges))))

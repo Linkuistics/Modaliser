@@ -84,7 +84,7 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (fsm-graph-state! g 'root 'label "Root"
-            'provider (lambda ()
+            'provider (lambda (owner-id)
                         (list (cons 'edges (list (edge "a" 'prefix)))
                               (cons 'states (list (provided-state 'prefix
                                                      (edge "d" 'landed)))))))
@@ -382,7 +382,7 @@ struct ModaliserFsmLibraryTests {
         try engine.evaluate("""
           (define provider-calls 0)
           (fsm-graph-state! g 'walk 'label "Walk"
-            'provider (lambda ()
+            'provider (lambda (owner-id)
                         (set! provider-calls (+ provider-calls 1))
                         (list (cons 'edges (list (edge "x" 'leaf))))))
           (fsm-graph-state! g 'leaf 'label "Leaf" (edge 'auto 'walk))
@@ -503,7 +503,7 @@ struct ModaliserFsmLibraryTests {
         try engine.evaluate("""
           (define provider-calls 0)
           (fsm-graph-state! g 'jump 'label "Jump"
-            'provider (lambda ()
+            'provider (lambda (owner-id)
                         (set! provider-calls (+ provider-calls 1))
                         (list (cons 'edges (list (edge "j" 'landed))))))
           (fsm-graph-state! g 'landed 'label "Landed")
@@ -516,7 +516,7 @@ struct ModaliserFsmLibraryTests {
         let engine = try loadFsm()
         try engine.evaluate("""
           (fsm-graph-state! g 'jump 'label "Jump"
-            'provider (lambda () (list (cons 'edges (list (edge "j" 'landed))))))
+            'provider (lambda (owner-id) (list (cons 'edges (list (edge "j" 'landed))))))
           (fsm-graph-state! g 'landed 'label "Landed" (edge "z" 'elsewhere))
           (fsm-graph-state! g 'elsewhere 'label "Elsewhere" (edge "j" 'not-landed))
           (fsm-graph-state! g 'not-landed 'label "NotLanded" (edge "q" 'nowhere))
@@ -585,7 +585,7 @@ struct ModaliserFsmLibraryTests {
         try engine.evaluate("""
           (define last-key #f)
           (fsm-graph-state! g 'jump 'label "Jump"
-            'provider (lambda ()
+            'provider (lambda (owner-id)
                         (list (cons 'edges (list (edge "1" 'shared) (edge "2" 'shared)))
                               (cons 'states (list (provided-state 'shared
                                                     'entry (lambda (k) (set! last-key k))))))))

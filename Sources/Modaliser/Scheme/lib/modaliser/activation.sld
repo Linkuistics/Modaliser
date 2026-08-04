@@ -292,9 +292,16 @@
 ;; is appended when the chain offers one. Provided states pass through
 ;; untouched, and an authored "." (static or provided) wins over the
 ;; derived edge — dispatch takes the first matching trigger.
+;;
+;; OWNER-ID is the provider calling convention's one argument — the id of
+;; the state this composed provider is lowered onto (CONTEXT.md "Edge
+;; provider"). This wrapper only PASSES IT THROUGH: the authored provider
+;; is the one that may need to mint `<owner-id>/<key>` states, and it must
+;; see the same id it would have seen undecorated. The derived step-in edge
+;; itself has no use for it — its target comes from the detection chain.
 (define (compose-step-in-provider authored config chain-source anchor-sym)
-  (lambda ()
-    (let* ((base (if authored ((fsm-behavior-proc authored)) '()))
+  (lambda (owner-id)
+    (let* ((base (if authored ((fsm-behavior-proc authored) owner-id) '()))
            (e (step-in-edge config (chain-source) anchor-sym)))
       (if (not e)
         base

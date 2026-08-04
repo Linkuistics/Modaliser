@@ -128,7 +128,7 @@ struct ModaliserFsmFacadeTests {
         try engine.evaluate(#"""
           (define cfg (configuration (tree 'narrow-fallback-test
             (tree-root 'narrow-fallback-test
-              'provider (lambda ()
+              'provider (lambda (owner-id)
                           (list (cons 'edges (list (edge "a" "narrow-fallback-test/a")))
                                 (cons 'states
                                   (list (provided-state "narrow-fallback-test/a"

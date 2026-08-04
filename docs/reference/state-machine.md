@@ -37,7 +37,8 @@ simultaneously resting and transient.
 
 Behaviour slots (the four action slots, a gate, a provider) take
 **procedures** — lambda literals anywhere — with an optional naming
-wrapper for display. The whole graph is printable and queryable
+wrapper for display. Most are nullary; a provider takes one argument (see
+[Edge providers](#edge-providers-provider)). The whole graph is printable and queryable
 (`fsm-graph->alist` / `fsm-print`, `fsm.sld`) for tooling and future
 renderers; only closure bodies stay opaque.
 
@@ -407,10 +408,11 @@ ones; the reason value agrees across the two.
 
 ## Edge providers: `'provider`
 
-A group (and, by extension, `tree-root` and `screen` — see
+A group (and, by extension, `tree-root`, `screen` and `open` — see
 [dsl.md](dsl.md#group-k-l-keyword-value--children)) accepts an optional
-`'provider` keyword: a 0-arg procedure lowered straight onto the resulting
-state's `'provider` slot (`fsm.sld`, dsl-provider-wiring-k24). Unlike
+`'provider` keyword: a **1-arg** procedure lowered straight onto the
+resulting state's `'provider` slot (`fsm.sld`, dsl-provider-wiring-k24).
+Unlike
 `'on-enter`/`'on-leave`, which are presentation-gated onto `show`/`hide`, a
 provider fires unconditionally at come-to-rest — its contributed edges and
 synthetic states are what dispatch itself consults, whether or not the
@@ -418,19 +420,36 @@ overlay is showing.
 
 ```scheme
 (group "j" "Jump"
-  'provider (lambda ()
+  'provider (lambda (owner-id)
               (list (cons 'edges (jump-target-edges))
                     (cons 'states (jump-target-states))))
   (key "b" "Back to blocked" jump-to-next-blocked))
 ```
 
+**The argument is the id of the state the provider was lowered onto**
+(`"scope/j"` for the group above). It is not decoration. A provider that
+mints a provided **resting** state — a narrowing prefix state, where a
+two-key jump label's first key rests — must give that state the id
+`<owner-id>/<key>` and point its `'up` edge at `<owner-id>`, or the
+breadcrumb derivation garbles the path and backspace stops climbing back
+out. Nothing else in scope supplies the value: the engine's own visit
+owner is still the *previous* one when a provider runs. Unlike
+`entry`/`exit`, the argument is passed unconditionally rather than
+arity-dispatched, so a provider must declare it even where it is unused
+(`herdr-jump-provider` ignores it and keeps asserting its own scope).
+
 The provider re-runs every time its state comes to rest (Visit start, and
 on each cyclic re-arm) — see CONTEXT.md "Edge provider" and
 [docs/specs/fsm-graph.md](../specs/fsm-graph.md) "Runtime semantics" for
 the full contract (the returned alist's `'edges` / `'states` keys, and how
-they fold into the Visit's live snapshot). `open` does not (yet) expose
-`'provider` — drop to the lower-level `group` form directly if a sub-drill
-ever needs one.
+they fold into the Visit's live snapshot).
+
+One consequence worth stating, since it shapes how a narrowing prefix
+state is written: landing on a provided **resting** state begins a *new*
+Visit, which installs that state's own provided states and discards the
+previous owner's. So a prefix state must carry its **own** `'provider`
+re-minting the targets its second-key edges point at — see
+`jump-prefix-state` in `(modaliser muxes herdr)`.
 
 ## Dispatch precedence inside a group
 

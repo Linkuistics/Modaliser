@@ -347,13 +347,19 @@ struct ContextMapActivationTests {
         let engine = try loaded()
         // The host screen root carries its own authored provider (the
         // herdr-jump-provider shape); the derived step-in must ride along,
-        // not replace it.
+        // not replace it — and the decoration must stay transparent to the
+        // provider calling convention (provider-state-id-k9): the authored
+        // provider has to see the same owner id it would have seen
+        // undecorated, or a wrapped provider could not mint a narrowing
+        // prefix state.
         try engine.evaluate("""
+          (define authored-saw #f)
           (define prov-cfg
             (configuration
               (tree "com.test.term"
                 (group "" "Term"
-                  'provider (lambda ()
+                  'provider (lambda (owner-id)
+                              (set! authored-saw owner-id)
                               (list (cons 'edges (list (edge "z" "com.test.term/t")))))
                   (key "t" "T" (lambda () 't))))
               (tree 'tmix-tree (group "" "Tmix" (key "m" "M" (lambda () 'm))))
@@ -368,6 +374,7 @@ struct ContextMapActivationTests {
         """)
         #expect(try engine.evaluate("(and (member \"z\" (live-triggers)) #t)") == .true)
         #expect(try engine.evaluate("(and (member \".\" (live-triggers)) #t)") == .true)
+        #expect(try engine.evaluate("(equal? authored-saw \"com.test.term\")") == .true)
         try engine.evaluate("(fsm-step! \".\")")
         #expect(try engine.evaluate("(equal? (fsm-current-state) \"tmix-tree\")") == .true)
     }

@@ -402,7 +402,7 @@ struct FsmLoweringTests {
           (define fired #f)
           (install-config! (tree 'provider-wiring-test (tree-root 'provider-wiring-test
             (group "g" "G" 'provider
-              (lambda ()
+              (lambda (owner-id)
                 (list (cons 'edges (list (edge "j" 'provided-target)))
                       (cons 'states (list (provided-state 'provided-target
                                             'entry (lambda () (set! fired #t)))))))
@@ -414,6 +414,104 @@ struct FsmLoweringTests {
         // run at come-to-rest, contributes it for this Visit.
         try engine.evaluate("(modal-handle-key \"j\")")
         #expect(try engine.evaluate("fired") == .true)
+        try engine.evaluate("(modal-exit)")
+    }
+
+    // MARK: - The provider calling convention (provider-state-id-k9): a
+    // provider is invoked with ONE argument, the id of the state it was
+    // lowered onto. Not decoration — a provider minting a provided RESTING
+    // state must id it `<owner-id>/<key>` and point its 'up edge at
+    // `<owner-id>`, and %fsm-visit-owner is no substitute: it still holds
+    // the PREVIOUS owner when the provider runs.
+
+    @Test func providerIsCalledWithTheIdOfTheStateItIsLoweredOnto() throws {
+        let engine = try loadFsmLowering()
+        try engine.evaluate("""
+          (define root-saw #f)
+          (define group-saw #f)
+          (install-config! (tree 'owner-id-test (tree-root 'owner-id-test
+            'provider (lambda (owner-id) (set! root-saw owner-id) '())
+            (group "g" "G" 'provider
+              (lambda (owner-id) (set! group-saw owner-id) '())
+              (key "a" "A" (lambda () 'ok))))))
+        """)
+        try engine.evaluate("(modal-activate! \"owner-id-test\" '() F18)")
+        #expect(try engine.evaluate("(equal? root-saw \"owner-id-test\")") == .true)
+        // Not yet visited — the group's provider runs at ITS come-to-rest.
+        #expect(try engine.evaluate("group-saw") == .false)
+        try engine.evaluate("(modal-handle-key \"g\")")
+        #expect(try engine.evaluate("(equal? group-saw \"owner-id-test/g\")") == .true)
+        try engine.evaluate("(modal-exit)")
+    }
+
+    // MARK: - `open` threads 'provider (provider-state-id-k9)
+
+    @Test func openThreadsProviderOntoItsGroupsStateAndTheProvidedEdgesDispatch() throws {
+        let engine = try loadFsmLowering()
+        try engine.evaluate("""
+          (define fired #f)
+          (define seen #f)
+          (install-config! (screen 'open-provider-test
+            (panel "P"
+              (open "w" "Windows" 'provider
+                (lambda (owner-id)
+                  (set! seen owner-id)
+                  (list (cons 'edges (list (edge "j" 'open-provided-target)))
+                        (cons 'states (list (provided-state 'open-provided-target
+                                              'entry (lambda () (set! fired #t)))))))
+                (panel "Q" (key "a" "A" (lambda () 'ok)))))))
+        """)
+        try engine.evaluate("(modal-activate! \"open-provider-test\" '() F18)")
+        try engine.evaluate("(modal-handle-key \"w\")")
+        #expect(try engine.evaluate("(equal? seen \"open-provider-test/w\")") == .true)
+        // "j" exists only for this Visit, contributed by the provider `open`
+        // now threads through — before provider-state-id-k9 it was dropped.
+        try engine.evaluate("(modal-handle-key \"j\")")
+        #expect(try engine.evaluate("fired") == .true)
+        try engine.evaluate("(modal-exit)")
+    }
+
+    // The motivating shape (docs/specs/paneru-window-management.md decision
+    // 4): a two-key jump label needs a narrowing PREFIX state, whose id and
+    // 'up edge are both derived from the owner id the provider is handed.
+    // Nothing else in the graph can supply them. Mirrors herdr.sld's
+    // jump-prefix-state, including its own 'provider re-minting the terminal
+    // targets — landing on a provided RESTING state begins a new Visit,
+    // which discards whatever the previous visit owner installed.
+    @Test func providerMintsANarrowingPrefixStateFromItsOwnerId() throws {
+        let engine = try loadFsmLowering()
+        try engine.evaluate("""
+          (define landed #f)
+          (define (target-state prefix)
+            (provided-state (string-append prefix "/d")
+              'entry (lambda () (set! landed #t))))
+          (install-config! (screen 'narrow-test
+            (panel "P"
+              (open "w" "Windows" 'provider
+                (lambda (owner-id)
+                  (let ((prefix (string-append owner-id "/a")))
+                    (list (cons 'edges (list (edge "a" prefix)))
+                          (cons 'states
+                                (list (provided-state prefix 'payload '()
+                                        'provider (lambda (own-id)
+                                                    (list (cons 'states (list (target-state own-id)))))
+                                        (edge 'up owner-id)
+                                        (edge "d" (string-append prefix "/d"))))))))
+                (panel "Q" (key "z" "Z" (lambda () 'ok)))))))
+        """)
+        try engine.evaluate("(modal-activate! \"narrow-test\" '() F18)")
+        try engine.evaluate("(modal-handle-key \"w\")")
+        try engine.evaluate("(modal-handle-key \"a\")")
+        // The prefix state's id is the owner's, extended by the leader key —
+        // so it reads as a child of the node it narrowed, not a stray root.
+        #expect(try engine.evaluate("(equal? (fsm-current-state) \"narrow-test/w/a\")") == .true)
+        // Its 'up edge climbs back to the owner rather than dead-ending.
+        try engine.evaluate("(modal-step-back)")
+        #expect(try engine.evaluate("(equal? (fsm-current-state) \"narrow-test/w\")") == .true)
+        // Narrow again and complete the two-key label.
+        try engine.evaluate("(modal-handle-key \"a\")")
+        try engine.evaluate("(modal-handle-key \"d\")")
+        #expect(try engine.evaluate("landed") == .true)
         try engine.evaluate("(modal-exit)")
     }
 

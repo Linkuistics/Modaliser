@@ -95,11 +95,17 @@ struct EndToEndSchemeModalTests {
         // climbs via 'up edges, not id-prefix stripping — see herdr.sld's
         // jump-prefix-state for the same two requirements in production.
         try engine.evaluate("""
-            (define (narrow-provider)
-              (list (cons 'edges (list (edge "a" "test-root/a")))
-                    (cons 'states (list (provided-state "test-root/a" 'payload '()
-                                          (edge 'up "test-root")
-                                          (edge "d" "test-root/a/landed"))))))
+            ;; OWNER-ID is the provider calling convention's one argument
+            ;; (provider-state-id-k9): the id of the state this provider is
+            ;; lowered onto. Derived from it rather than hardcoded, exactly
+            ;; as jump-prefix-state does in production — the prefix state's
+            ;; id and its 'up edge target both come from there.
+            (define (narrow-provider owner-id)
+              (let ((prefix (string-append owner-id "/a")))
+                (list (cons 'edges (list (edge "a" prefix)))
+                      (cons 'states (list (provided-state prefix 'payload '()
+                                            (edge 'up owner-id)
+                                            (edge "d" (string-append prefix "/landed"))))))))
             (fsm-install-graph! (lower-configuration (configuration
               (tree 'test-root
                 (tree-root 'test-root 'provider narrow-provider

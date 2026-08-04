@@ -172,7 +172,7 @@ struct ConfigurationLoweringTests {
             (configuration
               (tree 'prov-test
                 (group "" "Root"
-                  'provider (lambda ()
+                  'provider (lambda (owner-id)
                               (set! provider-ran? #t)
                               (list (cons 'edges (list (edge "z" 'synthetic)))
                                     (cons 'states (list (provided-state 'synthetic)))))

@@ -846,6 +846,13 @@
     ;; above: the scope symbol is MACHINERY, not preference — `wiring`'s
     ;; context entry names the same 'herdr tree, so a screen authored under
     ;; another scope is a load-time closure error (ADR-0021).
+    ;;
+    ;; A provider is now handed its owner's id (provider-state-id-k9), which
+    ;; makes this constant redundant in principle — herdr could read the
+    ;; scope instead of asserting it. It is left as-is deliberately: it is
+    ;; correct today, and `wiring`'s context entry pins the same 'herdr tree
+    ;; either way, so the swap buys nothing this workstream needs
+    ;; (docs/specs/paneru-window-management.md "Out of scope").
     (define herdr-jump-scope "herdr")
 
     ;; The plane rule (plane-rule-capitals-k23) frees every lowercase
@@ -1014,7 +1021,10 @@
                                                        (cons 'rows (list (cons 'block 'herdr-jump-legend))))))))
                          (cons 'on-enter (lambda () (paint-jump-chips-narrowed! leader)))
                          (cons 'on-leave clear-jump-chips!))
-          'provider (lambda ()
+          ;; OWNER-ID (this prefix state's own id — the provider calling
+          ;; convention, provider-state-id-k9) is unused: every state this
+          ;; re-mint returns is Terminal, so none of them needs a parent id.
+          'provider (lambda (owner-id)
                       (list (cons 'states
                                   (map (lambda (p) (jump-terminal-state (cdr p))) pairs))))
           (edge 'up herdr-jump-scope)
@@ -1291,7 +1301,11 @@
     ;; assignment left unused (jump-pool-remainder above) — the one place
     ;; an axis's labels depend on another axis's live count, and only in
     ;; that one direction (agents → tabs, never the reverse).
-    (define (herdr-jump-provider)
+    ;;
+    ;; OWNER-ID is the id of the state this provider is lowered onto (the
+    ;; provider calling convention, provider-state-id-k9). herdr ignores it
+    ;; and keeps asserting `herdr-jump-scope` — see that definition for why.
+    (define (herdr-jump-provider owner-id)
       (let* ((tab-id (focused-tab-id))
              (pane-ids (jump-pane-target-ids (herdr-query "pane.list" '()) tab-id))
              (axes (parse-ui-layout (herdr-query "ui.layout" '())))

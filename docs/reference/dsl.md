@@ -381,12 +381,13 @@ declare an argument to receive the **exit reason** — see `group` below),
 default for this open's panels — see `panel`), `'embed` (the per-edge
 in-place-section choice — see `screen`'s `'embed` above), `'entry`, `'exit`
 (the unconditional action-slot pair, riding straight through to `group` — see
-`group`'s `'entry`/`'exit` above) — **not** `'display-name` (a
-breadcrumb-root override a child group has no use for) and **not**
-`'provider` (no sub-drill needs one yet; drop to the lower-level `group`
-form directly if one does). An `open` lowers to a navigable `group` whose
-children are its flat sub-grid and whose `'display` entry carries that
-sub-grid's panel clauses — the same two-layer shape a `screen` root gets.
+`group`'s `'entry`/`'exit` above), `'provider` (an FSM edge provider, riding
+through to `group`'s own slot — a sub-drill whose content is per-Visit
+dynamic declares it here; see `group`'s `'provider` below) — **not**
+`'display-name` (a breadcrumb-root override a child group has no use for).
+An `open` lowers to a navigable `group` whose children are its flat
+sub-grid and whose `'display` entry carries that sub-grid's panel
+clauses — the same two-layer shape a `screen` root gets.
 
 A nested `(open …)` declared *inside* a `(panel …)` renders as an accent
 drill-in `›` row in that panel; a top-level `(open …)` directly under a
@@ -566,7 +567,7 @@ overkill — directional split/move clusters, Walks. Keywords:
 | `'on-enter` | thunk | Fires when modal navigates *into* this group (only if the overlay is open). |
 | `'on-leave` | thunk or 1-arg procedure | Fires when modal navigates *out*. If it declares an argument it receives the **exit reason** — `'navigate` (moved elsewhere) \| `'confirm` (Return) \| `'cancel` (Escape, leader, unknown key under `'exit-on-unknown`) \| `'exit` (any other end). See [state-machine.md](state-machine.md#the-exit-reason). |
 | `'exit-on-unknown` | boolean | Unknown keys exit the modal. Inherited by descendants. |
-| `'provider` | procedure | An FSM edge provider — a 0-arg procedure run each time the group comes to rest, returning extra edges/states valid for that Visit only (see [state-machine.md](state-machine.md#edge-providers-provider)). Unlike `'on-enter`/`'on-leave`, not presentation-gated. |
+| `'provider` | procedure | An FSM edge provider — a **1-arg** procedure run each time the group comes to rest, returning extra edges/states valid for that Visit only (see [state-machine.md](state-machine.md#edge-providers-provider)). Its argument is **the id of the state it was lowered onto** (`"scope/k"` here), which a provider minting a narrowing prefix state needs for that state's own id and `'up` target. Unlike `'on-enter`/`'on-leave`, not presentation-gated. |
 | `'entry` | thunk or 1-arg procedure | Fires unconditionally at Visit come-to-rest, regardless of whether the overlay ever displays — unlike `'on-enter`, which is presentation-gated (see [state-machine.md](state-machine.md#unconditional-hooks-entry--exit)). An argument, if declared, receives the **arriving key** (a dispatch key string, or `#f` when no keypress led here). |
 | `'exit` | thunk or 1-arg procedure | Fires unconditionally at Visit end (navigate-away or modal-exit) — the `'exit` counterpart to `'entry`, mirroring `'on-leave`'s pairing with `'on-enter`. An argument, if declared, receives the same **exit reason** `'on-leave` gets, on every visit end rather than only the displayed ones. |
 
