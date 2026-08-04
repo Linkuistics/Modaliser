@@ -817,3 +817,42 @@ the Electron-only, intermittent, per-app symptom. Resolving the frontmost app
 via `NSWorkspace.frontmostApplication` (a window-server API, a11y-independent)
 + the app element's `kAXFocusedWindow` works regardless of a11y state.
 Source: `WindowManipulator.focusedWindowAndFrame`.
+
+## Paneru-window-management domain
+
+**Paneru** — the external sliding/tiling window manager Modaliser drives
+(`karinushka/paneru`): windows live on an infinite horizontal **strip**, and
+opening a window never resizes its neighbours. A daemon owns the strip; the
+`paneru` binary talks to it over a Unix socket. Modaliser is a *client* of it,
+never a reimplementation. _Avoid_: calling it a "tiling layout" — it does not
+tile a bounded screen, which is exactly why its ops do not map onto the
+**Window-layout op** vocabulary.
+
+**Column** — one horizontal slot on the strip, holding one window or a
+**stack** of them. Columns are numbered 1-based from the left and are the only
+thing `window focus <n>` can target. No paneru query payload reports a
+window's column, so a column number is never derivable from a window — the
+gap that rules out position-arithmetic targeting.
+
+**Paneru op** — a 0-arg thunk wrapping one `paneru send-cmd …` invocation
+(`window focus east`, `window swap west`, `window grow`, `window center`, …).
+A **facility**, not a decision (ADR-0021): its correctness is fixed by
+paneru's own CLI. Which ops reach which keys is the user's `config.scm`.
+_Avoid_: the underscored spelling (`window_focus_east`) — that is the *TOML
+binding name* in `paneru.toml`, not the send-cmd wire form, which is
+space-separated.
+
+**Paneru-installed composition** — the load-time branch that decides whether
+the user's window screen is composed from **Paneru ops** or from
+**Window-layout ops**. It tests *installation* (`command -v paneru`,
+ADR-0017), never daemon liveness, so it cannot race Modaliser's launch against
+paneru's. A daemon that is down degrades to the established empty-output path
+(ADR-0023) rather than flipping what a key does. _Avoid_: "is paneru running?"
+— liveness is precisely what this must not ask.
+
+**Strip listing** — the window rows the paneru screen shows, sourced from
+`paneru query state --json` (strip order, titles, app names, `window_id`) and
+joined on `windowId` against Modaliser's own window enumeration to recover the
+`ownerPid` that `focus-window` requires. Paneru contributes the *ordering and
+membership*; Modaliser contributes the *focusing*. Deliberately renders as
+overlay rows with jump labels and paints no **Chip**.

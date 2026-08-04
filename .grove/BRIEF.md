@@ -1,0 +1,90 @@
+# Modaliser.add-paneru-controls — brief
+
+## Goal
+
+Make Modaliser the keyboard layer for [paneru](https://github.com/karinushka/paneru),
+the sliding window manager. When paneru is installed, the user's window screen is
+composed from **Paneru ops** instead of Modaliser's own **Window-layout ops**, and
+carries a **Strip listing** whose rows are reachable by jump label.
+
+The user's `paneru.toml` `[bindings]` section is empty and stays that way: paneru
+has no keyboard layer of its own, and this workstream is how it gets one.
+
+## Done when
+
+- `lib/modaliser/wms/paneru.sld` exports the seven ops (focus west/east, swap
+  west/east, grow, shrink, center) and an installation predicate, each op a
+  `paneru send-cmd …` through the `(modaliser shell)` seam.
+- A strip-listing block renders the active virtual workspace's windows with
+  escalating jump labels, focusing by the id join of ADR-0024.
+- A user can compose either screen at config load; starting Modaliser before
+  paneru changes nothing.
+- `check-portable-surface.sh` and `check-decision-free.sh` both pass, and
+  `swift test` is green and still reaches nothing outside the process.
+- `docs/reference/` describes the new surface; `examples/` carries a composable
+  reference config.
+
+## Decomposition
+
+Requirements were settled in one grilling session (`plan-k1`) — no planning leaf
+was needed, and no research pair: paneru's control surface was established
+empirically against the live daemon rather than surveyed.
+
+1. **paneru-design-chain** — the spec, review-chained because it shapes all three
+   impl leaves: library surface, block design, and the reuse-vs-new call on the
+   existing `window-list` block.
+2. **paneru-ops** — the op library and the installation predicate.
+3. **paneru-strip-list** — query → parse → join → block, with label assignment.
+4. **paneru-docs** — reference docs and the example config.
+
+## Pointers
+
+- **ADR-0024** — targeting by window id, not column number. The load-bearing
+  decision; read it before touching the listing.
+- **ADR-0017** — tool-path resolution and contextual absence. The reason the
+  composition predicate tests *installation*, not liveness.
+- **ADR-0023** — the inert-by-default `(modaliser shell)` seam. All three outward
+  calls (`command -v`, `send-cmd`, `query state`) go through it; it is the single
+  test seam for this work.
+- **ADR-0021** — decision-free libraries. No file under `lib/modaliser` may author
+  a key or a label, so the jump alphabet arrives from the user's config.
+- **ADR-0018** — configuration is one explicit value, built once at load. The
+  reason the paneru/non-paneru branch is a load-time composition.
+- `CONTEXT.md` → **Paneru-window-management domain** for the vocabulary.
+- `muxes/zellij.sld` is the closest shape precedent (ops + wiring + detection),
+  but paneru sits behind **no façade** — it is not a `(modaliser terminal)`
+  backend, and the analogy stops at the file's structure.
+
+## Notes
+
+**Decisions taken in `plan-k1`, with the reasoning that is not obvious from the
+outcome:**
+
+1. **Composition at config load, not per keypress.** ADR-0018. Dynamic
+   composition would require the *dispatch structure* to vary per render, and
+   blocks today vary their data, not their keys.
+2. **The predicate tests installation, not liveness** — `command -v paneru`. The
+   user raised the startup-order race directly: Modaliser may launch before
+   paneru. Testing liveness makes the meaning of a key depend on daemon start
+   order; testing installation cannot race, and a down daemon degrades to the
+   established empty-output path.
+3. **Focus by id join** — ADR-0024, with the empirical id-space verification.
+4. **Seven ops now, widen on demand.** Deliberately *not* the whole ~20-command
+   surface: the first slice stays tight, and each further op is a config-visible
+   follow-up rather than speculative library surface.
+5. **Escalating jump labels** via the existing `jump-labels-assign`. Digits cap
+   at ten; the live workspace already holds eleven windows.
+6. **Active virtual workspace only.** Cross-workspace jumping needs a workspace
+   switch before the focus and its behaviour is unverified — deliberately left
+   as future work rather than guessed at.
+7. **One test seam** — `current-shell-runner` — with the parse and the join as
+   pure functions. Driving the seam count to one was an explicit goal, not an
+   accident.
+8. **`wms/` is a new category**, peer to `muxes/`, `apps/`, `tools/`. Paneru is
+   not a mux and sits behind no façade; flattening it into `tools/` would hide
+   that it owns the desktop rather than living inside a pane.
+9. **No chips.** The listing is overlay rows only.
+
+**Open, deliberately deferred:** cross-workspace listing and jumping; the
+remaining ~13 paneru ops; whether a floating window should be marked as such in
+the listing.
