@@ -109,6 +109,27 @@ correcting two the spec got wrong:
     deliberately) but a determinism one: without it the provider test asserts
     against the developer's live desktop.
 
+**Decided in `strip-parse-cost-k10`:**
+
+12. **`'next 'self` stays out of the reference composition, on corrected
+    reasoning.** The ≈66 ms that first ruled it out was a **debug-build**
+    number; the shipped release build costs ≈34 ms for the same code, and the
+    JSON read — recorded as 55% of the total — is now the smallest Scheme-side
+    stage at 5 ms. The read was made ~40% cheaper anyway (a cursor-passing
+    scanner in `(modaliser json)`, `substring` for unescaped literals). What
+    still rules `'next 'self` out is the **tail**, not the median: the AX sweep
+    ranges 8–29 ms warm with cold calls past 200 ms, and `KeyboardCapture`
+    filters no auto-repeat, so a *held* Focus West queues ≈48 ms of work per
+    repeat and the strip keeps sliding after release. Per *deliberate*
+    repetition `'next 'self` is not more expensive than re-entering the screen —
+    it is strictly better — so the ruling is about the failure mode a shipped
+    default must not have, not about the cost.
+
 **Open, deliberately deferred:** cross-workspace listing and jumping; the
 remaining ~13 paneru ops; whether a floating window should be marked as such in
-the listing; simplifying `muxes/herdr` onto the provider's new id argument.
+the listing; simplifying `muxes/herdr` onto the provider's new id argument; and
+now — the two things that would reopen `'next 'self` — a cached or incremental
+window enumeration in place of a per-Visit AX sweep, and auto-repeat suppression
+at the capture layer. Neither is a leaf: the shipped composition is correct
+without them, and both are preference calls about a surface nobody has
+complained about yet.

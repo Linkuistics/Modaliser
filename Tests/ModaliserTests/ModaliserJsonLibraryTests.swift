@@ -149,6 +149,49 @@ struct ModaliserJsonLibraryTests {
             "expected a guardable raise for: \(garbage.isEmpty ? "(empty output)" : garbage)")
     }
 
+    /// Structurally malformed input raises **guardably** too — the reader
+    /// does not quietly accept a shape it can recover from.
+    ///
+    /// These four are here because they are what a *fast* reader tends to
+    /// lose. Its scanner knows where the next token must begin, so it is
+    /// always tempting to jump the cursor past a punctuation character
+    /// rather than check it, and to read an escape character without
+    /// bounds-checking first. None of that changes a well-formed parse, so
+    /// nothing else in this suite would notice.
+    ///
+    /// The last two are the sharp ones, and they were confirmed against a
+    /// draft that omitted the guards: `string-ref` past the end raises a
+    /// **host** range error, which is *not* the guardable kind — it escapes
+    /// the `guard` every caller wraps `json-parse` in and reaches the host
+    /// as a failed evaluation, which is the one outcome this reader's
+    /// malformed-input handling exists to prevent.
+    ///
+    /// - a **missing colon** between key and value (`{"a" 1}`), which a
+    ///   reader that does `(+ k 1)` instead of `expect #\:` reads as if the
+    ///   space were a colon;
+    /// - a **non-string key** (`{a:1}`), the same hazard on the opening
+    ///   quote. Both of these still raise without the check, by falling over
+    ///   further along — so they pin the intent rather than close a live
+    ///   hole, and a reader that jumped the cursor *and* recovered would
+    ///   need them;
+    /// - a **truncated escape** (`{"k":"a\`), where the escape character
+    ///   itself is past the end of the input;
+    /// - a **truncated `\u` escape**, the same hazard four characters wider.
+    @Test(
+        arguments: [
+            #"{\"a\" 1}"#,
+            #"{a:1}"#,
+            #"{\"k\":\"a\\"#,
+            #"{\"k\":\"a\\u00"#,
+        ])
+    func raisesGuardablyOnStructurallyMalformedInput(_ malformed: String) throws {
+        let e = try engine()
+        #expect(
+            try e.evaluate("(eq? 'raised (guard (x (#t 'raised)) (json-parse \"\(malformed)\")))")
+                == .true,
+            "expected a guardable raise for: \(malformed)")
+    }
+
     // ─── json-write ─────────────────────────────────────────────────
     //
     // The writer is json-parse's mirror over the same representation, so

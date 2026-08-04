@@ -164,10 +164,11 @@ keeps this a pure function: the caller passes it, and a test passes a canned lis
 takes an `'enumerate` option — a 0-arg thunk defaulting to
 `list-current-space-windows` — because the provider is where the live call
 actually happens, and a provider test that let the real AX sweep run would assert
-against the developer's live desktop (see **Test seams**). The option doubles as
-the lever decision 4's cost paragraph names: `list-windows` is the wider, cached,
-staler alternative, a one-line swap if the join's hit rate or the sweep's cost
-ever proves a problem in practice.
+against the developer's live desktop (see **Test seams**). `list-windows` is the
+wider, cached, staler alternative and stays a one-line swap if the join's hit
+rate ever proves a problem in practice — but **not** as a cost lever, which is
+what decision 4 originally offered it as: measured, it is no cheaper than the
+sweep it would replace.
 
 **Unmatched rows still consume a label.** They render as ordinary rows and their
 label dispatches to nothing, exactly as ADR-0024 anticipates. The reason is
@@ -264,53 +265,92 @@ existing `window-list` block pays a comparable enumeration cost, but only at
 change in kind, not a smaller version of the same thing, and the comparison
 against `key-range` above does not capture it.
 
-This is accepted rather than eliminated. Two levers are already in the design:
+This is accepted rather than eliminated. `'next 'self` is the user's call
+(decision 5), so a composition that finds the cost unacceptable drops it and
+re-enters the screen per op.
 
-- The enumeration is an injectable option (decision 3), so a composition can pass
-  the cached, wider `list-windows` instead of the uncached AX sweep
-  `list-current-space-windows` performs over every regular running application.
-- `'next 'self` is the user's call (decision 5), so a composition that finds the
-  cost unacceptable drops it and re-enters the screen per op.
-
-**Measured (2026-08-04, `paneru-strip-list-k7`, an 11-window strip — the live
-one this spec was written against):**
+**Measured (2026-08-04, an 11-window strip — the live one this spec was written
+against — on a 1689-byte payload). Release build, which is what ships:**
 
 | Stage | Median | Notes |
 |---|---|---|
-| `paneru query state --json` | **13 ms** | `/bin/zsh -c` spawn (≈3 ms) + the daemon's socket round trip |
-| Window enumeration | **11 ms** | `list-current-space-windows`, an uncached AX sweep |
-| `parse-strip-windows` | **36 ms** | the JSON read, over a 1689-byte payload |
-| `join-strip-targets` | **6 ms** | |
+| `paneru query state --json` | **14 ms** | `/bin/zsh -c` spawn + the daemon's socket round trip |
+| Window enumeration | **13 ms** | `list-current-space-windows`, an uncached AX sweep. Median flatters it — see below |
+| `parse-strip-windows` | **5 ms** | the JSON read |
+| `join-strip-targets` | **2 ms** | |
 | Assign + lower | **<1 ms** | |
-| **Come-to-rest total** | **≈66 ms** | synchronous, before the next key is handled |
+| **Come-to-rest total** | **≈34 ms** | synchronous, before the next key is handled |
 
-**Ruling: the reference composition ships without `'next 'self`.** 66 ms per
-press is not comfortably inside a keypress budget — a held or quickly repeated
-Focus West would spend most of its interval in the provider, on the main thread,
-ahead of the next key. A composition that wants cyclic re-arm can add `'next
-'self` itself and pay for it knowingly; the shipped example does not make that
-choice on the user's behalf.
+**The first measurement of this table was taken in the wrong build.** It recorded
+≈66 ms and named the JSON read as 55% of it. Both numbers were real but they were
+`swift test`'s — a **debug** build — and Modaliser ships a **release** one
+(`build-app.sh` builds `-c release`). LispKit is 2–5× slower unoptimised, and it
+is the *interpreted* stages that inflate: the same payload reads in 21 ms debug
+and 4 ms release. Nothing about the code changed between those two numbers.
 
-**The cost is not where this decision predicted.** The paragraph above assumed
-the subprocess spawn and the AX sweep, and named the two levers accordingly.
-Neither is the dominant term: **the interpreted JSON read is 55% of the total**,
-and it scales linearly with strip length (a 20-window strip roughly doubles it),
-so the two levers between them can remove at most a third of a cost that grows
-with exactly the thing the listing is for. `paneru query state` emits the same
-JSON with or without `--json` and paneru's narrower subcommands
-(`virtual-workspaces`, `active`) do not carry less window data, so the payload
-cannot simply be made smaller. Making the read cheap is its own concern, tracked
-as `strip-parse-cost-k10`; if it lands, this ruling is worth revisiting, because
-`'next 'self` is the ergonomically better default and only the cost rules it out.
+Anyone re-running this must therefore pass `-c release`, or they will re-derive
+the debug figures and reach the same wrong conclusion about where the cost is.
 
-Measurement method, for anyone re-running it: the query was timed as `/bin/zsh
--c` from outside the process (matching `ShellLibrary`'s own spawn), and the
-Scheme stages through `SchemeEngine.evaluate` in a throwaway test — the harness
-baseline is 0.03 ms, so it contributes nothing. The join's *hit rate* cannot be
-measured that way: `swift test` is not an accessibility-trusted process, so
-`_AXUIElementGetWindow` yields `windowId` 0 for every window and every row
-misses. That is a harness artefact, not a property of the join — which is also
-precisely why the enumeration had to become an injectable seam.
+**Ruling: the reference composition still ships without `'next 'self`** — but
+not for the reason first recorded, and the corrected reasoning is what a future
+reader needs.
+
+Two things changed under it. The read *was* made cheap
+(`strip-parse-cost-k10`): rewriting `(modaliser json)`'s scanner to pass its
+cursor rather than mutate a boxed one, and to lift unescaped string literals out
+with one `substring`, took the parse from 7 ms to 4 ms in release — and the whole
+come-to-rest from ≈66 ms as first recorded to ≈34 ms as it actually shipped. And
+the parse is no longer the dominant term: at 5 ms of 34 it is now the *smallest*
+Scheme-side stage, behind the subprocess spawn and the AX sweep.
+
+So the median is no longer the problem. What rules `'next 'self` out is the
+**tail**, and it survives every optimisation above:
+
+- **The enumeration's spread is enormous.** Over 31 consecutive calls the AX
+  sweep ranged 8–29 ms warm, with cold calls past 200 ms. It talks to every
+  regular running application, so its cost is set by what the user has open and
+  how responsive those apps are — not by anything Modaliser controls.
+- **Auto-repeat is not filtered.** `KeyboardCapture` installs no `isARepeat`
+  test, so a *held* Focus West delivers repeats at the system rate (as fast as
+  15 ms) into the capture buffer, and the main thread drains them one at a time
+  at ≈34 ms of provider plus ≈14 ms of `send-cmd` each. Holding the key — the
+  obvious way to walk along a strip — makes the window manager keep sliding
+  after release. Without `'next 'self` the machine has left the screen and the
+  repeats cannot fire the op at all, so this hazard is one `'next 'self` creates.
+
+**Per deliberate repetition `'next 'self` is not more expensive** — re-entering
+the screen runs the same provider, so it pays the same ≈34 ms for two extra
+keystrokes. It is strictly better for a user who presses deliberately, and worse
+for one who holds the key. The reference composition cannot know which, so it
+ships the choice that cannot misbehave and documents the other.
+
+**Two levers this decision previously named do not work, and are recorded here so
+nobody re-tries them.** Swapping the enumeration for the wider, cached
+`list-windows` (decision 3) is **not cheaper** — measured at 13 ms median against
+`list-current-space-windows`' 14, inside the noise, with the same tail. And no
+native substring search is reachable to speed the reader further: LispKit has
+one, but it lives in a host library `lib/modaliser` may not import (portability
+contract), and the SRFI that re-exports the name backs it with a Scheme KMP loop.
+
+What would reopen this: an enumeration that is cached or incremental rather than
+a fresh AX sweep per Visit, or suppressing auto-repeat at the capture layer.
+Either would move the deciding term; the reader will not.
+
+The parse scales **linearly** with payload size, confirmed across 665–5267 bytes
+(1.9–15.6 ms release). A 20-window strip therefore costs roughly twice an
+11-window one, as first predicted — the growth is real, it is simply no longer
+the largest thing growing.
+
+Measurement method, for anyone re-running it: build `-c release`; time the query
+as `/bin/zsh -c` from outside the process (matching `ShellLibrary`'s own spawn),
+and the Scheme stages through `SchemeEngine.evaluate` in a throwaway test — the
+harness baseline is 0.02 ms, so it contributes nothing. Report medians over
+≥21 samples and the spread with them; the AX sweep's median alone is misleading.
+The join's *hit rate* cannot be measured that way: `swift test` is not an
+accessibility-trusted process, so `_AXUIElementGetWindow` yields `windowId` 0 for
+every window and every row misses. That is a harness artefact, not a property of
+the join — which is also precisely why the enumeration had to become an
+injectable seam.
 
 **This does not reopen ADR-0018.** The decision that composition happens at
 config load fixes *which screen the user gets*; per-Visit edge provision inside

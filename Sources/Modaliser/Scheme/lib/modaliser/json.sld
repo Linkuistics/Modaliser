@@ -52,116 +52,190 @@
     ;; Parse JSON text into the representation above. Raises on malformed
     ;; input; callers shelling out to a CLI wrap this in `guard` so a
     ;; stray non-JSON line degrades to #f rather than breaking a leader
-    ;; press. A single mutable cursor `i` walks the string; the internal
-    ;; procedures form a letrec* so their mutual references resolve.
+    ;; press. The internal procedures form a letrec* so their mutual
+    ;; references resolve.
+    ;;
+    ;; ─── Why the cursor is passed, not mutated ───────────────────────
+    ;;
+    ;; Every scanner below takes the index to read from and answers a
+    ;; `(value . next-index)` pair. The obvious alternative — one `set!`
+    ;; cursor with `peek` / `advance!` helpers, which is what this reader
+    ;; used to be — is shorter to read and measurably slower, because in
+    ;; an interpreter the cost is *operations per character* and that
+    ;; shape spends several more of them on every one:
+    ;;
+    ;;   - a `set!`-captured variable is boxed, so each `i` read is an
+    ;;     indirection and each `advance!` a write through it (measured at
+    ;;     2.35 µs vs 1.87 µs for a plain call);
+    ;;   - `peek` and `advance!` are closure calls, paid per character;
+    ;;   - a loop variable costs neither.
+    ;;
+    ;; `parse-string` gains the most and is the hot path — most characters
+    ;; in a real payload sit inside string literals. Scanning ahead to the
+    ;; closing quote and lifting the whole literal out with one native
+    ;; `substring` replaces a per-character `cons` plus a final `reverse`
+    ;; and `list->string`. Only a literal that actually carries a backslash
+    ;; falls back to consing (`parse-escaped-string`).
+    ;;
+    ;; Measured on `(modaliser wms paneru)`'s 1689-byte payload, release
+    ;; build: **6.9 ms → 3.9 ms**, producing an `equal?` tree. That matters
+    ;; because paneru's parse runs at come-to-rest, on the main thread,
+    ;; between one keypress and the next — see
+    ;; `docs/specs/paneru-window-management.md` decision 4.
+    ;;
+    ;; What did NOT help, so nobody re-tries it: a native substring search
+    ;; to find the closing quote. LispKit has one, but it lives in a host
+    ;; library this tree may not import, and the SRFI that re-exports the
+    ;; name backs it with a Scheme KMP loop — slower than the inline scan.
     (define (json-parse str)
-      (let ((n (string-length str))
-            (i 0))
-        (define (peek) (if (< i n) (string-ref str i) #\x0))
-        (define (advance!) (set! i (+ i 1)))
-        (define (skip-ws)
-          (let loop ()
-            (when (and (< i n) (char-whitespace? (peek)))
-              (advance!) (loop))))
-        (define (expect ch)
-          (if (char=? (peek) ch)
-              (advance!)
-              (error "json-parse: unexpected character" (peek) 'expected ch)))
+      (let ((n (string-length str)))
 
-        (define (parse-value)
-          (skip-ws)
-          (let ((c (peek)))
-            (cond
-              ((char=? c #\{) (parse-object))
-              ((char=? c #\[) (parse-array))
-              ((char=? c #\") (parse-string))
-              ((char=? c #\t) (parse-lit "true" #t))
-              ((char=? c #\f) (parse-lit "false" #f))
-              ((char=? c #\n) (parse-lit "null" 'null))
-              (else (parse-number)))))
+        (define (skip-ws k)
+          (if (and (< k n) (char-whitespace? (string-ref str k)))
+              (skip-ws (+ k 1))
+              k))
 
-        (define (parse-lit word val)
-          (let loop ((k 0))
-            (if (= k (string-length word))
-                val
-                (begin (expect (string-ref word k)) (loop (+ k 1))))))
+        ;; K must hold CH; answers the index after it. Called at grammar
+        ;; points only, never per character, so the call is not on the hot
+        ;; path — and each one is a validation the reader would otherwise
+        ;; silently skip (`{"a" 1}` must not read as `{"a": 1}`).
+        (define (expect k ch)
+          (if (and (< k n) (char=? (string-ref str k) ch))
+              (+ k 1)
+              (error "json-parse: unexpected character"
+                     (if (< k n) (string-ref str k) 'end-of-input)
+                     'expected ch)))
+
+        (define (parse-value k)
+          (let ((k (skip-ws k)))
+            ;; Empty and whitespace-only input lands here. It must raise the
+            ;; guardable kind — see parse-number's note, which owns the
+            ;; reasoning for every malformed-input path.
+            (if (>= k n)
+                (error "json-parse: expected a value" 'end-of-input)
+                (let ((c (string-ref str k)))
+                  (cond
+                    ((char=? c #\{) (parse-object (+ k 1)))
+                    ((char=? c #\[) (parse-array (+ k 1)))
+                    ((char=? c #\") (parse-string (+ k 1)))
+                    ((char=? c #\t) (parse-lit k "true" #t))
+                    ((char=? c #\f) (parse-lit k "false" #f))
+                    ((char=? c #\n) (parse-lit k "null" 'null))
+                    (else (parse-number k)))))))
+
+        (define (parse-lit k word val)
+          (let ((len (string-length word)))
+            (let loop ((j 0))
+              (cond
+                ((= j len) (cons val (+ k len)))
+                ((and (< (+ k j) n)
+                      (char=? (string-ref str (+ k j)) (string-ref word j)))
+                 (loop (+ j 1)))
+                (else (error "json-parse: unexpected character"
+                             (if (< (+ k j) n) (string-ref str (+ k j)) 'end-of-input)
+                             'expected (string-ref word j)))))))
 
         ;; { key : value , … } → alist, keys reversed back into source order.
-        (define (parse-object)
-          (expect #\{) (skip-ws)
-          (if (char=? (peek) #\})
-              (begin (advance!) '())
-              (let loop ((acc '()))
-                (skip-ws)
-                (let ((key (parse-string)))
-                  (skip-ws) (expect #\:)
-                  (let ((val (parse-value)))
-                    (skip-ws)
-                    (let ((c (peek)))
-                      (cond
-                        ((char=? c #\,)
-                         (advance!) (loop (cons (cons key val) acc)))
-                        ((char=? c #\})
-                         (advance!) (reverse (cons (cons key val) acc)))
-                        (else (error "json-parse: malformed object" c)))))))))
-
-        ;; [ value , … ] → vector, in source order.
-        (define (parse-array)
-          (expect #\[) (skip-ws)
-          (if (char=? (peek) #\])
-              (begin (advance!) #())
-              (let loop ((acc '()))
-                (let ((val (parse-value)))
-                  (skip-ws)
-                  (let ((c (peek)))
+        ;; K is the index just past the `{`.
+        (define (parse-object k)
+          (let ((k (skip-ws k)))
+            (if (and (< k n) (char=? (string-ref str k) #\}))
+                (cons '() (+ k 1))
+                (let loop ((k k) (acc '()))
+                  (let* ((kv  (parse-string (expect (skip-ws k) #\")))
+                         (vv  (parse-value (expect (skip-ws (cdr kv)) #\:)))
+                         (e   (skip-ws (cdr vv)))
+                         (acc (cons (cons (car kv) (car vv)) acc)))
                     (cond
-                      ((char=? c #\,)
-                       (advance!) (loop (cons val acc)))
-                      ((char=? c #\])
-                       (advance!) (list->vector (reverse (cons val acc))))
-                      (else (error "json-parse: malformed array" c))))))))
+                      ((>= e n) (error "json-parse: malformed object" 'end-of-input))
+                      ((char=? (string-ref str e) #\,) (loop (+ e 1) acc))
+                      ((char=? (string-ref str e) #\}) (cons (reverse acc) (+ e 1)))
+                      (else (error "json-parse: malformed object"
+                                   (string-ref str e)))))))))
 
-        (define (parse-string)
-          (expect #\")
-          (let loop ((acc '()))
-            (let ((c (peek)))
-              (cond
-                ;; End of input inside a string literal. This clause is
-                ;; load-bearing, not defensive: `peek` answers #\x0 past the
-                ;; end rather than an end sentinel, and the `else` branch
-                ;; below advances on ANY character — so without it an
-                ;; unterminated literal spins forever, consing NULs, instead
-                ;; of raising. Every other scanner here is already bounded
-                ;; (skip-ws and parse-number test `i < n`; the object and
-                ;; array scanners fall through to `error` on #\x0), so this
-                ;; was the one unbounded loop in the reader.
-                ;;
-                ;; A truncated payload is not hypothetical: json-parse's
-                ;; callers feed it whatever a CLI printed, and (modaliser wms
-                ;; paneru)'s parse runs at come-to-rest — on the main thread,
-                ;; between a keypress and the next one. Raising degrades
-                ;; (callers already wrap this in `guard`); spinning does not.
-                ((>= i n) (error "json-parse: unterminated string"))
-                ((char=? c #\") (advance!) (list->string (reverse acc)))
-                ((char=? c #\\)
-                 (advance!)
-                 (let ((e (peek)))
-                   (advance!)
-                   (cond
-                     ((char=? e #\") (loop (cons #\" acc)))
-                     ((char=? e #\\) (loop (cons #\\ acc)))
-                     ((char=? e #\/) (loop (cons #\/ acc)))
-                     ((char=? e #\b) (loop (cons #\x8 acc)))
-                     ((char=? e #\f) (loop (cons #\xc acc)))
-                     ((char=? e #\n) (loop (cons #\newline acc)))
-                     ((char=? e #\r) (loop (cons #\return acc)))
-                     ((char=? e #\t) (loop (cons #\tab acc)))
-                     ((char=? e #\u)
-                      (let ((hex (substring str i (+ i 4))))
-                        (set! i (+ i 4))
-                        (loop (cons (integer->char (string->number hex 16)) acc))))
-                     (else (error "json-parse: bad escape" e)))))
-                (else (advance!) (loop (cons c acc)))))))
+        ;; [ value , … ] → vector, in source order. K is just past the `[`.
+        (define (parse-array k)
+          (let ((k (skip-ws k)))
+            (if (and (< k n) (char=? (string-ref str k) #\]))
+                (cons #() (+ k 1))
+                (let loop ((k k) (acc '()))
+                  (let* ((vv  (parse-value k))
+                         (e   (skip-ws (cdr vv)))
+                         (acc (cons (car vv) acc)))
+                    (cond
+                      ((>= e n) (error "json-parse: malformed array" 'end-of-input))
+                      ((char=? (string-ref str e) #\,) (loop (+ e 1) acc))
+                      ((char=? (string-ref str e) #\])
+                       (cons (list->vector (reverse acc)) (+ e 1)))
+                      (else (error "json-parse: malformed array"
+                                   (string-ref str e)))))))))
+
+        ;; K is the index just past the opening quote. The scan touches each
+        ;; character once and conses nothing: on reaching the closing quote
+        ;; the literal is lifted out whole by `substring`.
+        ;;
+        ;; The end-of-input clause is load-bearing, not defensive: the `else`
+        ;; branch advances on ANY character, so without it an unterminated
+        ;; literal spins forever instead of raising. Every other scanner here
+        ;; is already bounded (skip-ws and parse-number test `j < n`; the
+        ;; object and array scanners test it explicitly), so this is the one
+        ;; loop in the reader that could run away.
+        ;;
+        ;; A truncated payload is not hypothetical: json-parse's callers feed
+        ;; it whatever a CLI printed, and (modaliser wms paneru)'s parse runs
+        ;; at come-to-rest — on the main thread, between a keypress and the
+        ;; next one. Raising degrades (callers already wrap this in `guard`);
+        ;; spinning does not.
+        (define (parse-string k)
+          (let scan ((j k))
+            (if (>= j n)
+                (error "json-parse: unterminated string")
+                (let ((c (string-ref str j)))
+                  (cond
+                    ((char=? c #\") (cons (substring str k j) (+ j 1)))
+                    ;; One backslash anywhere in the literal and the whole
+                    ;; thing is re-read character at a time — the escape
+                    ;; decoding has to build a string that is not a substring
+                    ;; of the source. Rare enough in practice (paneru and
+                    ;; herdr payloads carry none) that the re-scan is cheaper
+                    ;; than making the fast path carry the machinery.
+                    ((char=? c #\\) (parse-escaped-string k))
+                    (else (scan (+ j 1))))))))
+
+        (define (parse-escaped-string k)
+          (let loop ((j k) (acc '()))
+            (if (>= j n)
+                (error "json-parse: unterminated string")
+                (let ((c (string-ref str j)))
+                  (cond
+                    ((char=? c #\") (cons (list->string (reverse acc)) (+ j 1)))
+                    ((char=? c #\\)
+                     ;; Bounds-check before reading the escape character.
+                     ;; `string-ref` past the end raises a HOST range error,
+                     ;; which is not the guardable kind — the one thing every
+                     ;; malformed-input path here must avoid.
+                     (if (>= (+ j 1) n)
+                         (error "json-parse: unterminated string")
+                         (let ((e (string-ref str (+ j 1))))
+                           (cond
+                             ((char=? e #\") (loop (+ j 2) (cons #\" acc)))
+                             ((char=? e #\\) (loop (+ j 2) (cons #\\ acc)))
+                             ((char=? e #\/) (loop (+ j 2) (cons #\/ acc)))
+                             ((char=? e #\b) (loop (+ j 2) (cons #\x8 acc)))
+                             ((char=? e #\f) (loop (+ j 2) (cons #\xc acc)))
+                             ((char=? e #\n) (loop (+ j 2) (cons #\newline acc)))
+                             ((char=? e #\r) (loop (+ j 2) (cons #\return acc)))
+                             ((char=? e #\t) (loop (+ j 2) (cons #\tab acc)))
+                             ((char=? e #\u)
+                              (if (> (+ j 6) n)
+                                  (error "json-parse: unterminated string")
+                                  (let ((hex (string->number
+                                               (substring str (+ j 2) (+ j 6)) 16)))
+                                    (if (number? hex)
+                                        (loop (+ j 6) (cons (integer->char hex) acc))
+                                        (error "json-parse: bad escape" #\u)))))
+                             (else (error "json-parse: bad escape" e))))))
+                    (else (loop (+ j 1) (cons c acc))))))))
 
         (define (number-char? c)
           (or (char-numeric? c)
@@ -171,8 +245,10 @@
         ;; parse-value falls through to here for ANY character that does not
         ;; start an object, array, string or literal — so this is where every
         ;; piece of non-JSON input lands, not just a bad number. Shell noise
-        ;; ("paneru: command not found") and empty output both arrive with the
-        ;; cursor on a character that consumes no number token at all.
+        ;; ("paneru: command not found") arrives with the cursor on a
+        ;; character that consumes no number token at all; empty output never
+        ;; reaches here, having already been caught by parse-value's own
+        ;; end-of-input clause.
         ;;
         ;; The empty-token case is checked BEFORE `string->number` sees it,
         ;; deliberately: LispKit's `string->number` raises a type error on an
@@ -182,20 +258,22 @@
         ;; our own `error` instead keeps ALL malformed input on one guardable
         ;; path, which is what lets a caller degrade to no data (ADR-0017's
         ;; empty-output shape) instead of breaking a leader press.
-        (define (parse-number)
-          (let ((start i))
-            (let loop ()
-              (when (and (< i n) (number-char? (peek))) (advance!) (loop)))
-            (let ((tok (substring str start i)))
-              (if (= (string-length tok) 0)
-                  (error "json-parse: expected a value" (peek))
-                  (let ((num (string->number tok)))
-                    (if (number? num)
-                        num
-                        (error "json-parse: malformed number" tok)))))))
+        (define (parse-number k)
+          (let loop ((j k))
+            (if (and (< j n) (number-char? (string-ref str j)))
+                (loop (+ j 1))
+                (if (= j k)
+                    (error "json-parse: expected a value" (string-ref str k))
+                    (let* ((tok (substring str k j))
+                           (num (string->number tok)))
+                      (if (number? num)
+                          (cons num j)
+                          (error "json-parse: malformed number" tok)))))))
 
-        (skip-ws)
-        (parse-value)))
+        ;; Trailing text after the first complete value is ignored, exactly
+        ;; as it always was — a CLI that prints a JSON line and then a
+        ;; newline or a warning still reads.
+        (car (parse-value 0))))
 
     ;; ─── Writer ─────────────────────────────────────────────────────
     ;;
