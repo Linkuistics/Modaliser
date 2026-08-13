@@ -35,6 +35,13 @@ reaching for recipes, start with the tutorial:
 - [Set up a Walk](walk-mode.md) — a focus-movement mode where
   `hjkl` keep moving without re-pressing the leader.
 
+## Windows and displays
+
+- [Move and focus windows across displays](move-and-focus-windows-across-displays.md)
+  — the Windows menu's two chip families: digits focus a window,
+  letters move the focused window to a display, Shift+letter focuses
+  the display itself.
+
 ## Selectors and search
 
 - [Add a fuzzy-finder for a custom data source](fuzzy-finder.md) —
@@ -54,3 +61,13 @@ reaching for recipes, start with the tutorial:
 - [Use Modaliser over a remote desktop](remote-desktop.md) — the
   pass-and-arm mechanism for when a host and a remote machine both
   run Modaliser and see the same trigger keys.
+
+## Maintainer runbooks
+
+Not user-facing — these describe operating the project itself.
+
+- [Releasing Modaliser](../RELEASING.md) — tag, build, publish to the
+  Homebrew cask, and what each guard in the pipeline protects.
+- [Transition the daily herdr to (and from) the ui.layout fork](herdr-fork-transition.md)
+  — live-handoff runbook for the forked herdr that mini-chips depend
+  on (ADR-0016). Retires when the fork's `ui.layout` lands upstream.

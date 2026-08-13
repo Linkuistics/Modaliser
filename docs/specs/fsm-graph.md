@@ -30,7 +30,7 @@ configuration, and the overlay/chooser hook cells). The authoring sugar
 (screens/panels/keys) remains the user surface; the pure lower function
 turns the assembled configuration value (ADR-0018) into the closed graph
 the engine consumes. The `(modaliser state-machine)` re-export shim was
-removed once its importers migrated (docs-sweep-k15); `(modaliser fsm)`
+removed once its importers migrated; `(modaliser fsm)`
 is the one library.
 
 ## Decisions
@@ -142,8 +142,8 @@ step(input):
   ever shows — the escape hatch for a hook that must not wait out the
   show delay; `'on-enter`/`'on-leave` lower onto the presentation-gated
   show/hide pair and keep the delayed no-flash behaviour. Every visible
-  side effect in the shipped tree — jump-chip paint/clear included
-  (defer-chips-to-overlay-k33) — rides the gated pair, so the escape
+  side effect in the shipped tree — jump-chip paint/clear included —
+  rides the gated pair, so the escape
   hatch currently has no user.
 - Screens land in the configuration value's screen set keyed by scope;
   inner-tool trees land in the Terminal context map. Activation, the

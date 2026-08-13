@@ -198,7 +198,7 @@ per-axis pools, no chips, no dim-state narrowing.
 and a resting provided state is the one kind whose shape is constrained: it
 survives as a Visit owner across keystrokes, so the presentation façade reads it
 the way it reads a permanent state. Three things about it are therefore not
-free-form, and `paneru-strip-list-k7` should not have to rediscover them —
+free-form, and are recorded here so they need not be rediscovered —
 `muxes/herdr.sld` records the same three at length, having found each the hard
 way:
 
@@ -295,8 +295,8 @@ the debug figures and reach the same wrong conclusion about where the cost is.
 not for the reason first recorded, and the corrected reasoning is what a future
 reader needs.
 
-Two things changed under it. The read *was* made cheap
-(`strip-parse-cost-k10`): rewriting `(modaliser json)`'s scanner to pass its
+Two things changed under it. The read *was* made cheap:
+rewriting `(modaliser json)`'s scanner to pass its
 cursor rather than mutate a boxed one, and to lift unescaped string literals out
 with one `substring`, took the parse from 7 ms to 4 ms in release — and the whole
 come-to-rest from ≈66 ms as first recorded to ≈34 ms as it actually shipped. And
@@ -444,7 +444,7 @@ whose provider is running.** The engine already has the value —
 providers exist in the tree, all of them library code: `muxes/herdr`'s root jump
 provider, its per-prefix-state provider, and `activation.sld`'s
 `compose-step-in-provider` wrapper. All three accept the argument; only paneru's
-uses it. `provider-state-id-k9` owns this, ahead of `paneru-strip-list-k7`.
+uses it.
 
 Three alternatives were weighed and none is free:
 
@@ -465,12 +465,10 @@ Three alternatives were weighed and none is free:
   brief's Done-when, and the strip is unbounded by construction. Ten digits
   against twelve live windows is the motivating case, not an edge one.
 
-The change carries a documentation surface that lands in the same commit, since
-three sites currently state the opposite and point at `group` instead:
-`dsl.sld`'s `open` docstring, `docs/reference/dsl.md`, and
-`docs/reference/state-machine.md` — the last also gaining the provider's new
-argument in its contract description. `provider-state-id-k9` owns all of it; no
-other leaf in this workstream touches `fsm.sld` or `dsl.sld`.
+The documentation surface moved with it, in three places that had previously
+pointed at `group` instead: `dsl.sld`'s `open` docstring,
+`docs/reference/dsl.md`, and `docs/reference/state-machine.md` — the last also
+carrying the provider's argument in its contract description.
 
 ### 6. Degradation
 

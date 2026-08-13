@@ -84,7 +84,7 @@ from portable data:
 }
 ```
 
-- **`loose`** (bare-loose-rows-k23) is the screen/open's loose region —
+- **`loose`** is the screen/open's loose region —
   everything not wrapped in a `(panel …)` — rendered **bare** (header-less, no
   card) **above** the panel grid by a `.panel-loose` block. Items keep
   declaration order; each is either a `<row>` (a loose atom, or a folded
@@ -217,7 +217,7 @@ hooks live; the Display value only *places* it, by reference id (its
 | `'on-enter-fn` | thunk | optional | Fires when the overlay containing this block becomes visible. See [Block hooks](#block-hooks). |
 | `'on-leave-fn` | thunk | optional | Fires when the overlay closes. |
 | `'cursor-targets-fn` | thunk | optional | `→ ((label . target) …)` accessor offered to the selection cursor; the first list to offer in a render pass owns the cursor. |
-| `'cursor-initial-index-fn` | thunk | optional | `→` focused row index (or `#f`). Consulted **once**, when the list first claims the cursor (overlay open), to seed the selection on the currently-focused row instead of row 0; a later arrow-move is preserved across re-renders. `#f` / out-of-range falls back to row 0. The iTerm tab/pane lists supply this; the global windows list does not yet (`list-cursor-window-focus-k28`). |
+| `'cursor-initial-index-fn` | thunk | optional | `→` focused row index (or `#f`). Consulted **once**, when the list first claims the cursor (overlay open), to seed the selection on the currently-focused row instead of row 0; a later arrow-move is preserved across re-renders. `#f` / out-of-range falls back to row 0. The iTerm tab/pane lists, the herdr list, and the *live* (chips) windows list supply this; a static windows list omits it, along with `'cursor-targets-fn`, because it has no live data for the cursor to attach to. |
 
 Anything else in the alist passes through to the JSON payload —
 renderers own their own keys (`'panels` for `window-diagram`,

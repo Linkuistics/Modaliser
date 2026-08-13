@@ -107,4 +107,4 @@ live-keys): `docs/specs/configuration-value.md`.
 - Every existing config and app library authors through the sugar
   unchanged; the display DSL is config-visible, optional authoring.
 - The `fragment` splice form renamed to `splice` ("Fragment" is the
-  configuration term — ADR-0018; landed in dsl-purification-k9).
+  configuration term — ADR-0018).

@@ -56,13 +56,11 @@ leader activation lands at the innermost detected context's entry point.
   agent whose pane is in the current tab) each keep their own label rather
   than collapsing to one — a redundant path to the same place is better UX
   than a target silently vanishing from the space, and it keeps the target
-  set (and so label assignment) stable regardless of what else is focused
-  (include-focused-targets-for-stability-k39).
+  set (and so label assignment) stable regardless of what else is focused.
 - **Jump labels**: prefix-free one- or two-key lowercase sequences, assigned
-  deterministically **per axis from reserved letter pools** (revised by the
-  jump-space-legend-overlay-k40 grilling; the original global panes-first
-  priority let the volatile current-tab pane count shift every space/agent
-  label on a mere tab switch): panes own `h j k l ;` (right home row — the
+  deterministically **per axis from reserved letter pools** (an earlier global
+  panes-first priority let the volatile current-tab pane count shift every
+  space/agent label on a mere tab switch): panes own `h j k l ;` (right home row — the
   most-jumped targets on the resting navigation position), spaces own
   `a s d f g` (left home row), and agents-then-tabs share the top row
   (`q w e r t y u i o p`), agents first so agent churn only ever
@@ -82,7 +80,7 @@ leader activation lands at the innermost detected context's entry point.
   consumed first char. Backspace returns to the un-narrowed state; Escape
   exits and clears chips. A jump firing is Terminal: focus moves, the modal
   exits.
-- **Chip timing** (defer-chips-to-overlay-k33): chips — full-size and
+- **Chip timing**: chips — full-size and
   mini, un-narrowed and narrowed — paint when the overlay actually
   displays, riding the FSM state's presentation-paired show/hide slots
   (authored as `'on-enter`/`'on-leave` on the herdr screen and in the
@@ -94,7 +92,7 @@ leader activation lands at the innermost detected context's entry point.
   delay; a narrowing descent lands with the overlay already open, so its
   repaint is synchronous. Clearing pairs structurally rather than by
   convention — a paint that never fired leaves nothing to strand.
-- **Legend** (jump-space-legend-overlay-k40): the herdr top-level screen
+- **Legend**: the herdr top-level screen
   carries a "Jump" legend panel — one row per assigned target, all four
   kinds, listed in stable-axis order (spaces → agents → tabs → panes):
   jump label in the key slot, a kind badge, target name as title (a
@@ -158,7 +156,7 @@ leader activation lands at the innermost detected context's entry point.
    `current-herdr-host-frame` in `blocks/herdr-list`; a test whose dispatch
    path can reach a paint hook (e.g. narrowing's `'on-enter`) parameterises
    it, so no AX scan runs from a test even when a query IS answered. Since
-   the paint hooks became presentation-gated (defer-chips-to-overlay-k33)
+   the paint hooks are presentation-gated,
    a test that installs no overlay host cannot reach them at all, but the
    seam stays: a test that *does* stub `show-overlay` reopens the path. The
    pipeline's own `pane.layout`/`ui.layout` queries need no second seam:

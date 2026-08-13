@@ -248,8 +248,7 @@ every visit — a `'provider` on the herdr screen root's state,
 agents → tabs → panes), visual order within an axis. Two visible targets
 naming the same destination (an agent whose pane is already on-screen)
 each keep their own independent label rather than collapsing to one — a
-stable target set keeps label assignment stable too
-(`include-focused-targets-for-stability-k39`). Each axis assigns labels
+stable target set keeps label assignment stable too. Each axis assigns labels
 from its OWN reserved letter pool — panes `h j k l ;`, spaces `a s d f
 g`, agents then tabs sharing the top row (agents first, so agent churn
 only ever shifts tab labels) — escalating to two-key labels, led by the

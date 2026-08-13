@@ -579,8 +579,8 @@ That is exactly how the seeded `default-config.scm` authors Safari,
 Finder, Mail, Slack, Zed, Signal, Messages, Telegram, Obsidian and
 Zotero; `Scheme/examples/chrome.scm` is a standalone copy for Chrome.
 There were once `(modaliser apps safari)` and `(modaliser apps chrome)`
-libraries holding those trees — they were deleted at
-apps-own-their-bindings-k47, having nothing in them but preference.
+libraries holding those trees — they were deleted, having nothing in
+them but preference.
 
 A library earns its place only when an app needs machinery a keystroke
 cannot express: AppleScript enumeration, an IPC socket, live-list
@@ -1138,7 +1138,7 @@ Used by `(modaliser apps iterm)`, `(modaliser apps kitty)`, and
 
 ### `(modaliser jump-labels)`
 
-General parameterised jump-label assignment (jump-labels-k4) — the pure
+General parameterised jump-label assignment — the pure
 function behind the herdr jump space's lowercase labels
 ([docs/specs/herdr-jump-navigation.md](../specs/herdr-jump-navigation.md)).
 Ordered targets in, prefix-free one- or two-key labels out; the library

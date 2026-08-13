@@ -357,8 +357,7 @@ moment the mode is entered, whether or not the user ever sees it:
 Reach for it only when the hook is *not* presentation. Anything the user
 sees belongs on `'on-enter`/`'on-leave`, so that it appears with the
 overlay rather than flashing ahead of it — herdr's jump chips were the
-one exception and stopped being one at
-defer-chips-to-overlay-k33, leaving the shipped tree with no
+one exception and no longer are, leaving the shipped tree with no
 `'entry`/`'exit` group hook at all.
 
 Author-only: a `screen`/`open`'s embedded live-list block hooks
@@ -411,7 +410,7 @@ ones; the reason value agrees across the two.
 A group (and, by extension, `tree-root`, `screen` and `open` — see
 [dsl.md](dsl.md#group-k-l-keyword-value--children)) accepts an optional
 `'provider` keyword: a **1-arg** procedure lowered straight onto the
-resulting state's `'provider` slot (`fsm.sld`, dsl-provider-wiring-k24).
+resulting state's `'provider` slot (`fsm.sld`).
 Unlike
 `'on-enter`/`'on-leave`, which are presentation-gated onto `show`/`hide`, a
 provider fires unconditionally at come-to-rest — its contributed edges and

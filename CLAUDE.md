@@ -48,7 +48,8 @@ process-boundary sandbox denial for *is that all*.
 Requires macOS 14+ and Swift 5.9+. `build-app.sh` code-signs with a "Modaliser Dev"
 certificate when present (this preserves Accessibility TCC grants across rebuilds),
 else falls back to ad-hoc signing. `scripts/release-*.sh` drive the Homebrew-cask
-release flow.
+release flow — **`docs/RELEASING.md` is the runbook**; the scripts carry the
+reasoning for individual guards, that page carries the procedure.
 
 There is no CI in this repository and no separate lint step.
 `check-portable-surface.sh` and `check-decision-free.sh` are the two bespoke

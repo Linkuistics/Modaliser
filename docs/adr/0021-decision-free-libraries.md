@@ -22,10 +22,9 @@ layer — and it was the inverse. `build-herdr-tree`'s body churned across ten
 commits; `focus-pane-left`'s definition changed twice, once at birth and once for
 the socket cutover, behind an unchanged name and signature. Freezing whole-tree
 constructors froze the volatile layer and kept the stable layer private, so three
-consecutive herdr leaves (`herdr-copy-mode-key-k34`,
-`herdr-tab-space-reorder-k36`, `herdr-detach-honours-prefix-k37`) each spent a
-library change, tree-shape tests, and doc rework on what was — in its decision
-half — a config edit. Moving the volatile layer out of the library ends that class
+consecutive herdr changes — a copy-mode key, a tab/space reorder, and making
+detach honour the prefix — each spent a library change, tree-shape tests, and doc
+rework on what was — in its decision half — a config edit. Moving the volatile layer out of the library ends that class
 of work, and the count makes the drift legible: **136** authored key/label
 decisions had accumulated across ten libraries under a doctrine that already said
 wiring belonged in libraries.

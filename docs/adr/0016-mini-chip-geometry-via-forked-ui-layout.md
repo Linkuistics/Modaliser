@@ -54,7 +54,7 @@ paint — jump keys and drills are unaffected.
   fork until the PR lands (a guided transition — the running server and its
   live workspaces must be handed over deliberately). Self-updates
   (`herdr update`) are restored via the `linkuistics-herdr` Homebrew formula
-  (interim distribution mechanism, `homebrew-publish-k20`) rather than lost
+  (an interim distribution mechanism) rather than lost
   for the duration — the formula tracks the fork branch and is retired the
   same day the upstream PR merges.
 - The `ui.layout` schema is designed to be upstreamable: drawn/visible

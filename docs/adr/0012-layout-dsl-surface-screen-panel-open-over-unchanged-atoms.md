@@ -45,13 +45,22 @@ chunks splice in via a **`splice`** form (formerly `fragment` — renamed when
   (Originally `panel` lowered to a `'kind 'category` child and dispatch
   tunneled through it via `flatten-categories`; the two-layer representation
   change retired that shape.)
-- Loose top-level keys under a `screen` (outside any `panel`) pack into an
-  implicit **"General"** panel — the presentation-first analogue of today's
-  `pack-node-runs` misc bucket.
+- Loose top-level atoms under a `screen` — a `key`/`keys` outside any `panel`,
+  a folded top-level `open`, a loose diagram or live-list block — render
+  **bare** in a header-less **loose region** above the panel grid. There is no
+  auto-collecting "General" card, so eliding an explicitly-authored
+  `(panel "General" …)` is a pure authoring migration: drop the wrapper and its
+  children become loose rows.
 - The old authoring forms (`define-tree` / `category` / `overlay` /
-  `pack-node-runs`) **keep working unchanged**, so nothing breaks before configs
-  migrate: real configs move to the new surface in `config-migration-k8`, and the
-  old forms are deprecated in `docs-tests-k9`. No flag-day.
+  `pack-node-runs`) are **gone**, along with the `(modaliser blocks which-key)`
+  library and its assets, the `which-key` block-list render path, and the
+  `set-overlay-aspect-ratio!` / `overlay-column-count` aspect-ratio column
+  search. They were deprecated first and then deleted deliberately, once the
+  last shipped caller had moved, rather than left to rot behind a deprecation
+  notice. `screen` / `panel` / `open` / `splice` over the unchanged dispatch
+  atoms are the **only** authoring surface, and the default list renderer that
+  plain `(group …)` drill-downs use flows CSS-intrinsic auto-fit columns rather
+  than a Scheme-computed count.
 - The renderer contract with the panel-grid renderer is the display
   value's shape: the overlay derives the panel-grid render path from a
   structured display ('panels/'loose/'embed/'cols/'layout present) and
@@ -61,41 +70,11 @@ chunks splice in via a **`splice`** form (formerly `fragment` — renamed when
 - Portability preserved: all new forms stay within `(scheme …)` / `(srfi …)` /
   `(modaliser …)`; `check-portable-surface.sh` stays green.
 
-## Amendment (2026-06-24) — the flag-day happened after all
+## What stayed fixed
 
-The final Consequence above ("No flag-day") was **reversed by a post-k9
-user decision**. `docs-tests-k9` deprecated the old forms in the docs but
-left the code in place because shipped libraries still used it; the user
-then chose to **physically delete** the legacy path rather than finish the
-work on deprecation alone.
-
-The `legacy-whichkey-deletion-k13` workstream performed that flag-day in
-two steps: `migrate-callers-k14` moved the remaining live callers onto
-`screen` / `panel` / `register-tree!`, then `delete-which-key-k15` removed
-`define-tree` / `category` / `overlay` / `which-key-block`, the
-`(modaliser blocks which-key)` library and its assets, the `which-key`
-block-list render path, and the `set-overlay-aspect-ratio!` /
-`overlay-column-count` aspect-ratio column search. The layout forms
-`screen` / `panel` / `open` / `fragment` over the unchanged dispatch atoms
-are now the **only** authoring surface, and the default list renderer that
-plain `(group …)` drill-downs use flows CSS-intrinsic auto-fit columns
-rather than a Scheme-computed count.
-
-So "the old forms keep working unchanged" holds **only up to the k15
-commit**; thereafter they are gone. The dispatch atoms and the lowering
-contract — the substance of this ADR — are unaffected. (The
-`'panel-grid` renderer marker later retired separately, derived from the
-display value's shape — see the renderer-contract Consequence above.)
-
-## Amendment (2026-06-24) — no implicit "General" panel
-
-The Consequence "loose top-level keys … pack into an implicit **'General'**
-panel" was **superseded by `bare-loose-rows-k23`**. Loose top-level atoms
-(a `key`/`keys` outside any panel), folded top-level `open`s, and loose
-blocks (diagram / live-list) now render **bare** in a header-less **loose
-region** above the panel grid — there is no auto-collecting "General" card.
-Eliding an explicitly-authored `(panel "General" …)` is therefore a pure
-authoring migration (`elide-general-panel-k27`): drop the wrapper and the
-children become loose rows. The lowering contract and dispatch substance of
-this ADR are unaffected — only the *presentation* of the unwrapped loose
-atoms changed (bare region vs. a card).
+The legacy authoring path was deleted, loose atoms moved from an implicit
+"General" card to a bare region, and the `'panel-grid` renderer marker was
+retired in favour of deriving the render path from the display value's shape.
+Through all three, the dispatch atoms and the lowering contract — the
+substance of this ADR — were unaffected. Only the authoring spelling and the
+presentation of unwrapped loose atoms changed.

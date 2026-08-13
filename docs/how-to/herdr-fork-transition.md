@@ -11,8 +11,8 @@ contract in `docs/specs/herdr-ui-layout.md`.
 
 **This is a live-server operation.** Never trial a step here against the
 daily session before it has been rehearsed end-to-end in a TestAnyware VM.
-The forward swap and the rollback are done step-by-step with Antony present
-watching each command — see the grove leaf `live-swap-k19` for that gate.
+The forward swap and the rollback are done step-by-step with the maintainer
+present, watching each command.
 
 ## Why live handoff, not stop/restart
 
@@ -36,8 +36,7 @@ bad `expected_protocol` or a forced import failure. What it does *not*
 cover: every one of those tests hands off to the *same* built exe re-execing
 itself. This runbook's forward direction imports a genuinely different
 binary at a different path — that cross-binary path is the gap the VM
-rehearsal (grove leaf `vm-rehearsal-k18`) exists to close before this is
-ever run against the daily server.
+rehearsal exists to close before this is ever run against the daily server.
 
 ## Preconditions
 
@@ -62,8 +61,8 @@ ever run against the daily server.
 
 ## Forward: Homebrew → fork
 
-**As of `homebrew-publish-k20` (2026-07-17), step 1 is `brew install
-linkuistics/taps/linkuistics-herdr`, not a raw `cargo build`.** The formula
+**Step 1 is `brew install linkuistics/taps/linkuistics-herdr`, not a raw
+`cargo build`.** The formula
 (`linkuistics/homebrew-taps` → `Formula/linkuistics-herdr.rb`) builds from
 source, pinned via `revision:` to a specific fork commit, and already sets
 `ZIG` to `zig@0.15` — the manual-build steps below are kept for reference
@@ -71,8 +70,9 @@ source, pinned via `revision:` to a specific fork commit, and already sets
 are no longer the normal path. The binary lands in the Cellar and is linked
 to `/opt/homebrew/bin/herdr` — the **same path both Modaliser's
 `modaliser-tool-path` and a plain interactive shell already resolve**, which
-is what makes this the fix for a real regression, not just convenience: see
-`modaliser-tool-path-robustness-k21` for the fragility this exposed.
+is what makes this the fix for a real regression, not just convenience — a
+binary reachable from an interactive shell but not from `modaliser-tool-path`
+leaves Modaliser's own herdr shell-outs silently unable to find it.
 
 1. Bump the fork build to import:
 
@@ -127,14 +127,20 @@ is what makes this the fix for a real regression, not just convenience: see
    manual build:
 
    ```sh
+   fork_ver="$(brew list --versions linkuistics-herdr | awk '{print $2}')"
    herdr server live-handoff \
-     --import-exe /opt/homebrew/Cellar/linkuistics-herdr/<version>/bin/herdr \
+     --import-exe "$(brew --cellar linkuistics-herdr)/$fork_ver/bin/herdr" \
      --expected-protocol 16 \
-     --expected-version 0.7.4
+     --expected-version "$fork_ver"
    ```
 
    (Substitute `~/Development/herdr/target/release/herdr` for `--import-exe`
-   if using the manual fallback build instead.)
+   if using the manual fallback build instead, and pass that build's own
+   reported version.)
+
+   Deriving both from Homebrew rather than hardcoding them keeps this step
+   from rotting each time the formula's `revision:` is bumped — the pinned
+   `0.7.4` this once named had already drifted past the installed build.
 
    `--expected-version` is optional and checked against the *importing*
    binary's own reported version (`crate::build_info::version()`), not a
@@ -173,19 +179,18 @@ is what makes this the fix for a real regression, not just convenience: see
 4. Confirm every workspace and pane that was live before the handoff is
    still there and responsive (attach, or `herdr status` per session).
 
-5. **Superseded by `homebrew-publish-k20` (2026-07-17).** `herdr` on PATH is
-   now resolved by Homebrew alone: `brew install linkuistics/taps/linkuistics-herdr`
-   links its Cellar build to `/opt/homebrew/bin/herdr`, and the manual
-   `~/.local/bin/herdr` symlink from the original 2026-07-16 transition has
-   been removed (`rm ~/.local/bin/herdr`) — there is no longer a
-   PATH-shadowing copy to keep in sync. This is deliberate, not just tidier:
-   `/opt/homebrew/bin` is on `modaliser-tool-path`
-   (`terminal.sld`) and `~/.local/bin` never was, so a manual-symlink-only
-   setup leaves Modaliser's own herdr shell-outs silently unable to find the
-   binary (see `modaliser-tool-path-robustness-k21`) — the exact regression
-   the original 2026-07-16 transition introduced and this one fixes.
-   `which herdr` and `brew upgrade --dry-run herdr` (stock, should still
-   error `herdr not installed`) confirm no leftover manual copy remains.
+5. Confirm PATH resolution is Homebrew's alone, with nothing shadowing it:
+
+   ```sh
+   which herdr    # → /opt/homebrew/bin/herdr
+   ```
+
+   `brew install linkuistics/taps/linkuistics-herdr` links its Cellar build
+   to `/opt/homebrew/bin/herdr`. Keep it the only copy: `/opt/homebrew/bin`
+   is on `modaliser-tool-path` (`terminal.sld`) and `~/.local/bin` is not, so
+   a hand-made symlink there would satisfy an interactive shell while leaving
+   Modaliser's own herdr shell-outs unable to find the binary — a regression
+   that is invisible until a herdr binding silently does nothing.
 
 ## Rollback: fork → Homebrew
 

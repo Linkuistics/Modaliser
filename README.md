@@ -92,7 +92,7 @@ The UI is rendered in WKWebView-backed NSPanels controlled from Scheme. Two pane
 - **Overlay** — a non-activating floating panel showing available keybindings at the current position in the command tree (which-key style).
 - **Chooser** — an activating panel with a search input, fuzzy-filtered result list, and optional action panel (used by selectors). Supports static sources (fuzzy-matched locally) and dynamic sources (results fetched from external APIs).
 
-Swift provides native libraries that Scheme calls into: keyboard capture, window management, app management, shell execution, HTTP requests, clipboard, input emulation, fuzzy matching, clipboard history, WebView management, app lifecycle. Incremental DOM updates use a Display-PostScript-inspired pattern: Scheme builds data, pushes JSON to JavaScript, and JS renders directly into the DOM — full-page HTML replacement is avoided except for structural changes.
+Swift provides native libraries that Scheme calls into: keyboard capture, window management, accessibility, app management, shell execution, HTTP requests, Unix sockets, clipboard, input emulation, fuzzy matching, jump chips, cursor highlighting, WebView management, logging, and app lifecycle. `SchemeEngine.init` is the canonical list. Incremental DOM updates use a Display-PostScript-inspired pattern: Scheme builds data, pushes JSON to JavaScript, and JS renders directly into the DOM — full-page HTML replacement is avoided except for structural changes.
 
 ## Documentation
 
@@ -106,6 +106,8 @@ Swift provides native libraries that Scheme calls into: keyboard capture, window
   - [Library system](docs/reference/library-system.md) — splitting configs across `.sld` files, the `sys/` mirror, lookup order, `prepend-library-path!`.
   - [Portability](docs/reference/portability.md) — what configurations can rely on, what's deliberately host-specific.
   - [Keyboard](docs/reference/keyboard.md) — modal navigation, chooser controls, menu bar.
+  - [Terminal detection](docs/reference/terminal-detection.md) — how the focused terminal, multiplexer, and pane are resolved.
+- **[How-to guides](docs/how-to/index.md)** — goal-oriented recipes, plus maintainer runbooks including [Releasing](docs/RELEASING.md).
 
 ## License
 
