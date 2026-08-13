@@ -315,6 +315,7 @@ struct ConfigDslTests {
         #expect(json.contains("\"loose\":["))
         #expect(json.contains("\"label\":\"Settings\""))
         #expect(json.contains("\"label\":\"Highlight Cursor\""))
+        #expect(json.contains("\"label\":\"Play/Pause\""))
         // The top-level Windows `open` folds into the loose region as a drill row.
         #expect(json.contains("\"label\":\"Windows\""))
 
@@ -324,6 +325,25 @@ struct ConfigDslTests {
         #expect(try engine.evaluate("(command? (find-child g-root \"b\"))") == .true)
         #expect(try engine.evaluate("(equal? (node-label (find-child g-root \"b\")) \"Browser\")") == .true)
         #expect(try engine.evaluate("(group? (find-child g-root \"w\"))") == .true)
+    }
+
+    /// The seeded Play/Pause row is a **Terminal** command at the global
+    /// screen's top level — the overlay closes when it fires, like every other
+    /// loose action there. Asserted structurally because `'next` is easy to add
+    /// by accident when a transport cluster (next/prev/volume) is eventually
+    /// bound beside it, and a Walk edge there would silently change what a
+    /// single press does.
+    @Test func defaultGlobalPlayPauseIsATerminalTopLevelCommand() throws {
+        let engine = try loadAllModules()
+        guard let schemePath = engine.schemeDirectoryPath else { throw SchemeTestError.noSchemeDir }
+        try engine.evaluateFile(schemePath + "/default-config.scm")
+
+        try engine.evaluate("""
+          (define pp (find-child (configuration-tree-ref (modaliser:configuration) "global") "p"))
+        """)
+        #expect(try engine.evaluate("(command? pp)") == .true)
+        #expect(try engine.evaluate("(equal? (node-label pp) \"Play/Pause\")") == .true)
+        #expect(try engine.evaluate("(node-next pp)") == .false)  // Terminal: no walk edge
     }
 
     /// The "w" Windows drill-down renders as a panel grid: a headerless

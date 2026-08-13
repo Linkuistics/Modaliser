@@ -1161,15 +1161,17 @@ correctly and deterministically.
 ### `(modaliser input)`
 
 Keystroke synthesis — how a binding drives an app that exposes no
-scriptable surface. Native (`InputLibrary.swift` / `KeystrokeEmitter.swift`).
+scriptable surface — plus media-key emission. Native (`InputLibrary.swift` /
+`KeystrokeEmitter.swift` / `MediaKeyEmitter.swift`).
 
 | Export | Signature | Description |
 |---|---|---|
 | `send-keystroke` | `(send-keystroke [mods] key)` | Press and release `key` as one complete chord. |
 | `send-key-down` | `(send-key-down [mods] key)` | Press `key` and leave it down. |
 | `send-key-up` | `(send-key-up [mods] key)` | Release `key`. |
+| `send-media-key` | `(send-media-key button)` | Press and release a media button — play/pause, track skip, volume. |
 
-All three take **one or two** arguments: `(send-keystroke "tab")` for a bare
+The first three take **one or two** arguments: `(send-keystroke "tab")` for a bare
 key, `(send-keystroke '(cmd shift) "p")` with a modifier list (`'cmd`/
 `'command`, `'ctrl`/`'control`, `'shift`, `'alt`/`'option`). `key` is a
 character (`"t"`, `"["`, `" "`) or a named key (`"tab"`, `"return"`,
@@ -1208,9 +1210,37 @@ key-down, not just Modaliser's mirror of it — so pair every hold with its
 `send-key-up` self-heals a hold stranded by an earlier abort.
 `(modaliser apps dia)` wraps this protocol as `tab-step` / `tab-step-back`.
 
-Every posted event is tagged as Modaliser's own re-injection, so the keyboard
-capture tap passes it through rather than the modal catch-all swallowing it on
-the way back — sending keystrokes from inside a modal action works.
+Every posted keystroke is tagged as Modaliser's own re-injection, so the
+keyboard capture tap passes it through rather than the modal catch-all
+swallowing it on the way back — sending keystrokes from inside a modal action
+works.
+
+**`send-media-key` is not a keystroke.** It takes a single **symbol**, one of
+`'play-pause`, `'next`, `'previous`, `'volume-up`, `'volume-down`, `'mute`;
+anything else raises, naming the offender and listing the valid set. Media
+buttons have no virtual keycode, so they travel as an `NSSystemDefined`
+subtype-8 event rather than through the `CGEvent` virtual-key path the three
+keystroke procedures use — which is why this is its own primitive and not a row
+in the named-key table. Each call emits a down/up pair, as real hardware does.
+
+```scheme
+(key "p" "Play/Pause" (λ () (send-media-key 'play-pause)))
+```
+
+**It reaches the Now Playing target, not the focused window.** macOS routes the
+event to whichever client currently holds the system's Now Playing role —
+Music, Podcasts, a browser tab playing video — which is generally *not* the
+frontmost app. That is the point: one binding controls whatever is actually
+playing, instead of scripting one named player. The trade is that the target is
+implicit and **not queryable** (the supported API surface offers no way to ask
+who it is), so no binding can display it, branch on it, or fall back when
+nothing is playing — the key reaches whichever client held the role last. See
+`CONTEXT.md`, **Media key** and **Now Playing target**.
+
+The seeded `default-config.scm` binds only `'play-pause`. The other five ship
+unbound because which keys carry them is your decision, not the library's
+(ADR-0021) — add them to a screen, or gather them into a Walk with `'next
+'self`, as you like.
 
 ---
 
@@ -1259,7 +1289,7 @@ the same names).
 |---|---|
 | `(modaliser app)` | Process / app management: `launch-app`, `activate-app`, `find-installed-apps`, `app-display-name`, `reveal-in-finder`, `open-with`, etc. |
 | `(modaliser keyboard)` | Keycode constants (`F18`, `F17`, …), modifier symbols. |
-| `(modaliser input)` | Keystroke synthesis: `send-keystroke`, `send-key-down`, `send-key-up` — documented above under [`(modaliser input)`](#modaliser-input). |
+| `(modaliser input)` | Keystroke synthesis: `send-keystroke`, `send-key-down`, `send-key-up`; media buttons: `send-media-key` — documented above under [`(modaliser input)`](#modaliser-input). |
 | `(modaliser shell-native)` | The raw `/bin/zsh -c` spawn: `run-shell-native`, `run-shell-async-native` (non-blocking; ADR-0014). **Not the library to import** — the tree shells out through the portable [`(modaliser shell)`](#modaliser-shell) seam documented above, and `scripts/check-portable-surface.sh` fails the build on a `lib/modaliser` import of this one (ADR-0023). |
 | `(modaliser log)` | Diagnostic logging: `log-line`, an os.Logger line readable via `log show` (ADR-0017). |
 | `(modaliser pasteboard)` | Clipboard: `set-clipboard!`, `read-clipboard`. |

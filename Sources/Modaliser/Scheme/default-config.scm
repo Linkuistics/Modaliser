@@ -117,6 +117,16 @@
     (key " " "Highlight Cursor"
         (λ () (highlight-cursor 'color "#FF0000" 'duration 1 'thickness 16)))
 
+    ;; Play/pause whatever is currently playing. `send-media-key` emits the
+    ;; system media-key event the hardware ⏯ button sends, so macOS routes it
+    ;; to whichever app holds Now Playing — Music, Podcasts, a browser tab —
+    ;; rather than to the frontmost window. That target is implicit and cannot
+    ;; be queried, which is the trade for reaching every player instead of one
+    ;; named app. The library ships the whole family ('play-pause, 'next,
+    ;; 'previous, 'volume-up, 'volume-down, 'mute); binding only this one is a
+    ;; config decision, so add the rest here if you want a transport cluster.
+    (key "p" "Play/Pause" (λ () (send-media-key 'play-pause)))
+
     ;; Window manager drill-down ("w"). (open KEY LABEL panel…) descends
     ;; into a sub-screen whose own grid holds the layout diagram, the
     ;; select/restore actions, and the live windows list. Swap in

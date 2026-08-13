@@ -4,7 +4,7 @@ import LispKit
 /// Native LispKit library providing keyboard input emulation.
 /// Scheme name: (modaliser input)
 ///
-/// Provides: send-keystroke, send-key-down, send-key-up
+/// Provides: send-keystroke, send-key-down, send-key-up, send-media-key
 final class InputLibrary: NativeLibrary {
 
     public required init(in context: Context) throws {
@@ -23,6 +23,7 @@ final class InputLibrary: NativeLibrary {
         self.define(Procedure("send-keystroke", sendKeystrokeFunction))
         self.define(Procedure("send-key-down", sendKeyDownFunction))
         self.define(Procedure("send-key-up", sendKeyUpFunction))
+        self.define(Procedure("send-media-key", sendMediaKeyFunction))
     }
 
     // MARK: - Functions
@@ -53,6 +54,30 @@ final class InputLibrary: NativeLibrary {
     private func sendKeyUpFunction(_ args: Arguments) throws -> Expr {
         let (keyCode, flags) = try resolveArgs(args)
         KeystrokeEmitter.sendKeyUp(keyCode: keyCode, flags: flags)
+        return .void
+    }
+
+    /// (send-media-key 'play-pause) → void
+    /// button: one of 'play-pause, 'next, 'previous, 'volume-up,
+    ///         'volume-down, 'mute
+    ///
+    /// Emits the system media-key event the matching hardware button sends, so
+    /// macOS routes it to whichever client holds the Now Playing role — usually
+    /// not the frontmost app. Unlike `send-keystroke` this is not a keystroke
+    /// at all: media buttons have no virtual keycode (see `MediaKeyEmitter`).
+    private func sendMediaKeyFunction(_ buttonExpr: Expr) throws -> Expr {
+        guard case .symbol(let sym) = buttonExpr else {
+            throw RuntimeError.type(buttonExpr, expected: [.symbolType])
+        }
+        guard let button = MediaKeyEmitter.Button.named(sym.identifier) else {
+            let known = MediaKeyEmitter.Button.allNames.joined(separator: ", ")
+            throw RuntimeError.custom(
+                "eval",
+                "unknown media key '\(sym.identifier)'. Expected: \(known)",
+                [buttonExpr]
+            )
+        }
+        MediaKeyEmitter.send(button)
         return .void
     }
 
