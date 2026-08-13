@@ -81,9 +81,15 @@ enum MediaKeyEmitter {
     /// documenting `NX_SUBTYPE_AUX_CONTROL_BUTTONS` in `IOLLEvent.h` actually
     /// describes `NX_SUBTYPE_AUX_MOUSE_BUTTONS`' `misc.L[]` layout instead — an
     /// SDK documentation bug — so this packing is long-standing convention
-    /// rather than published contract, and it is what a live press has to
-    /// confirm. The low byte (repeat count) stays 0: a synthesised press is
-    /// never a key repeat.
+    /// rather than published contract. The low byte (repeat count) stays 0: a
+    /// synthesised press is never a key repeat.
+    ///
+    /// **Confirmed by live press on 2026-08-13**, from an installed release
+    /// build: `play-pause` toggled both Music.app and a browser tab holding the
+    /// Now Playing role. That is the only evidence there will be — the suite
+    /// tests this function and never posts (ADR-0023) — and it covers the
+    /// packing, the subtype and button 16 only. `next`/`previous` remain the
+    /// unverified `FAST`/`REWIND` judgement call recorded on `Button`.
     static func data1(button: Button, state: ButtonState) -> Int {
         (button.rawValue << 16) | (state.rawValue << 8)
     }
