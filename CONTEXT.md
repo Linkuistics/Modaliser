@@ -589,6 +589,28 @@ _Avoid_: "trigger" — ambiguous with the key that fires an action; assuming
 every dialog command's UI is literally outside the app — some, like the
 Chooser prompt, are Modaliser's own panels.
 
+## Input-emission domain
+
+**Media key** — a play/pause, next, previous, volume or mute button
+press *emitted* by Modaliser. Not a keystroke: media buttons have no
+virtual keycode, so they travel as an `NSSystemDefined` subtype-8 event
+carrying the button in `data1`, never through the `CGEvent` virtual-key
+path `send-keystroke` uses. That is why `send-media-key` is its own
+primitive rather than a row in the named-key table, and why the two
+cannot share an emitter. _Avoid_: "media keycode" — there is no such
+thing; and reading a media key as going to the focused window (see
+**Now Playing target**).
+
+**Now Playing target** — the app macOS routes a **Media key** to:
+whichever client currently holds the system's Now Playing role (Music,
+Podcasts, a browser tab playing video), which is generally *not* the
+frontmost app. Implicit and **not queryable** — the supported API
+surface offers no way to ask who it is (MediaRemote is private) — so no
+Modaliser surface can display it, branch on it, or fall back when it is
+absent. _Avoid_: assuming it is the focused app; and treating "nothing
+is playing" as meaning the key is a no-op — it reaches whichever client
+held the role last.
+
 ## Window-switching domain
 
 **Focused window** — the frontmost OS window: the top-level window macOS routes
