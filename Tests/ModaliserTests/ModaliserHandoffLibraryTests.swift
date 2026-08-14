@@ -41,18 +41,25 @@ struct ModaliserHandoffLibraryTests {
         // Toy backends whose foreground probes read mutable cells, so a
         // test can shape the chain that the REAL focused-terminal-path
         // walk (through the registry modaliser:start! populates) reports.
+        // The probes also COUNT their calls: a chain walk hits each hop's
+        // detect-fg exactly once, so the counters are how a test observes
+        // how many times a press walked (walk-path-press-cache-k5).
         try engine.evaluate("""
           (define term-fg #f)
           (define tmix-fg #f)
+          (define host-probes 0)
+          (define mux-probes 0)
           (define (test-host-backend sym bundle)
             (make-terminal-backend sym "TestHost" 'host bundle #f
-              (lambda () term-fg) (lambda () "p0")
+              (lambda () (set! host-probes (+ host-probes 1)) term-fg)
+              (lambda () "p0")
               #f #f #f #f #f #f #f #f #f #f #f #f
               #f #f
               (lambda () #t)))
           (define (test-mux-backend sym exe)
             (make-terminal-backend sym "TestMux" 'mux exe #f
-              (lambda () tmix-fg) (lambda () "m0")
+              (lambda () (set! mux-probes (+ mux-probes 1)) tmix-fg)
+              (lambda () "m0")
               #f #f #f #f #f #f #f #f #f #f #f #f
               #f #f
               (lambda () #t)))
@@ -197,6 +204,59 @@ struct ModaliserHandoffLibraryTests {
                    #t)))
         """)
         #expect(try engine.evaluate("step-in-live?") == .true)
+    }
+
+    // MARK: - The pinned chain (one walk per press)
+
+    /// A press that lands on a MUX-BACKED tree resolves the chain twice —
+    /// once for the handler's own `focused-terminal-path`, and again
+    /// inside `modal-activate!`'s visit snapshot, where the landing root's
+    /// derived step-in provider probes the chain source. That is the shape
+    /// of a real herdr press. Both reads sit inside the handler's
+    /// **pinned-chain extent**, so the chain is walked ONCE and each hop's
+    /// `detect-fg` fires once. The counters are the observable: a walk
+    /// hits every hop exactly once.
+    @Test func aLocalPressWalksTheChainOnce() throws {
+        let engine = try loaded()
+        try engine.evaluate("(modaliser:start! cfg)")
+        // Host runs the mux, whose pane runs nothing mapped: the landing
+        // is the mux's own tree, which carries the derived step-in edge.
+        try engine.evaluate("(set! term-fg \"tmix\") (set! tmix-fg \"nothing-mapped\")")
+        try engine.evaluate("(set! host-probes 0) (set! mux-probes 0)")
+        try engine.evaluate("""
+          (parameterize ((current-frontmost-bundle-id (lambda () "com.test.term")))
+            ((make-configured-leader-handler F17 'local)))
+        """)
+        // The press landed where the unpinned version lands, so the memo
+        // is serving the same chain, not a different one.
+        #expect(try engine.evaluate("(equal? (fsm-current-state) \"tmix-tree\")") == .true)
+        #expect(try engine.evaluate("host-probes") == .fixnum(1))
+        #expect(try engine.evaluate("mux-probes") == .fixnum(1))
+    }
+
+    /// The extent ends with the handler. The next press — and every
+    /// between-press read, which is what a focus move looks like from
+    /// here — walks afresh, so no stale chain can outlive a press.
+    @Test func theNextPressWalksAfresh() throws {
+        let engine = try loaded()
+        try engine.evaluate("(modaliser:start! cfg)")
+        try engine.evaluate("(set! term-fg \"tmix\") (set! tmix-fg \"edit\")")
+        try engine.evaluate("""
+          (parameterize ((current-frontmost-bundle-id (lambda () "com.test.term")))
+            ((make-configured-leader-handler F17 'local)))
+        """)
+        // Exit, move "focus" to a pane running a different inner tool,
+        // and press again: the second press must see the NEW chain.
+        try engine.evaluate("(modal-exit)")
+        try engine.evaluate("(set! tmix-fg \"nothing-mapped\")")
+        try engine.evaluate("(set! host-probes 0) (set! mux-probes 0)")
+        try engine.evaluate("""
+          (parameterize ((current-frontmost-bundle-id (lambda () "com.test.term")))
+            ((make-configured-leader-handler F17 'local)))
+        """)
+        #expect(try engine.evaluate("(equal? (fsm-current-state) \"tmix-tree\")") == .true)
+        #expect(try engine.evaluate("host-probes") == .fixnum(1))
+        #expect(try engine.evaluate("mux-probes") == .fixnum(1))
     }
 
     @Test func crossEdgePastTheSeededBaselineGoesLeaderless() throws {

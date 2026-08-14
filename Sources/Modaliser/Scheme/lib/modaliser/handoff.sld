@@ -90,24 +90,32 @@
        ;; "since this press" — a tally accumulated across a whole session
        ;; would answer a question nobody asked.
        (instrument-reset! 'leader-press)
-       (let* ((bundle-id (instrument-span 'leader/frontmost-bundle-id
-                           (lambda () ((current-frontmost-bundle-id)))))
-              (chain     (instrument-span 'leader/focused-terminal-path
-                           (lambda ()
-                             (if (eq? mode 'global) '() (focused-terminal-path)))))
-              (landing   (instrument-span 'leader/resolve-activation
-                           (lambda ()
-                             (resolve-activation mode bundle-id chain
-                                                 %installed-configuration)))))
-         (when landing
-           (instrument-span 'leader/modal-activate!
-             (lambda ()
-               (modal-activate! (cdr (assq 'root landing))
-                                (cdr (assq 'stack landing))
-                                leader-kc))))
-         ;; Reported even when nothing landed: "the press cost 27 s and
-         ;; activated nothing" is itself a finding.
-         (instrument-report! 'leader-press))))))
+       ;; The press IS the pinned chain's extent (CONTEXT.md "Pinned
+       ;; chain"): the resolve below and the landing snapshot inside
+       ;; modal-activate! — which re-probes the chain source through the
+       ;; derived step-in provider — are one instant and must agree, so
+       ;; they share one walk. The extent closes with the handler, so the
+       ;; delayed overlay show and every later snapshot walk afresh.
+       (call-with-pinned-chain
+         (lambda ()
+           (let* ((bundle-id (instrument-span 'leader/frontmost-bundle-id
+                               (lambda () ((current-frontmost-bundle-id)))))
+                  (chain     (instrument-span 'leader/focused-terminal-path
+                               (lambda ()
+                                 (if (eq? mode 'global) '() (focused-terminal-path)))))
+                  (landing   (instrument-span 'leader/resolve-activation
+                               (lambda ()
+                                 (resolve-activation mode bundle-id chain
+                                                     %installed-configuration)))))
+             (when landing
+               (instrument-span 'leader/modal-activate!
+                 (lambda ()
+                   (modal-activate! (cdr (assq 'root landing))
+                                    (cdr (assq 'stack landing))
+                                    leader-kc)))))))
+       ;; Reported even when nothing landed: "the press cost 27 s and
+       ;; activated nothing" is itself a finding.
+       (instrument-report! 'leader-press)))))
 
 ;; ─── Pre-effect validation ───────────────────────────────────────────
 ;;

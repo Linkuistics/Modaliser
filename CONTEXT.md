@@ -115,6 +115,16 @@ the host terminal down through any mux to the innermost foreground
 command. Each backend symbol appears at most once. See
 `docs/reference/terminal-detection.md`.
 
+**Pinned chain** — the **Focused-terminal path** as resolved once and
+held for a dynamic extent, so every read inside that extent is the same
+chain and costs one walk. One extent exists: a leader press, which reads
+the chain twice — the handler's own resolve, and the landing snapshot's
+derived step-in probe — at what is meant to be one instant. Scoped to an
+extent rather than a global cache with invalidation, so outside it
+nothing is cached and there is no stale window: focus moves between
+presses, and nothing here observes that. _Avoid_: "the chain cache" —
+there is no cache to go stale, only a walk two readers share.
+
 **Chip** — the digit-label overlay painted on each pane by
 `focus-pane-by-digit`. **Always a native macOS overlay window**
 drawn by `(modaliser hints)` `hints-show`, never injected text or

@@ -52,6 +52,21 @@ varies between hosts.
   (rather than an ordered list) so callers can look up a segment
   by symbol directly.
 
+`(call-with-pinned-chain thunk)`
+: Calls `thunk` with the chain **pinned** for its dynamic extent:
+  the first chain read inside walks, and every later one —
+  `focused-terminal-path`, `active-backend`, `in-chain?`, an op
+  shim — is served from that walk. Returns `thunk`'s value.
+  Nesting joins the outer extent rather than opening a second one,
+  so a caller may pin without knowing whether its own caller
+  already did; a probe that raises pins nothing.
+  Outside an extent nothing is cached, which is the point: there
+  is no invalidation to get wrong, because focus moves between
+  extents and nothing here observes that (CONTEXT.md "Pinned
+  chain"). The leader handler wraps a press in it — a press reads
+  the chain twice, once to resolve activation and once in the
+  landing's visit snapshot, and those two reads are one instant.
+
 `(in-chain? backend-sym)`
 : `#t` when `backend-sym` appears in the current path. The
   predicate to reach for in a custom detection gate

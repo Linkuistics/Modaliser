@@ -30,6 +30,7 @@ struct ModaliserTerminalLibraryTests {
             "active-backend",
             "focused-terminal-path",
             "in-chain?",
+            "call-with-pinned-chain",
             // Op shims
             "focus-pane-left",  "focus-pane-right",  "focus-pane-up",  "focus-pane-down",
             "split-pane-left",  "split-pane-right",  "split-pane-up",  "split-pane-down",
@@ -280,6 +281,122 @@ struct ModaliserTerminalLibraryTests {
             "  (focus-pane-by-digit))"
         )
         #expect(noBackend == .false)
+    }
+
+    /// The pinned chain (walk-path-press-cache-k5): a dynamic extent in
+    /// which the chain is walked once and every further read is served
+    /// from that walk. Outside the extent nothing is cached at all.
+    /// The counting probe is the observable — one walk hits `detect-fg`
+    /// once per hop.
+    @Suite("pinned chain")
+    struct PinnedChainTests {
+        /// A stub host whose detect-fg counts its calls.
+        private func loadedWithCountingHost() throws -> SchemeEngine {
+            let engine = try SchemeEngine()
+            try engine.evaluate("(import (modaliser terminal))")
+            try engine.evaluate("""
+              (define probes 0)
+              (define host
+                (make-terminal-backend
+                  'stub-host "Stub" 'host "test.bundle" #f
+                  (lambda () (set! probes (+ probes 1)) "vim")
+                  (lambda () "p0")
+                  (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+                  (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+                  (lambda () 'x) (lambda () 'x) (lambda () 'x) (lambda () 'x)
+                  'x (lambda () 'x)
+                  (lambda () #t)))
+              (terminal-install-backends! (list host))
+              """)
+            return engine
+        }
+
+        private func stubbed(_ form: String) -> String {
+            return "(parameterize ((current-frontmost-bundle-id (lambda () \"test.bundle\"))) " +
+                   "  \(form))"
+        }
+
+        @Test func readsInsideOneExtentShareOneWalk() throws {
+            let engine = try loadedWithCountingHost()
+            try engine.evaluate(stubbed("""
+              (call-with-pinned-chain
+                (lambda ()
+                  (focused-terminal-path)
+                  (focused-terminal-path)
+                  (active-backend)
+                  (in-chain? 'stub-host)))
+              """))
+            #expect(try engine.evaluate("probes") == .fixnum(1))
+        }
+
+        /// The chain the extent serves is the chain it walked — pinning
+        /// changes the cost, never the answer.
+        @Test func theServedChainIsTheWalkedChain() throws {
+            let engine = try loadedWithCountingHost()
+            #expect(try engine.evaluate(stubbed("""
+              (call-with-pinned-chain
+                (lambda ()
+                  (equal? (focused-terminal-path) (focused-terminal-path))))
+              """)) == .true)
+            #expect(try engine.evaluate(stubbed("""
+              (equal? (focused-terminal-path)
+                      (call-with-pinned-chain (lambda () (focused-terminal-path))))
+              """)) == .true)
+        }
+
+        /// Nothing outlives the extent: two separate extents are two
+        /// walks, and a read outside any extent always walks.
+        @Test func nothingIsCachedAcrossOrOutsideExtents() throws {
+            let engine = try loadedWithCountingHost()
+            try engine.evaluate(stubbed("(call-with-pinned-chain (lambda () (focused-terminal-path)))"))
+            try engine.evaluate(stubbed("(call-with-pinned-chain (lambda () (focused-terminal-path)))"))
+            try engine.evaluate(stubbed("(focused-terminal-path)"))
+            try engine.evaluate(stubbed("(focused-terminal-path)"))
+            #expect(try engine.evaluate("probes") == .fixnum(4))
+        }
+
+        /// A nested pin joins the outer extent rather than opening a
+        /// second one, so a caller may pin without knowing whether its
+        /// own caller already did.
+        @Test func nestedExtentsJoinRatherThanRewalk() throws {
+            let engine = try loadedWithCountingHost()
+            try engine.evaluate(stubbed("""
+              (call-with-pinned-chain
+                (lambda ()
+                  (focused-terminal-path)
+                  (call-with-pinned-chain (lambda () (focused-terminal-path)))))
+              """))
+            #expect(try engine.evaluate("probes") == .fixnum(1))
+        }
+
+        /// A probe that raises leaves the extent unpinned: the next read
+        /// walks again rather than serving a half-built chain.
+        @Test func aRaisingProbeDoesNotPinAnything() throws {
+            let engine = try loadedWithCountingHost()
+            try engine.evaluate("""
+              (define raising-host
+                (make-terminal-backend
+                  'raiser "Raiser" 'host "raise.bundle" #f
+                  (lambda () (error "detect-fg exploded"))
+                  (lambda () "p0")
+                  #f #f #f #f #f #f #f #f #f #f #f #f
+                  #f #f
+                  (lambda () #t)))
+              (terminal-install-backends! (list host raising-host))
+              (define after 'unset)
+              """)
+            try engine.evaluate("""
+              (parameterize ((current-frontmost-bundle-id (lambda () "raise.bundle")))
+                (call-with-pinned-chain
+                  (lambda ()
+                    (guard (e (#t 'raised)) (focused-terminal-path))
+                    ;; Same extent, but nothing was pinned — this read
+                    ;; must reach the (now healthy) host, not a memo.
+                    (parameterize ((current-frontmost-bundle-id (lambda () "test.bundle")))
+                      (set! after (focused-terminal-path))))))
+              """)
+            #expect(try engine.evaluate("(and (assq 'stub-host after) #t)") == .true)
+        }
     }
 
     /// Wraps the given form in a parameterize that overrides the

@@ -32,7 +32,11 @@
 ;; re-derives per come-to-rest snapshot. That split is the
 ;; chain-staleness doctrine: the chain is probed at activation and at
 ;; each snapshot; seeded frames are press-time values and outward steps
-;; never re-probe.
+;; never re-probe. One refinement, and only in the cheap direction: the
+;; activation probe and the LANDING snapshot are the same instant, so
+;; the leader handler pins the chain for the press and they share one
+;; walk (CONTEXT.md "Pinned chain", (modaliser terminal)
+;; call-with-pinned-chain). Every later snapshot walks afresh, as before.
 
 (define-library (modaliser activation)
   (export resolve-activation

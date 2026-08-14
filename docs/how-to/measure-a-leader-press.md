@@ -81,8 +81,17 @@ Two shapes to read for, because they need different fixes:
   [ADR-0025](../adr/0025-portable-scheme-never-indexes-a-string.md).
 - **many small ones** — a large `calls` with a small `max-chars`. Something
   is being re-derived that should have been computed once. `walk-path`'s
-  counter exists for exactly this: the chain walk is uncached, and a press
-  that walks twice pays everything twice.
+  counter exists for exactly this: the chain walk is uncached outside a
+  press, and a press that walked twice paid everything twice.
+
+`walk-path` and `walk-path/pinned` are a pair, and reading them together is
+what makes the second walk visible:
+
+| reads | means |
+|---|---|
+| `walk-path calls 1`, `walk-path/pinned calls 1` | healthy — the chain was wanted twice and paid for once (CONTEXT.md "Pinned chain") |
+| `walk-path calls 2` | a second read escaped the press extent — the handler no longer brackets it, or the reader runs from a callback |
+| `walk-path calls 1`, no `walk-path/pinned` | the landing carries no derived step-in edge (a tree-only context like nvim), so there was only ever one read |
 
 ## Turn it off
 

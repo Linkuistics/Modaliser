@@ -247,7 +247,12 @@ resolve-activation(leader-kind, frontmost-bundle-id, chain, config):
 - **Chain-staleness doctrine**: the chain is probed at activation and at
   each come-to-rest snapshot (for the derived gate below); seeded frames
   are press-time values and outward steps never re-probe — backspace
-  returns where you came from, even if the chain has since changed.
+  returns where you came from, even if the chain has since changed. The
+  activation probe and the **landing** snapshot are one instant, and are
+  therefore one walk: the leader handler pins the chain for the extent of
+  the press (CONTEXT.md "Pinned chain"). Every later snapshot probes as
+  before — the doctrine is unchanged in what it observes, only in what it
+  pays.
 - **Step-in**: every terminal-like screen derives a gated `.` call edge
   stepping **one mapped context inward** from that screen's own position
   in the chain — the target is computed at the visit's snapshot instant

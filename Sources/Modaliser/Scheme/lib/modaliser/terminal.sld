@@ -64,6 +64,11 @@
           active-backend
           focused-terminal-path
           in-chain?
+          ;; The pinned chain (CONTEXT.md "Pinned chain"): the chain,
+          ;; resolved once and held for the dynamic extent of a thunk.
+          ;; The leader handler wraps a press in it, so the press-time
+          ;; read and the landing snapshot's step-in probe share one walk.
+          call-with-pinned-chain
 
           ;; Backend tool health (ADR-0017 Layer 2). backend-tool-missing?
           ;; is what a block consults to render a "tool not found" message
@@ -99,11 +104,13 @@
           ;; (ADR-0017 Layer 2) — a missing backend tool logs here, never
           ;; raises through a leader press.
           (modaliser log)
-          ;; The press stopwatch (measure-hot-scan-k2). The chain walk below
-          ;; is explicitly NOT cached (see walk-path's own note), and three
-          ;; exported procedures each re-run it, so the span count is as
+          ;; The press stopwatch (measure-hot-scan-k2). Three exported
+          ;; procedures re-run the chain walk, so the span count is as
           ;; interesting as the span duration: a walk that is cheap once and
           ;; run six times per press is a different bug from a slow walk.
+          ;; `walk-path` counts probes and `walk-path/pinned` counts reads
+          ;; served from the pinned chain, so the report says both how often
+          ;; the chain was wanted and how often it was paid for.
           (only (modaliser instrument) instrument-span instrument-tally! instrument-note))
   (begin
 
@@ -429,9 +436,10 @@
     ;; `seen` so a future case like tmux-inside-tmux can't loop — the
     ;; second occurrence is silently dropped.
     ;;
-    ;; Not cached. Future work: memoise per leader press once the leader
-    ;; layer exposes a "press epoch" hook.
-    (define (walk-path)
+    ;; Uncached by construction — every call probes. Callers that must not
+    ;; pay twice for one instant wrap themselves in `call-with-pinned-chain`
+    ;; (below); `walk-path` itself is the probe.
+    (define (walk-path-uncached)
       (instrument-tally! 'walk-path 0)
       (let* ((bundle ((current-frontmost-bundle-id)))
              (host   (resolve-host-backend bundle)))
@@ -454,6 +462,71 @@
                          (not (memq (terminal-backend-symbol next) seen1)))
                     (loop next acc1 seen1)
                     (reverse acc1)))))))
+
+    ;; ─── The pinned chain ───────────────────────────────────────────
+    ;;
+    ;; One leader press reads the chain twice: the handler resolves
+    ;; activation against `focused-terminal-path`, and then — when the
+    ;; landing root is terminal-like (a host screen, or a mux-backed
+    ;; context tree, which is what a herdr press lands on) —
+    ;; `modal-activate!`'s visit snapshot runs the derived step-in
+    ;; provider, which probes the chain source again. The two reads are
+    ;; milliseconds apart and are MEANT to agree: the step-in edge the
+    ;; snapshot offers describes the same chain the landing was resolved
+    ;; from. The second probe was never buying freshness, only cost —
+    ;; two `osascript` calls plus a `ps`, plus herdr's 97 KB
+    ;; `pane.process_info` parse, all repeated.
+    ;;
+    ;; So the memo is scoped to a DYNAMIC EXTENT rather than being a
+    ;; global with invalidation. Outside the extent there is no cache at
+    ;; all: ops, `active-backend`, `in-chain?`, every between-press
+    ;; snapshot and every test probe exactly as before, and there is no
+    ;; stale-chain window to reason about — the chain changes whenever
+    ;; the user moves focus, and nothing in this tree observes that. It
+    ;; refines the chain-staleness doctrine ((modaliser activation)) in
+    ;; one direction only: the activation probe and the landing snapshot
+    ;; are one instant, so they are now one probe. Later snapshots, and
+    ;; the delayed overlay show (which runs from a timer callback, past
+    ;; the extent), still walk afresh — correctly, because they ARE a
+    ;; later instant.
+    ;;
+    ;; The cell is a 2-slot vector — `#(filled? chain)` — held by a
+    ;; parameter: LispKit has no `set-car!`/`set-cdr!`
+    ;; (docs/reference/portability.md), and `'()` is a legal walk result,
+    ;; so emptiness cannot double as "not yet walked".
+    (define %pinned-chain-cell (make-parameter #f))
+
+    ;; (call-with-pinned-chain thunk) → thunk's value, with every
+    ;; `walk-path` inside its dynamic extent sharing one walk. Nesting is
+    ;; a no-op: an inner call joins the outer extent rather than opening a
+    ;; second one, so a caller can pin without knowing whether it is
+    ;; already pinned.
+    (define (call-with-pinned-chain thunk)
+      (if (%pinned-chain-cell)
+          (thunk)
+          (parameterize ((%pinned-chain-cell (vector #f '())))
+            (thunk))))
+
+    ;; The walk every consumer goes through: the pinned chain when one is
+    ;; bound and already filled, a fresh probe otherwise. A serve is
+    ;; tallied under its own site, so the instrument's report shows the
+    ;; second read happening AND being served — `walk-path calls 1` beside
+    ;; `walk-path/pinned calls 1` says more than silence would
+    ;; (docs/how-to/measure-a-leader-press.md).
+    (define (walk-path)
+      (let ((cell (%pinned-chain-cell)))
+        (cond
+          ((not cell) (walk-path-uncached))
+          ((vector-ref cell 0)
+           (instrument-tally! 'walk-path/pinned 0)
+           (vector-ref cell 1))
+          (else
+            ;; Filled only on success: a probe that raises leaves the
+            ;; extent unpinned rather than pinning a half-built chain.
+            (let ((p (walk-path-uncached)))
+              (vector-set! cell 1 p)
+              (vector-set! cell 0 #t)
+              p)))))
 
     (define (focused-terminal-path)
       (map (lambda (entry)

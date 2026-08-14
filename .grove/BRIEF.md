@@ -58,9 +58,16 @@ it means for the fix, in `03-impl-linear-string-scanning-k3.md`.
    scanners all convert once now. ADR-0025's rule is sharpened to name the
    *loop* as the forbidden shape, and its tripwire is described as the
    diagnostic it is rather than as enforcement.
-5. **walk-path-press-cache-k5** — k3's option 2, deferred out of it as its
-   own concern: memoise the chain walk for the extent of one press, so a
-   press stops paying everything twice.
+5. **walk-path-press-cache-k5** — *done*. `(modaliser terminal)` gained
+   `call-with-pinned-chain`, a dynamic extent in which the chain is walked
+   once and every later read is served from that walk; the leader handler
+   wraps a press in it. Scoped to an extent, never a global with
+   invalidation, so outside a press nothing is cached and there is no stale
+   window. **The second walk turned out to be conditional**: it happens only
+   when the landing root carries the derived `.` step-in edge — a
+   terminal-like host screen or a mux-backed context tree, which is what a
+   herdr press lands on. A press landing on a tree-only context (nvim)
+   already walked once. `CONTEXT.md` gains **Pinned chain**.
 
 ## Pointers
 
@@ -110,6 +117,17 @@ if measurement shows portable Scheme cannot get there.
 
 ## On the horizon
 
+- **The end-to-end press has still never been taken, and one press now
+  settles three leaves.** k3, k6 and k5 all landed with `swift test` green
+  and no installed-app reading; k5's win in particular is a *count*, which
+  is build-independent and is pinned by tests, so what is missing is the
+  wall-clock — the ~1.05 s → ~0.53 s halving, on top of k3's 27.9 s → 186 ms.
+  It is not AFK-reachable: it needs `./scripts/install.sh`, `touch
+  ~/.config/modaliser/instrument`, a relaunch, and a human pressing F17 with
+  herdr focused (`docs/how-to/measure-a-leader-press.md`). Read for
+  `walk-path calls 1` beside `walk-path/pinned calls 1`. Until that is done,
+  "Done when" bullet 1 — *comes to rest without a perceptible stall* — is
+  argued, not observed.
 - **The iTerm host leg is now the biggest single item in a press.** k3's brief
   dismissed it correctly at the old scale — 333 ms (two `osascript` calls plus
   a `ps`) was 1.2 % of a 53 s press. Post-k3 the arithmetic inverts: a press is
