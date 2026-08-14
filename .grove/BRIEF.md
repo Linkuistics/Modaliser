@@ -20,8 +20,11 @@ it means for the fix, in `03-impl-linear-string-scanning-k3.md`.
 
 ## Done when
 
-- The herdr local leader comes to rest without a perceptible stall, and the
-  keyboard is never held by a leader press.
+- ~~The herdr local leader comes to rest without a perceptible stall, and the
+  keyboard is never held by a leader press.~~ **Observed at k8**, release
+  build, one press: 506 ms handler (was ~53 s), keyboard never held, and the
+  human who pressed it called it *"back to 'normal' responsiveness, which was
+  never perfect, but is good enough."* No longer argued.
 - The quadratic scanning idiom is gone from the paths that carry it, with the
   win recorded as a before/after measurement in a **release** build (a debug
   number misattributed this cost once already — see `strip-parse-cost-k10`).
@@ -68,6 +71,16 @@ it means for the fix, in `03-impl-linear-string-scanning-k3.md`.
    terminal-like host screen or a mux-backed context tree, which is what a
    herdr press lands on. A press landing on a tree-only context (nvim)
    already walked once. `CONTEXT.md` gains **Pinned chain**.
+6. **observe-the-press-k8** — *done*. The end-to-end release-build press k3,
+   k6 and k5 all shipped without. One F17 press, herdr focused:
+   `focused-terminal-path` **26 550 ms → 490 ms**, `modal-activate!`
+   **26 694 ms → 14 ms**, whole handler **~53 s → 506 ms**, and `walk-path
+   calls 1` beside `walk-path/pinned calls 1` — all three confirmed, none
+   disconfirmed. The 97 KB payload is unchanged and parses in 183 ms against
+   k3's 186 ms bench, so the bench was measuring the real thing. Full reading
+   in `07-prototype-observe-the-press-k8.md`; the healthy-press log block and
+   the settled iTerm-leg number are promoted to
+   `docs/how-to/measure-a-leader-press.md`.
 
 ## Pointers
 
@@ -117,16 +130,15 @@ if measurement shows portable Scheme cannot get there.
 
 ## On the horizon
 
-- ~~The end-to-end press has still never been taken.~~ **Leafed at k8**
-  (`observe-the-press-k8`), which is where that reading now lives. k3, k6 and
-  k5 all landed with `swift test` green and no installed-app reading, so
-  "Done when" bullet 1 — *comes to rest without a perceptible stall* — stays
-  argued, not observed, until k8 runs. It is HITL, not AFK-reachable.
+- ~~The end-to-end press has still never been taken.~~ **Taken at k8.** The
+  grove's first "Done when" is observed, not argued.
 - ~~The iTerm host leg is now the biggest single item in a press.~~
-  **Promoted** to `docs/how-to/measure-a-leader-press.md`, with the window
-  overlay reading below, so the number outlives this tree. Whether the leg is
-  worth attacking is still a question for a reading taken after k5 — which
-  k8 will produce.
+  **Promoted** to `docs/how-to/measure-a-leader-press.md`, and **settled at
+  k8**: 302 ms of a 490 ms walk (62 %), unchanged by pinning exactly as
+  predicted, three subprocess spawns. Deliberately not attacked — the press it
+  dominates is 506 ms and the human it was slow for calls that good enough.
+  Not leafed; if a press feels slow again the number and the target are in the
+  how-to.
 - ~~The ADR-0025 sweep was deliberately not done.~~ **Done at k6.** The
   review's point stood: "cold on one sample" is not "bounded", and a `never`
   carrying known live exceptions is not a rule. The sweep turned out wider than

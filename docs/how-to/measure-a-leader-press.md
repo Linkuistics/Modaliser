@@ -58,7 +58,27 @@ instr: end leader-press
 
 The overlay's own work is reported separately, under `delayed-show`, because
 on the delayed path it runs from a timer callback rather than inside the
-handler.
+handler. **Its counters are cumulative since the `epoch`, not a fresh
+window** — a `max-chars` there that matches the handler's is the same string
+carried forward, not a second parse of it. Subtract to see what the overlay
+itself added.
+
+For contrast, the same press path measured healthy (2026-08-14, release build,
+herdr focused, chain iTerm2 → herdr):
+
+```
+instr: span leader/frontmost-bundle-id 1 ms
+instr: span leader/focused-terminal-path 490 ms
+instr: span leader/resolve-activation 1 ms
+instr: span leader/modal-activate! 14 ms      ← 26 694 ms before the chain was pinned
+instr: - walk-path/pinned calls 1 total-chars 0 max-chars 0
+instr: - json-parse calls 5 total-chars 100468 max-chars 97193
+instr: - walk-path calls 1 total-chars 0 max-chars 0
+```
+
+Same 97 KB payload, same press, 26 550 ms → 490 ms. `epoch` to `end
+leader-press` is 506 ms; the overlay comes to rest 888 ms after the press, of
+which 303 ms is the deliberate `delayed-show` timer.
 
 ## What the three instruments each tell you
 
@@ -99,13 +119,19 @@ Both were measured with this instrument while the quadratic-scan stall was
 being chased. Neither has been diagnosed further, deliberately — they are
 recorded here so a later reading starts from a number rather than a hunch.
 
-- **The iTerm host leg is now the biggest single item in a press.** Two
-  `osascript` calls plus a `ps`, ~333 ms. That was 1.2 % of a 53 s press and
-  correctly ignored at the time; once the parse cost went from 27.9 s to
-  186 ms the arithmetic inverted, and the leg is paid on every walk. Pinning
-  the chain halves how often it is paid, not what it costs. Whether the
-  remainder is worth attacking is a question for a reading taken *after* the
-  pinned-chain change, not from these numbers.
+- **The iTerm host leg is the biggest single item in a press, and that is now
+  measured rather than projected.** Two `osascript` calls plus a `ps`, ~333 ms
+  when first seen. That was 1.2 % of a 53 s press and correctly ignored at the
+  time; once the parse cost went from 27.9 s to 186 ms the arithmetic
+  inverted, and the leg is paid on every walk. Pinning the chain halves how
+  often it is paid, not what it costs — the post-pin reading confirms exactly
+  that: **302 ms of a 490 ms walk, 62 %**, split
+  `walk/focused-pane-id` 154 ms (one `osascript`) and `walk/detect-fg` 148 ms
+  (`osascript` 77 + `ps` 69). It is paid whenever herdr runs inside iTerm2,
+  because the chain crosses both backends. Left alone deliberately: the press
+  it dominates is 506 ms, and the human it was slow for calls that good enough.
+  Attack it only if a press starts feeling slow again — and if you do, the
+  target is three subprocess spawns, not a scanning cliff.
 - **The window overlay is not the same cliff.** "Slows with a lot of windows"
   measured 133 ms end to end, with no string past the 4 KB tripwire and
   `escape-string` — already O(n) — the only scanner touched. It was never
