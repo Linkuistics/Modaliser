@@ -157,6 +157,103 @@ are entirely in this tree. **Option 1 is not optional either way** — the
 cliff is the tree's, and the next 100 KB payload will not be
 `pane.process_info`.
 
+## What this session did, and what it decided
+
+**Option 1 only, and it was enough to take the cliff out.** Of the three
+levers the brief listed, this leaf took the first and cut the second as its
+own leaf (`walk-path-press-cache-k5`); the third is unavailable.
+
+### 1 — `json-parse` is linear
+
+The fix is one conversion, not a rewrite. LispKit's `substring` takes
+`asMutableStr()` (an NSRange lift, no bridge) and `string->vector` /
+`vector->string` bridge exactly once — only `string-ref` and `string-length`
+bridge *per call*. So the cliff is specific to per-character **string**
+indexing, and `(string->vector str)` at the top of `json-parse` buys O(1)
+`vector-ref` for the whole scan without touching the reader's cursor
+discipline, its `expect` grammar points, or either escape bounds check.
+Literal lifts moved from `substring str k j` to `vector->string chars k j`
+so the source string is never indexed again after the conversion.
+
+`write-json-string` got the same treatment. k2 measured it cold (35 calls,
+249 characters), so this is not the fix that mattered — it is the same cliff
+removed while it is still three lines, on the reasoning that the writer's
+inputs are whatever a caller puts in a request and nothing bounds them.
+
+One `string-ref` survives, in `parse-lit`, indexing its own 4–5 character
+`"true"` / `"false"` / `"null"` constant. Bounded literal, no cliff to grow;
+documented as the single expected hit so the grep stays a usable check.
+
+**Measurement** — release build, real 97 371-character `pane.process_info`
+captured from a live herdr pane running a grove session, identical throwaway
+harness on both sides (warm-up parse then three timed), same extracted value
+(`"grove"`) both sides:
+
+| | parse of 97 371 chars |
+|---|---|
+| before | 27 851 / 27 956 / 27 542 ms |
+| after | 186 / 188 / 185 ms |
+
+**150×.** The "before" reproduces k2's in-app 26 205 ms for 97 360 chars,
+which is what makes the harness like-for-like rather than a second opinion.
+(The harness needed a 64 MB thread stack: a deep parse overflows a
+cooperative-pool thread's default. Same both sides, so it does not affect the
+comparison — but it is why the bench was not simply a `@Test` body.)
+
+**Correctness.** `swift test` 1169 green, both invariant checks green. The
+one place the change could have shifted behaviour rather than speed is
+character representation, so that is now checked rather than argued:
+`readsCharactersOutsideTheBmp` pins a literal astral character, the same
+character as two `\uXXXX` surrogate escapes, and a BMP-non-ASCII string,
+each through parse and through a parse→write→parse round trip. Both worlds
+work in UTF-16 code units, so every offset means what it did.
+
+### 2 — the walk-path memo went to its own leaf
+
+The brief asked this leaf to check whether that was its work. It is not:
+it is a caching question with a lifetime contract, touching two libraries
+and the leader handler, where this leaf's concern was a scanning idiom in
+one file. Cut as `05-impl-walk-path-press-cache-k5`, with the post-k3 press
+budget written into it — that budget is what makes the memo worth doing now
+and was rounding error before.
+
+### 3 — no narrower herdr method exists
+
+Checked the fork's source rather than assuming (`~/Development/herdr`,
+`src/api/schema.rs`, `src/app/api/panes.rs`). `pane.process_info` takes only
+an optional `pane_id`; `PaneProcessInfoParams` has no field or verbosity
+selector, and the handler always builds the full `argv` + `cmdline` for every
+process in the group. There is no narrower read to switch to. Making one is a
+herdr-side change in another repo — out of scope here, and no longer needed
+at this cost.
+
+### ADR-0025 was raised
+
+The root brief made this conditional: raise it "only if the fix proves it is
+a standing rule rather than a one-off". It does. The cost is a property of
+the host's *string representation*, not of JSON, so it applies to every
+scanner in the tree; it has now bitten twice in the same file; and the fix is
+portable rather than LispKit-specific, so writing it down costs a future host
+nothing. ADR-0025 states it, `portability.md` gains it as a fourth semantic
+constraint, `CONTEXT.md` gains **Converted scan** beside the existing **Scan
+cliff**, and `measure-a-leader-press.md` now says what its worked example is
+a reading *of*.
+
+### Two things deliberately not done
+
+- **No end-to-end press measurement.** The leaf's own Done-when is a
+  before/after in a release build against a payload that reproduced the
+  stall, and that is met. Installing the fixed app to `/Applications` would
+  put unreviewed code on the user's machine, replace their running Modaliser
+  mid-session, and needs a focus-stealing F17 press. That belongs after the
+  review chain, and the root brief's "comes to rest without a perceptible
+  stall" stays open until it happens.
+- **No integrate step cut.** The leaf's Done-when asked for the review's
+  integration to be cut here too. Grove's methodology says the review cuts
+  its own integration — created late, so it can carry the actual findings —
+  so only `04-review-impl-linear-string-scanning-k4` was cut, and it carries
+  the `leaf-insert` instruction it needs to land adjacent.
+
 ## Notes
 
 - **The instrument is committed and stays.** `(modaliser instrument)`,

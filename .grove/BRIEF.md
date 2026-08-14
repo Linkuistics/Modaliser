@@ -35,8 +35,19 @@ it means for the fix, in `03-impl-linear-string-scanning-k3.md`.
 1. **measure-hot-scan-k2** — *done*. Instrumented the leader-press path and
    named the string. Left `(modaliser instrument)` behind as a standing
    diagnostic (`docs/how-to/measure-a-leader-press.md`).
-2. **linear-string-scanning-k3** — remove the quadratic idiom where the
-   measurement says it is hot. Cuts its own `review-impl` chain.
+2. **linear-string-scanning-k3** — *done*. `(modaliser json)` now converts
+   the source once with `string->vector` and scans the vector; the reader
+   and the writer both. Release micro-benchmark on the real 97 371-character
+   `pane.process_info` payload, identical harness both sides:
+   **27 851 ms → 186 ms** (the "before" reproduces k2's in-app 26 205 ms).
+   ADR-0025 turns the shape into a standing rule for `lib/modaliser`.
+   **Not yet verified end-to-end** — nobody has installed the fixed app and
+   pressed F17.
+3. **linear-string-scanning-k4** — `review-impl` of the above. Cuts its own
+   integration if it finds anything.
+4. **walk-path-press-cache-k5** — k3's option 2, deferred out of it as its
+   own concern: memoise the chain walk for the extent of one press, so a
+   press stops paying everything twice.
 
 ## Pointers
 
@@ -85,6 +96,20 @@ not appear in the profile at all); a native seam stays the fallback, taken only
 if measurement shows portable Scheme cannot get there.
 
 ## On the horizon
+
+- **The iTerm host leg is now the biggest single item in a press.** k3's brief
+  dismissed it correctly at the old scale — 333 ms (two `osascript` calls plus
+  a `ps`) was 1.2 % of a 53 s press. Post-k3 the arithmetic inverts: a press is
+  ~1.05 s, of which ~666 ms is that leg paid twice and ~372 ms the two
+  `pane.process_info` parses. `walk-path-press-cache-k5` halves both. Whether
+  what is left after that is worth a leaf is a question for a reading taken
+  *after* k5, not now.
+- **The ADR-0025 sweep was deliberately not done.** `util.sld`'s
+  `string-index-of`, `string-contains?` and `string-trim` still carry the
+  quadratic idiom; k2 measured all three cold on the press path (108, 0 and
+  110 characters in total). They are user-facing stdlib, so the case for
+  converting them is contract, not speed — take it up if the tripwire ever
+  names one, or as a deliberate tidy with its own leaf.
 
 - The **window-overlay** symptom ("slows with a lot of windows") was measured
   at k2 and is **not the same cliff**: 133 ms end to end, no string past the

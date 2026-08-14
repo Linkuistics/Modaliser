@@ -60,6 +60,40 @@
     ;; press. The internal procedures form a letrec* so their mutual
     ;; references resolve.
     ;;
+    ;; ─── Why the source is a vector, not a string ────────────────────
+    ;;
+    ;; The reader scans by index, and indexing a *string* here is a cliff,
+    ;; not a constant factor. LispKit stores Scheme strings as
+    ;; `NSMutableString` (`Expr.swift:43`) and `asString()` is `res as String`
+    ;; — a whole-string bridge and allocation. `string-ref` bridges and then
+    ;; walks a UTF-16 breadcrumb index; `string-length` bridges too. So
+    ;; `(when (< k (string-length s)) … (string-ref s k) …)` copies the entire
+    ;; payload TWICE PER CHARACTER: ~2n² bytes for one scan.
+    ;;
+    ;; Measured (`measure-hot-scan-k2`, installed release build): herdr's
+    ;; `pane.process_info` reply — 97 360 characters, because one foreground
+    ;; process carried a 47 KB command line — parsed in **26 205 ms**, twice
+    ;; per leader press, on the thread that owns the CGEvent tap. That is
+    ;; ADR-0014's stalled-tap hazard arriving from inside portable Scheme.
+    ;;
+    ;; So `json-parse` bridges **once**, up front, with `string->vector`, and
+    ;; every scanner below reads `chars` with O(1) `vector-ref` against a
+    ;; `vector-length` taken once. Literal lifts use `vector->string`, which
+    ;; is O(result) over the same vector, so the source string is never
+    ;; indexed again after that first conversion. Grepping this procedure for
+    ;; `string-ref` should find exactly one site — `parse-lit` comparing
+    ;; against its own 4- or 5-character constant ("true" / "false" / "null"),
+    ;; where n is a literal 5 and the cliff has nowhere to grow.
+    ;;
+    ;; Indices are interchangeable: `string->vector` walks `asString().utf16`
+    ;; and `string-length` counts the same UTF-16 units, so every offset here
+    ;; means what it always meant.
+    ;;
+    ;; Both conversions are plain `(scheme base)` (LispKit's `VectorLibrary`,
+    ;; re-exported by R7RS base), so this costs no host import and
+    ;; `check-portable-surface.sh` is unaffected. The alternative — a native
+    ;; seam — stays the fallback nobody needed: see ADR-0023.
+    ;;
     ;; ─── Why the cursor is passed, not mutated ───────────────────────
     ;;
     ;; Every scanner below takes the index to read from and answers a
@@ -78,7 +112,7 @@
     ;; `parse-string` gains the most and is the hot path — most characters
     ;; in a real payload sit inside string literals. Scanning ahead to the
     ;; closing quote and lifting the whole literal out with one native
-    ;; `substring` replaces a per-character `cons` plus a final `reverse`
+    ;; `vector->string` replaces a per-character `cons` plus a final `reverse`
     ;; and `list->string`. Only a literal that actually carries a backslash
     ;; falls back to consing (`parse-escaped-string`).
     ;;
@@ -93,10 +127,12 @@
     ;; library this tree may not import, and the SRFI that re-exports the
     ;; name backs it with a Scheme KMP loop — slower than the inline scan.
     (define (json-parse str)
-      (let ((n (string-length str)))
+      ;; The one bridge. Everything below reads CHARS, never STR.
+      (let* ((chars (string->vector str))
+             (n     (vector-length chars)))
 
         (define (skip-ws k)
-          (if (and (< k n) (char-whitespace? (string-ref str k)))
+          (if (and (< k n) (char-whitespace? (vector-ref chars k)))
               (skip-ws (+ k 1))
               k))
 
@@ -105,10 +141,10 @@
         ;; path — and each one is a validation the reader would otherwise
         ;; silently skip (`{"a" 1}` must not read as `{"a": 1}`).
         (define (expect k ch)
-          (if (and (< k n) (char=? (string-ref str k) ch))
+          (if (and (< k n) (char=? (vector-ref chars k) ch))
               (+ k 1)
               (error "json-parse: unexpected character"
-                     (if (< k n) (string-ref str k) 'end-of-input)
+                     (if (< k n) (vector-ref chars k) 'end-of-input)
                      'expected ch)))
 
         (define (parse-value k)
@@ -118,7 +154,7 @@
             ;; reasoning for every malformed-input path.
             (if (>= k n)
                 (error "json-parse: expected a value" 'end-of-input)
-                (let ((c (string-ref str k)))
+                (let ((c (vector-ref chars k)))
                   (cond
                     ((char=? c #\{) (parse-object (+ k 1)))
                     ((char=? c #\[) (parse-array (+ k 1)))
@@ -134,17 +170,17 @@
               (cond
                 ((= j len) (cons val (+ k len)))
                 ((and (< (+ k j) n)
-                      (char=? (string-ref str (+ k j)) (string-ref word j)))
+                      (char=? (vector-ref chars (+ k j)) (string-ref word j)))
                  (loop (+ j 1)))
                 (else (error "json-parse: unexpected character"
-                             (if (< (+ k j) n) (string-ref str (+ k j)) 'end-of-input)
+                             (if (< (+ k j) n) (vector-ref chars (+ k j)) 'end-of-input)
                              'expected (string-ref word j)))))))
 
         ;; { key : value , … } → alist, keys reversed back into source order.
         ;; K is the index just past the `{`.
         (define (parse-object k)
           (let ((k (skip-ws k)))
-            (if (and (< k n) (char=? (string-ref str k) #\}))
+            (if (and (< k n) (char=? (vector-ref chars k) #\}))
                 (cons '() (+ k 1))
                 (let loop ((k k) (acc '()))
                   (let* ((kv  (parse-string (expect (skip-ws k) #\")))
@@ -153,15 +189,15 @@
                          (acc (cons (cons (car kv) (car vv)) acc)))
                     (cond
                       ((>= e n) (error "json-parse: malformed object" 'end-of-input))
-                      ((char=? (string-ref str e) #\,) (loop (+ e 1) acc))
-                      ((char=? (string-ref str e) #\}) (cons (reverse acc) (+ e 1)))
+                      ((char=? (vector-ref chars e) #\,) (loop (+ e 1) acc))
+                      ((char=? (vector-ref chars e) #\}) (cons (reverse acc) (+ e 1)))
                       (else (error "json-parse: malformed object"
-                                   (string-ref str e)))))))))
+                                   (vector-ref chars e)))))))))
 
         ;; [ value , … ] → vector, in source order. K is just past the `[`.
         (define (parse-array k)
           (let ((k (skip-ws k)))
-            (if (and (< k n) (char=? (string-ref str k) #\]))
+            (if (and (< k n) (char=? (vector-ref chars k) #\]))
                 (cons #() (+ k 1))
                 (let loop ((k k) (acc '()))
                   (let* ((vv  (parse-value k))
@@ -169,15 +205,15 @@
                          (acc (cons (car vv) acc)))
                     (cond
                       ((>= e n) (error "json-parse: malformed array" 'end-of-input))
-                      ((char=? (string-ref str e) #\,) (loop (+ e 1) acc))
-                      ((char=? (string-ref str e) #\])
+                      ((char=? (vector-ref chars e) #\,) (loop (+ e 1) acc))
+                      ((char=? (vector-ref chars e) #\])
                        (cons (list->vector (reverse acc)) (+ e 1)))
                       (else (error "json-parse: malformed array"
-                                   (string-ref str e)))))))))
+                                   (vector-ref chars e)))))))))
 
         ;; K is the index just past the opening quote. The scan touches each
         ;; character once and conses nothing: on reaching the closing quote
-        ;; the literal is lifted out whole by `substring`.
+        ;; the literal is lifted out whole by `vector->string`.
         ;;
         ;; The end-of-input clause is load-bearing, not defensive: the `else`
         ;; branch advances on ANY character, so without it an unterminated
@@ -195,9 +231,9 @@
           (let scan ((j k))
             (if (>= j n)
                 (error "json-parse: unterminated string")
-                (let ((c (string-ref str j)))
+                (let ((c (vector-ref chars j)))
                   (cond
-                    ((char=? c #\") (cons (substring str k j) (+ j 1)))
+                    ((char=? c #\") (cons (vector->string chars k j) (+ j 1)))
                     ;; One backslash anywhere in the literal and the whole
                     ;; thing is re-read character at a time — the escape
                     ;; decoding has to build a string that is not a substring
@@ -211,17 +247,19 @@
           (let loop ((j k) (acc '()))
             (if (>= j n)
                 (error "json-parse: unterminated string")
-                (let ((c (string-ref str j)))
+                (let ((c (vector-ref chars j)))
                   (cond
                     ((char=? c #\") (cons (list->string (reverse acc)) (+ j 1)))
                     ((char=? c #\\)
                      ;; Bounds-check before reading the escape character.
-                     ;; `string-ref` past the end raises a HOST range error,
-                     ;; which is not the guardable kind — the one thing every
-                     ;; malformed-input path here must avoid.
+                     ;; `vector-ref` past the end raises a HOST range error —
+                     ;; exactly as `string-ref` did before it — and that is not
+                     ;; the guardable kind, which is the one thing every
+                     ;; malformed-input path here must avoid. Moving to a
+                     ;; vector changed the speed, not this hazard.
                      (if (>= (+ j 1) n)
                          (error "json-parse: unterminated string")
-                         (let ((e (string-ref str (+ j 1))))
+                         (let ((e (vector-ref chars (+ j 1))))
                            (cond
                              ((char=? e #\") (loop (+ j 2) (cons #\" acc)))
                              ((char=? e #\\) (loop (+ j 2) (cons #\\ acc)))
@@ -235,7 +273,7 @@
                               (if (> (+ j 6) n)
                                   (error "json-parse: unterminated string")
                                   (let ((hex (string->number
-                                               (substring str (+ j 2) (+ j 6)) 16)))
+                                               (vector->string chars (+ j 2) (+ j 6)) 16)))
                                     (if (number? hex)
                                         (loop (+ j 6) (cons (integer->char hex) acc))
                                         (error "json-parse: bad escape" #\u)))))
@@ -265,11 +303,11 @@
         ;; empty-output shape) instead of breaking a leader press.
         (define (parse-number k)
           (let loop ((j k))
-            (if (and (< j n) (number-char? (string-ref str j)))
+            (if (and (< j n) (number-char? (vector-ref chars j)))
                 (loop (+ j 1))
                 (if (= j k)
-                    (error "json-parse: expected a value" (string-ref str k))
-                    (let* ((tok (substring str k j))
+                    (error "json-parse: expected a value" (vector-ref chars k))
+                    (let* ((tok (vector->string chars k j))
                            (num (string->number tok)))
                       (if (number? num)
                           (cons num j)
@@ -347,27 +385,35 @@
     ;; — including `/` and non-ASCII — goes out verbatim, which parse-string
     ;; reads back unchanged. The five short forms are used where they exist
     ;; because they are what a human debugging a captured line expects.
+    ;;
+    ;; Scans the vector, not the string, for the reason json-parse does: the
+    ;; `(< k (string-length s))` + `(string-ref s k)` shape is Θ(n) per
+    ;; character in LispKit and so Θ(n²) per scan. `measure-hot-scan-k2` found
+    ;; this site cold on a leader press (35 calls, 249 characters in total),
+    ;; so this is not the fix that mattered — it is the same cliff removed
+    ;; while it is still cheap to remove, because the writer's inputs are
+    ;; whatever a caller puts in a request and nothing bounds them.
     (define (write-json-string s out)
-      ;; One extra `string-length` against the n this loop already pays is
-      ;; noise; the count is what says whether the writer is on the press path.
-      (instrument-sample! 'write-json-string s (string-length s))
-      (write-char #\" out)
-      (let loop ((k 0))
-        (when (< k (string-length s))
-          (let* ((c (string-ref s k))
-                 (n (char->integer c)))
-            (cond
-              ((char=? c #\")      (write-string "\\\"" out))
-              ((char=? c #\\)      (write-string "\\\\" out))
-              ((char=? c #\newline)(write-string "\\n" out))
-              ((char=? c #\return) (write-string "\\r" out))
-              ((char=? c #\tab)    (write-string "\\t" out))
-              ((= n 8)             (write-string "\\b" out))
-              ((= n 12)            (write-string "\\f" out))
-              ((< n 32)            (write-string (unicode-escape n) out))
-              (else                (write-char c out))))
-          (loop (+ k 1))))
-      (write-char #\" out))
+      (let* ((chars (string->vector s))
+             (len   (vector-length chars)))
+        (instrument-sample! 'write-json-string s len)
+        (write-char #\" out)
+        (let loop ((k 0))
+          (when (< k len)
+            (let* ((c (vector-ref chars k))
+                   (n (char->integer c)))
+              (cond
+                ((char=? c #\")      (write-string "\\\"" out))
+                ((char=? c #\\)      (write-string "\\\\" out))
+                ((char=? c #\newline)(write-string "\\n" out))
+                ((char=? c #\return) (write-string "\\r" out))
+                ((char=? c #\tab)    (write-string "\\t" out))
+                ((= n 8)             (write-string "\\b" out))
+                ((= n 12)            (write-string "\\f" out))
+                ((< n 32)            (write-string (unicode-escape n) out))
+                (else                (write-char c out))))
+            (loop (+ k 1))))
+        (write-char #\" out)))
 
     ;; \u00XX — control codes only, so two hex digits always suffice and
     ;; the leading "00" is a constant.

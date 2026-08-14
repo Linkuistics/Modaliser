@@ -95,7 +95,7 @@ the right answer is one of:
 
 A clean import section is necessary but not sufficient: the portable
 tree also has to run on the *current* host, so anything R7RS specifies
-but LispKit omits is off-limits too. Three constraints shape real code:
+but LispKit omits is off-limits too. Four constraints shape real code:
 
 1. **No mutable pairs.** LispKit excludes `set-car!` / `set-cdr!` — a
    reference to them parses cleanly and errors only at call time.
@@ -131,6 +131,24 @@ but LispKit omits is off-limits too. Three constraints shape real code:
    outward reach, but the motive is different and so is the fallback —
    there the uninstalled default is *inert by design*, a safety
    property; here it is merely backwards compatibility.
+
+4. **Never scan a string by index.** `(string-ref s k)` inside a loop
+   guarded by `(string-length s)` is Θ(n²) on this host — LispKit
+   stores strings as `NSMutableString` and both primitives bridge the
+   whole thing on every call, so one pass copies ~2n² bytes. Convert
+   once and scan the conversion: `string->list` for a sequential walk
+   (`escape-string` in `util.sld`), `string->vector` +
+   `vector-ref` / `vector->string` when the scanner needs lookahead or
+   substring lifts (`json-parse` in `json.sld`). Indexing a *bounded
+   literal the code owns* is fine; indexing a string whose length comes
+   from outside is the cliff. It cost a 53-second leader press before it
+   was written down — see
+   [ADR-0025](../adr/0025-portable-scheme-never-indexes-a-string.md).
+   Unlike the import rules, this one has no check script (`string-ref`
+   is not always wrong); the tripwire in `(modaliser instrument)` is
+   what catches it, and
+   [measure-a-leader-press.md](../how-to/measure-a-leader-press.md) is
+   how to read it.
 
 ## How to audit
 

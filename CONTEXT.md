@@ -951,3 +951,11 @@ every epoch by design.
 string, and the ordinary indexed scanner copies ~2n² bytes. Invisible at
 4 KB (~4 ms), fatal at 100 KB (~26 s). _Avoid_: calling it "slow parsing" —
 the cost is the *idiom*, and it is the same idiom everywhere in the tree.
+
+**Converted scan** — the shape that removes a **Scan cliff**: bridge the
+string *once* and index the conversion — `string->list` for a sequential
+walk, `string->vector` (with `vector->string` for substring lifts) when the
+scanner needs lookahead. Portable, not host-specific; ADR-0025 makes it the
+rule for `lib/modaliser`. _Avoid_: "optimised scan" — nothing was tuned, a
+different data structure was chosen, and the difference matters when the next
+scanner is written.

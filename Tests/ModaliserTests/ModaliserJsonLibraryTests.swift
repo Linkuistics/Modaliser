@@ -91,6 +91,39 @@ struct ModaliserJsonLibraryTests {
         #expect(r == .makeString("a/b c"))
     }
 
+    /// Characters outside the BMP survive a parse, and a parse→write
+    /// round-trip, unchanged.
+    ///
+    /// This is the one place `linear-string-scanning-k3` could have shifted
+    /// behaviour rather than only speed. The reader used to index the source
+    /// *string* with `string-ref` and lift literals out with `substring`; it
+    /// now converts once with `string->vector` and lifts with
+    /// `vector->string`. Both pairs work in UTF-16 code units — LispKit's
+    /// `string->vector` walks `asString().utf16` and its characters are
+    /// `UniChar` — so an astral character is a surrogate *pair* on both
+    /// sides and the offsets mean the same thing. That is an argument; this
+    /// is the check. A reader that had moved to Unicode scalars instead
+    /// would still pass every other case in this suite.
+    ///
+    /// The escaped form matters as much as the literal one: JSON spells an
+    /// astral character as two `\uXXXX` surrogate escapes, which
+    /// `parse-escaped-string` conses one code unit at a time.
+    @Test(arguments: [
+        (#"{\"k\":\"a😀b\"}"#, "a😀b"),
+        (#"{\"k\":\"a\\ud83d\\ude00b\"}"#, "a😀b"),
+        (#"{\"k\":\"héllo → ✓\"}"#, "héllo → ✓"),
+    ])
+    func readsCharactersOutsideTheBmp(_ json: String, _ expected: String) throws {
+        let e = try engine()
+        #expect(try e.evaluate("(json-ref (json-parse \"\(json)\") \"k\")")
+                  == .makeString(expected))
+        // …and the writer sends it back out verbatim, so parse→write→parse
+        // is a fixed point over the same code units.
+        #expect(
+            try e.evaluate("(json-write (json-parse (json-write (json-parse \"\(json)\"))))")
+                == .makeString(#"{"k":"\#(expected)"}"#))
+    }
+
     /// Truncated input **raises** — it does not spin. `peek` answers `#\x0`
     /// past the end of the string rather than an end sentinel, and
     /// `parse-string`'s scan advances on any character that is not `"` or
@@ -160,8 +193,9 @@ struct ModaliserJsonLibraryTests {
     /// nothing else in this suite would notice.
     ///
     /// The last two are the sharp ones, and they were confirmed against a
-    /// draft that omitted the guards: `string-ref` past the end raises a
-    /// **host** range error, which is *not* the guardable kind — it escapes
+    /// draft that omitted the guards: an index past the end raises a
+    /// **host** range error — `vector-ref` now, `string-ref` when they were
+    /// written, the hazard is the same — which is *not* the guardable kind. It escapes
     /// the `guard` every caller wraps `json-parse` in and reaches the host
     /// as a failed evaluation, which is the one outcome this reader's
     /// malformed-input handling exists to prevent.

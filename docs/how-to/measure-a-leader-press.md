@@ -36,7 +36,12 @@ log show --predicate 'subsystem == "dev.antony.Modaliser"' \
 
 (`log` is a zsh builtin — write `/usr/bin/log` if your shell shadows it.)
 
-A press emits one bracketed block:
+A press emits one bracketed block. The one below is the **historical reading
+that found the stall** — 26 seconds in `json-parse` over a 97 KB
+`pane.process_info` reply — kept because it is what a bad press looks like.
+That particular cliff is fixed (ADR-0025); the same payload now parses in
+~186 ms, so a healthy `focused-terminal-path` span is milliseconds, not
+seconds.
 
 ```
 instr: epoch leader-press                       ← the epoch starts; counters cleared
@@ -71,7 +76,9 @@ Two shapes to read for, because they need different fixes:
 
 - **one huge string** — a big `max-chars` at one site. The scanner is on a
   quadratic cliff (`string-ref` is Θ(n) per character in LispKit, so an
-  index-based scan copies ~2n² bytes).
+  index-based scan copies ~2n² bytes). The fix is to convert once and scan
+  the conversion, never to tune the loop — see
+  [ADR-0025](../adr/0025-portable-scheme-never-indexes-a-string.md).
 - **many small ones** — a large `calls` with a small `max-chars`. Something
   is being re-derived that should have been computed once. `walk-path`'s
   counter exists for exactly this: the chain walk is uncached, and a press
