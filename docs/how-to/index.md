@@ -58,6 +58,9 @@ reaching for recipes, start with the tutorial:
 
 - [Debug "my binding does nothing"](debug-binding.md) — the checklist
   for the five most common reasons a binding silently no-ops.
+- [Measure a leader press](measure-a-leader-press.md) — turn on the
+  press instrument and read back where a slow press spent its time,
+  and which string a scanner was handed.
 - [Use Modaliser over a remote desktop](remote-desktop.md) — the
   pass-and-arm mechanism for when a host and a remote machine both
   run Modaliser and see the same trigger keys.

@@ -46,7 +46,15 @@
   ;; the build on any parenthesised reference to it from this tree (so prose
   ;; here must name it as above, exactly as the portability rule requires of
   ;; the LispKit libraries).
-  (import (scheme base))
+  (import (scheme base)
+          ;; The press stopwatch (measure-hot-scan-k2). A shell-out is the
+          ;; natural source of a several-hundred-KB string, and the profile
+          ;; put ~1 s of the stalled press inside the native runner — so this
+          ;; seam logs the command AND how much text came back, which is the
+          ;; pair that decides whether a scanner downstream was handed a
+          ;; payload big enough to matter.
+          (only (modaliser instrument)
+                instrument-enabled? instrument-note instrument-span instrument-tally!))
   (begin
 
     ;; (runner command) → stdout string. #f = no runner installed.
@@ -60,8 +68,17 @@
     ;; installed. Callers already treat "" as "the tool told us nothing",
     ;; so the inert path needs no handling anywhere.
     (define (run-shell command)
-      (let ((runner (current-shell-runner)))
-        (if runner (runner command) "")))
+      (let* ((runner (current-shell-runner))
+             (out (instrument-span 'run-shell
+                              (lambda () (if runner (runner command) "")))))
+        (when (instrument-enabled?)
+          (let ((n (string-length out)))
+            (instrument-tally! 'run-shell-output n)
+            (instrument-note 'shell 'out-chars n 'cmd
+                        (if (> (string-length command) 120)
+                            (substring command 0 120)
+                            command))))
+        out))
 
     ;; Run COMMAND in the background, calling CALLBACK with (exit-code
     ;; stdout stderr). With no runner installed the callback still fires —

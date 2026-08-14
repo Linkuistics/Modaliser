@@ -915,3 +915,39 @@ The provider always runs first, so a label pressed faster than the overlay
 appears still dispatches. _Avoid_: re-querying paneru inside the block —
 that reintroduces the two-sources-can-disagree bug the snapshot exists to
 prevent.
+
+## Press-diagnostics domain
+
+**Press instrument** — `(modaliser instrument)`: the stopwatch and counters
+wired into the leader-press path, inert until the host enables them from the
+`~/.config/modaliser/instrument` marker file. Not a **Probe** — everything
+else in this codebase called a probe (chip-theme probe, canvas-frame probe,
+tool probe) measures the *environment*; this one measures *Modaliser*.
+_Avoid_: "profiler" — it samples nothing, it is hand-placed.
+
+**Span** — one stopwatched coarse stage (`leader/focused-terminal-path`,
+`herdr-parse`, `show-delayed/show-overlay`). Carries a clock, so it may
+never wrap anything called per character. _Avoid_: adding one inside a
+scanner — use a **Site tally**.
+
+**Site tally** — a clock-free per-call counter on a hot scanner: calls,
+total chars, max chars, cleared each **Epoch**. Its `calls` and `max-chars`
+separate the two failure shapes — one huge string versus the same small one
+re-scanned. The length is always passed *in*: `string-length` bridges the
+whole string, so a counter that measured its own input would join the
+disease it is diagnosing.
+
+**Tripwire** — the `big <site> len … head …` line a **Site tally** emits on
+a new record length past the threshold, carrying a 72-char prefix. The
+prefix is what *names* the string; a length alone only says "something big".
+
+**Epoch** — the window a report covers: one leader press, or one delayed
+overlay show. Opened by `instrument-reset!`, closed by `instrument-report!`.
+_Avoid_: reading a report as a lifetime total — the counters are cleared at
+every epoch by design.
+
+**Scan cliff** — the cost class: LispKit stores Scheme strings as
+`NSMutableString`, so `string-ref` and `string-length` each bridge the whole
+string, and the ordinary indexed scanner copies ~2n² bytes. Invisible at
+4 KB (~4 ms), fatal at 100 KB (~26 s). _Avoid_: calling it "slow parsing" —
+the cost is the *idiom*, and it is the same idiom everywhere in the tree.

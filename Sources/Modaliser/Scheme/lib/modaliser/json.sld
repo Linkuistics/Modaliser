@@ -10,8 +10,9 @@
 ;; json-write rather than by string-appending, so escaping is decided in
 ;; exactly one place).
 ;;
-;; Portability. Depends ONLY on (scheme base) + (scheme char) — no
-;; hashtable library, no host JSON primitive — so it belongs in the
+;; Portability. Depends on (scheme base) + (scheme char) — no hashtable
+;; library, no host JSON primitive — plus (modaliser instrument)'s two counters,
+;; which are inert until the host enables them. So it belongs in the
 ;; portable lib/modaliser tree and keeps check-portable-surface.sh green.
 ;;
 ;; Representation (chosen so objects and arrays are distinguishable at a
@@ -37,7 +38,11 @@
 (define-library (modaliser json)
   (export json-parse json-ref json-write)
   (import (scheme base)
-          (scheme char))
+          (scheme char)
+          ;; The scan counters (measure-hot-scan-k2) — inert unless the host
+          ;; enables them. Both scanners below already hold their own length,
+          ;; so the probe never measures one for itself.
+          (only (modaliser instrument) instrument-sample!))
   (begin
 
     ;; Look up string KEY in a parsed JSON object (an alist). Returns the
@@ -273,6 +278,10 @@
         ;; Trailing text after the first complete value is ignored, exactly
         ;; as it always was — a CLI that prints a JSON line and then a
         ;; newline or a warning still reads.
+        ;; After the internal defines, before the scan: R7RS bodies take
+        ;; their definitions first, so the counter cannot sit next to the
+        ;; `n` it reports.
+        (instrument-sample! 'json-parse str n)
         (car (parse-value 0))))
 
     ;; ─── Writer ─────────────────────────────────────────────────────
@@ -339,6 +348,9 @@
     ;; reads back unchanged. The five short forms are used where they exist
     ;; because they are what a human debugging a captured line expects.
     (define (write-json-string s out)
+      ;; One extra `string-length` against the n this loop already pays is
+      ;; noise; the count is what says whether the writer is on the press path.
+      (instrument-sample! 'write-json-string s (string-length s))
       (write-char #\" out)
       (let loop ((k 0))
         (when (< k (string-length s))

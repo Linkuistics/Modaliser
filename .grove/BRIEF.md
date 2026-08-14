@@ -10,7 +10,13 @@ panes/windows.
 The cause is established (see Notes): **LispKit's `string-ref` is Θ(n) per
 character**, so the ordinary Scheme scanning idiom is O(n²) with a very large
 constant, and it runs synchronously on the thread that owns the CGEvent tap.
-The remaining unknown is *which* string.
+
+**`measure-hot-scan-k2` named the string.** It is herdr's
+`pane.process_info` reply — 97 360 characters — parsed by `json-parse` in
+26.2 s, *twice* per press because `walk-path` is uncached. It is 97 KB
+because one process entry carries a 47 KB command line (a grove-launched
+`claude`), so it does **not** scale with pane count. Full reading, and what
+it means for the fix, in `03-impl-linear-string-scanning-k3.md`.
 
 ## Done when
 
@@ -26,8 +32,9 @@ The remaining unknown is *which* string.
 
 ## Decomposition
 
-1. **measure-hot-scan-k2** — instrument the leader-press path and *name* the
-   string, instead of deducing it. Ends the guesswork; shapes k3.
+1. **measure-hot-scan-k2** — *done*. Instrumented the leader-press path and
+   named the string. Left `(modaliser instrument)` behind as a standing
+   diagnostic (`docs/how-to/measure-a-leader-press.md`).
 2. **linear-string-scanning-k3** — remove the quadratic idiom where the
    measurement says it is hot. Cuts its own `review-impl` chain.
 
@@ -59,6 +66,11 @@ bridges too. So `(when (< k (string-length s)) … (string-ref s k) …)` does
 inside `StringLibrary.stringRef`, under `fireHotkeyHandler` →
 `Evaluator.execute`, on the main thread.
 
+**Corrected by k2's reading**: the ~54 s in that profile was **one** press,
+not two. A press pays 26.2 s twice, because `walk-path` is uncached and both
+`focused-terminal-path` and `modal-activate!`'s visit snapshot walk the
+chain. Reading the profile as "~27 s per press" understated it by half.
+
 **Disconfirmed** — do not re-investigate: the herdr fork (installed, serving,
 `ui.layout` in 0.1 ms); the socket transport (4.3 KB/enter, 0.1–0.6 ms); iTerm
 AppleScript (80 ms); the AX tree walk (absent from the profile); paneru (not
@@ -74,9 +86,13 @@ if measurement shows portable Scheme cannot get there.
 
 ## On the horizon
 
-- The **window-overlay** symptom ("slows with a lot of windows") is reported
-  but not yet diagnosed. Likely the same cliff on a different scanner; confirm
-  during k2 rather than assuming.
+- The **window-overlay** symptom ("slows with a lot of windows") was measured
+  at k2 and is **not the same cliff**: 133 ms end to end, no string past the
+  4 KB tripwire, `escape-string` (already O(n)) the only scanner touched.
+  Left undiagnosed deliberately — it was not reproduced *as a stall*, so
+  there was nothing to diagnose. If it recurs, take a reading at that window
+  count with the instrument and give it its own leaf; do not fold it into
+  k3.
 - A second unbounded reach seen in passing, unrelated to this stall:
   `AppLibrary.resolveApplicationURL` (`AppLibrary.swift:284`) spawns `mdfind`
   and `waitUntilExit`s on the main thread with no timeout — the same shape

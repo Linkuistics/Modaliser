@@ -41,7 +41,14 @@
           ;; Only the modifier-mask conversion: leader specs carry
           ;; modifiers as authored-altitude symbols; the mask is the
           ;; engine's business at arming (configuration.sld `leader`).
-          (only (modaliser dsl) modifier-symbols->mask))
+          (only (modaliser dsl) modifier-symbols->mask)
+          ;; The press stopwatch (measure-hot-scan-k2). This handler IS the
+          ;; `fireHotkeyHandler` the profile attributed 97 % of a 27 s stall
+          ;; to, and it has exactly four stages — so bracketing them here
+          ;; turns "somewhere in the press" into one named stage before any
+          ;; finer instrument has to be read.
+          (only (modaliser instrument)
+                instrument-span instrument-reset! instrument-report!))
   (begin
 
 ;; ─── The installed value ─────────────────────────────────────────────
@@ -79,14 +86,28 @@
       ((fsm-active?)   (modal-exit))
       ((not %installed-configuration) (if #f #f))
       (else
-       (let* ((bundle-id ((current-frontmost-bundle-id)))
-              (chain     (if (eq? mode 'global) '() (focused-terminal-path)))
-              (landing   (resolve-activation mode bundle-id chain
-                                             %installed-configuration)))
+       ;; The epoch starts here, so every counter the report prints is
+       ;; "since this press" — a tally accumulated across a whole session
+       ;; would answer a question nobody asked.
+       (instrument-reset! 'leader-press)
+       (let* ((bundle-id (instrument-span 'leader/frontmost-bundle-id
+                           (lambda () ((current-frontmost-bundle-id)))))
+              (chain     (instrument-span 'leader/focused-terminal-path
+                           (lambda ()
+                             (if (eq? mode 'global) '() (focused-terminal-path)))))
+              (landing   (instrument-span 'leader/resolve-activation
+                           (lambda ()
+                             (resolve-activation mode bundle-id chain
+                                                 %installed-configuration)))))
          (when landing
-           (modal-activate! (cdr (assq 'root landing))
-                            (cdr (assq 'stack landing))
-                            leader-kc)))))))
+           (instrument-span 'leader/modal-activate!
+             (lambda ()
+               (modal-activate! (cdr (assq 'root landing))
+                                (cdr (assq 'stack landing))
+                                leader-kc))))
+         ;; Reported even when nothing landed: "the press cost 27 s and
+         ;; activated nothing" is itself a finding.
+         (instrument-report! 'leader-press))))))
 
 ;; ─── Pre-effect validation ───────────────────────────────────────────
 ;;

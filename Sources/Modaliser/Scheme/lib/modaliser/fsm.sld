@@ -136,7 +136,16 @@
           (modaliser keyboard)
           (modaliser lifecycle)
           (modaliser list-cursor)
-          (modaliser configuration))
+          (modaliser configuration)
+          ;; The press stopwatch (measure-hot-scan-k2). Two spans, and they
+          ;; answer two different questions: `run-on-enter` is where a
+          ;; provider gathers and chips are painted (the herdr symptom), and
+          ;; `show-overlay` is where the renderer payload is built and pushed
+          ;; (the "slows down with a lot of windows" symptom). A report fires
+          ;; after the delayed show as well as after the press, because on
+          ;; the delayed path this work runs on a timer callback and is NOT
+          ;; inside the leader handler's own epoch.
+          (only (modaliser instrument) instrument-span instrument-report!))
   (begin
 
 ;; ─── The `named` behaviour wrapper ──────────────────────────────
@@ -1874,8 +1883,9 @@
 ;; "user is now looking at this level" event the overlay represents.
 (define (modal-show-overlay-now)
   (set! modal-overlay-generation (+ modal-overlay-generation 1))
-  (run-on-enter modal-current-node)
-  (show-overlay modal-root-node modal-current-path))
+  (instrument-span 'show-now/on-enter (lambda () (run-on-enter modal-current-node)))
+  (instrument-span 'show-now/show-overlay
+    (lambda () (show-overlay modal-root-node modal-current-path))))
 
 ;; Schedule overlay to appear after modal-overlay-delay seconds.
 ;; If a key is pressed before the delay, the show is cancelled — and so are
@@ -1884,16 +1894,23 @@
 (define (modal-show-overlay-delayed)
   (if (<= modal-overlay-delay 0)
     (begin
-      (run-on-enter modal-current-node)
-      (show-overlay modal-root-node modal-current-path))
+      (instrument-span 'show-imm/on-enter (lambda () (run-on-enter modal-current-node)))
+      (instrument-span 'show-imm/show-overlay
+        (lambda () (show-overlay modal-root-node modal-current-path))))
     (let ()
       (set! modal-overlay-generation (+ modal-overlay-generation 1))
       (let ((gen modal-overlay-generation))
         (after-delay modal-overlay-delay
           (lambda ()
             (when (and modal-active? (= gen modal-overlay-generation))
-              (run-on-enter modal-current-node)
-              (show-overlay modal-root-node modal-current-path))))))))
+              (instrument-span 'show-delayed/on-enter
+                (lambda () (run-on-enter modal-current-node)))
+              (instrument-span 'show-delayed/show-overlay
+                (lambda () (show-overlay modal-root-node modal-current-path)))
+              ;; This body runs on a timer callback, outside the leader
+              ;; handler's epoch — so it needs its own dump or its scans
+              ;; are counted and never printed.
+              (instrument-report! 'delayed-show))))))))
 
 ;; (modal-activate! root-id stack leader-kc) — enter modal mode on a
 ;; resolved LANDING: ROOT-ID and STACK are resolve-activation's root

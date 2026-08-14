@@ -98,7 +98,13 @@
           ;; log-line: the one Scheme-facing diagnostic primitive
           ;; (ADR-0017 Layer 2) — a missing backend tool logs here, never
           ;; raises through a leader press.
-          (modaliser log))
+          (modaliser log)
+          ;; The press stopwatch (measure-hot-scan-k2). The chain walk below
+          ;; is explicitly NOT cached (see walk-path's own note), and three
+          ;; exported procedures each re-run it, so the span count is as
+          ;; interesting as the span duration: a walk that is cheap once and
+          ;; run six times per press is a different bug from a slow walk.
+          (only (modaliser instrument) instrument-span instrument-tally! instrument-note))
   (begin
 
     ;; ─── Legacy detection ───────────────────────────────────────────
@@ -426,13 +432,20 @@
     ;; Not cached. Future work: memoise per leader press once the leader
     ;; layer exposes a "press epoch" hook.
     (define (walk-path)
+      (instrument-tally! 'walk-path 0)
       (let* ((bundle ((current-frontmost-bundle-id)))
              (host   (resolve-host-backend bundle)))
         (if (not host)
             '()
             (let loop ((b host) (acc '()) (seen '()))
-              (let* ((pane-id ((terminal-backend-focused-pane-id b)))
-                     (fg-cmd  ((terminal-backend-detect-fg b)))
+              ;; The backend is named on its own line rather than folded into
+              ;; the span labels, so the two spans keep stable names across
+              ;; backends and the log still says which one paid.
+              (let* ((_       (instrument-note 'walk 'backend (terminal-backend-symbol b)))
+                     (pane-id (instrument-span 'walk/focused-pane-id
+                                (lambda () ((terminal-backend-focused-pane-id b)))))
+                     (fg-cmd  (instrument-span 'walk/detect-fg
+                                (lambda () ((terminal-backend-detect-fg b)))))
                      (frame   (vector 'pane pane-id 'fg fg-cmd))
                      (acc1    (cons (cons b frame) acc))
                      (seen1   (cons (terminal-backend-symbol b) seen))

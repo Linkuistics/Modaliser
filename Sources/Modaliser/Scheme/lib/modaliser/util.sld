@@ -43,6 +43,14 @@
           (scheme write)
           (scheme char)
           (srfi 69)
+          ;; The scan counters (measure-hot-scan-k2). Inert unless the host
+          ;; enables them, and clock-free at these sites: `string-index-of`
+          ;; runs per character of every split in the tree, so it can afford
+          ;; an increment but not a stopwatch. Every call hands its length
+          ;; over rather than letting the probe measure it — `string-length`
+          ;; bridges the whole string, so a probe that called it would add a
+          ;; second Θ(n) cost to the loop under measurement.
+          (only (modaliser instrument) instrument-tally! instrument-sample!)
           ;; Only the five list procedures — `only` keeps SRFI 1's
           ;; redefinitions of map / assoc / member / fold-right out of this
           ;; library's own body.
@@ -72,6 +80,10 @@
                 (cons (cons (car rest) (car (cdr rest))) result)))))
 
     (define (string-join strs sep)
+      ;; Tallied by PIECE COUNT, not characters: the repeated string-append
+      ;; below is quadratic in its own right (each step copies the accumulator
+      ;; whole), and the piece count is what that cost scales with.
+      (instrument-tally! 'string-join (length strs))
       (if (null? strs)
         ""
         (let loop ((rest (cdr strs)) (result (car strs)))
@@ -119,6 +131,7 @@
       ;; for the short strings we split on (paths, command output).
       (let ((hlen (string-length haystack))
             (nlen (string-length needle)))
+        (instrument-sample! 'string-index-of haystack hlen)
         (if (zero? nlen)
           start
           (let outer ((i start))
@@ -145,6 +158,7 @@
       ;;   (string-split "" "/")      => ("")
       (let ((slen (string-length str))
             (seplen (string-length sep)))
+        (instrument-sample! 'string-split str slen)
         (if (zero? seplen)
           (list str)
           (let loop ((start 0) (acc '()))
@@ -157,6 +171,7 @@
     (define (string-trim str)
       ;; Strip leading/trailing whitespace (per char-whitespace?).
       (let ((len (string-length str)))
+        (instrument-sample! 'string-trim str len)
         (let scan-left ((i 0))
           (cond
             ((= i len) "")
@@ -177,7 +192,12 @@
       ;; JSON string vs a single-quoted HTML attribute). Keeping the mechanism
       ;; here and the tables at the call sites means there is one place that can
       ;; be wrong about the walk and a self-documenting table per target.
-      (let loop ((chars (string->list str)) (result '()))
+      ;; Counted off the char LIST, not via string-length: this is the one
+      ;; scanner here that never touches the string after `string->list`,
+      ;; and measuring it with a bridging call would spoil the control.
+      (let ((chars0 (string->list str)))
+      (instrument-tally! 'escape-string (length chars0))
+      (let loop ((chars chars0) (result '()))
         (if (null? chars)
           (list->string (reverse result))
           (let* ((c (car chars))
@@ -187,7 +207,7 @@
                     ;; Prepend the replacement's chars (reversed, because
                     ;; `result` accumulates in reverse and is reversed at the end).
                     (append (reverse (string->list (cdr hit))) result)
-                    (cons c result)))))))
+                    (cons c result))))))))
     ;; The (scheme cxr) accessors are re-exported, not redefined — see the
     ;; export list above; nothing to define here.
     ))

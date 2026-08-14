@@ -43,6 +43,11 @@
         (modaliser web-search)
         (modaliser theming)
         (modaliser dialogs)
+        ;; The press instrument's on/off switch. The spans and counters
+        ;; themselves are already imported by the libraries that carry them;
+        ;; the host only decides whether any of it is live (see the marker
+        ;; file below).
+        (only (modaliser instrument) instrument-enabled?)
         (only (modaliser muxes herdr-socket)
               current-herdr-socket-path herdr-default-socket-path)
         ;; The only import of the native HTTP library in the tree; the seam
@@ -137,6 +142,30 @@
 
 (define default-config-path
   (string-append *scheme-directory* "/default-config.scm"))
+
+;; ─── The press instrument ─────────────────────────────────────────
+;;
+;; (modaliser instrument) ships inert — every span, tally and tripwire in
+;; the tree is a parameter read and a return until something turns it on,
+;; and `swift test` never runs this file, so the suite stays silent
+;; whatever is on disk here. The host is the only thing that decides,
+;; exactly as it decides the shell runner and the herdr socket path.
+;;
+;; The switch is a FILE, not an environment variable, because the build
+;; that matters is the installed .app: it is launched from Finder with a
+;; stripped environment (the same fact ADR-0017's PATH derivation exists
+;; for), so an env var could not reach it — and a release build is the
+;; only valid place to take this measurement, a debug number having
+;; misattributed this exact cost once already (strip-parse-cost-k10).
+;; `touch ~/.config/modaliser/instrument` + relaunch turns it on; deleting
+;; the file + relaunch turns it off. No in-place reload, by doctrine
+;; (ADR-0018).
+(define instrument-marker-path
+  (string-append user-config-dir "/instrument"))
+
+(when (file-exists? instrument-marker-path)
+  (instrument-enabled? #t)
+  (log-line "Modaliser: press instrument ENABLED (~/.config/modaliser/instrument)"))
 
 ;; ─── Recovery actions ─────────────────────────────────────────────
 ;;

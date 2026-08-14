@@ -52,6 +52,14 @@
           (only (scheme process-context) get-environment-variable)
           (modaliser util)
           (modaliser json)
+          ;; The press stopwatch (measure-hot-scan-k2). Split deliberately
+          ;; into wire time and parse time: the requirements session measured
+          ;; the wire at 0.1–0.6 ms per read and 4.3 KB per come-to-rest, so
+          ;; a herdr read that now costs seconds means either that payload
+          ;; grew by two orders of magnitude or the parse did — and only
+          ;; separate spans can say which.
+          (only (modaliser instrument)
+                instrument-enabled? instrument-note instrument-span instrument-sample!)
           ;; The native surface the socket transport needs (ADR-0020):
           ;;   (unix-socket-request path line timeout-ms) → reply-line | #f
           ;;   (unix-socket-send    path line timeout-ms) → #t | #f
@@ -165,13 +173,22 @@
     (define (herdr-socket-request method params)
       (if (not (string? (current-herdr-socket-path)))
           (herdr-socket-unconfigured method)
-      (let ((reply (unix-socket-request
-                     (current-herdr-socket-path)
-                     (herdr-request-line method params)
-                     herdr-socket-timeout-ms)))
+      (let ((reply (instrument-span 'herdr-wire
+                     (lambda ()
+                       (unix-socket-request
+                         (current-herdr-socket-path)
+                         (herdr-request-line method params)
+                         herdr-socket-timeout-ms)))))
         (if (not (string? reply))
             #f                          ; the primitive already logged why
-            (let ((parsed (guard (e (#t #f)) (json-parse reply))))
+            (let ((parsed (begin
+                            (when (instrument-enabled?)
+                              (let ((n (string-length reply)))
+                                (instrument-sample! 'herdr-reply reply n)
+                                (instrument-note 'herdr method 'reply-chars n)))
+                            (instrument-span 'herdr-parse
+                              (lambda ()
+                                (guard (e (#t #f)) (json-parse reply)))))))
               (cond
                 ((not parsed)
                  (log "herdr: " method " — unparseable reply: " reply)
