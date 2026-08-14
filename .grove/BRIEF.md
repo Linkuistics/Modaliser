@@ -117,24 +117,16 @@ if measurement shows portable Scheme cannot get there.
 
 ## On the horizon
 
-- **The end-to-end press has still never been taken, and one press now
-  settles three leaves.** k3, k6 and k5 all landed with `swift test` green
-  and no installed-app reading; k5's win in particular is a *count*, which
-  is build-independent and is pinned by tests, so what is missing is the
-  wall-clock — the ~1.05 s → ~0.53 s halving, on top of k3's 27.9 s → 186 ms.
-  It is not AFK-reachable: it needs `./scripts/install.sh`, `touch
-  ~/.config/modaliser/instrument`, a relaunch, and a human pressing F17 with
-  herdr focused (`docs/how-to/measure-a-leader-press.md`). Read for
-  `walk-path calls 1` beside `walk-path/pinned calls 1`. Until that is done,
-  "Done when" bullet 1 — *comes to rest without a perceptible stall* — is
-  argued, not observed.
-- **The iTerm host leg is now the biggest single item in a press.** k3's brief
-  dismissed it correctly at the old scale — 333 ms (two `osascript` calls plus
-  a `ps`) was 1.2 % of a 53 s press. Post-k3 the arithmetic inverts: a press is
-  ~1.05 s, of which ~666 ms is that leg paid twice and ~372 ms the two
-  `pane.process_info` parses. `walk-path-press-cache-k5` halves both. Whether
-  what is left after that is worth a leaf is a question for a reading taken
-  *after* k5, not now.
+- ~~The end-to-end press has still never been taken.~~ **Leafed at k8**
+  (`observe-the-press-k8`), which is where that reading now lives. k3, k6 and
+  k5 all landed with `swift test` green and no installed-app reading, so
+  "Done when" bullet 1 — *comes to rest without a perceptible stall* — stays
+  argued, not observed, until k8 runs. It is HITL, not AFK-reachable.
+- ~~The iTerm host leg is now the biggest single item in a press.~~
+  **Promoted** to `docs/how-to/measure-a-leader-press.md`, with the window
+  overlay reading below, so the number outlives this tree. Whether the leg is
+  worth attacking is still a question for a reading taken after k5 — which
+  k8 will produce.
 - ~~The ADR-0025 sweep was deliberately not done.~~ **Done at k6.** The
   review's point stood: "cold on one sample" is not "bounded", and a `never`
   carrying known live exceptions is not a rule. The sweep turned out wider than
@@ -144,17 +136,16 @@ if measurement shows portable Scheme cannot get there.
   the tree is bounded-literal or constant-count, both legal under the sharpened
   rule. The sweep was for contract, not speed; no benchmark is claimed for it.
 
-- The **window-overlay** symptom ("slows with a lot of windows") was measured
-  at k2 and is **not the same cliff**: 133 ms end to end, no string past the
-  4 KB tripwire, `escape-string` (already O(n)) the only scanner touched.
-  Left undiagnosed deliberately — it was not reproduced *as a stall*, so
-  there was nothing to diagnose. If it recurs, take a reading at that window
-  count with the instrument and give it its own leaf; do not fold it into
-  k3.
-- A second unbounded reach seen in passing, unrelated to this stall:
-  `AppLibrary.resolveApplicationURL` (`AppLibrary.swift:284`) spawns `mdfind`
-  and `waitUntilExit`s on the main thread with no timeout — the same shape
-  ADR-0014 exists to prevent. Worth its own leaf if it ever bites.
-- Possible ADR once the fix lands: *portable Scheme must not scan strings by
-  index*. This cost class has now bitten twice. Raise it only if the fix
-  proves it is a standing rule rather than a one-off.
+- ~~The **window-overlay** symptom.~~ **Promoted** to
+  `docs/how-to/measure-a-leader-press.md` alongside the iTerm leg: 133 ms end
+  to end, no string past the 4 KB tripwire, not the same cliff, and left
+  undiagnosed deliberately because it was never reproduced *as a stall*.
+- ~~A second unbounded reach seen in passing.~~ **Promoted** to ADR-0014's
+  Consequences as a named live exception: `AppLibrary.resolveApplicationURL`
+  (`AppLibrary.swift:284`) spawns `mdfind` and `waitUntilExit`s with no
+  timeout, on the Scheme thread via both launch callers (`:104`, `:118`) —
+  the shape that ADR exists to prevent. Recorded, not fixed; it is the
+  fallback leg and has not been observed to bite.
+- ~~Possible ADR once the fix lands: *portable Scheme must not scan strings by
+  index*.~~ **Raised at k3 as ADR-0025** and sharpened at k6 to name the loop,
+  not the primitive, as the forbidden shape.

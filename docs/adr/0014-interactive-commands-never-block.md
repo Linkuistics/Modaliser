@@ -84,3 +84,16 @@ dispatch's job (ADR-0015).
   stall, not a pathological one.
 - `(modaliser dialogs)` stays inside the portable tree (no LispKit-specific
   imports).
+- **One native site currently violates this and is known to.**
+  `AppLibrary.resolveApplicationURL` (`AppLibrary.swift:284`) spawns `mdfind`
+  and `waitUntilExit`s with no timeout, on the thread the caller is on — the
+  exact shape this ADR exists to prevent, arrived at from the Swift side where
+  neither `run-shell-async` nor the portability contract was in view. It is
+  narrow: it is the *fallback* leg of app resolution, reached only when
+  `urlForApplication(withBundleIdentifier:)` has already failed, and a
+  Spotlight query normally answers in milliseconds. It is still unbounded —
+  `mdfind` against a rebuilding index is not prompt, and both callers
+  (`AppLibrary.swift:104`, `:118`) are launch actions running on the Scheme
+  thread, so a slow answer stalls the tap and macOS force-disables it. Recorded
+  rather than fixed because it has not been observed to bite; the fix, when it
+  is worth taking, is the async shape this ADR already prescribes.

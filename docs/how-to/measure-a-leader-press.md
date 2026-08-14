@@ -93,6 +93,26 @@ what makes the second walk visible:
 | `walk-path calls 2` | a second read escaped the press extent — the handler no longer brackets it, or the reader runs from a callback |
 | `walk-path calls 1`, no `walk-path/pinned` | the landing carries no derived step-in edge (a tree-only context like nvim), so there was only ever one read |
 
+## Two readings already taken, so you don't retake them
+
+Both were measured with this instrument while the quadratic-scan stall was
+being chased. Neither has been diagnosed further, deliberately — they are
+recorded here so a later reading starts from a number rather than a hunch.
+
+- **The iTerm host leg is now the biggest single item in a press.** Two
+  `osascript` calls plus a `ps`, ~333 ms. That was 1.2 % of a 53 s press and
+  correctly ignored at the time; once the parse cost went from 27.9 s to
+  186 ms the arithmetic inverted, and the leg is paid on every walk. Pinning
+  the chain halves how often it is paid, not what it costs. Whether the
+  remainder is worth attacking is a question for a reading taken *after* the
+  pinned-chain change, not from these numbers.
+- **The window overlay is not the same cliff.** "Slows with a lot of windows"
+  measured 133 ms end to end, with no string past the 4 KB tripwire and
+  `escape-string` — already O(n) — the only scanner touched. It was never
+  reproduced *as a stall*, which is why nothing was diagnosed. If it recurs,
+  take a reading at that window count and treat it as its own problem; it is
+  not a residue of the parse cost.
+
 ## Turn it off
 
 ```bash
