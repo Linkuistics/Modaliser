@@ -270,13 +270,17 @@
     ;; descent step matches mux backends by basename ("tmux", "zellij"),
     ;; so we strip leading directory components — same convention as the
     ;; `ps`-derived results elsewhere in the project.
+    ;; `path` comes out of `pane_command` — a command line, unbounded — so
+    ;; it is converted once and scanned as a vector (ADR-0025).
     (define (basename path)
-      (let loop ((i (- (string-length path) 1)))
-        (cond
-          ((< i 0) path)
-          ((char=? (string-ref path i) #\/)
-           (substring path (+ i 1) (string-length path)))
-          (else (loop (- i 1))))))
+      (let* ((chars (string->vector path))
+             (n (vector-length chars)))
+        (let loop ((i (- n 1)))
+          (cond
+            ((< i 0) path)
+            ((char=? (vector-ref chars i) #\/)
+             (vector->string chars (+ i 1) n))
+            (else (loop (- i 1)))))))
 
     (define (detect-fg-command)
       (let ((p (focused-terminal-pane)))

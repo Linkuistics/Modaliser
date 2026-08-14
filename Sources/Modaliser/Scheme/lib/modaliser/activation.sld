@@ -69,12 +69,16 @@
 ;; executable"). Normalize at the consult: first whitespace-separated
 ;; token, basename only. Deriving the exe here — not in the chain probe —
 ;; keeps frames carrying what the backend actually observed.
+;; `fg` is a command line read off a live process, so its length is not
+;; ours to bound — converted once and scanned as a vector, per ADR-0025.
 (define (fg->exe fg)
-  (let* ((first-token
+  (let* ((chars (string->vector fg))
+         (n (vector-length chars))
+         (first-token
            (let loop ((i 0))
              (cond
-               ((>= i (string-length fg)) fg)
-               ((char=? (string-ref fg i) #\space) (substring fg 0 i))
+               ((>= i n) fg)
+               ((char=? (vector-ref chars i) #\space) (vector->string chars 0 i))
                (else (loop (+ i 1))))))
          (parts (string-split first-token "/")))
     (if (null? parts) first-token (list-ref parts (- (length parts) 1)))))

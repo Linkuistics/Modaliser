@@ -185,20 +185,12 @@ struct ModaliserJsonLibraryTests {
     /// Structurally malformed input raises **guardably** too — the reader
     /// does not quietly accept a shape it can recover from.
     ///
-    /// These four are here because they are what a *fast* reader tends to
+    /// These are here because they are what a *fast* reader tends to
     /// lose. Its scanner knows where the next token must begin, so it is
     /// always tempting to jump the cursor past a punctuation character
     /// rather than check it, and to read an escape character without
     /// bounds-checking first. None of that changes a well-formed parse, so
     /// nothing else in this suite would notice.
-    ///
-    /// The last two are the sharp ones, and they were confirmed against a
-    /// draft that omitted the guards: an index past the end raises a
-    /// **host** range error — `vector-ref` now, `string-ref` when they were
-    /// written, the hazard is the same — which is *not* the guardable kind. It escapes
-    /// the `guard` every caller wraps `json-parse` in and reaches the host
-    /// as a failed evaluation, which is the one outcome this reader's
-    /// malformed-input handling exists to prevent.
     ///
     /// - a **missing colon** between key and value (`{"a" 1}`), which a
     ///   reader that does `(+ k 1)` instead of `expect #\:` reads as if the
@@ -207,16 +199,14 @@ struct ModaliserJsonLibraryTests {
     ///   quote. Both of these still raise without the check, by falling over
     ///   further along — so they pin the intent rather than close a live
     ///   hole, and a reader that jumped the cursor *and* recovered would
-    ///   need them;
-    /// - a **truncated escape** (`{"k":"a\`), where the escape character
-    ///   itself is past the end of the input;
-    /// - a **truncated `\u` escape**, the same hazard four characters wider.
+    ///   need them.
+    ///
+    /// The truncated-escape cases live in their own test below, because
+    /// "something raised" is not a strong enough assertion for them.
     @Test(
         arguments: [
             #"{\"a\" 1}"#,
             #"{a:1}"#,
-            #"{\"k\":\"a\\"#,
-            #"{\"k\":\"a\\u00"#,
         ])
     func raisesGuardablyOnStructurallyMalformedInput(_ malformed: String) throws {
         let e = try engine()
@@ -224,6 +214,43 @@ struct ModaliserJsonLibraryTests {
             try e.evaluate("(eq? 'raised (guard (x (#t 'raised)) (json-parse \"\(malformed)\")))")
                 == .true,
             "expected a guardable raise for: \(malformed)")
+    }
+
+    /// Truncation past the end of the input raises the reader's **own**
+    /// domain error, not the host's generic range error.
+    ///
+    /// This asserts on the message rather than on "some error occurred",
+    /// and that is the whole point of the test. `vector-ref` bounds-checks
+    /// before it indexes and raises a *guardable* `RuntimeError.range`
+    /// (`VectorLibrary.swift:316`, surfaced through the VM's `raise`), so a
+    /// draft that deleted `parse-escaped-string`'s explicit bounds checks
+    /// would still satisfy a "did it raise guardably?" assertion — the
+    /// check would be unpinned and could rot out silently.
+    ///
+    /// (That is a change from the string-indexed reader this replaced:
+    /// `StringLibrary.stringRef` computed its Swift index *before* its own
+    /// guard, so running past the end trapped in the host and escaped the
+    /// `guard` every caller wraps `json-parse` in. The bounds checks were
+    /// written against that hazard; what they buy now is a stable message.)
+    ///
+    /// - a **truncated escape** (`{"k":"a\`), where the escape character
+    ///   itself is past the end of the input;
+    /// - a **truncated `\u` escape**, the same hazard four characters wider.
+    @Test(
+        arguments: [
+            #"{\"k\":\"a\\"#,
+            #"{\"k\":\"a\\u00"#,
+        ])
+    func truncationRaisesTheParsersOwnUnterminatedStringError(_ malformed: String) throws {
+        let e = try engine()
+        #expect(
+            try e.evaluate(
+                """
+                (guard (x (#t (error-object-message x)))
+                  (json-parse "\(malformed)"))
+                """
+            ) == .makeString("json-parse: unterminated string"),
+            "expected the reader's domain error, not a host range error, for: \(malformed)")
     }
 
     // ─── json-write ─────────────────────────────────────────────────

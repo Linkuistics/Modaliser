@@ -98,12 +98,17 @@
 
     ;; Parse a comma-separated list of JSON strings: "str1","str2",...
     ;; Returns a list of unescaped strings.
+    ;;
+    ;; `content` is a slice of a Google response — a third party decides how
+    ;; long it is — so it is converted once and scanned as a vector, per
+    ;; ADR-0025. The scan is otherwise unchanged.
     (define (parse-json-string-array content)
-      (let ((len (string-length content)))
+      (let* ((src (string->vector content))
+             (len (vector-length src)))
         (let loop ((i 0) (results '()))
           (if (>= i len)
             (reverse results)
-            (let ((c (string-ref content i)))
+            (let ((c (vector-ref src i)))
               (cond
                 ;; Skip commas and whitespace
                 ((or (char=? c #\,) (char=? c #\space) (char=? c #\tab)
@@ -114,17 +119,17 @@
                  (let parse-str ((j (+ i 1)) (chars '()))
                    (if (>= j len)
                      (reverse results)  ;; unterminated string, return what we have
-                     (let ((sc (string-ref content j)))
+                     (let ((sc (vector-ref src j)))
                        (cond
                          ((char=? sc #\")
                           (loop (+ j 1) (cons (list->string (reverse chars)) results)))
                          ((char=? sc #\\)
                           (if (< (+ j 1) len)
-                            (let ((esc (string-ref content (+ j 1))))
+                            (let ((esc (vector-ref src (+ j 1))))
                               (cond
                                 ;; \uXXXX Unicode escape (use integer 117 = 'u' to avoid #\u parse issue)
                                 ((and (= (char->integer esc) 117) (<= (+ j 6) len))
-                                 (let ((hex (substring content (+ j 2) (+ j 6))))
+                                 (let ((hex (vector->string src (+ j 2) (+ j 6))))
                                    (let ((cp (string->number hex 16)))
                                      (if cp
                                        (parse-str (+ j 6) (cons (integer->char cp) chars))
@@ -146,13 +151,16 @@
     ;; Parse the Google Suggest JSON response into a list of suggestion strings.
     ;; Response format: ["query",["suggestion1","suggestion2",...]]
     ;; Returns '() on parse failure.
+    ;; `response` is an HTTP body — converted once, scanned as a vector
+    ;; (ADR-0025). Both passes below read the same conversion.
     (define (parse-google-suggestions response)
-      (let* ((len (string-length response))
+      (let* ((chars (string->vector response))
+             (len (vector-length chars))
              ;; Find the second '[' which starts the suggestions array
              (start (let loop ((i 0) (count 0))
                       (if (>= i len)
                         #f
-                        (if (char=? (string-ref response i) #\[)
+                        (if (char=? (vector-ref chars i) #\[)
                           (if (= count 1) (+ i 1) (loop (+ i 1) (+ count 1)))
                           (loop (+ i 1) count)))))
              ;; Find the matching ']'
@@ -160,13 +168,13 @@
                        (let loop ((i start) (depth 0))
                          (if (>= i len)
                            #f
-                           (let ((c (string-ref response i)))
+                           (let ((c (vector-ref chars i)))
                              (cond
                                ((char=? c #\]) (if (= depth 0) i (loop (+ i 1) (- depth 1))))
                                ((char=? c #\[) (loop (+ i 1) (+ depth 1)))
                                (else (loop (+ i 1) depth)))))))))
         (if (and start end)
-          (parse-json-string-array (substring response start end))
+          (parse-json-string-array (vector->string chars start end))
           '())))
 
     ;; ─── Result Building ────────────────────────────────────────

@@ -73,9 +73,19 @@ scans the conversion.** Concretely, one of two shapes, both plain
   `json-parse` (`json.sld`) is the in-tree example: it needs lookahead and
   substring lifts, which a list cannot give.
 
-`string-ref` and `string-length` remain legal against a **bounded literal** the
-code owns — `parse-lit` comparing four characters against `"true"` is not a
-scan. What is forbidden is indexing a string whose length comes from outside.
+**The forbidden shape is a loop**, and that is the whole of it. What makes the
+idiom quadratic is *repeating* an O(n) primitive n times over the same string;
+a constant number of indexings is a linear cost like any other, and reading
+`(string-ref label 0)` or taking `(string-length path)` once is not a scan. So
+the rule reads: **no `string-ref` or `string-length` inside a loop over the
+string** — convert first, then loop over the conversion.
+
+That leaves `string-ref` and `string-length` legal in two places. Against a
+**bounded literal** the code owns: `parse-lit` comparing four characters
+against `"true"`, or `unicode-escape` indexing its own 16-character hex table,
+where n is a literal and the cliff has nowhere to grow. And in **constant-count
+use** against any string at all: a length test, a first-character check, a
+single `substring`.
 
 Indices are interchangeable between the two worlds: `string->vector` walks
 `asString().utf16` and LispKit's characters are `UniChar`, so an offset means
@@ -110,29 +120,51 @@ code either way.
 
 3. **A `check-*.sh` script enforcing it.** Not taken *yet*. The two existing
    invariant checks work because they grep for a literal that is always wrong
-   (`(lispkit `, `-native)`). `string-ref` is not always wrong — the bounded-literal
-   case above is legitimate — so a strict-zero grep would fail on correct code,
-   and a grep with exceptions is a grep nobody trusts. The instrument is the
-   enforcement that exists: `instrument-sample!`'s tripwire logs any site handed
-   a string past its threshold, which is how this was found. Revisit if a third
-   bite lands.
+   (`(lispkit `, `-native)`). `string-ref` is not always wrong — the
+   bounded-literal and constant-count cases above are legitimate — so a
+   strict-zero grep would fail on correct code, and a grep with exceptions is a
+   grep nobody trusts. Catching the real shape means recognising *a loop*, which
+   is a parse, not a grep. Revisit if a third bite lands.
+
+   **So there is no enforcement, and review is what stands in for it.** The
+   instrument is a *diagnostic*, not a checker, and it is worth being exact
+   about how weak a one: `instrument-sample!`'s tripwire logs a site handed a
+   string past its threshold, which is how this cliff was found — but it only
+   fires at sites whose author called it, only when instrumentation is switched
+   on, and only for input someone actually exercised. A new scanner is invisible
+   to it by default, and a logged tripwire prevents nothing. What it is good at
+   is answering *which* site is carrying the payload once something is already
+   slow.
 
 ## Consequences
 
 - `(modaliser json)`'s reader and writer both scan a vector. The reader's
-  bounds checks are unchanged and still load-bearing: `vector-ref` past the end
-  raises a **host** range error exactly as `string-ref` did, and that is not the
-  guardable kind — it escapes the `guard` every caller wraps `json-parse` in.
-  Speed changed; the malformed-input contract did not.
+  bounds checks are unchanged, but **what they are load-bearing for changed**,
+  and the first draft of this record got it wrong. `vector-ref` bounds-checks
+  before it indexes and raises a `RuntimeError.range`
+  (`VectorLibrary.swift:316`) that the VM hands to Scheme's `raise` — a
+  *guardable* error. `string-ref` computed its Swift index before its guard, so
+  it trapped in the host and escaped the `guard` every caller wraps
+  `json-parse` in. The conversion therefore made the unguardable failure mode
+  go away. The checks stay because they answer with the stable domain error
+  `json-parse: unterminated string` instead of LispKit's generic range message,
+  and `truncationRaisesTheParsersOwnUnterminatedStringError` asserts on that
+  message so the checks cannot rot out unnoticed.
 - A leader press against a herdr pane running an agent went from ~53 s of held
   keyboard to a parse cost of ~186 ms, paid twice while `walk-path` is uncached.
   The remaining halving is a caching question, not a scanning one, and is
   tracked separately.
-- `util.sld`'s `string-index-of`, `string-contains?` and `string-trim` still
-  carry the old idiom. `measure-hot-scan-k2` measured them **cold** on the press
-  path — 108, 0 and 110 characters *in total* — so they were left alone
-  deliberately rather than swept. They are the obvious next site if the
-  tripwire ever names one.
+- **The tree was swept to match, rather than the rule narrowed to match the
+  tree.** A "never" carrying a list of known live exceptions is not a rule, and
+  "measured cold on one sample" is not the same as bounded — `string-trim` runs
+  on shell-command output all over the terminal backends, and nobody bounds
+  that. So the remaining loop-scanners were converted alongside the reader:
+  `util.sld`'s `string-index-of`, `string-split` and `string-trim` (with an
+  unexported `vector-index-of` so a split pays one conversion, not one per
+  separator hit); `activation.sld`'s `fg->exe` and `zellij.sld`'s `basename`,
+  both walking process command lines; and `web-search.sld`'s two response
+  scanners. What is left in the tree under `string-ref` / `string-length` is
+  bounded-literal or constant-count, both legal above.
 - Reviewing a new scanner is now a one-line question with a one-line answer:
   *where does this string's length come from?* If the answer is "outside",
   convert first.

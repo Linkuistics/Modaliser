@@ -81,9 +81,11 @@
     ;; `vector-length` taken once. Literal lifts use `vector->string`, which
     ;; is O(result) over the same vector, so the source string is never
     ;; indexed again after that first conversion. Grepping this procedure for
-    ;; `string-ref` should find exactly one site — `parse-lit` comparing
-    ;; against its own 4- or 5-character constant ("true" / "false" / "null"),
-    ;; where n is a literal 5 and the cliff has nowhere to grow.
+    ;; `string-ref` should find occurrences in `parse-lit` and nowhere else —
+    ;; and there they compare against its own 4- or 5-character constant
+    ;; ("true" / "false" / "null"), where n is a literal 5 and the cliff has
+    ;; nowhere to grow. (`unicode-escape`, below and outside `json-parse`,
+    ;; indexes its own 16-character hex table on the same carve-out.)
     ;;
     ;; Indices are interchangeable: `string->vector` walks `asString().utf16`
     ;; and `string-length` counts the same UTF-16 units, so every offset here
@@ -252,11 +254,24 @@
                     ((char=? c #\") (cons (list->string (reverse acc)) (+ j 1)))
                     ((char=? c #\\)
                      ;; Bounds-check before reading the escape character.
-                     ;; `vector-ref` past the end raises a HOST range error —
-                     ;; exactly as `string-ref` did before it — and that is not
-                     ;; the guardable kind, which is the one thing every
-                     ;; malformed-input path here must avoid. Moving to a
-                     ;; vector changed the speed, not this hazard.
+                     ;;
+                     ;; The vector conversion made this check cheaper to get
+                     ;; wrong, not more dangerous: `vector-ref` bounds-checks
+                     ;; before it indexes and raises a GUARDABLE range error,
+                     ;; where `string-ref` computed its Swift index first and
+                     ;; trapped past the end — a host failure that escaped the
+                     ;; `guard` every caller wraps `json-parse` in.
+                     ;;
+                     ;; So the check is no longer what stands between a
+                     ;; truncated payload and a broken evaluation. It is what
+                     ;; stands between a truncated payload and a *generic*
+                     ;; error: without it the caller sees LispKit's
+                     ;; "vector-ref: index out of range", with it the stable
+                     ;; domain error `json-parse: unterminated string`. That
+                     ;; message is the contract, and
+                     ;; `raisesGuardablyOnStructurallyMalformedInput` asserts
+                     ;; on it rather than on "something raised" — which is why
+                     ;; deleting this check now fails the suite.
                      (if (>= (+ j 1) n)
                          (error "json-parse: unterminated string")
                          (let ((e (vector-ref chars (+ j 1))))

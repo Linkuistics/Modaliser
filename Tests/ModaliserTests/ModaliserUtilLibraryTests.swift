@@ -106,6 +106,60 @@ struct ModaliserUtilLibraryTests {
         #expect(try engine.evaluate("(string-trim \"\")").asString() == "")
     }
 
+    // MARK: - the vector conversion (linear-string-scanning-k6, ADR-0025)
+
+    // `string-index-of`, `string-split` and `string-trim` scan a
+    // `string->vector` conversion rather than indexing the string, because
+    // `string-ref` bridges the whole string per call on this host and these
+    // three run on shell-command output nobody bounds.
+    //
+    // The behaviour boundary the conversion could plausibly have moved is the
+    // one where a character is not one code unit. It does not move:
+    // `string->vector` walks `asString().utf16` and `string-ref` indexed the
+    // same units, so an astral character is a surrogate pair on both sides and
+    // every offset means what it always meant. These pin that rather than
+    // assume it — the mirror of `ModaliserJsonLibraryTests.readsCharactersOutsideTheBmp`.
+
+    // `string-index-of` is internal to the library — `string-contains?` and
+    // `string-split` are the exported surface over it, so its offsets are
+    // pinned through them rather than by widening the export list for a test.
+    @Test func stringContainsFindsMatchesAcrossAnAstralCharacter() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        // A needle after a surrogate pair is still found: the search runs over
+        // UTF-16 units on both sides of the conversion, so the pair's two units
+        // do not shift the comparison out of alignment.
+        #expect(try engine.evaluate("(string-contains? \"a\u{1F600}x\" \"x\")") == .true)
+        // The astral character itself is a two-unit needle that must match as a unit.
+        #expect(try engine.evaluate("(string-contains? \"a\u{1F600}x\" \"\u{1F600}\")") == .true)
+        #expect(try engine.evaluate("(string-contains? \"abc\" \"zz\")") == .false)
+    }
+
+    @Test func stringSplitAndTrimSurviveAnAstralCharacter() throws {
+        let engine = try SchemeEngine()
+        try engine.evaluate("(import (modaliser util))")
+        // Pieces are lifted with `vector->string` now; a surrogate pair must
+        // come back out whole rather than split down the middle.
+        #expect(
+            try engine.evaluate(
+                "(equal? (string-split \"a\u{1F600}/b\" \"/\") '(\"a\u{1F600}\" \"b\"))"
+            ) == .true)
+        #expect(
+            try engine.evaluate("(string-trim \"  \u{1F600}  \")").asString() == "\u{1F600}")
+        // A multi-character separator, which exercises the shared
+        // `vector-index-of` that lets one split pay one conversion.
+        #expect(
+            try engine.evaluate(
+                "(equal? (string-split \"a::b::c\" \"::\") '(\"a\" \"b\" \"c\"))"
+            ) == .true)
+        // Adjacent separators and edge separators keep producing empty pieces.
+        #expect(
+            try engine.evaluate("(equal? (string-split \"/a//\" \"/\") '(\"\" \"a\" \"\" \"\"))")
+                == .true)
+        // Whitespace-only input still trims to the empty string.
+        #expect(try engine.evaluate("(string-trim \" \\t\\n \")").asString() == "")
+    }
+
     // escape-string is the single char-walk that replaced the four near-duplicate
     // escapers in ui/overlay.scm + ui/chooser.scm (audit finding C, escape-helper-merge-k36).
     // Each test below pins the EXACT escape table of one former escaper, so a drift

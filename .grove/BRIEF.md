@@ -26,9 +26,12 @@ it means for the fix, in `03-impl-linear-string-scanning-k3.md`.
   win recorded as a before/after measurement in a **release** build (a debug
   number misattributed this cost once already — see `strip-parse-cost-k10`).
 - Correctness is preserved: the JSON reader's malformed-input handling still
-  holds, including the bounds checks that stop `string-ref` raising a *host*
-  range error past the end (which escapes the `guard` every caller wraps
-  `json-parse` in).
+  holds. Note that `linear-string-scanning-k6` corrected the reasoning here —
+  the vector conversion *removed* the unguardable-host-error hazard, because
+  `vector-ref` bounds-checks before indexing where `string-ref` trapped. The
+  reader's explicit bounds checks stay for a narrower reason: they answer with
+  the stable domain error `json-parse: unterminated string` rather than
+  LispKit's generic range message, and a test now asserts on that message.
 
 ## Decomposition
 
@@ -43,9 +46,19 @@ it means for the fix, in `03-impl-linear-string-scanning-k3.md`.
    ADR-0025 turns the shape into a standing rule for `lib/modaliser`.
    **Not yet verified end-to-end** — nobody has installed the fixed app and
    pressed F17.
-3. **linear-string-scanning-k4** — `review-impl` of the above. Cuts its own
-   integration if it finds anything.
-4. **walk-path-press-cache-k5** — k3's option 2, deferred out of it as its
+3. **linear-string-scanning-k4** — `review-impl` of the above. *Done*; it
+   found three things, integrated as k6.
+4. **linear-string-scanning-k6** — *done*. Corrected the reader's error-path
+   rationale (`vector-ref` is guardable; `string-ref` was not), replaced the
+   "some error raised" truncation assertions with a pin on the domain message
+   `json-parse: unterminated string`, and **swept the tree to match ADR-0025**
+   rather than narrowing the rule to match the tree: `util.sld`'s
+   `string-index-of` / `string-split` / `string-trim`, `activation.sld`'s
+   `fg->exe`, `zellij.sld`'s `basename`, and `web-search.sld`'s two response
+   scanners all convert once now. ADR-0025's rule is sharpened to name the
+   *loop* as the forbidden shape, and its tripwire is described as the
+   diagnostic it is rather than as enforcement.
+5. **walk-path-press-cache-k5** — k3's option 2, deferred out of it as its
    own concern: memoise the chain walk for the extent of one press, so a
    press stops paying everything twice.
 
@@ -104,12 +117,14 @@ if measurement shows portable Scheme cannot get there.
   `pane.process_info` parses. `walk-path-press-cache-k5` halves both. Whether
   what is left after that is worth a leaf is a question for a reading taken
   *after* k5, not now.
-- **The ADR-0025 sweep was deliberately not done.** `util.sld`'s
-  `string-index-of`, `string-contains?` and `string-trim` still carry the
-  quadratic idiom; k2 measured all three cold on the press path (108, 0 and
-  110 characters in total). They are user-facing stdlib, so the case for
-  converting them is contract, not speed — take it up if the tripwire ever
-  names one, or as a deliberate tidy with its own leaf.
+- ~~The ADR-0025 sweep was deliberately not done.~~ **Done at k6.** The
+  review's point stood: "cold on one sample" is not "bounded", and a `never`
+  carrying known live exceptions is not a rule. The sweep turned out wider than
+  the three `util.sld` sites the review named — `activation.sld`, `zellij.sld`
+  and `web-search.sld` each carried a loop over an unbounded string too — and
+  all of it fit this leaf. What is left under `string-ref` / `string-length` in
+  the tree is bounded-literal or constant-count, both legal under the sharpened
+  rule. The sweep was for contract, not speed; no benchmark is claimed for it.
 
 - The **window-overlay** symptom ("slows with a lot of windows") was measured
   at k2 and is **not the same cliff**: 133 ms end to end, no string past the

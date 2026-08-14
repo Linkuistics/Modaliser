@@ -139,16 +139,22 @@ but LispKit omits is off-limits too. Four constraints shape real code:
    once and scan the conversion: `string->list` for a sequential walk
    (`escape-string` in `util.sld`), `string->vector` +
    `vector-ref` / `vector->string` when the scanner needs lookahead or
-   substring lifts (`json-parse` in `json.sld`). Indexing a *bounded
-   literal the code owns* is fine; indexing a string whose length comes
-   from outside is the cliff. It cost a 53-second leader press before it
-   was written down — see
-   [ADR-0025](../adr/0025-portable-scheme-never-indexes-a-string.md).
-   Unlike the import rules, this one has no check script (`string-ref`
-   is not always wrong); the tripwire in `(modaliser instrument)` is
-   what catches it, and
-   [measure-a-leader-press.md](../how-to/measure-a-leader-press.md) is
-   how to read it.
+   substring lifts (`json-parse` in `json.sld`). The forbidden shape is
+   the **loop**: a constant number of indexings — a length test, a
+   first-character check, one `substring` — is a linear cost like any
+   other, and indexing a *bounded literal the code owns* is fine at any
+   count. It cost a 53-second leader press before it was written down —
+   see [ADR-0025](../adr/0025-portable-scheme-never-indexes-a-string.md).
+   Unlike the import rules, this one has **no enforcement at all**:
+   `string-ref` is not always wrong, and telling the wrong use from the
+   right one means recognising a loop, which a grep cannot do. Review is
+   what holds it. The tripwire in `(modaliser instrument)` is a
+   diagnostic, not a checker — it fires only at sites whose author called
+   `instrument-sample!`, only with instrumentation on, and only for input
+   someone exercised, so it tells you *which* site is carrying the payload
+   once something is already slow rather than warning you that a new
+   scanner exists. See
+   [measure-a-leader-press.md](../how-to/measure-a-leader-press.md).
 
 ## How to audit
 

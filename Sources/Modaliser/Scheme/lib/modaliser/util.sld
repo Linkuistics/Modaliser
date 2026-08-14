@@ -124,14 +124,32 @@
 
     ;; ─── Local string ops ───────────────────────────────────────
     ;; Implemented on (scheme base) only; no SRFI 13 needed.
+    ;;
+    ;; Every scanner below converts once with `string->vector` and then
+    ;; indexes the vector — ADR-0025. None of these strings is ours to
+    ;; bound: `string-trim` is applied to shell-command output all over the
+    ;; terminal backends, `string-split` to that same output and to paths.
+    ;; `string-ref` on this host bridges the whole string per call, so
+    ;; indexing them directly is the quadratic that held the keyboard for
+    ;; 27 s in `measure-hot-scan-k2`. Being *observed* short on one sample
+    ;; is not the same as being bounded, so the shape is converted here even
+    ;; though the press path measured these cold.
+    ;;
+    ;; Indices are interchangeable: `string->vector` walks the same UTF-16
+    ;; units `string-ref` indexed, so every offset these answer means what
+    ;; it always meant, astral characters included (they were, and remain, a
+    ;; surrogate pair on both sides).
 
-    (define (string-index-of haystack needle start)
-      ;; Returns the index of the first match of needle in haystack at
-      ;; or after start, or #f if not found. Naive O(n*m) scan — fine
-      ;; for the short strings we split on (paths, command output).
-      (let ((hlen (string-length haystack))
-            (nlen (string-length needle)))
-        (instrument-sample! 'string-index-of haystack hlen)
+    ;; The search itself, against already-converted vectors. Not exported: it
+    ;; exists so a caller that searches the same string repeatedly
+    ;; (`string-split`) pays one conversion rather than one per match, which
+    ;; is the difference between linear and quadratic again. Defined *before*
+    ;; its callers because a `define-library` `begin` body is evaluated in
+    ;; order — a forward reference here raises "variable not yet initialized"
+    ;; at call time, not at load time.
+    (define (vector-index-of hay ndl start)
+      (let ((hlen (vector-length hay))
+            (nlen (vector-length ndl)))
         (if (zero? nlen)
           start
           (let outer ((i start))
@@ -140,12 +158,21 @@
               ((let inner ((j 0))
                  (cond
                    ((= j nlen) #t)
-                   ((char=? (string-ref haystack (+ i j))
-                            (string-ref needle j))
+                   ((char=? (vector-ref hay (+ i j))
+                            (vector-ref ndl j))
                     (inner (+ j 1)))
                    (else #f)))
                i)
               (else (outer (+ i 1))))))))
+
+    (define (string-index-of haystack needle start)
+      ;; Returns the index of the first match of needle in haystack at
+      ;; or after start, or #f if not found. Naive O(n*m) comparison,
+      ;; unchanged — what changed is that it compares vector elements.
+      (let ((hay (string->vector haystack))
+            (ndl (string->vector needle)))
+        (instrument-sample! 'string-index-of haystack (vector-length hay))
+        (vector-index-of hay ndl start)))
 
     (define (string-contains? haystack needle)
       (if (string-index-of haystack needle 0) #t #f))
@@ -156,31 +183,37 @@
       ;;   (string-split "a/b/c" "/") => ("a" "b" "c")
       ;;   (string-split "abc" "/")   => ("abc")
       ;;   (string-split "" "/")      => ("")
-      (let ((slen (string-length str))
-            (seplen (string-length sep)))
+      ;; One conversion for the whole split, not one per separator hit —
+      ;; hence `vector-index-of` rather than `string-index-of`, and
+      ;; `vector->string` rather than `substring`, for the pieces.
+      (let* ((chars (string->vector str))
+             (sepv (string->vector sep))
+             (slen (vector-length chars))
+             (seplen (vector-length sepv)))
         (instrument-sample! 'string-split str slen)
         (if (zero? seplen)
           (list str)
           (let loop ((start 0) (acc '()))
-            (let ((hit (string-index-of str sep start)))
+            (let ((hit (vector-index-of chars sepv start)))
               (if hit
                 (loop (+ hit seplen)
-                      (cons (substring str start hit) acc))
-                (reverse (cons (substring str start slen) acc))))))))
+                      (cons (vector->string chars start hit) acc))
+                (reverse (cons (vector->string chars start slen) acc))))))))
 
     (define (string-trim str)
       ;; Strip leading/trailing whitespace (per char-whitespace?).
-      (let ((len (string-length str)))
+      (let* ((chars (string->vector str))
+             (len (vector-length chars)))
         (instrument-sample! 'string-trim str len)
         (let scan-left ((i 0))
           (cond
             ((= i len) "")
-            ((char-whitespace? (string-ref str i)) (scan-left (+ i 1)))
+            ((char-whitespace? (vector-ref chars i)) (scan-left (+ i 1)))
             (else
               (let scan-right ((j (- len 1)))
-                (if (char-whitespace? (string-ref str j))
+                (if (char-whitespace? (vector-ref chars j))
                   (scan-right (- j 1))
-                  (substring str i (+ j 1)))))))))
+                  (vector->string chars i (+ j 1)))))))))
 
     (define (escape-string str table)
       ;; Walk str char by char, replacing every char that is a key in `table`
