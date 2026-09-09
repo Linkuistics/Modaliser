@@ -32,7 +32,7 @@ struct ModaliserWmsPaneruLibraryTests {
         try engine.evaluate("""
           (import (modaliser wms paneru)
                   (modaliser shell)
-                  (only (modaliser terminal) modaliser-tool-path))
+                  (only (modaliser terminal) modaliser-tool-path tool-path-prefix))
         """)
         try engine.evaluate("""
           (define seen '())
@@ -54,11 +54,11 @@ struct ModaliserWmsPaneruLibraryTests {
         return "\"\(escaped)\""
     }
 
-    /// The preamble the library bakes at load: `export PATH=<derived>:$PATH; `.
+    /// The preamble the tree shares: `export PATH='<derived>':$PATH; `.
     /// Read off the engine rather than hardcoded, so the assertions pin the
     /// *paneru* half of each command and stay indifferent to ADR-0017's floor.
     private func preamble(_ engine: SchemeEngine) throws -> String {
-        "export PATH=" + (try engine.evaluate("modaliser-tool-path").asString()) + ":$PATH; "
+        try engine.evaluate("tool-path-prefix").asString()
     }
 
     // MARK: - Surface

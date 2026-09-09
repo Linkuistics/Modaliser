@@ -153,18 +153,8 @@
           ;; Narrowly, for the PATH preamble below. Every CLI-native backend
           ;; in the tree reaches into the terminal façade for this one string;
           ;; relocating it to a neutral home is a separate concern.
-          (only (modaliser terminal) modaliser-tool-path))
+          (only (modaliser terminal) tool-path-prefix))
   (begin
-
-    ;; ─── Shell preamble ─────────────────────────────────────────────
-    ;;
-    ;; GUI-launched Modaliser inherits a stripped path_helper PATH that does
-    ;; not include the prefixes `paneru` is installed under, so every
-    ;; shell-out is prefixed with the derived tool path (ADR-0017 Layer 1).
-    ;; Baked once at library load, exactly as tmux, zellij and the app
-    ;; backends bake theirs.
-    (define path-prefix
-      (string-append "export PATH=" modaliser-tool-path ":$PATH; "))
 
     ;; ─── Ops ────────────────────────────────────────────────────────
     ;;
@@ -175,7 +165,7 @@
     ;; raise (ADR-0017).
     (define (send-cmd args)
       (run-shell
-        (string-append path-prefix "paneru send-cmd " args " 2>/dev/null")))
+        (string-append tool-path-prefix "paneru send-cmd " args " 2>/dev/null")))
 
     (define (focus-west) (send-cmd "window focus west"))
     (define (focus-east) (send-cmd "window focus east"))
@@ -199,7 +189,7 @@
       (not (string=? ""
              (string-trim
                (run-shell
-                 (string-append path-prefix
+                 (string-append tool-path-prefix
                                 "command -v paneru 2>/dev/null"))))))
 
     ;; ─── The query ──────────────────────────────────────────────────
@@ -211,7 +201,7 @@
     ;; error reaching a leader press.
     (define (query-strip-state)
       (run-shell
-        (string-append path-prefix "paneru query state --json 2>/dev/null")))
+        (string-append tool-path-prefix "paneru query state --json 2>/dev/null")))
 
     ;; ─── The parse (pure) ───────────────────────────────────────────
     ;;

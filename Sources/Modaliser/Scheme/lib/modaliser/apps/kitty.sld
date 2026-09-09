@@ -98,20 +98,14 @@
           (modaliser theming)
           (only (modaliser terminal)
                 make-terminal-backend
-                modaliser-tool-path
+                ;; tool-path-prefix: GUI-launched Modaliser inherits a stripped
+                ;; path_helper PATH without /opt/homebrew/bin, where kitty's
+                ;; `kitten` symlink lives. (python3 is at /usr/bin either way.)
+                tool-path-prefix
                 ;; note-backend-query-result!: ADR-0017 Layer 2 — see
                 ;; list-panes-raw below.
                 note-backend-query-result!))
   (begin
-
-    ;; ─── Shell preamble ─────────────────────────────────────────────
-    ;;
-    ;; GUI-launched Modaliser inherits a stripped path_helper PATH that
-    ;; doesn't include /opt/homebrew/bin (where kitty's `kitten` symlink
-    ;; lives). Python3 sits at /usr/bin (macOS CLT), so it's always on
-    ;; PATH; we still prepend the tool path so `kitty` resolves.
-    (define path-prefix
-      (string-append "export PATH=" modaliser-tool-path ":$PATH; "))
 
     ;; Fixed socket path. `configure!` writes the matching
     ;; `listen_on` directive into kitty.conf so this and the user's
@@ -121,7 +115,7 @@
     (define (kitty-cli args)
       (run-shell
         (string-append
-          path-prefix
+          tool-path-prefix
           "kitty @ --to=" kitty-socket " " args " 2>/dev/null")))
 
     ;; ─── Pane-list parser ───────────────────────────────────────────
@@ -210,7 +204,7 @@
     ;; pane, so empty is the same ambiguous signal a #f query is elsewhere.
     (define (list-panes-raw)
       (let* ((cmd (string-append
-                    path-prefix
+                    tool-path-prefix
                     "kitty @ --to=" kitty-socket " ls 2>/dev/null | "
                     parse-script))
              (out (run-shell cmd))

@@ -13,6 +13,10 @@
 ;; window is rooted at), and focus-window! focuses the chosen one.
 ;; toggle-terminal / focus-explorer / focus-editor are 0-arg thunks over
 ;; VSCode's default macOS chords, each ready for a screen's key slot.
+;; focused-workspace-path answers "which directory is the front window
+;; rooted at", and reveal-file! opens a path and lands the explorer on
+;; it — the pair a caller composes into "open something belonging to
+;; THIS project", whatever the something is.
 ;;
 ;; Utilities layer only (ADR-0019, ADR-0021): the per-app SCREEN — keys,
 ;; labels, grouping — is preference and is authored in user config; this
@@ -26,6 +30,7 @@
 ;;   (import (prefix (modaliser apps vscode) code:))
 ;;   (code:window-source)      (code:focus-window! item)
 ;;   (code:toggle-terminal)    (code:focus-explorer)   (code:focus-editor)
+;;   (code:focused-workspace-path)   (code:reveal-file! path)
 ;;
 ;; ─── The three chords, and what they actually do ────────────────────
 ;;
@@ -73,6 +78,71 @@
 ;; editor's own stored window state) and test every segment, rather than
 ;; trusting the last one.
 
+;; ─── Which directory is a window rooted at? ─────────────────────────
+;;
+;; The window enumeration cannot say. A title carries a folder's NAME
+;; and never its path, and a name is not a location — two worktrees may
+;; share one. So the path comes from the editor's own record of it, and
+;; the title is demoted to a join key.
+;;
+;; THE SOURCE. VSCode stores its window state in the user-level
+;; globalStorage file
+;;
+;;   ~/Library/Application Support/Code/User/globalStorage/storage.json
+;;
+;; whose `windowsState.openedWindows` is one entry per open window,
+;; each carrying an exact `folder` URI. Nothing else in reach carries a
+;; path: not the accessibility tree, not the title, not a scripting
+;; dictionary VSCode does not have.
+;;
+;; TWO PROPERTIES OF IT, ACCEPTED WITH EYES OPEN.
+;;
+;;   The format is UNDOCUMENTED and may change across VSCode releases.
+;;   The mitigation is placement, not cleverness: the reading is one
+;;   pure function over the file's TEXT, and the test that pins it runs
+;;   off a fixture captured from a real file. When the format moves, a
+;;   test says so and one function changes. That is also why this did
+;;   not earn a decision record — behind a seam this small, the choice
+;;   is cheap to reverse.
+;;
+;;   It is written on window state CHANGE, not continuously. A window
+;;   opened seconds ago may not be in it yet, and then the answer is
+;;   #f. That is not an error and is not reported as one: what to say
+;;   about a miss is the caller's call, and the caller is the screen.
+;;
+;; AND ONE FACT ABOUT ITS SIZE, WHICH DECIDED THE IMPLEMENTATION. The
+;; file is ~100 KB of which `windowsState` is the last ~5%, and handing
+;; the whole thing to (modaliser json)'s parser cost 899 ms on a debug
+;; build — measured, not estimated, and squarely inside ADR-0014's
+;; stalled-tap territory for something that runs on a key press. So the
+;; reader SLICES the `openedWindows` array out by a bracket scan and
+;; parses only that. Two details of that scan are load-bearing and both
+;; came from measuring rather than reasoning: it reads a char vector
+;; bridged ONCE (the cliff (modaliser json)'s own header sets out at
+;; length), and it looks for its anchor key BACKWARDS from the end,
+;; because the key is unique — so direction cannot change the answer —
+;; and walking the last 5% instead of the first 95% took a release-build
+;; scan from ~490 ms to ~40 ms.
+;;
+;; ─── Opening a file in the RIGHT window ─────────────────────────────
+;;
+;; `code <file>` with no flags routes the file to the window that owns
+;; its folder — not to the last-focused window, which was the worry
+;; worth checking. Established by reading the shipped main process
+;; (VSCode 1.136.2,
+;; /Applications/Visual Studio Code.app/Contents/Resources/app/out/
+;; main.js), where the CLI open path with no folder argument calls a
+;; findWindowOnFilePath helper: it returns the window whose opened
+;; folder is an ancestor of the file, preferring the LONGEST such
+;; folder when several nest, and only falls back to the last active
+;; window when no window owns the file. The chosen window is focused by
+;; the same call that sends it the file.
+;;
+;; Two flags would break that and are therefore absent: `-r` forces
+;; reuse of the last active window, `-n` forces a new one. So does the
+;; `window.openFilesInNewWindow` setting, if a user sets it to "on".
+;;
+
 (define-library (modaliser apps vscode)
   (export ;; ── Identity ───────────────────────────────────────────────
           ;; VSCode's bundle id. The screen's scope symbol is spelled by
@@ -90,12 +160,46 @@
           ;; The pure halves the two above are built from, exported
           ;; because they are where the behaviour is and therefore where
           ;; the tests land:
-          ;;   (windows-of enumeration) → items
+          ;;   (windows-of enumeration) → items, alphabetical by project
           ;;   (project-name title)     → the folder segment
           ;;   (focus-choice item)      → the alist focus-window reads
           windows-of
           project-name
           focus-choice
+
+          ;; ── The workspace surface (grove-leaf-reveal-k3) ───────────
+          ;; What FOLDER each open window is rooted at — the thing the
+          ;; window enumeration cannot tell you, because a window title
+          ;; carries a folder's NAME and never its path. The answer comes
+          ;; from VSCode's own stored window state; see the header.
+          ;;
+          ;; (focused-workspace-path) → the absolute path of the folder
+          ;; the FRONTMOST VSCode window is rooted at, or #f. Impure: it
+          ;; reads the state file and the live window list.
+          focused-workspace-path
+          ;; (open-workspaces) → every folder-rooted open window as
+          ;; ((path . ABS) (name . BASENAME)). Impure: reads the file.
+          open-workspaces
+          ;; (state-file-path) → where that file lives.
+          state-file-path
+          ;; The pure halves, which is where the tests land:
+          ;;   (workspaces-of TEXT)                 → the list above
+          ;;   (opened-windows-json TEXT)           → the array's text
+          ;;   (workspace-for-title TITLE WSS)      → one of them, or #f
+          ;;   (title-of-window-id ID ENUMERATION)  → a title, or #f
+          workspaces-of
+          opened-windows-json
+          workspace-for-title
+          title-of-window-id
+
+          ;; ── Opening a file ─────────────────────────────────────────
+          ;; (reveal-file! path [after]) — open PATH in the window that
+          ;; owns its folder, then run AFTER (default: focus-explorer).
+          ;; Asynchronous; see the header for why, for the routing it
+          ;; relies on, and for when to pass an AFTER of your own.
+          reveal-file!
+          ;; The command it would spawn (pure), where the test lands.
+          open-file-command
 
           ;; ── Ops: the verbs a screen binds (ADR-0021) ───────────────
           ;; 0-arg thunks over VSCode's default macOS chords, ready for a
@@ -106,9 +210,24 @@
           focus-explorer
           focus-editor)
   (import (scheme base)
+          (scheme char)
+          ;; get-environment-variable, for $HOME in the state-file path.
+          ;; R7RS, so it costs the portable surface nothing — the same
+          ;; import (modaliser muxes herdr-socket) makes for its socket.
+          (only (scheme process-context) get-environment-variable)
           (modaliser util)
+          (only (modaliser json) json-parse json-ref)
           (only (modaliser input) send-keystroke)
-          (only (modaliser window) list-windows focus-window))
+          (only (modaliser window)
+                list-windows focus-window focused-window)
+          ;; The canonical POSIX single-quote escaper: a path out of an
+          ;; editor's stored state is arbitrary text going into a shell
+          ;; word.
+          (only (modaliser dialogs) sq-escape)
+          (only (modaliser shell) run-shell-async)
+          ;; Narrowly, for the PATH preamble — as every CLI-driven module
+          ;; in the tree does.
+          (only (modaliser terminal) tool-path-prefix))
   (begin
 
     (define bundle-id "com.microsoft.VSCode")
@@ -133,8 +252,8 @@
 
     ;; ─── The window items (pure) ────────────────────────────────────
     ;;
-    ;; ENUMERATION → one chooser item per open VSCode window, in
-    ;; enumeration order. Each item is
+    ;; ENUMERATION → one chooser item per open VSCode window, ordered
+    ;; alphabetically by project name (see below). Each item is
     ;;
     ;;   ((text . <folder name>) (title . <raw window title>)
     ;;    (windowId . N) (ownerPid . N))
@@ -149,15 +268,57 @@
     ;; ENUMERATION is an ARGUMENT rather than a call, and that is the
     ;; whole reason this is a pure function: the live sweep happens one
     ;; level up, in window-source.
+    ;;
+    ;; ─── Why the order is alphabetical, not the enumeration's ───────
+    ;;
+    ;; The enumeration's order is front-to-back stacking order, so it
+    ;; changes every time you focus a window — and the list this feeds is
+    ;; a CHOOSER, whose whole value is that the same project sits in the
+    ;; same place twice running. A list that reshuffles itself between
+    ;; presses cannot be learned; an alphabetical one can be, and the
+    ;; fuzzy filter is there for when learning it is not worth the
+    ;; bother. Case-insensitive, because a human reading a list of folder
+    ;; names is not thinking in ASCII, with the case-sensitive comparison
+    ;; as tie-break so the order is TOTAL — two folders differing only in
+    ;; case must not swap places from run to run either.
     (define (windows-of enumeration)
-      (map (lambda (w)
-             (let ((title (or (alist-ref w 'text) "")))
-               (list (cons 'text     (project-name title))
-                     (cons 'title    title)
-                     (cons 'windowId (alist-ref w 'windowId))
-                     (cons 'ownerPid (alist-ref w 'ownerPid)))))
-           (filter (lambda (w) (equal? bundle-id (alist-ref w 'icon)))
-                   enumeration)))
+      (sort-stable
+        (map (lambda (w)
+               (let ((title (or (alist-ref w 'text) "")))
+                 (list (cons 'text     (project-name title))
+                       (cons 'title    title)
+                       (cons 'windowId (alist-ref w 'windowId))
+                       (cons 'ownerPid (alist-ref w 'ownerPid)))))
+             (filter (lambda (w) (equal? bundle-id (alist-ref w 'icon)))
+                     enumeration))
+        project<?))
+
+    (define (project<? a b)
+      (let ((x (or (alist-ref a 'text) ""))
+            (y (or (alist-ref b 'text) "")))
+        (or (string-ci<? x y)
+            (and (string-ci=? x y) (string<? x y)))))
+
+    ;; A stable sort, by insertion. LispKit ships no list-sort and no
+    ;; set-cdr! (the same absence `(modaliser blocks herdr-list)` and
+    ;; `(modaliser muxes herdr)` each note), and the list here is one
+    ;; entry per open editor window — a handful — so a quadratic sort
+    ;; over it is the honest trade against carrying a merge sort.
+    ;;
+    ;; Stability comes from the direction: each item is inserted into the
+    ;; items BEFORE it, and `insert-sorted` walks past everything not
+    ;; strictly greater, so equal items keep their input order. Sorting
+    ;; the tail first and inserting the head would reverse them.
+    (define (insert-sorted x sorted less?)
+      (cond ((null? sorted)          (list x))
+            ((less? x (car sorted))  (cons x sorted))
+            (else (cons (car sorted) (insert-sorted x (cdr sorted) less?)))))
+
+    (define (sort-stable items less?)
+      (let loop ((rest items) (acc '()))
+        (if (null? rest)
+            acc
+            (loop (cdr rest) (insert-sorted (car rest) acc less?)))))
 
     ;; ─── Focusing (pure) ────────────────────────────────────────────
     ;;
@@ -187,4 +348,329 @@
 
     (define (toggle-terminal) (send-keystroke '(ctrl) "`"))
     (define (focus-explorer)  (send-keystroke '(cmd shift) "e"))
-    (define (focus-editor)    (send-keystroke '(cmd) "1"))))
+    (define (focus-editor)    (send-keystroke '(cmd) "1"))
+
+    ;; ═══ The workspace surface ══════════════════════════════════════
+    ;;
+    ;; See the header for what this file is and why it is read the way
+    ;; it is read.
+
+    (define (state-file-path)
+      (string-append (or (get-environment-variable "HOME") "")
+                     "/Library/Application Support/Code/User"
+                     "/globalStorage/storage.json"))
+
+    ;; ─── Slicing the array out (pure) ───────────────────────────────
+    ;;
+    ;; The state file is ~100 KB and the four hundred bytes that matter
+    ;; sit in its last 5%. See the header for the measurement; the job
+    ;; here is to hand json-parse the array alone.
+    ;;
+    ;; Two literals, both unique in a real state file. `windowsState`
+    ;; anchors the search so that an `openedWindows` appearing inside
+    ;; some unrelated stored value earlier in the document cannot shadow
+    ;; the real one.
+
+    (define state-object-key "\"windowsState\"")
+    (define state-array-key  "\"openedWindows\"")
+
+    ;; Index of NEEDLE in HAY at or after START, or #f. Both are CHAR
+    ;; VECTORS, never strings: indexing a LispKit string bridges the
+    ;; whole string per access, which turns one scan of a 100 KB
+    ;; document into a quadratic one — the cliff (modaliser json)'s own
+    ;; header records in detail, and the reason everything below reads
+    ;; a vector this library bridges exactly once.
+    (define (chars-match-at? hay ndl i)
+      (let ((nn (vector-length ndl)))
+        (let match ((k 0))
+          (cond ((= k nn) #t)
+                ((char=? (vector-ref hay (+ i k)) (vector-ref ndl k))
+                 (match (+ k 1)))
+                (else #f)))))
+
+    (define (chars-index-of hay ndl start)
+      (let ((hn (vector-length hay))
+            (nn (vector-length ndl)))
+        (let loop ((i start))
+          (cond ((> (+ i nn) hn) #f)
+                ((chars-match-at? hay ndl i) i)
+                (else (loop (+ i 1)))))))
+
+    ;; The same search, walking BACKWARDS from the end.
+    ;;
+    ;; Direction is a speed heuristic and nothing else: the anchor key is
+    ;; unique in the document — which is what makes the search meaningful
+    ;; at all — so both directions find the same occurrence. What differs
+    ;; is how much of a ~100 KB file gets walked to reach it, and
+    ;; `windowsState` sits in the last 5%: measured, the forward scan
+    ;; spent ~490 ms getting there on a release build, and the backward
+    ;; one ~30 ms. If VSCode ever moves the key to the front this becomes
+    ;; the slow direction, which is exactly where the forward scan
+    ;; already was — the bet is one-sided, not a risk.
+    (define (chars-last-index-of hay ndl)
+      (let ((hn (vector-length hay))
+            (nn (vector-length ndl)))
+        (let loop ((i (- hn nn)))
+          (cond ((< i 0) #f)
+                ((chars-match-at? hay ndl i) i)
+                (else (loop (- i 1)))))))
+
+    ;; From FROM (just past a key literal), the index of the `[` that
+    ;; opens that key's value — or #f if what follows is not an array.
+    ;; Only a colon and whitespace may intervene, which is what makes
+    ;; this a bounded look-ahead rather than a hunt: a key whose value
+    ;; is an object or a string stops here instead of matching some
+    ;; later, unrelated bracket.
+    (define (array-open chars from n)
+      (let skip ((i from))
+        (cond
+          ((>= i n) #f)
+          ((char=? (vector-ref chars i) #\[) i)
+          ((or (char=? (vector-ref chars i) #\:)
+               (char-whitespace? (vector-ref chars i)))
+           (skip (+ i 1)))
+          (else #f))))
+
+    ;; Index of the `]` matching the `[` at OPEN, or #f. Depth-counting
+    ;; with string awareness: a `]` inside a JSON string is text, and a
+    ;; backslash inside a string escapes whatever follows — including a
+    ;; quote, which is how a Windows-style path or an escaped quote in a
+    ;; window title would otherwise end the string early and throw the
+    ;; depth count off for the rest of the document.
+    (define (array-close chars open n)
+      (let loop ((i (+ open 1)) (depth 1) (in-string #f) (escaped #f))
+        (if (>= i n)
+            #f
+            (let ((c (vector-ref chars i)))
+              (cond
+                (escaped                        (loop (+ i 1) depth in-string #f))
+                ((and in-string (char=? c #\\)) (loop (+ i 1) depth #t #t))
+                ((char=? c #\")                 (loop (+ i 1) depth (not in-string) #f))
+                (in-string                      (loop (+ i 1) depth #t #f))
+                ((char=? c #\[)                 (loop (+ i 1) (+ depth 1) #f #f))
+                ((char=? c #\])
+                 (if (= depth 1) i (loop (+ i 1) (- depth 1) #f #f)))
+                (else                           (loop (+ i 1) depth #f #f)))))))
+
+    ;; TEXT → the JSON text of windowsState.openedWindows, or "". Every
+    ;; way of not finding it — no such key, a value that is not an
+    ;; array, a truncated document — yields "", because a state file
+    ;; Modaliser cannot read is the same ordinary outcome as a window
+    ;; that is not in it.
+    (define (opened-windows-json text)
+      (let* ((chars (string->vector text))
+             (n     (vector-length chars))
+             (ws    (chars-last-index-of chars (string->vector state-object-key)))
+             (ow    (and ws (chars-index-of chars
+                                            (string->vector state-array-key)
+                                            ws)))
+             (open  (and ow (array-open chars
+                                        (+ ow (string-length state-array-key))
+                                        n)))
+             (close (and open (array-close chars open n))))
+        (if close (vector->string chars open (+ close 1)) "")))
+
+    ;; ─── file:// URIs → paths (pure) ────────────────────────────────
+
+    (define (hex-digit c)
+      (cond ((and (char>=? c #\0) (char<=? c #\9)) (- (char->integer c) 48))
+            ((and (char>=? c #\a) (char<=? c #\f)) (+ 10 (- (char->integer c) 97)))
+            ((and (char>=? c #\A) (char<=? c #\F)) (+ 10 (- (char->integer c) 65)))
+            (else #f)))
+
+    (define (bytes->text lst)
+      (let ((bv (make-bytevector (length lst))))
+        (let fill ((k 0) (rest lst))
+          (if (null? rest)
+              (utf8->string bv)
+              (begin (bytevector-u8-set! bv k (car rest))
+                     (fill (+ k 1) (cdr rest)))))))
+
+    ;; Percent-decoding. A RUN of %XX escapes is decoded together rather
+    ;; than one at a time, because VSCode percent-encodes a URI byte by
+    ;; byte: a folder named "café" arrives as "caf%C3%A9", two escapes
+    ;; that are one character. Decoding them separately would produce
+    ;; two replacement characters, and the folder name is a JOIN KEY —
+    ;; a mangled one silently stops matching its window.
+    (define (percent-decode s)
+      (let* ((chars (string->vector s))
+             (n     (vector-length chars)))
+        (define (escape-at? j)
+          (and (< (+ j 2) n)
+               (char=? (vector-ref chars j) #\%)
+               (hex-digit (vector-ref chars (+ j 1)))
+               (hex-digit (vector-ref chars (+ j 2)))
+               #t))
+        (define (byte-at j)
+          (+ (* 16 (hex-digit (vector-ref chars (+ j 1))))
+             (hex-digit (vector-ref chars (+ j 2)))))
+        (let loop ((i 0) (pieces '()))
+          (cond
+            ((>= i n) (apply string-append (reverse pieces)))
+            ((escape-at? i)
+             (let run ((j i) (bytes '()))
+               (if (escape-at? j)
+                   (run (+ j 3) (cons (byte-at j) bytes))
+                   (loop j (cons (bytes->text (reverse bytes)) pieces)))))
+            (else (loop (+ i 1)
+                        (cons (string (vector-ref chars i)) pieces)))))))
+
+    (define file-uri-prefix "file://")
+
+    ;; A stored folder URI → an absolute local path, or #f. #f covers
+    ;; both a non-string (a malformed entry) and a URI this operation
+    ;; has no path for — a remote window's `vscode-remote://…`, whose
+    ;; folder does not exist on this machine at all.
+    (define (folder-uri->path uri)
+      (let ((plen (string-length file-uri-prefix)))
+        (and (string? uri)
+             (> (string-length uri) plen)
+             (string=? (substring uri 0 plen) file-uri-prefix)
+             (let ((rest (substring uri plen (string-length uri))))
+               ;; A leading "/" is what distinguishes file:///path (no
+               ;; authority, a local path) from file://host/path.
+               (and (char=? (string-ref rest 0) #\/)
+                    (guard (e (#t #f)) (percent-decode rest)))))))
+
+    (define (path-basename path)
+      (let ((segments (remove (lambda (s) (string=? s ""))
+                              (string-split path "/"))))
+        (if (null? segments) "" (car (reverse segments)))))
+
+    ;; ─── The state file, read (pure) ────────────────────────────────
+    ;;
+    ;; TEXT → one entry per folder-rooted open window, in the file's own
+    ;; order:
+    ;;
+    ;;   ((path . "/Users/me/Development/thing") (name . "thing"))
+    ;;
+    ;; Windows with no folder are simply absent: an empty window has no
+    ;; `folder` key, and a multi-root window carries a `workspace`
+    ;; instead — neither has a single directory to be the answer to
+    ;; "which worktree is this", so neither is one.
+    (define (workspaces-of text)
+      (let ((slice (opened-windows-json text)))
+        (if (string=? slice "")
+            '()
+            (let ((entries (guard (e (#t #f)) (json-parse slice))))
+              (if (not (vector? entries))
+                  '()
+                  (let loop ((i 0) (acc '()))
+                    (if (>= i (vector-length entries))
+                        (reverse acc)
+                        (let* ((entry (vector-ref entries i))
+                               (path  (folder-uri->path
+                                        (json-ref entry "folder"))))
+                          (loop (+ i 1)
+                                (if path
+                                    (cons (list (cons 'path path)
+                                                (cons 'name (path-basename path)))
+                                          acc)
+                                    acc))))))))))
+
+    ;; ─── The join (pure) ────────────────────────────────────────────
+    ;;
+    ;; TITLE × WORKSPACES → the workspace that window is rooted at, or
+    ;; #f. Every em-dash segment of the title is tested against the
+    ;; folder NAMES, last segment first — last because that is where the
+    ;; folder sits under the default profile, and every segment because
+    ;; under a named profile it is the second-to-last instead, and
+    ;; because a user-set `window.title` can put it anywhere. The title
+    ;; only ever supplies a name to match; the PATH always comes from
+    ;; the state file, so no directory-naming convention is load-bearing
+    ;; here.
+    ;;
+    ;; Two open windows on same-named folders in different parents are
+    ;; genuinely ambiguous from a title, and the earlier one in the
+    ;; state file wins. That is a real limit, not a hidden one: rename
+    ;; one, or set `window.title` to include more of the path.
+    (define (workspace-for-title title workspaces)
+      (let loop ((segments (reverse (map string-trim
+                                         (string-split (or title "")
+                                                       title-separator)))))
+        (if (null? segments)
+            #f
+            (or (find (lambda (w) (equal? (car segments) (alist-ref w 'name)))
+                      workspaces)
+                (loop (cdr segments))))))
+
+    ;; ID × ENUMERATION → the title of the VSCode window with that id,
+    ;; or #f. Pure; the live half is focused-workspace-path below. A
+    ;; window id of 0 is the enumeration's "could not resolve" sentinel
+    ;; and never matches, so a cold-AX miss reads as "no title" rather
+    ;; than joining every unresolved window together.
+    (define (title-of-window-id id enumeration)
+      (and (number? id)
+           (not (= id 0))
+           (let ((hit (find (lambda (w)
+                              (and (equal? bundle-id (alist-ref w 'icon))
+                                   (equal? id (alist-ref w 'windowId))))
+                            enumeration)))
+             (and hit (alist-ref hit 'text)))))
+
+    ;; ─── The impure edges ───────────────────────────────────────────
+
+    (define (open-workspaces)
+      (workspaces-of (read-file-text (state-file-path))))
+
+    ;; The frontmost VSCode window's folder, as an absolute path, or #f.
+    ;; #f is an ordinary answer with several ordinary causes — the front
+    ;; window is not VSCode's, it is an empty or multi-root window, or
+    ;; it opened since the state file was last written. A caller decides
+    ;; what to say about that; this library does not decide for it.
+    (define (focused-workspace-path)
+      (let ((focused (focused-window)))
+        (and (pair? focused)
+             (let ((title (title-of-window-id (alist-ref focused 'windowId)
+                                              (list-windows))))
+               (and title
+                    (let ((w (workspace-for-title title (open-workspaces))))
+                      (and w (alist-ref w 'path))))))))
+
+    ;; ─── Opening a file ═════════════════════════════════════════════
+
+
+    ;; PATH → the command that opens it (pure). No flags, deliberately:
+    ;; `-r` would force the LAST ACTIVE window, which is precisely the
+    ;; wrong window, and `-n` a new one. See the header for the routing
+    ;; a bare invocation gets instead.
+    (define (open-file-command path)
+      (string-append tool-path-prefix "code '" (sq-escape path) "' 2>/dev/null"))
+
+    ;; (reveal-file! path)        → open PATH, then focus-explorer
+    ;; (reveal-file! path after)   → open PATH, then call AFTER
+    ;;
+    ;; Open PATH and land the explorer on it.
+    ;;
+    ;; ASYNCHRONOUS, and the ordering is the point. Measured on the
+    ;; developer's machine, `code <file>` against a running instance
+    ;; takes ~1.1 s to return — a synchronous run-shell here would hold
+    ;; the thread that owns the CGEvent tap for that whole second, which
+    ;; is exactly ADR-0014's stalled-tap hazard. Running the follow-up
+    ;; from the callback also puts it after the open rather than racing
+    ;; it, which is why "focus the explorer yourself afterwards" is not
+    ;; an equivalent the caller can write.
+    ;;
+    ;; The explorer SELECTS the file without being asked: VSCode's
+    ;; `explorer.autoReveal` defaults to true, so by the time the
+    ;; explorer takes focus the tree has already revealed and selected
+    ;; whatever the editor opened. Pin the setting explicitly if you
+    ;; depend on it — an inherited default is not a promise.
+    ;;
+    ;; AFTER exists because WHICH chord reaches the explorer is not a
+    ;; fact about VSCode on every machine. The default `focus-explorer`
+    ;; is VSCode's own shift-cmd-e, which is correct for a stock install
+    ;; but bounces to the EDITOR when the explorer already has focus
+    ;; (see above) — so anyone who has bound a strict-focus command in
+    ;; their own keybindings.json passes that instead. Preference stays
+    ;; the caller's (ADR-0021).
+    ;;
+    ;; A non-string or empty PATH does nothing at all, so a caller may
+    ;; pass a resolution that failed straight through.
+    (define (reveal-file! path . after)
+      (when (and (string? path) (not (string=? path "")))
+        (let ((follow-up (if (and (pair? after) (procedure? (car after)))
+                             (car after)
+                             focus-explorer)))
+          (run-shell-async (open-file-command path)
+                           (lambda (code out err) (follow-up))))))))

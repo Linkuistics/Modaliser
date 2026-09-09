@@ -446,6 +446,89 @@ struct ModaliserTerminalLibraryTests {
         }
     }
 
+    /// `tool-path-prefix` — the shell preamble every CLI-driven module in
+    /// the tree puts in front of its spawns.
+    ///
+    /// It is shared, and single-quoted, for one reason, which this suite
+    /// exists to keep true. The derived path comes from the user's login
+    /// shell, so a segment of it may contain a **space** — VSCode's Copilot
+    /// extension puts `~/Library/Application Support/Code/User/...` on
+    /// PATH, for one. Unquoted, the shell word-splits that, and `export` is
+    /// a POSIX **special** builtin whose error aborts the entire command
+    /// line:
+    ///
+    ///     zsh:export:1: not valid in this context: Support/Code/...
+    ///
+    /// Nothing after the `;` runs, the caller reads the empty result as
+    /// ADR-0017's "the tool told us nothing", and every op in every
+    /// CLI-driven module silently no-ops on that machine while looking
+    /// exactly like a missing binary. Observed on a real machine during
+    /// grove-leaf-reveal-k3.
+    @Suite("tool-path-prefix")
+    struct ToolPathPrefixTests {
+        /// Built off the engine's own derived path, so the assertions stay
+        /// indifferent to ADR-0017's floor and to the developer's shell.
+        private func prefix() throws -> (String, String) {
+            let engine = try SchemeEngine()
+            try engine.evaluate("(import (modaliser terminal))")
+            return (try engine.evaluate("tool-path-prefix").asString(),
+                    try engine.evaluate("modaliser-tool-path").asString())
+        }
+
+        @Test func theValueIsSingleQuoted() throws {
+            let (prefix, path) = try prefix()
+            #expect(prefix == "export PATH='\(path)':$PATH; ")
+        }
+
+        /// The property that matters, stated as a property rather than as
+        /// the shape above: a preamble carrying a space must still run, and
+        /// must still leave the quoted entries on PATH. Driven through a
+        /// canned login PATH rather than the machine's own, so it holds on
+        /// a developer's machine that happens to have no space in its PATH.
+        @Test func aPathSegmentWithASpaceSurvivesTheShell() throws {
+            let engine = try SchemeEngine()
+            try engine.evaluate("""
+              (import (modaliser terminal)
+                      (only (modaliser dialogs) sq-escape)
+                      (only (modaliser util) string-contains?))
+            """)
+            // The same construction tool-path-prefix uses, over a path with
+            // a space in it — and the unquoted form beside it, so the test
+            // says what it is protecting against.
+            let spacey = "/opt/homebrew/bin:/Users/me/Library/Application Support/x/bin"
+            try engine.evaluate("""
+              (define quoted
+                (string-append "export PATH='" (sq-escape "\(spacey)") "':$PATH; "))
+            """)
+            let quoted = try engine.evaluate("quoted").asString()
+            #expect(quoted.contains("'/opt/homebrew/bin:/Users/me/Library/Application Support/x/bin'"))
+
+            // Run both forms in a real shell and compare. This is the one
+            // place the suite spawns, and it spawns /bin/zsh with a canned
+            // string — it reaches no tool of the developer's, contacts
+            // nothing, and mutates nothing (ADR-0023's concern is live
+            // backend contact, which this is not).
+            #expect(try shellSucceeds(quoted + "echo REACHED"))
+            #expect(try !shellSucceeds(
+                "export PATH=\(spacey):$PATH; echo REACHED"),
+                "the unquoted form must still be broken — otherwise this test proves nothing")
+        }
+
+        /// True when the command runs to completion and prints REACHED.
+        private func shellSucceeds(_ command: String) throws -> Bool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            process.arguments = ["-c", command]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(data: data, encoding: .utf8)?.contains("REACHED") ?? false
+        }
+    }
+
     /// Backend tool health (ADR-0017 Layer 2): the backend-install probe
     /// (terminal-install-backends!) and the lazily-memoized re-probe
     /// (note-backend-query-result!), both routed through

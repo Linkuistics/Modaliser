@@ -121,14 +121,17 @@ remains a legitimate future op for the case where a *column* is genuinely what
 the user means.
 
 Every outward call — the `command -v` probe, each `send-cmd`, the state query —
-goes through `(modaliser shell)` (ADR-0023), prefixed with `modaliser-tool-path`
+goes through `(modaliser shell)` (ADR-0023), prefixed with `tool-path-prefix`
 so a GUI-launched Modaliser resolves `paneru` where the user's shell does. That
-tool path is imported narrowly from `(modaliser terminal)`, as every CLI-native
+preamble is imported narrowly from `(modaliser terminal)`, as every CLI-native
 backend already does. It is the one slightly awkward dependency in the file — a
 non-terminal library reaching into the terminal façade for a string — and it is
-accepted rather than fixed here; relocating `modaliser-tool-path` to a neutral
-home is a separate concern that six other library files outside `terminal.sld`
-already share (tmux, zellij, alacritty, wezterm, kitty, iterm-panes).
+accepted rather than fixed here; relocating it to a neutral home is a separate
+concern that eight other library files outside `terminal.sld` already share
+(tmux, zellij, alacritty, wezterm, kitty, iterm-panes, apps/vscode,
+tools/grove). The preamble itself is built once, in `terminal.sld`, and is
+single-quoted — see ADR-0017 for why that is load-bearing rather than
+cosmetic.
 
 **`send-cmd` has no error channel.** Probed against the live daemon
 (2026-08-04): an unrecognised command exits 0 and prints nothing — the daemon
@@ -560,7 +563,7 @@ listing grows.
   to know about multi-key labels; out of scope for the first slice.
 - **Extracting the shared assignment→edges lowering** from `muxes/herdr`
   (decision 4), with the criterion recorded there.
-- **Relocating `modaliser-tool-path`** out of `(modaliser terminal)`
+- **Relocating `tool-path-prefix`** out of `(modaliser terminal)`
   (decision 2).
 - **Simplifying `muxes/herdr` onto the provider's new id argument** (decision 5).
   herdr's hardcoded `herdr-jump-scope` becomes redundant once a provider is

@@ -27,6 +27,11 @@
           focused-terminal-foreground-command
           modaliser-tool-path
           merge-tool-path
+          ;; The shell preamble every CLI-driven module in the tree puts in
+          ;; front of its spawns: `export PATH='<derived>':$PATH; `. Shared
+          ;; rather than rebuilt per module because the QUOTING is not
+          ;; obvious — see its definition.
+          tool-path-prefix
           list-nvim-sockets
           nvim-server-focused?
           focused-nvim-socket
@@ -100,6 +105,10 @@
           (modaliser app)
           (modaliser shell)
           (modaliser util)
+          ;; The canonical POSIX single-quote escaper, for the PATH preamble
+          ;; below. Shared rather than re-implemented, exactly as the herdr
+          ;; backend shares it for its branch-name interpolation.
+          (only (modaliser dialogs) sq-escape)
           ;; log-line: the one Scheme-facing diagnostic primitive
           ;; (ADR-0017 Layer 2) — a missing backend tool logs here, never
           ;; raises through a leader press.
@@ -187,6 +196,30 @@
       (merge-tool-path
         (guard (e (#t "")) (run-shell "/bin/zsh -lc 'echo $PATH' 2>/dev/null"))
         "/opt/homebrew/bin:/usr/local/bin:/usr/sbin"))
+
+    ;; The preamble every CLI-driven module puts in front of its spawns,
+    ;; built ONCE here rather than per module — because the value is
+    ;; SINGLE-QUOTED, and that is the whole reason this is shared.
+    ;;
+    ;; The derived path comes from the user's login shell, so a segment of
+    ;; it may contain a space: VSCode's Copilot extension, for one, puts
+    ;; `~/Library/Application Support/Code/User/globalStorage/…` on PATH.
+    ;; Unquoted, the shell word-splits that into
+    ;;
+    ;;   export PATH=…/Library/Application Support/…:$PATH
+    ;;
+    ;; and `export` is a POSIX **special** builtin, so its error does not
+    ;; merely fail — it ABORTS THE WHOLE COMMAND LINE:
+    ;;
+    ;;   zsh:export:1: not valid in this context: Support/Code/…
+    ;;
+    ;; Nothing after the `;` ever runs, and the caller reads the empty
+    ;; result as ADR-0017's "the tool told us nothing". So every op in
+    ;; every CLI-driven module silently no-ops, on that machine, forever,
+    ;; and looks exactly like a missing binary. Observed on a real machine
+    ;; during grove-leaf-reveal-k3, having gone unnoticed until then.
+    (define tool-path-prefix
+      (string-append "export PATH='" (sq-escape modaliser-tool-path) "':$PATH; "))
 
     ;; ─── Backend façade ─────────────────────────────────────────────
     ;;
@@ -354,7 +387,7 @@
           (not (string=? ""
                  (string-trim
                    (run-shell
-                     (string-append "export PATH=" modaliser-tool-path ":$PATH; "
+                     (string-append tool-path-prefix
                                     "command -v " tool " 2>/dev/null"))))))))
 
     (define *backend-health* '())
@@ -697,7 +730,7 @@
     (define (correlate-mux-client-to-host-tty host-tty proc-pattern)
       (and host-tty
            (let* ((cmd (string-append
-                         "export PATH=" modaliser-tool-path ":$PATH; "
+                         tool-path-prefix
                          "for pid in $(pgrep -f '" proc-pattern "'); do "
                          "  tty=$(lsof -p $pid -d 0 -Fn 2>/dev/null "
                          "        | awk '/^n/ {print substr($0,2); exit}'); "
@@ -727,7 +760,7 @@
     (define (list-nvim-sockets)
       (let ((out (run-shell
                    (string-append
-                     "export PATH=" modaliser-tool-path ":$PATH; "
+                     tool-path-prefix
                      "for pid in $(pgrep -x nvim); do "
                      "  lsof -p $pid -a -U -Fn 2>/dev/null "
                      "  | awk '/^n\\// {print substr($0,2)}'; "
@@ -755,7 +788,7 @@
     (define (nvim-server-focused? sock)
       (let ((out (run-shell
                    (string-append
-                     "export PATH=" modaliser-tool-path ":$PATH; "
+                     tool-path-prefix
                      "nvim --server " sock
                      " --remote-expr 'get(g:, \"modaliser_focused\", 0)'"
                      " </dev/null 2>/dev/null"))))
@@ -777,7 +810,7 @@
       (let ((sock (focused-nvim-socket)))
         (when sock
           (run-shell
-            (string-append "export PATH=" modaliser-tool-path ":$PATH; "
+            (string-append tool-path-prefix
                            "nvim --server " sock
                            " --remote-send '" keys "'"
                            " </dev/null 2>/dev/null")))))
@@ -787,7 +820,7 @@
         (if sock
           (string-trim
             (run-shell
-              (string-append "export PATH=" modaliser-tool-path ":$PATH; "
+              (string-append tool-path-prefix
                              "nvim --server " sock
                              " --remote-expr '" expr "'"
                              " </dev/null 2>/dev/null")))

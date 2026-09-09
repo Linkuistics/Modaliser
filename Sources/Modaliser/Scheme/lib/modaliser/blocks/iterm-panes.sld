@@ -97,7 +97,7 @@
         (string-trim
           (run-shell
             (string-append
-              "export PATH=" modaliser-tool-path ":$PATH; "
+              tool-path-prefix
               "ps -t " tty-clean " -o pid=,stat= 2>/dev/null"
               " | awk '$2 ~ /\\+/ {print $1; exit}'")))))
 
@@ -105,7 +105,7 @@
       (string-trim
         (run-shell
           (string-append
-            "export PATH=" modaliser-tool-path ":$PATH; "
+            tool-path-prefix
             "lsof -a -p " pid " -d cwd -F n 2>/dev/null"
             " | awk '/^n/ {sub(/^n/,\"\"); print; exit}'"
             " | sed \"s|^$HOME|~|\""))))

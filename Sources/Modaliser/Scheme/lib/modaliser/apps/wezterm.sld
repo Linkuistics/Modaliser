@@ -73,20 +73,13 @@
           (only (modaliser terminal)
                 make-terminal-backend
                 tty-foreground-command
-                modaliser-tool-path
+                ;; tool-path-prefix: GUI-launched Modaliser inherits a stripped
+                ;; path_helper PATH without /opt/homebrew/bin, where wezterm lives.
+                tool-path-prefix
                 ;; note-backend-query-result!: ADR-0017 Layer 2 — see
                 ;; list-panes-raw below.
                 note-backend-query-result!))
   (begin
-
-    ;; ─── Shell preamble ─────────────────────────────────────────────
-    ;;
-    ;; GUI-launched Modaliser inherits a stripped path_helper PATH that
-    ;; doesn't include /opt/homebrew/bin (where wezterm lives), so every
-    ;; shell-out is prefixed with the tool path. Same pattern as tmux,
-    ;; zellij, and the nvim helpers in (modaliser terminal).
-    (define path-prefix
-      (string-append "export PATH=" modaliser-tool-path ":$PATH; "))
 
     ;; The CLI defaults to the GUI socket (correct for the user's daily
     ;; case: an actual WezTerm window). The `--prefer-mux` flag is for
@@ -94,7 +87,7 @@
     (define (wezterm-cli args)
       (run-shell
         (string-append
-          path-prefix
+          tool-path-prefix
           "wezterm cli " args " 2>/dev/null")))
 
     ;; ─── Pane-list parser ───────────────────────────────────────────
@@ -163,7 +156,7 @@
     ;; pane, so empty is the same ambiguous signal a #f query is elsewhere.
     (define (list-panes-raw)
       (let* ((cmd (string-append
-                    path-prefix
+                    tool-path-prefix
                     "wezterm cli list --format json 2>/dev/null | "
                     parse-script))
              (out (run-shell cmd))

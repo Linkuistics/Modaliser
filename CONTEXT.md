@@ -641,7 +641,9 @@ _Avoid_ bare "chip" when the window-vs-pane distinction matters.
 
 **Project** (VSCode) — the folder a VSCode window is rooted at, and the thing
 the F17 VSCode window selector actually selects: its rows read as projects even
-though the mechanism is window switching. Derived from the window title's last
+though the mechanism is window switching, and they are ordered alphabetically
+by it rather than by window stacking order, so the list is the same twice
+running. Derived from the window title's last
 spaced-em-dash segment, VSCode's default macOS title being
 `${activeEditorShort}${separator}${rootName}${separator}${profileName}` with
 empty variables collapsed. _Avoid_ treating the derived name as a **path** — it
@@ -649,6 +651,25 @@ is a display and join key only, correct as the folder name under the default
 profile and displaced by the profile name under a named one. A window that must
 resolve to a real directory joins against VSCode's own stored window state.
 Source: `apps/vscode.sld` (`project-name`, `windows-of`).
+
+**Workspace** (VSCode) — the folder a VSCode window is rooted at, as a real
+absolute **path**. The counterpart to **Project**, which is the same folder's
+*name*: a project is what a window is called, a workspace is where it is. Only
+the workspace can be handed to something that acts on a directory. It comes
+from VSCode's own stored window state rather than from the title, because a
+title carries a name and a name is not a location — two windows may be rooted
+at same-named folders in different parents. _Avoid_ using "workspace" for a
+VSCode *multi-root* workspace (a `.code-workspace` file); that is several
+folders and has no single path, so it is not one of these. Source:
+`apps/vscode.sld` (`workspaces-of`, `focused-workspace-path`).
+
+**Live leaf** (grove) — the one task file a grove task tree is currently
+working on: the next unretired leaf of the tree under a worktree's `.grove/`.
+There is at most one per worktree, and "none" is an ordinary answer — the
+directory may not be a grove, or its grove may be finished. It is what the
+VSCode screen's grove row opens for the window it was pressed in, which is why
+resolving that window's **Workspace** is the step before it. Source:
+`tools/grove.sld` (`live-leaf`).
 
 **Display** — a physical monitor (`NSScreen` / `CGDirectDisplayID`). _Never_
 called a "screen": `screen` is the overlay-DSL word for a navigable overlay

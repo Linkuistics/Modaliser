@@ -21,6 +21,7 @@ apart, the recommended import style is **prefix-style**:
         (prefix (modaliser muxes herdr)     herdr:)
         (prefix (modaliser muxes zellij)    zellij:)
         (prefix (modaliser wms paneru)      paneru:)
+        (prefix (modaliser tools grove)     grove:)
         (prefix (modaliser window-actions)  window:)
         (prefix (modaliser launchers)       launcher:)
         (prefix (modaliser settings-menu)   settings:)
@@ -621,12 +622,21 @@ under which label is preference.
 | Export | Description |
 |---|---|
 | `bundle-id` | `"com.microsoft.VSCode"` — VSCode's own fact, so a caller filtering or launching by it need not restate the literal. The screen's scope symbol is still yours to spell. |
-| `window-source` | `(window-source)` → chooser items, one per open VSCode window, cross-space. Each item's `'text` (the chooser's display **and** fuzzy-match field) is the window's project; the untouched title stays under `'title`. |
+| `window-source` | `(window-source)` → chooser items, one per open VSCode window, cross-space, **alphabetical by project**. Each item's `'text` (the chooser's display **and** fuzzy-match field) is the window's project; the untouched title stays under `'title`. |
 | `focus-window!` | `(focus-window! item)` — focus the window an item names. |
-| `windows-of` | `(windows-of enumeration)` → items. The pure half of `window-source`, taking the window list as an argument — which is where the tests land. |
+| `windows-of` | `(windows-of enumeration)` → items, sorted. The pure half of `window-source`, taking the window list as an argument — which is where the tests land. |
 | `project-name` | `(project-name title)` → the folder segment of a VSCode window title. Pure. |
 | `focus-choice` | `(focus-choice item)` → the alist `focus-window` reads. Pure, and exported because the title it carries is load-bearing (see below). |
 | `toggle-terminal`, `focus-explorer`, `focus-editor` | Zero-arg thunks over VSCode's default macOS chords, ready for a key slot. Read the next section before binding them. |
+| `focused-workspace-path` | `(focused-workspace-path)` → the absolute path of the folder the **frontmost** VSCode window is rooted at, or `#f`. Impure: reads VSCode's stored window state and the live window list. |
+| `open-workspaces` | `(open-workspaces)` → every folder-rooted open window as `((path . ABS) (name . BASENAME))`. Impure: reads the state file. |
+| `state-file-path` | `(state-file-path)` → where that file lives. |
+| `workspaces-of` | `(workspaces-of text)` → the list above, from the state file's **text**. Pure, and the seam every test lands on. |
+| `opened-windows-json` | `(opened-windows-json text)` → the `openedWindows` array's own JSON text, or `""`. Pure. |
+| `workspace-for-title` | `(workspace-for-title title workspaces)` → the one that window is rooted at, or `#f`. Pure. |
+| `title-of-window-id` | `(title-of-window-id id enumeration)` → a VSCode window's title, or `#f`. Pure. |
+| `reveal-file!` | `(reveal-file! path [after])` — open `path` in the window that owns its folder, then run `after` (default `focus-explorer`). **Asynchronous**; a `#f` or empty path does nothing. |
+| `open-file-command` | `(open-file-command path)` → the command `reveal-file!` would spawn. Pure. |
 
 #### What the three chords actually do
 
@@ -639,6 +649,19 @@ commonly mis-stated.
 | `toggle-terminal` | ctrl-` | `workbench.action.terminal.toggleTerminal` | A **toggle**: pressed while the terminal already has focus it *hides* the panel. The strict-focus command `workbench.action.terminal.focus` is bound to cmd-Down and only `when` the terminal is already the active panel, so it is not reachable as a general focus chord. Bind it in `keybindings.json` if the toggle grates. |
 | `focus-explorer` | shift-cmd-e | `workbench.view.explorer` | **Not** a sidebar toggle, despite the folklore: the registered action opens and focuses the explorer unless the sidebar already has focus, in which case it focuses the *editor*. So it reaches the explorer from anywhere except the explorer. |
 | `focus-editor` | cmd-1 | `workbench.action.focusFirstEditorGroup` | The exact command is `focusActiveEditorGroup`, but it registers with **no default keybinding at all**, so a synthetic keystroke cannot reach it. cmd-1 differs only with several editor groups open, where it lands on the leftmost rather than the active one. |
+
+#### Why the list is alphabetical
+
+The window enumeration's order is front-to-back stacking order, so it
+changes every time you focus a window. A chooser's value is that the
+same project sits in the same place twice running — a list that
+reshuffles between presses cannot be learned, and the fuzzy filter is
+there for when learning it is not worth the bother. So `windows-of`
+sorts by project name, case-insensitively (a human reading folder names
+is not thinking in ASCII, and a plain `string<?` would sort every
+capitalised name ahead of every lowercase one), with the case-sensitive
+comparison as tie-break so the order is **total**: names differing only
+in case cannot swap places between presses either.
 
 #### Why the item keeps its raw title
 
@@ -659,6 +682,66 @@ profile instead. Hence two rules:
   against a source that knows the folders (VSCode's own stored window
   state) and test *every* segment, rather than trusting the last one.
   That is what `'title` is preserved for.
+
+
+#### Which directory is a window rooted at?
+
+The window enumeration cannot say: a title carries a folder's **name**
+and never its path, and a name is not a location. So the path comes
+from VSCode's own record of it —
+`~/Library/Application Support/Code/User/globalStorage/storage.json`,
+whose `windowsState.openedWindows` is one entry per open window, each
+with an exact `folder` URI — and the title is demoted to a **join key**,
+matched against the folder basenames. Every em-dash segment is tested,
+not just the last, so a named profile (which appends itself after the
+folder) does not break the join.
+
+Three things about that file, all accepted with eyes open:
+
+- **The format is undocumented** and may change across VSCode releases.
+  The mitigation is placement: the reading is one pure function over the
+  file's *text*, pinned by a test running off a fixture captured from a
+  real file. When the format moves, a test says so and one function
+  changes.
+- **It is written on window state change**, not continuously, so a
+  window opened seconds ago may not be in it. Then the answer is `#f` —
+  an ordinary result, not an error. What to *say* about a miss is the
+  screen's call, not the library's.
+- **It is ~100 KB**, and handing all of it to `(modaliser json)` cost
+  **899 ms** on a debug build — squarely inside ADR-0014's stalled-tap
+  territory for something that runs on a key press. So the reader slices
+  the `openedWindows` array out with a bracket scan and parses only
+  that. The scan looks for its anchor key *backwards* from the end: the
+  key is unique, so direction cannot change the answer, and walking the
+  last 5% rather than the first 95% took a release-build scan from
+  ~490 ms to ~40 ms.
+
+#### Opening a file in the right window
+
+`code <file>` with no flags routes the file to the window that owns its
+folder, not to the last-focused one — established by reading the shipped
+main process (VSCode 1.136.2, `out/main.js`), where the CLI open path
+with no folder argument returns the window whose opened folder is an
+ancestor of the file, preferring the longest such folder when several
+nest, and falls back to the last active window only when no window owns
+it. `-r` (reuse the last active window) and `-n` (force a new one) would
+both break that, so `open-file-command` passes neither.
+
+`reveal-file!` is **asynchronous**: `code` against a running instance
+takes ~1.1 s to return, so a synchronous spawn would hold the thread
+that owns the CGEvent tap for that whole second. The follow-up fires
+from the callback, which also puts it after the open rather than racing
+it — that ordering is why "focus the explorer yourself afterwards" is
+not an equivalent the caller can write. The explorer *selects* the file
+without being asked, because `explorer.autoReveal` defaults to true —
+pin it explicitly if you depend on it.
+
+The follow-up is a parameter because **which chord reaches the explorer
+is not a fact about VSCode on every machine**. The default
+`focus-explorer` is VSCode's own shift-cmd-e, correct for a stock
+install but liable to bounce to the editor when the explorer already has
+focus; anyone who has bound a strict-focus command in their own
+`keybindings.json` passes that instead (ADR-0021).
 
 ### `(modaliser apps iterm)`
 
@@ -960,6 +1043,41 @@ The seeded `default-config.scm` surfaces window focus on hjkl and stops
 there, deliberately — nvim power users live inside nvim's own maps, and
 the point of the screen is that the pane-focus muscle memory crosses
 *into* nvim windows. `wincmd` is the seam for wanting more.
+
+### `(modaliser tools grove)`
+
+[grove](https://github.com/linkuistics/grove) drives a long workstream
+as a VCS-tracked tree of task files under `.grove/` in a working tree,
+exactly one of which is the **live leaf**: the task a session is on
+right now. Somebody working several groves at once — one per worktree,
+one editor window per worktree — opens that file by hand, per tree, all
+day. This library answers the one question that automates away.
+
+That is the whole surface, deliberately. `grove-llm` has a dozen verbs
+and all but one of them *write*; `pick` is the single read, so it is the
+single thing wrapped here.
+
+| Export | Description |
+|---|---|
+| `live-leaf` | `(live-leaf worktree)` → the absolute path of that worktree's live grove leaf, or `#f`. Impure: runs the CLI through the portable shell seam. |
+| `live-leaf-command` | `(live-leaf-command worktree)` → the command it would spawn. Pure. |
+| `leaf-of-output` | `(leaf-of-output text)` → the leaf path in the CLI's output, or `#f`. Pure. |
+
+**`#f` is an ordinary answer, not an error.** Three of the four outcomes
+are "no leaf" and none is worth raising into a leader press: the
+directory is not a grove (`pick` exits 1), the grove has no live leaves
+(exits 0), or the directory is not a VCS working tree (exits 1). All
+three print their diagnostic on *stderr* and nothing on stdout, so every
+miss arrives as the same empty string the shell seam hands back when no
+runner is installed at all (ADR-0023) — one code path covers a missing
+binary, an absent grove, a finished grove and a bare test engine.
+
+**Nothing here knows about an editor**, and nothing about an editor
+knows about this. Where the returned path is opened is the caller's
+business, and the caller is user configuration:
+`Scheme/examples/vscode.scm` composes it with `(modaliser apps vscode)`
+into "open this window's grove leaf and land the explorer on it", and
+the two libraries never reference each other.
 
 ---
 

@@ -83,20 +83,13 @@
                 make-terminal-backend
                 focused-iterm-tty
                 correlate-mux-client-to-host-tty
-                modaliser-tool-path
+                ;; tool-path-prefix: GUI-launched Modaliser inherits a stripped
+                ;; path_helper PATH without the prefixes zellij installs under.
+                tool-path-prefix
                 ;; note-backend-query-result!: ADR-0017 Layer 2 — see
                 ;; list-panes-raw below.
                 note-backend-query-result!))
   (begin
-
-    ;; ─── Shell preamble ─────────────────────────────────────────────
-    ;;
-    ;; GUI-launched Modaliser inherits a stripped path_helper PATH that
-    ;; doesn't include /opt/homebrew/bin (where zellij lives), so every
-    ;; shell-out is prefixed with the tool path. Same pattern as tmux
-    ;; and the nvim helpers in (modaliser terminal).
-    (define path-prefix
-      (string-append "export PATH=" modaliser-tool-path ":$PATH; "))
 
     ;; ─── Multi-session resolution ───────────────────────────────────
     ;;
@@ -119,7 +112,7 @@
 
     (define (session-name-for-pid pid)
       (let* ((cmd (string-append
-                    path-prefix
+                    tool-path-prefix
                     "ps -p " pid " -o args= 2>/dev/null | "
                     "awk '{ "
                     "  for (i=1; i<=NF; i++) { "
@@ -202,7 +195,7 @@
     (define (list-panes-raw)
       (let* ((session (session-for-host-tty))
              (cmd (string-append
-                    path-prefix
+                    tool-path-prefix
                     "zellij " (session-flag session)
                     "action list-panes -j -a 2>/dev/null | "
                     parse-script))
@@ -303,7 +296,7 @@
     (define (zellij-action args)
       (let* ((session (session-for-host-tty))
              (cmd (string-append
-                    path-prefix
+                    tool-path-prefix
                     "zellij " (session-flag session)
                     "action " args " 2>/dev/null")))
         (run-shell cmd)))
@@ -422,7 +415,7 @@
               ;; terminal panes; 1, 2, 4 went to plugins / floating).
               (run-shell
                 (string-append
-                  path-prefix
+                  tool-path-prefix
                   "zellij " (session-flag (session-for-host-tty))
                   "action focus-pane-id terminal_"
                   (pane-id p)

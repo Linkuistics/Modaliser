@@ -116,16 +116,10 @@
           (only (modaliser terminal)
                 make-terminal-backend
                 tty-foreground-command
-                modaliser-tool-path))
+                ;; tool-path-prefix: GUI-launched Modaliser inherits a stripped
+                ;; path_helper PATH without /usr/sbin (lsof, pgrep).
+                tool-path-prefix))
   (begin
-
-    ;; ─── Shell preamble ─────────────────────────────────────────────
-    ;;
-    ;; GUI-launched Modaliser inherits a stripped path_helper PATH that
-    ;; doesn't include /usr/sbin (lsof, pgrep) — same prefix pattern as
-    ;; tmux / zellij / wezterm / kitty.
-    (define path-prefix
-      (string-append "export PATH=" modaliser-tool-path ":$PATH; "))
 
     ;; ─── Detection ──────────────────────────────────────────────────
 
@@ -148,7 +142,7 @@
     ;; (honest v1).
     (define (first-alacritty-tty)
       (let* ((cmd (string-append
-                    path-prefix
+                    tool-path-prefix
                     "for parent in $(pgrep -x alacritty); do "
                     "  for child in $(pgrep -P $parent); do "
                     "    tty=$(lsof -p $child -d 0 -Fn 2>/dev/null "

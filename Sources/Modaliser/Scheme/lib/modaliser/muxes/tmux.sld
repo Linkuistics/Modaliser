@@ -83,20 +83,13 @@
           (only (modaliser terminal)
                 make-terminal-backend
                 focused-iterm-tty
-                modaliser-tool-path
+                ;; tool-path-prefix: GUI-launched Modaliser inherits a stripped
+                ;; path_helper PATH without the prefixes tmux installs under.
+                tool-path-prefix
                 ;; note-backend-query-result!: ADR-0017 Layer 2 — see
                 ;; display-message below.
                 note-backend-query-result!))
   (begin
-
-    ;; ─── Shell preamble ─────────────────────────────────────────────
-    ;;
-    ;; GUI-launched Modaliser inherits a stripped path_helper PATH that
-    ;; doesn't include /opt/homebrew/bin (where tmux lives), so every
-    ;; shell-out is prefixed with the tool path. Same pattern as the
-    ;; nvim helpers in (modaliser terminal).
-    (define path-prefix
-      (string-append "export PATH=" modaliser-tool-path ":$PATH; "))
 
     ;; ─── Multi-session resolution ───────────────────────────────────
     ;;
@@ -116,7 +109,7 @@
         (and host-tty
              (let* ((out (run-shell
                            (string-append
-                             path-prefix
+                             tool-path-prefix
                              "tmux list-clients -F "
                              "'#{client_tty} #{session_name}' 2>/dev/null")))
                     (lines (string-split out "\n")))
@@ -168,7 +161,7 @@
     (define (display-message field)
       (let* ((session (session-for-host-tty))
              (cmd     (string-append
-                        path-prefix
+                        tool-path-prefix
                         "tmux display-message"
                         (target-flag session)
                         " -p '" field "' 2>/dev/null"))
@@ -198,7 +191,7 @@
     (define (tmux-cmd args)
       (let* ((session (session-for-host-tty))
              (cmd (string-append
-                    path-prefix
+                    tool-path-prefix
                     "tmux " args (target-flag session) " 2>/dev/null")))
         (run-shell cmd)))
 
@@ -224,7 +217,7 @@
     ;; session pinning).
     (define (swap-with target)
       (let* ((cmd (string-append
-                    path-prefix
+                    tool-path-prefix
                     "tmux swap-pane -t '"
                     (qualify-target target)
                     "' 2>/dev/null")))
@@ -267,7 +260,7 @@
     (define (list-panes)
       (let* ((session (session-for-host-tty))
              (cmd (string-append
-                    path-prefix
+                    tool-path-prefix
                     "tmux list-panes"
                     (target-flag session)
                     " -F '#{pane_id} #{pane_left} #{pane_top} "
@@ -373,7 +366,7 @@
             (when pane
               (run-shell
                 (string-append
-                  path-prefix
+                  tool-path-prefix
                   "tmux select-pane -t '"
                   (qualify-target (car pane))
                   "' 2>/dev/null")))))))
