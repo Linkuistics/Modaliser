@@ -201,6 +201,21 @@
           ;; The command it would spawn (pure), where the test lands.
           open-file-command
 
+          ;; ── The project panel (vscode-project-panel-k4) ───────────
+          ;; The same windows, reached by a JUMP LABEL on a top-level panel
+          ;; instead of by fuzzy matching in a chooser.
+          ;;
+          ;; project-provider — keyword opts (three alphabets, 'panel-label,
+          ;;                    'enumerate) → the Edge provider a screen binds
+          ;;                    on its 'provider slot. The engine invokes it
+          ;;                    with the id of the state it was lowered onto
+          ;;                    (provider-state-id-k9).
+          ;; project-listing  — → the listing block spec, reading the SAME
+          ;;                    per-Visit assignment the provider took, so the
+          ;;                    rows can never disagree with the labels.
+          project-provider
+          project-listing
+
           ;; ── Ops: the verbs a screen binds (ADR-0021) ───────────────
           ;; 0-arg thunks over VSCode's default macOS chords, ready for a
           ;; key slot. Which key reaches each, and under what label, is
@@ -220,6 +235,18 @@
           (only (modaliser input) send-keystroke)
           (only (modaliser window)
                 list-windows focus-window focused-window)
+          ;; The project panel's two halves. jump-labels-assign turns the
+          ;; window list into prefix-free labels under the USER's alphabets;
+          ;; jump-list-provider-result lowers that assignment onto the FSM,
+          ;; leaders and narrowing prefix states and all. Neither knows
+          ;; anything of VSCode — this library injects the three things that
+          ;; are its own. Both portable.
+          (only (modaliser jump-labels) jump-labels-assign)
+          (only (modaliser jump-list) jump-list-provider-result)
+          ;; The listing renderer. The dependency runs THIS way only: the
+          ;; block is a generic labelled-row component that knows nothing of
+          ;; VSCode, and this library composes it.
+          (only (modaliser blocks project-list) make-project-list-block)
           ;; The canonical POSIX single-quote escaper: a path out of an
           ;; editor's stored state is arbitrary text going into a shell
           ;; word.
@@ -343,6 +370,105 @@
 
     (define (focus-window! item)
       (focus-window (focus-choice item)))
+
+    ;; ─── The project panel (vscode-project-panel-k4) ────────────────
+    ;;
+    ;; The same windows `window-source` lists, but reached by a JUMP LABEL
+    ;; on a top-level panel rather than by fuzzy-matching inside a chooser.
+    ;; Two halves, the shape (modaliser wms paneru)'s Strip listing
+    ;; established: `project-provider` mints the edges at come-to-rest, and
+    ;; `project-listing` draws the snapshot that same call took — so the
+    ;; rows on screen and the live labels cannot disagree, and a label
+    ;; pressed faster than the overlay appears still dispatches.
+    ;;
+    ;; Everything subtle about the lowering — leader escalation, the
+    ;; narrowing prefix states and their re-minting providers — belongs to
+    ;; (modaliser jump-list). What is VSCode's, and all that is passed in,
+    ;; is how a project is named as a state, what pressing it does, and what
+    ;; the narrowed listing draws.
+
+    ;; The per-Visit assignment, written by the provider at come-to-rest and
+    ;; read once the overlay's show delay elapses. One cell, for the same
+    ;; reason paneru has one: the listing must render the exact assignment
+    ;; the keypress dispatches through, never a re-query.
+    (define *current-projects-assigned* '())
+
+    (define (set-current-projects-assigned! assigned)
+      (set! *current-projects-assigned* assigned))
+
+    ;; A project's Terminal dispatch state id. Free-form — a Terminal state
+    ;; deactivates before any presentation code consults a state id's shape
+    ;; — so it needs collision-freedom across live targets and nothing else.
+    ;; The window id supplies that, and the literal prefix namespaces it
+    ;; against any other jump listing alive in the same Visit.
+    ;;
+    ;; Only ever called on a target `project-target-action` already answered
+    ;; for, so the window id is known to be a number here.
+    (define (project-target-state-id item)
+      (string-append "vscode-project-target/"
+                     (number->string (alist-ref item 'windowId))))
+
+    ;; What pressing a project's label DOES — or #f when nothing does, which
+    ;; is jump-list's own test for whether the row earns an edge at all. A
+    ;; row missing either id still renders and still consumes its label, and
+    ;; simply has no edge behind it: dropping it during ASSIGNMENT instead
+    ;; would renumber every label below it on one transient enumeration
+    ;; miss, and the labels are muscle memory.
+    (define (project-target-action item)
+      (and (number? (alist-ref item 'ownerPid))
+           (number? (alist-ref item 'windowId))
+           (lambda () (focus-window (focus-choice item)))))
+
+    ;; (project-provider 'single-alphabet … 'leader-alphabet … 'second-alphabet …
+    ;;                   ['panel-label STRING] ['enumerate THUNK])
+    ;;   → a 1-arg procedure for a state's 'provider slot.
+    ;;
+    ;; All three alphabets come from the USER: jump labels are keys, and no
+    ;; library file may author a key (ADR-0021). None is defaulted — an
+    ;; omitted alphabet yields no labels rather than a library-chosen one.
+    ;;
+    ;; 'enumerate is the test seam: a 0-arg thunk returning Modaliser's
+    ;; window enumeration, defaulting to the cross-space `list-windows` that
+    ;; `window-source` already uses — so a project parked on another desktop
+    ;; is labelled and reachable, which is the whole point when the windows
+    ;; are one-per-worktree.
+    ;;
+    ;; OWNER-ID is the id of the state this provider was lowered onto, handed
+    ;; over by the engine (provider-state-id-k9). It is the parent of every
+    ;; prefix state minted below and their up-edge target.
+    ;;
+    ;; **This runs on the dispatch path**, re-run at every come-to-rest. It
+    ;; is materially cheaper than paneru's — enumeration, filter, sort and
+    ;; assign, with no subprocess spawn in it — but the enumeration is the
+    ;; same 8-29ms warm and past 200ms cold accessibility sweep, and
+    ;; KeyboardCapture filters no auto-repeat. So compose the ops on this
+    ;; screen WITHOUT `'next 'self`, exactly as the paneru reference
+    ;; composition does and for the same reason: a held key would queue
+    ;; sweeps faster than they drain.
+    (define (project-provider . opts)
+      (let* ((alist       (apply props->alist opts))
+             (single      (alist-ref alist 'single-alphabet '()))
+             (leaders     (alist-ref alist 'leader-alphabet '()))
+             (seconds     (alist-ref alist 'second-alphabet '()))
+             (panel-label (alist-ref alist 'panel-label ""))
+             (enumerate   (alist-ref alist 'enumerate list-windows)))
+        (lambda (owner-id)
+          (let* ((targets  (windows-of (enumerate)))
+                 (assigned (jump-labels-assign targets single leaders seconds)))
+            (set-current-projects-assigned! assigned)
+            (jump-list-provider-result assigned owner-id panel-label
+              'state-id project-target-state-id
+              'action   project-target-action
+              'block    (lambda (pairs)
+                          (make-project-list-block
+                            'assigned-fn (lambda () pairs))))))))
+
+    ;; The un-narrowed panel's block, closed over the snapshot so it ALWAYS
+    ;; renders the exact assignment project-provider took this Visit — never
+    ;; re-querying. The user drops it into a panel of their VSCode screen.
+    (define (project-listing)
+      (make-project-list-block
+        'assigned-fn (lambda () *current-projects-assigned*)))
 
     ;; ─── The chords ─────────────────────────────────────────────────
 

@@ -652,6 +652,19 @@ profile and displaced by the profile name under a named one. A window that must
 resolve to a real directory joins against VSCode's own stored window state.
 Source: `apps/vscode.sld` (`project-name`, `windows-of`).
 
+**Project listing** — the **Project**s of every open VSCode window as overlay
+rows on the F17 VSCode screen, in project order, each carrying a **Jump label**
+that focuses that window. Top-level: it replaced a chooser row, because with one
+window per worktree the list is short and stable, so a label beats fuzzy-matching
+a forty-character folder name. Display-only, and it renders the assignment its
+**Edge provider** already took rather than querying, so rows and live labels
+cannot disagree — the same contract the **Strip listing** has, and the two share
+the lowering that mints their edges (`jump-list.sld`) while keeping separate
+renderers. _Avoid_ calling it a window list: it lists projects, and that a
+project is reached by focusing its window is mechanism, not meaning. Source:
+`apps/vscode.sld` (`project-provider`, `project-listing`),
+`blocks/project-list.sld`.
+
 **Workspace** (VSCode) — the folder a VSCode window is rooted at, as a real
 absolute **path**. The counterpart to **Project**, which is the same folder's
 *name*: a project is what a window is called, a workspace is where it is. Only

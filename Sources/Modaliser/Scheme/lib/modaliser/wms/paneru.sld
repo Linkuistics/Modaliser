@@ -135,10 +135,13 @@
           ;; exactly as far as this Visit's strip length demands. It knows
           ;; nothing of paneru — the alphabets arrive from the user (ADR-0021).
           (modaliser jump-labels)
-          ;; edge / provided-state: the FSM primitives the provider lowers a
-          ;; label assignment onto. Both portable — (modaliser fsm) imports
-          ;; only (scheme base) (scheme write) (modaliser util).
-          (only (modaliser fsm) edge provided-state)
+          ;; jump-list-provider-result: the lowering itself — a label
+          ;; assignment becomes edges and provided states, leaders and all.
+          ;; Paneru injects the three things that are its own (naming a
+          ;; target, acting on one, drawing the narrowed listing) and owns
+          ;; none of the FSM shapes, which is why the fsm primitives are no
+          ;; longer imported here.
+          (modaliser jump-list)
           ;; The Strip-listing renderer. The dependency runs THIS way only:
           ;; the block is a generic labelled-row component that knows nothing
           ;; of paneru, and this library composes it.
@@ -321,143 +324,50 @@
 
     ;; ─── Lowering an assignment onto the FSM ────────────────────────
     ;;
+    ;; The subtle half of this — grouping two-key labels under leaders,
+    ;; minting each leader's narrowing PREFIX state with its own re-minting
+    ;; provider and its two-layer payload, and dropping unlabelled and
+    ;; unfocusable targets from the edge set but from nothing else — is
+    ;; (modaliser jump-list)'s. It was extracted there when the VSCode
+    ;; project panel needed the same shape over a different row source
+    ;; (jump-list-k4); every one of those behaviours fails SILENTLY when it
+    ;; is wrong, so a second copy would drift with nothing going red.
+    ;;
+    ;; What stays here is the three things that are paneru's, and they are
+    ;; exactly what jump-list asks a caller to inject: how a target is named,
+    ;; what pressing it does, and what the narrowed listing draws.
+
     ;; A **Strip target**'s Terminal dispatch state id. Free-form: a Terminal
     ;; state deactivates before any presentation code consults a state id's
     ;; shape, so this needs collision-freedom across live targets and nothing
-    ;; else. The window id supplies exactly that.
+    ;; else. The window id supplies exactly that, and the literal prefix
+    ;; namespaces it against any other jump listing alive in the same Visit.
     (define (strip-target-state-id target)
       (string-append "paneru-strip-target/"
                      (number->string (alist-ref target 'window-id))))
 
-    ;; A narrowing prefix state's id — OWNER-ID + "/" + leader, the
-    ;; convention permanent child states use (fsm-child-id). This shape is
-    ;; NOT free: a resting provided state survives as a Visit owner across
-    ;; keystrokes, so the presentation façade reads it the way it reads a
-    ;; permanent state, and modal-current-path's strip-id-prefix `substring`s
-    ;; the parent's id off the child's to derive a breadcrumb segment. Any
-    ;; other shape yields a garbled segment or raises outright.
-    (define (strip-prefix-state-id owner-id leader)
-      (string-append owner-id "/" leader))
-
-    ;; One provided Terminal state per focusable labelled target: entry
-    ;; focuses the window by id, no edges — Terminal, so firing it halts the
-    ;; engine and the modal exits, which is what a jump means. 'payload '()
-    ;; (an empty alist, not the default #f) is never read here — a Terminal
-    ;; state deactivates first — but it keeps the shape uniform with the
-    ;; prefix state below, where the payload very much does matter.
-    (define (strip-terminal-state target)
-      (provided-state (strip-target-state-id target)
-        'payload '()
-        'entry (lambda () (focus-window (strip-focus-choice target)))))
-
-    ;; Merge (LEADER SECOND . TARGET) into BY-LEADER — an alist of
-    ;; leader → ((second . target) …), preserving first-seen leader order and
-    ;; each leader's own second-key order. Strip lengths are small, so the
-    ;; append buys ordering simplicity over a smarter accumulator.
-    (define (strip-merge-leader-group by-leader leader second target)
-      (if (assoc leader by-leader)
-          (map (lambda (kv)
-                 (if (string=? (car kv) leader)
-                     (cons leader (append (cdr kv) (list (cons second target))))
-                     kv))
-               by-leader)
-          (append by-leader (list (cons leader (list (cons second target)))))))
-
-    ;; One leader's provided PREFIX (resting) state. Four things about it are
-    ;; load-bearing, and every one of them fails silently if guessed at:
-    ;;
-    ;;  - its id is OWNER-ID + "/" + leader (see strip-prefix-state-id);
-    ;;  - its 'up edge targets OWNER-ID, or backspace does not un-narrow and
-    ;;    ancestors-within-tree stops the climb early;
-    ;;  - its 'payload carries the two-layer node shape `screen` lowers a
-    ;;    registered root's payload into — a 'children list holding the block,
-    ;;    plus a 'display clause with one panel referencing it by type.
-    ;;    fsm-resolved-payload hands this alist to the façade as
-    ;;    modal-current-node, and the panel-grid renderer resolves 'children +
-    ;;    'display off whatever that is (ADR-0011), so the UNCHANGED renderer
-    ;;    draws the narrowed listing. A payload-less prefix state narrows into
-    ;;    a blank screen with no indication of which second keys are live;
-    ;;  - it carries its OWN 'provider, re-minting exactly the Terminal states
-    ;;    its own second-key edges target. Not an optimisation: provided
-    ;;    states are Visit-scoped, and stepping into this state BEGINS a new
-    ;;    Visit whose provided table holds only what this state's provider
-    ;;    returns. Without it the second key resolves to a state nobody minted.
-    ;;
-    ;; PAIRS is the ((second . target) …) survivor list the owner's provider
-    ;; already computed, so the re-mint and the narrowed block are both closed
-    ;; over it — no second paneru query, no re-narrowing, and the narrowed
-    ;; rows are provably the same targets the second-key edges dispatch to.
-    ;;
-    ;; PANEL-LABEL rides in from the user (ADR-0021): a label authored in a
-    ;; library file sits inside the decision-free contract's spirit even where
-    ;; check-decision-free.sh's grep cannot see it.
-    (define (strip-prefix-state owner-id panel-label leader pairs)
-      (let ((second-edges
-              (map (lambda (p) (edge (car p) (strip-target-state-id (cdr p)))) pairs)))
-        (apply provided-state (strip-prefix-state-id owner-id leader)
-          'payload (list (cons 'children
-                               (list (make-paneru-strip-block
-                                       'assigned-fn (lambda () pairs))))
-                         (cons 'display
-                               (list (cons 'panels
-                                           (list (list (cons 'label panel-label)
-                                                       (cons 'span 'wide)
-                                                       (cons 'rows (list (cons 'block 'paneru-strip)))))))))
-          ;; This state's OWN id is handed in as the provider argument and
-          ;; ignored: every state re-minted here is Terminal, so none of them
-          ;; needs a parent id.
-          'provider (lambda (own-id)
-                      (list (cons 'states
-                                  (map (lambda (p) (strip-terminal-state (cdr p))) pairs))))
-          (edge 'up owner-id)
-          second-edges)))
+    ;; What pressing a target's label DOES — or #f when nothing does, which
+    ;; is also jump-list's test for whether the target earns an edge at all.
+    ;; An unmatched target (no 'owner-pid; ADR-0024 Consequences) is exactly
+    ;; that case: it still renders and still consumes its label, and simply
+    ;; has no edge behind it. Folding the predicate into the action is what
+    ;; makes those two facts one fact rather than two that must agree.
+    (define (strip-target-action target)
+      (and (strip-target-focusable? target)
+           (lambda () (focus-window (strip-focus-choice target)))))
 
     ;; ASSIGNED ((label . target) …) → this Visit's provider result: 'edges
-    ;; (one direct edge per single-key label, one per USED leader) and
-    ;; 'states (one Terminal state per single-key target, one prefix state
-    ;; per leader — a leader's own targets' Terminal states live in the
-    ;; PREFIX state's provider, not here; see strip-prefix-state).
-    ;;
-    ;; Two kinds of target are dropped from the edge set and from nothing
-    ;; else — both still render as rows:
-    ;;   - UNLABELLED (#f): past both pools' exhaustion.
-    ;;   - UNMATCHED (no 'owner-pid): the join found nothing to focus.
-    ;; Dropping an unmatched target here rather than during ASSIGNMENT is the
-    ;; deliberate choice: skipping it earlier would renumber every label below
-    ;; it on a single transient join miss. A miss costs one dead key.
-    ;;
-    ;; A leader whose every second key is dropped therefore contributes no
-    ;; group at all, so the leader key itself stays dead rather than narrowing
-    ;; into an empty listing.
+    ;; and 'states, as jump-list lowers them. The signature is UNCHANGED
+    ;; across the extraction, so the direct-call tests over it
+    ;; (docs/specs/paneru-window-management.md "Test seams" 6) go on pinning
+    ;; paneru's own lowering — they now pin the composition, and
+    ;; jump-list's own suite pins the machinery under it.
     (define (strip-provider-result assigned owner-id panel-label)
-      (let loop ((rest assigned) (edges '()) (states '()) (by-leader '()))
-        (if (null? rest)
-            (let ((leader-edges
-                    (map (lambda (kv) (edge (car kv) (strip-prefix-state-id owner-id (car kv))))
-                         by-leader))
-                  (prefix-states
-                    (map (lambda (kv) (strip-prefix-state owner-id panel-label (car kv) (cdr kv)))
-                         by-leader)))
-              (list (cons 'edges (append (reverse edges) leader-edges))
-                    (cons 'states (append (reverse states) prefix-states))))
-            (let* ((entry  (car rest))
-                   (label  (car entry))
-                   (target (cdr entry)))
-              (cond
-                ((or (not label) (not (strip-target-focusable? target)))
-                 (loop (cdr rest) edges states by-leader))
-                ((= (string-length label) 1)
-                 (loop (cdr rest)
-                       (cons (edge label (strip-target-state-id target)) edges)
-                       (cons (strip-terminal-state target) states)
-                       by-leader))
-                (else
-                  (loop (cdr rest) edges states
-                        (strip-merge-leader-group
-                          by-leader
-                          (substring label 0 1)
-                          (substring label 1 (string-length label))
-                          target))))))))
+      (jump-list-provider-result assigned owner-id panel-label
+        'state-id strip-target-state-id
+        'action   strip-target-action
+        'block    (lambda (pairs)
+                    (make-paneru-strip-block 'assigned-fn (lambda () pairs)))))
 
     ;; ─── The Edge provider ──────────────────────────────────────────
     ;;

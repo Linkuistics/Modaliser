@@ -1,0 +1,38 @@
+/* project-list.css — the Project listing (vscode-project-panel-k4).
+   One row per open project: jump label, arrow, name. Display-only — no
+   selection cursor, and no .current marker, because the project you are
+   looking at is the window you are already in. */
+
+.block-project-list {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-separator);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Three columns: key · arrow · name. The keycap track is a fixed 3ch so a
+ * two-key jump label ("as") and a one-key label ("a") leave the names on
+ * the same left edge — and so does an unlabelled tail row, which emits an
+ * empty keycap rather than collapsing its column.
+ *
+ * The name takes 1fr with no fourth column competing for it, which is the
+ * point of this block existing beside blocks/paneru-strip: a worktree
+ * folder name runs long (past forty characters is ordinary here), so it
+ * gets the whole remaining width and ellipsizes only at the panel edge. */
+.block-project-list .pl-row {
+  display: grid;
+  grid-template-columns: 3ch auto 1fr;
+  column-gap: 4px;
+  align-items: baseline;
+}
+
+.block-project-list .pl-row .entry-key { color: var(--color-key); font-weight: 600; }
+.block-project-list .pl-row .entry-arrow { color: var(--color-arrow); }
+.block-project-list .pl-row .entry-label {
+  color: var(--color-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

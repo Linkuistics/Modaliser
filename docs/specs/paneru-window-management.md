@@ -105,6 +105,17 @@ Exported surface:
 | `join-strip-targets` | pure | strip rows × window enumeration → **Strip targets** |
 | `strip-provider-result` | pure | assigned labels → provided edges + states |
 
+The lowering `strip-provider-result` performs is no longer paneru's own.
+When the VSCode project panel needed the same shape over a different row
+source, it was extracted to `(modaliser jump-list)` — the grouping, the
+narrowing prefix states and their re-minting providers all live there,
+and paneru composes it, injecting the three things that *are* paneru's:
+how a target is named, what pressing it does, and what the narrowed
+listing draws. Nothing in this spec's behaviour changed and the export's
+signature is unchanged; the reason for the move is that every one of
+those behaviours fails **silently** when it is wrong, so a second copy
+would have drifted with nothing going red.
+
 Every op is a 0-arg thunk that lands straight in a `(key K L op)` slot, and
 every one is a **facility**: its correctness is fixed by paneru's CLI. Which op
 reaches which key under which label is the user's (ADR-0021), so this library

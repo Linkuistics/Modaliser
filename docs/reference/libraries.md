@@ -413,7 +413,7 @@ When paneru drives the desktop you compose the window screen from
 | `parse-strip-windows` | `(parse-strip-windows text)` → rows | Pure. Query payload → the active workspace's rows, in strip order (exported for tests). |
 | `join-strip-targets` | `(join-strip-targets rows enumeration)` → targets | Pure. Recovers each row's `ownerPid` by id join (exported for tests). |
 | `strip-focus-choice` | `(strip-focus-choice target)` → alist | Pure. One target → the choice alist `focus-window` reads (exported for tests). |
-| `strip-provider-result` | `(strip-provider-result assigned owner-id panel-label)` → alist | Pure. A label assignment → `'edges` + `'states` (exported for tests). |
+| `strip-provider-result` | `(strip-provider-result assigned owner-id panel-label)` → alist | Pure. A label assignment → `'edges` + `'states` (exported for tests). Since the VSCode project panel wanted the same shape over a different row source, the lowering itself lives in [`(modaliser jump-list)`](#modaliser-jump-list) and this composes it, injecting the three things that are paneru's: how a target is named, what pressing it does, and what the narrowed listing draws. The signature is unchanged. |
 
 **Seven ops, not twenty.** The rest of paneru's surface — `resize`,
 `fullwidth`, `stack`/`unstack`, `equalize`, `balance`, `manage`, the
@@ -611,11 +611,23 @@ No stock screen ships here (ADR-0021): which operation sits on which key
 under which label is preference.
 
 ```scheme
-(key "w" "Select Project…"
-     (selector 'prompt    "Select VSCode project…"
-               'source    code:window-source
-               'on-select code:focus-window!))
+(define vscode-label-keys '("a" "s" "d" "f" "g"))
+
+(screen 'com.microsoft.VSCode
+  'provider (code:project-provider
+              'single-alphabet vscode-label-keys
+              'leader-alphabet vscode-label-keys
+              'second-alphabet vscode-label-keys
+              'panel-label     "Projects")
+  …
+  (panel "Projects"
+    (code:project-listing)))
 ```
+
+The alphabets are yours and none is defaulted — jump labels are keys
+(ADR-0021). `window-source` / `focus-window!` remain exported for a
+chooser row if you prefer fuzzy matching to a jump label; the two are
+different affordances over the same windows.
 
 **Exports:**
 
@@ -627,6 +639,8 @@ under which label is preference.
 | `windows-of` | `(windows-of enumeration)` → items, sorted. The pure half of `window-source`, taking the window list as an argument — which is where the tests land. |
 | `project-name` | `(project-name title)` → the folder segment of a VSCode window title. Pure. |
 | `focus-choice` | `(focus-choice item)` → the alist `focus-window` reads. Pure, and exported because the title it carries is load-bearing (see below). |
+| `project-provider` | `(project-provider 'single-alphabet … 'leader-alphabet … 'second-alphabet … ['panel-label STRING] ['enumerate THUNK])` → a 1-arg procedure for a state's `'provider` slot. At come-to-rest it enumerates, orders by project and mints one jump-label edge per project, lowering the assignment through `(modaliser jump-list)`. `'enumerate` is the test seam, defaulting to the cross-space `list-windows`. |
+| `project-listing` | `(project-listing)` → the **Project listing** block spec, reading the *same* per-Visit assignment `project-provider` took — so the rows and the live labels cannot disagree. |
 | `toggle-terminal`, `focus-explorer`, `focus-editor` | Zero-arg thunks over VSCode's default macOS chords, ready for a key slot. Read the next section before binding them. |
 | `focused-workspace-path` | `(focused-workspace-path)` → the absolute path of the folder the **frontmost** VSCode window is rooted at, or `#f`. Impure: reads VSCode's stored window state and the live window list. |
 | `open-workspaces` | `(open-workspaces)` → every folder-rooted open window as `((path . ABS) (name . BASENAME))`. Impure: reads the state file. |
@@ -653,10 +667,11 @@ commonly mis-stated.
 #### Why the list is alphabetical
 
 The window enumeration's order is front-to-back stacking order, so it
-changes every time you focus a window. A chooser's value is that the
-same project sits in the same place twice running — a list that
-reshuffles between presses cannot be learned, and the fuzzy filter is
-there for when learning it is not worth the bother. So `windows-of`
+changes every time you focus a window. Both affordances need the
+opposite: the same project must sit in the same place twice running, or
+a chooser cannot be learned and a jump label is worse than useless —
+the panel's whole premise is that `a` means the same project today as
+yesterday. So `windows-of`
 sorts by project name, case-insensitively (a human reading folder names
 is not thinking in ASCII, and a plain `string<?` would sort every
 capitalised name ahead of every lowercase one), with the case-sensitive
@@ -1124,6 +1139,31 @@ separate block rather than a parameterised `window-list`. It paints no
 chips: paneru scrolls the strip under animation, so a chip's rect is
 stale the moment it is drawn.
 
+### `(modaliser blocks project-list)`
+
+Renderer for the **Project listing**. Reach for
+[`(code:project-listing)`](#modaliser-apps-vscode) rather than this
+directly — that wrapper closes the block over the project Edge
+provider's snapshot, which is the whole point of it.
+
+Display-only and never-querying, on the same terms as `paneru-strip`.
+One row per project: jump label, arrow, name — three columns, with the
+name taking the full remaining width.
+
+**Why this is not `paneru-strip`.** The two share the *subtle* half —
+grouping, prefix states, re-minting — and share it properly, in
+[`(modaliser jump-list)`](#modaliser-jump-list). What is duplicated is
+presentation, and the asymmetry is deliberate: duplicated machinery
+drifts silently, duplicated presentation drifts visibly. The content
+differs too — a Strip row is an app name plus a window title in four
+columns, a Project row is one long name (worktree folders run past forty
+characters) that wants the whole width and an ellipsis.
+
+| Export | Signature | Description |
+|---|---|---|
+| `make-project-list-block` | `(make-project-list-block ['assigned-fn THUNK])` | Block spec of `'type 'project-list`. `assigned-fn` returns the assignment; each target need only carry `'text`, the name to draw. Defaults to an empty listing. |
+| `project-list-rows` | `(project-list-rows assigned)` | Pure assignment → row payload. Same length and order, nothing filtered. |
+
 | Export | Description |
 |---|---|
 | `make-paneru-strip-block` | `(make-paneru-strip-block ['assigned-fn THUNK])` — the thunk returns the `((label . target) …)` snapshot. Rows are threaded in rather than imported, so this block knows nothing of paneru. |
@@ -1347,6 +1387,47 @@ may overlap (a restricted single alphabet doubling as the leader
 preference order — e.g. home-row-only) or be disjoint (dedicated
 leader-only keys that never cost a single slot); both are handled
 correctly and deterministically.
+
+### `(modaliser jump-list)`
+
+The other half of a labelled listing: `jump-labels-assign` says *which
+label*, this says *what a label does*. An assignment in, an **Edge
+provider result** out — `'edges` and `'states`, ready for a provided
+state's `'provider` slot.
+
+It exists because that lowering is subtle in exactly the same way for
+every caller, and **fails silently when it is wrong**: a prefix state
+minted with the wrong id garbles a breadcrumb, one minted without its
+own provider makes a second key resolve to a state nobody minted, and
+one minted without a payload narrows into a blank screen. None of those
+raise. Extracted from `(modaliser wms paneru)`'s strip provider when the
+VSCode project panel needed the same shape over a different row source;
+both compose it now.
+
+| Export | Signature | Description |
+|---|---|---|
+| `jump-list-provider-result` | `(jump-list-provider-result assigned owner-id panel-label 'state-id FN 'action FN 'block FN)` | Lowers `assigned` — `jump-labels-assign`'s own `(label . target)` list — onto the FSM. One direct edge per single-key label; one edge per *used* leader, to a narrowing prefix state that re-mints its own group. Pure: it constructs entry thunks and fires none. |
+| `jump-list-prefix-state-id` | `(jump-list-prefix-state-id owner-id leader)` | `OWNER-ID + "/" + leader`. The shape is **not** free — `modal-current-path` `substring`s the parent's id off the child's to derive a breadcrumb segment. |
+
+The three injected functions are the whole domain boundary:
+
+| Option | Signature | Description |
+|---|---|---|
+| `'state-id` | `TARGET → STRING` | A Terminal dispatch state's id. Free-form, but must be collision-free across live targets — namespace it per caller. Only ever called on a target `'action` already answered for. |
+| `'action` | `TARGET → THUNK or #f` | What pressing this target's label does. `#f` means "nothing to do", which is *also* how a caller says a row is inert. The two are one question, so they are one function: the target with no action **is** the target with no edge. |
+| `'block` | `PAIRS → BLOCK-SPEC` | The narrowed listing's block, given one leader's `((second-key . target) …)` survivors. Its own `'type` is read back out to reference it from the panel, so a caller never restates the type it just constructed. |
+
+Two kinds of target are dropped from the edge set and **from nothing
+else** — both still render as rows: an *unlabelled* one (`#f`, past both
+pools) and an *inert* one. Dropping either during assignment instead
+would renumber every label below it on one transient miss, and the
+labels are muscle memory. A leader whose every second key is dropped
+contributes no group at all, so the leader key stays dead rather than
+narrowing into an empty listing.
+
+`'panel-label` rides in from the user (ADR-0021): a label authored in a
+library file sits inside the decision-free contract's spirit even where
+`check-decision-free.sh`'s grep cannot see it.
 
 ---
 

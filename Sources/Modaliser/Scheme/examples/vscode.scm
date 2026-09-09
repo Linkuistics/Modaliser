@@ -29,11 +29,13 @@
 ;; VSCode is the case where a library earns its place — not because the
 ;; chords are hard, but because "select from the open windows" needs the
 ;; window enumeration filtered to VSCode, reshaped so the thing you see
-;; and fuzzy-match is the PROJECT rather than the window title, and
-;; focused back through a choice alist that keeps the real title as its
-;; fallback match. That is machinery, it is version-sensitive, and it
-;; belongs somewhere it stays current across upgrades. The keys and
-;; labels below are the half that does not: they are yours.
+;; is the PROJECT rather than the window title, ordered so the same
+;; project sits in the same place twice running, and focused back
+;; through a choice alist that keeps the real title as its fallback
+;; match. That is machinery, it is version-sensitive, and it belongs
+;; somewhere it stays current across upgrades. The keys and labels
+;; below are the half that does not: they are yours — including the
+;; three alphabets the Projects panel draws its jump labels from.
 ;;
 ;; The screen's last row goes further: it composes TWO libraries that
 ;; know nothing of each other — `(modaliser apps vscode)`, which can say
@@ -66,21 +68,46 @@
         ;; nothing else on the screen touches it.
         (prefix (modaliser tools grove) grove:))
 
+;; The jump-label alphabet for the Projects panel, named once and
+;; passed three times below (one-key pool, leader preference order,
+;; second-key pool). A label that collides with a bound key loses, so
+;; the home row here cost one move: Grove Leaf sits on "G" rather than
+;; "g". That is preference and it is yours — the library defaults no
+;; alphabet and authors no key (ADR-0021), so both this list and the
+;; keys it has to dodge are decisions you make, not ones you inherit.
+(define vscode-label-keys '("a" "s" "d" "f" "g"))
+
 ;; ▶ 2/3 — the VSCode screen. Keys, labels and grouping are preference;
 ;; rebind, drop or regroup any of it. The scope symbol is VSCode's
 ;; bundle id, which is what makes F17 land here when VSCode is frontmost.
 (define vscode-screen
   (screen 'com.microsoft.VSCode
 
-    ;; Select among the open VSCode windows. The chooser displays and
-    ;; fuzzy-matches each window's PROJECT — the folder it is rooted at —
-    ;; so this reads as "jump to a project" even though it is really a
-    ;; window switcher. Cross-space: a project parked on another desktop
-    ;; is still in the list.
-    (key "w" "Select Project…"
-         (selector 'prompt    "Select VSCode project…"
-                   'source    code:window-source
-                   'on-select code:focus-window!))
+    ;; The Edge provider behind the Projects panel at the bottom of this
+    ;; screen. At come-to-rest — once per visit, before anything renders
+    ;; — it enumerates the open VSCode windows, orders them by PROJECT
+    ;; (the folder each is rooted at), and mints exactly the jump labels
+    ;; that many projects earn. The panel below draws that same
+    ;; assignment, so the rows and the live labels cannot disagree, and a
+    ;; label pressed faster than the overlay appears still works.
+    ;;
+    ;; Cross-space: a project parked on another desktop is labelled and
+    ;; reachable like any other.
+    ;;
+    ;; ALL THREE ALPHABETS ARE YOURS and none is defaulted — jump labels
+    ;; are keys, and no library authors a key (ADR-0021). Passing the
+    ;; same list three times is the ordinary case: it doubles as the
+    ;; one-key pool, the leader preference order, and the second-key
+    ;; pool. Escalation is automatic — five single-key labels here, and
+    ;; past that each leader opens five more.
+    ;;
+    ;; Keep these OFF the keys bound elsewhere on this screen. The list
+    ;; below deliberately avoids t/e/i/p/P//f/g.
+    'provider (code:project-provider
+                'single-alphabet vscode-label-keys
+                'leader-alphabet vscode-label-keys
+                'second-alphabet vscode-label-keys
+                'panel-label     "Projects")
 
     ;; Flat rows, deliberately: every operation is one key from the
     ;; leader. Group them if you prefer — that is the half of this file
@@ -126,13 +153,32 @@
     ;; a strict-focus explorer command in your keybindings.json, pass a
     ;; lambda sending YOUR chord instead — shift-cmd-e bounces to the
     ;; editor when the explorer already has focus.
-    (key "g" "Grove Leaf"
+    ;; On "L" — for Leaf — since lowercase g is a Projects jump label
+    ;; above. The capital plane is untouched by the label alphabets.
+    (key "L" "Grove Leaf"
          (λ ()
            (let* ((worktree (code:focused-workspace-path))
                   (leaf     (and worktree (grove:live-leaf worktree))))
              (if leaf
                  (code:reveal-file! leaf)
-                 (dialog-info "No live grove leaf for this window.")))))))
+                 (dialog-info "No live grove leaf for this window.")))))
+
+    ;; ─── The Projects panel ─────────────────────────────────────
+    ;;
+    ;; One row per open VSCode window, ordered by project name, each
+    ;; carrying the label that focuses it. This replaced a chooser row
+    ;; (a `selector` over `code:window-source`, which is still exported
+    ;; if you prefer fuzzy matching): with one window per worktree the
+    ;; list is short and stable, so a jump label beats typing enough of
+    ;; a forty-character folder name to disambiguate it.
+    ;;
+    ;; Note there is no `'next 'self` anywhere on this screen. The
+    ;; provider re-runs at every come-to-rest and its accessibility
+    ;; sweep costs 8-29ms warm and past 200ms cold, and auto-repeat is
+    ;; not filtered — so a HELD key would queue sweeps faster than they
+    ;; drain. Fire and exit.
+    (panel "Projects"
+      (code:project-listing))))
 
 ;; ─── The rest is a minimal config, so this file stands alone ───────
 

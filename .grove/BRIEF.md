@@ -36,6 +36,30 @@ Neither carries a `review-impl` step yet. A review chain is lazy and earned: the
 producing session cuts one as its last act only if it judges an adversarial read
 necessary (`references/decompose.md`).
 
+## The grove grew past its original five operations
+
+The charter above scoped five operations and two build leaves. Both landed, and
+the human then extended the scope twice from use rather than from planning —
+which is the shape to expect here, since the whole grove is automating things
+they already do by hand.
+
+- **`vscode-project-panel-k4`** replaced the `w` chooser with a top-level
+  jump-label panel over the same windows, and dropped the chooser row entirely.
+  It left behind `(modaliser jump-list)` — the FSM-lowering half of a labelled
+  listing, extracted from paneru's strip provider so both compose it. Read its
+  decision log before adding a third caller.
+- **k5 / k6 / k7** carry the next extension: previous/next editor on `[`/`]`,
+  then panels listing the frontmost window's open terminals and editors. The
+  middle one is a `design` leaf because the row source does not exist yet —
+  VSCode exposes nothing that says what is open *inside* a window, and the
+  candidates have materially different failure modes.
+
+The **five original operations are no longer the Done-when for the grove**;
+each leaf carries its own. What has not changed is the contract set below, and
+one line of it is doing more work each time the screen grows: keys, labels and
+alphabets are the user's. The human restated it unprompted while k4 was
+landing — *"this should all be configurable in the user's config."*
+
 ## Contracts settled with the human
 
 These are decided. A build session implements them; it does not reopen them
