@@ -665,6 +665,29 @@ project is reached by focusing its window is mechanism, not meaning. Source:
 `apps/vscode.sld` (`project-provider`, `project-listing`),
 `blocks/project-list.sld`.
 
+**Editor tab** (VSCode) — one open editor in a VSCode window, as the tab strip
+shows it: a display name, the path it was opened from, and whether it is the
+active one. Read from the window's **accessibility tree**, because VSCode's
+stored editor state is written only on a 60-second idle flush and on window blur
+(ADR-0026), and a listing that is a minute behind is worse than none where a
+label sits beside an index. _Avoid_ "editor" bare when the distinction from the
+*editor group* matters — a window may hold several groups, and the tab strip
+shows one group's tabs. Source: `apps/vscode.sld` (`editor-tabs`).
+
+**Editor listing** — the **Editor tab**s of the *frontmost* VSCode window as
+overlay rows on the F17 VSCode screen, in tab-strip order, each carrying a
+**Jump label** that activates that tab. The sibling of the **Project listing**
+one level in: that one lists windows, this one lists what is open inside one.
+Display-only, and it renders the assignment its **Edge provider** already took,
+so rows and live labels cannot disagree — the same contract the **Project
+listing** and the **Strip listing** hold, and all three share the lowering
+(`jump-list.sld`). _Avoid_ ordering it by anything but strip order: unlike the
+**Project listing**, whose enumeration returns stacking order and therefore had
+to be sorted to be learnable, the tab strip's order is the order the user sees.
+There is deliberately **no terminal listing** — ADR-0026 records why. Source:
+`apps/vscode.sld` (`editor-provider`, `editor-listing`),
+`docs/specs/vscode-editor-listing.md`.
+
 **Workspace** (VSCode) — the folder a VSCode window is rooted at, as a real
 absolute **path**. The counterpart to **Project**, which is the same folder's
 *name*: a project is what a window is called, a workspace is where it is. Only
