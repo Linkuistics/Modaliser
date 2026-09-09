@@ -17,6 +17,7 @@ apart, the recommended import style is **prefix-style**:
 ```scheme
 (import (prefix (modaliser apps iterm)      iterm:)
         (prefix (modaliser apps dia)        dia:)
+        (prefix (modaliser apps vscode)     code:)
         (prefix (modaliser muxes herdr)     herdr:)
         (prefix (modaliser muxes zellij)    zellij:)
         (prefix (modaliser wms paneru)      paneru:)
@@ -585,6 +586,79 @@ them but preference.
 A library earns its place only when an app needs machinery a keystroke
 cannot express: AppleScript enumeration, an IPC socket, live-list
 blocks, a terminal backend record. The ones below are those cases.
+
+### `(modaliser apps vscode)`
+
+Visual Studio Code (`com.microsoft.VSCode`). The smallest case of "a
+library earns its place": three of its four operations *are* just
+`send-keystroke`, but "select from the open windows" is not — it needs
+the window enumeration filtered to VSCode, reshaped so the thing you see
+and fuzzy-match is the **project** rather than the window title, and
+focused back through a choice alist that keeps the real title as its
+fallback match. That is machinery, it is sensitive to VSCode's version,
+and it belongs where it stays current across upgrades. The chords are
+exported as named ops beside it so one import covers the whole screen.
+
+**Imports:**
+
+```scheme
+(import (prefix (modaliser apps vscode) code:))
+```
+
+`Scheme/examples/vscode.scm` is a complete worked screen to copy from.
+No stock screen ships here (ADR-0021): which operation sits on which key
+under which label is preference.
+
+```scheme
+(key "w" "Select Project…"
+     (selector 'prompt    "Select VSCode project…"
+               'source    code:window-source
+               'on-select code:focus-window!))
+```
+
+**Exports:**
+
+| Export | Description |
+|---|---|
+| `bundle-id` | `"com.microsoft.VSCode"` — VSCode's own fact, so a caller filtering or launching by it need not restate the literal. The screen's scope symbol is still yours to spell. |
+| `window-source` | `(window-source)` → chooser items, one per open VSCode window, cross-space. Each item's `'text` (the chooser's display **and** fuzzy-match field) is the window's project; the untouched title stays under `'title`. |
+| `focus-window!` | `(focus-window! item)` — focus the window an item names. |
+| `windows-of` | `(windows-of enumeration)` → items. The pure half of `window-source`, taking the window list as an argument — which is where the tests land. |
+| `project-name` | `(project-name title)` → the folder segment of a VSCode window title. Pure. |
+| `focus-choice` | `(focus-choice item)` → the alist `focus-window` reads. Pure, and exported because the title it carries is load-bearing (see below). |
+| `toggle-terminal`, `focus-explorer`, `focus-editor` | Zero-arg thunks over VSCode's default macOS chords, ready for a key slot. Read the next section before binding them. |
+
+#### What the three chords actually do
+
+Established by reading the shipped bundle's own command registrations
+(VSCode 1.136.2), not from a shortcut cheat-sheet — all three are
+commonly mis-stated.
+
+| Op | Chord | Command | The catch |
+|---|---|---|---|
+| `toggle-terminal` | ctrl-` | `workbench.action.terminal.toggleTerminal` | A **toggle**: pressed while the terminal already has focus it *hides* the panel. The strict-focus command `workbench.action.terminal.focus` is bound to cmd-Down and only `when` the terminal is already the active panel, so it is not reachable as a general focus chord. Bind it in `keybindings.json` if the toggle grates. |
+| `focus-explorer` | shift-cmd-e | `workbench.view.explorer` | **Not** a sidebar toggle, despite the folklore: the registered action opens and focuses the explorer unless the sidebar already has focus, in which case it focuses the *editor*. So it reaches the explorer from anywhere except the explorer. |
+| `focus-editor` | cmd-1 | `workbench.action.focusFirstEditorGroup` | The exact command is `focusActiveEditorGroup`, but it registers with **no default keybinding at all**, so a synthetic keystroke cannot reach it. cmd-1 differs only with several editor groups open, where it lands on the leftmost rather than the active one. |
+
+#### Why the item keeps its raw title
+
+VSCode's default macOS window title is
+`${activeEditorShort}${separator}${rootName}${separator}${profileName}`
+with `${separator}` a spaced em dash, and empty variables collapse — so
+under the default profile a title is `<folder>` or `<file> — <folder>`
+and the last em-dash segment is the folder. Under a **named** profile
+the profile is appended after the folder and the last segment is the
+profile instead. Hence two rules:
+
+- `focus-choice` puts the **real** title in the choice, not the item's
+  display text. `focus-window` resolves the window id against a live
+  accessibility sweep and falls back to the title when that misses;
+  handing it a folder name would silently degrade the fallback to never
+  matching.
+- Anything resolving a window to a real **directory** should join
+  against a source that knows the folders (VSCode's own stored window
+  state) and test *every* segment, rather than trusting the last one.
+  That is what `'title` is preserved for.
 
 ### `(modaliser apps iterm)`
 

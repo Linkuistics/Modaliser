@@ -639,6 +639,17 @@ a top-level OS window vs. a pane inside a terminal. Triggered by
 `(window:list-block 'chips? #t)`. Source: `window-list.sld`.
 _Avoid_ bare "chip" when the window-vs-pane distinction matters.
 
+**Project** (VSCode) — the folder a VSCode window is rooted at, and the thing
+the F17 VSCode window selector actually selects: its rows read as projects even
+though the mechanism is window switching. Derived from the window title's last
+spaced-em-dash segment, VSCode's default macOS title being
+`${activeEditorShort}${separator}${rootName}${separator}${profileName}` with
+empty variables collapsed. _Avoid_ treating the derived name as a **path** — it
+is a display and join key only, correct as the folder name under the default
+profile and displaced by the profile name under a named one. A window that must
+resolve to a real directory joins against VSCode's own stored window state.
+Source: `apps/vscode.sld` (`project-name`, `windows-of`).
+
 **Display** — a physical monitor (`NSScreen` / `CGDirectDisplayID`). _Never_
 called a "screen": `screen` is the overlay-DSL word for a navigable overlay
 level. Source: `list-displays` (`WindowLibrary.swift`).
