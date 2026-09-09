@@ -31,6 +31,7 @@
 ;;   (code:window-source)      (code:focus-window! item)
 ;;   (code:toggle-terminal)    (code:focus-explorer)   (code:focus-editor)
 ;;   (code:focused-workspace-path)   (code:reveal-file! path)
+;;   (code:editor-cycler 'next 'focus THUNK)
 ;;
 ;; ─── The three chords, and what they actually do ────────────────────
 ;;
@@ -63,6 +64,47 @@
 ;;           rather than the active one; bind focusActiveEditorGroup in
 ;;           keybindings.json to close that gap.
 ;;
+;; ─── Cycling the editor, and why it needs a focus step ──────────
+;;
+;; workbench.action.previousEditor / .nextEditor, read out of the same
+;; bundle (1.136.2). Four properties of them, none guessed:
+;;
+;;   THE CHORDS. Mac primary is alt-cmd-Left / alt-cmd-Right, with
+;;   shift-cmd-[ / shift-cmd-] registered as secondary. Both are
+;;   defaults, so either reaches the command; the primary is what the
+;;   ops below send.
+;;
+;;   NO `when` CLAUSE. Both register at weight 200 with no context
+;;   condition, so the chord is live from anywhere in the workbench —
+;;   which is what makes the focus problem below reachable at all.
+;;
+;;   THEY CROSS GROUPS AND WRAP. `navigate` walks the active group's
+;;   SEQUENTIAL editor list; past either end it asks for the adjacent
+;;   group with wrap-around on and takes that group's first (or last)
+;;   editor, bounded by a visited-id set. So with one group they cycle
+;;   its tabs, and with several they cycle every tab in the window.
+;;
+;;   THEY SURVIVE THE TERMINAL. Both ids sit in the default
+;;   terminal.integrated.commandsToSkipShell array, so the workbench
+;;   handles the chord rather than the shell swallowing it.
+;;
+;; AND THE ONE THAT MAKES `editor-cycler` EXIST. The command opens the
+;; editor it navigated to, and an editor opened without preserveFocus
+;; normally focuses itself — so it would be reasonable to expect the
+;; chord alone to pull focus into the editor. It does not. The open
+;; path guards that focus call on the element that had focus BEFORE
+;; the open being inside the editor group's own DOM subtree; focus
+;; sitting in the terminal or the explorer fails that test, so nothing
+;; is focused and the tab changes under a pane you cannot type into.
+;; Activating the group does not rescue it either — that path
+;; short-circuits when the active GROUP has not changed, and focus
+;; moving to the terminal never changes which editor group is active.
+;;
+;; Hence one op, not two rows: focus, then cycle. WHICH focus chord is
+;; the user's call and is therefore a parameter — see focus-editor's
+;; caveat above for why the default is imperfect, and note the strict
+;; command is only reachable if you bind it in keybindings.json.
+
 ;; ─── Where the project name comes from ──────────────────────────────
 ;;
 ;; VSCode's default macOS window title is
@@ -223,7 +265,22 @@
           ;; — toggle-terminal is named for the toggle it is.
           toggle-terminal
           focus-explorer
-          focus-editor)
+          focus-editor
+
+          ;; ── Cycling the editor (vscode-editor-cycling-k5) ─────────
+          ;; The same shape: 0-arg thunks over VSCode's own default
+          ;; chords for workbench.action.previousEditor / .nextEditor.
+          previous-editor
+          next-editor
+          ;; (editor-cycler DIRECTION ['focus THUNK-or-#f] ['cycle THUNK])
+          ;; → a 0-arg thunk that focuses the editor and THEN cycles.
+          ;; DIRECTION is 'previous or 'next. The focus step is not a
+          ;; nicety: without it the chord changes the tab while leaving
+          ;; focus in the terminal or the explorer — see the header.
+          editor-cycler
+          ;; (cycle-thunk DIRECTION) → the chord thunk for it. Pure,
+          ;; and where the direction mapping is pinned by a test.
+          cycle-thunk)
   (import (scheme base)
           (scheme char)
           ;; get-environment-variable, for $HOME in the state-file path.
@@ -475,6 +532,58 @@
     (define (toggle-terminal) (send-keystroke '(ctrl) "`"))
     (define (focus-explorer)  (send-keystroke '(cmd shift) "e"))
     (define (focus-editor)    (send-keystroke '(cmd) "1"))
+
+    ;; ─── Cycling the editor ───────────────────────────────────────────
+    ;;
+    ;; The two cycle chords, in the same shape as the three above: a
+    ;; thunk over a chord VSCode ships by default. See the header for
+    ;; what the commands behind them do at the ends of the list, across
+    ;; editor groups, and inside the integrated terminal.
+    (define (previous-editor) (send-keystroke '(cmd alt) "left"))
+    (define (next-editor)     (send-keystroke '(cmd alt) "right"))
+
+    ;; DIRECTION → the chord thunk that cycles that way. Pure, and the
+    ;; single place the mapping lives, so `editor-cycler` cannot drift
+    ;; from the two ops above. An unrecognised direction is `next`
+    ;; rather than an error: a screen is built at config-load time, and
+    ;; failing the whole config over a mistyped symbol costs more than
+    ;; a key that cycles the wrong way and says so the first time it is
+    ;; pressed.
+    (define (cycle-thunk direction)
+      (if (eq? direction 'previous) previous-editor next-editor))
+
+    ;; (editor-cycler DIRECTION ['focus THUNK-or-#f] ['cycle THUNK])
+    ;;
+    ;; → a 0-arg thunk: focus the editor, then cycle. One op, because
+    ;; the cycle chord alone leaves focus wherever it was — the header
+    ;; records how that was established and why it is not obvious.
+    ;;
+    ;; 'focus is a PARAMETER because the right chord differs per user.
+    ;; The default is `focus-editor`, VSCode's own cmd-1, which is
+    ;; focusFirstEditorGroup and so lands on the LEFTMOST group rather
+    ;; than the active one when several are open. A user who has bound
+    ;; focusActiveEditorGroup in their keybindings.json passes a thunk
+    ;; sending that chord instead and gets the exact behaviour. Passing
+    ;; #f drops the focus step altogether.
+    ;;
+    ;; The focus step is sent UNCONDITIONALLY, because nothing here can
+    ;; ask VSCode where focus is. That is correct as long as the focus
+    ;; thunk is idempotent when the editor already has focus, which is
+    ;; true of a strict-focus command and is why the caveat above
+    ;; matters: cmd-1 pressed with a second group active MOVES you.
+    ;;
+    ;; 'cycle overrides the chord itself. It is the test seam — the
+    ;; same role 'enumerate plays for `project-provider`, and for the
+    ;; same reason, since sending a real keystroke reaches outside the
+    ;; process (ADR-0023) — and it doubles as the escape hatch for a
+    ;; user who has bound their own cycling command by hand.
+    (define (editor-cycler direction . opts)
+      (let* ((alist (apply props->alist opts))
+             (focus (alist-ref alist 'focus focus-editor))
+             (cycle (alist-ref alist 'cycle (cycle-thunk direction))))
+        (lambda ()
+          (when focus (focus))
+          (cycle))))
 
     ;; ═══ The workspace surface ══════════════════════════════════════
     ;;

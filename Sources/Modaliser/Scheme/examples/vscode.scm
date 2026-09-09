@@ -51,7 +51,9 @@
 ;; established against the shipped VSCode bundle. In particular:
 ;; ctrl-` is a toggle and hides the terminal when the terminal already
 ;; has focus, and shift-cmd-e bounces to the editor when the explorer
-;; already has focus. Both are VSCode's behaviour, not Modaliser's.
+;; already has focus. Both are VSCode's behaviour, not Modaliser's. The
+;; same header explains why the `[` / `]` rows below go through
+;; `editor-cycler` rather than sending the cycle chords directly.
 
 ;; ▶ 1/3 — the import. Prefix-style, as with every peer app library:
 ;; the bare exports (`window-source`, `focus-window!`) would collide.
@@ -121,6 +123,37 @@
     (key "p" "File Finder"     (λ () (send-keystroke '(cmd) "p")))
     (key "P" "Command Palette" (λ () (send-keystroke '(cmd shift) "p")))
     (key "/" "Project Search"  (λ () (send-keystroke '(cmd shift) "f")))
+
+    ;; ─── Cycling the open editors ───────────────────────────────
+    ;;
+    ;; `[` and `]` because they are next to each other and they are
+    ;; punctuation, so they sit outside the jump-label alphabet above by
+    ;; construction. Both are yours to move.
+    ;;
+    ;; These are NOT bare chords, and the difference is the whole reason
+    ;; the library exports a cycler rather than two more thunks.
+    ;; VSCode's previousEditor / nextEditor are live from anywhere in
+    ;; the workbench, but the editor they open only takes focus if focus
+    ;; was ALREADY inside the editor group — so pressed from the
+    ;; terminal or the explorer they change the tab under a pane you
+    ;; cannot type into. `editor-cycler` focuses first, then cycles.
+    ;;
+    ;; The focus chord is the parameter, because the right one differs
+    ;; per user. Left alone it is `focus-editor` — VSCode's own cmd-1,
+    ;; which is focusFirstEditorGroup and lands on the LEFTMOST group
+    ;; rather than the active one when several are open. If you have
+    ;; bound workbench.action.focusActiveEditorGroup in your
+    ;; keybindings.json (it ships with no default binding at all), pass
+    ;; a lambda sending YOUR chord and the gap closes:
+    ;;
+    ;;   (code:editor-cycler 'next
+    ;;     'focus (λ () (send-keystroke '(ctrl alt) "i")))
+    ;;
+    ;; Both commands cross editor groups and wrap around the window, so
+    ;; with one group these cycle its tabs and with several they cycle
+    ;; every tab you have open.
+    (key "[" "Prev Editor" (code:editor-cycler 'previous))
+    (key "]" "Next Editor" (code:editor-cycler 'next))
 
     ;; ─── The composition row ────────────────────────────────────
     ;;

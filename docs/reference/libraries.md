@@ -591,7 +591,7 @@ blocks, a terminal backend record. The ones below are those cases.
 ### `(modaliser apps vscode)`
 
 Visual Studio Code (`com.microsoft.VSCode`). The smallest case of "a
-library earns its place": three of its four operations *are* just
+library earns its place": most of its operations *are* just
 `send-keystroke`, but "select from the open windows" is not — it needs
 the window enumeration filtered to VSCode, reshaped so the thing you see
 and fuzzy-match is the **project** rather than the window title, and
@@ -642,6 +642,9 @@ different affordances over the same windows.
 | `project-provider` | `(project-provider 'single-alphabet … 'leader-alphabet … 'second-alphabet … ['panel-label STRING] ['enumerate THUNK])` → a 1-arg procedure for a state's `'provider` slot. At come-to-rest it enumerates, orders by project and mints one jump-label edge per project, lowering the assignment through `(modaliser jump-list)`. `'enumerate` is the test seam, defaulting to the cross-space `list-windows`. |
 | `project-listing` | `(project-listing)` → the **Project listing** block spec, reading the *same* per-Visit assignment `project-provider` took — so the rows and the live labels cannot disagree. |
 | `toggle-terminal`, `focus-explorer`, `focus-editor` | Zero-arg thunks over VSCode's default macOS chords, ready for a key slot. Read the next section before binding them. |
+| `previous-editor`, `next-editor` | The same shape, for `workbench.action.previousEditor` / `.nextEditor` (alt-cmd-Left / alt-cmd-Right). Bind these directly only if focus is already in the editor — otherwise use `editor-cycler`. |
+| `editor-cycler` | `(editor-cycler DIRECTION ['focus THUNK-or-#f] ['cycle THUNK])` → a zero-arg thunk that **focuses the editor and then cycles**. `DIRECTION` is `'previous` or `'next` (anything else is `'next`). `'focus` defaults to `focus-editor` and `#f` drops the step; `'cycle` defaults to the direction's chord and is the test seam. See *Why cycling needs a focus step* below. |
+| `cycle-thunk` | `(cycle-thunk DIRECTION)` → the chord thunk for that direction. Pure, and the single place the mapping lives. |
 | `focused-workspace-path` | `(focused-workspace-path)` → the absolute path of the folder the **frontmost** VSCode window is rooted at, or `#f`. Impure: reads VSCode's stored window state and the live window list. |
 | `open-workspaces` | `(open-workspaces)` → every folder-rooted open window as `((path . ABS) (name . BASENAME))`. Impure: reads the state file. |
 | `state-file-path` | `(state-file-path)` → where that file lives. |
@@ -663,6 +666,54 @@ commonly mis-stated.
 | `toggle-terminal` | ctrl-` | `workbench.action.terminal.toggleTerminal` | A **toggle**: pressed while the terminal already has focus it *hides* the panel. The strict-focus command `workbench.action.terminal.focus` is bound to cmd-Down and only `when` the terminal is already the active panel, so it is not reachable as a general focus chord. Bind it in `keybindings.json` if the toggle grates. |
 | `focus-explorer` | shift-cmd-e | `workbench.view.explorer` | **Not** a sidebar toggle, despite the folklore: the registered action opens and focuses the explorer unless the sidebar already has focus, in which case it focuses the *editor*. So it reaches the explorer from anywhere except the explorer. |
 | `focus-editor` | cmd-1 | `workbench.action.focusFirstEditorGroup` | The exact command is `focusActiveEditorGroup`, but it registers with **no default keybinding at all**, so a synthetic keystroke cannot reach it. cmd-1 differs only with several editor groups open, where it lands on the leftmost rather than the active one. |
+
+#### Why cycling needs a focus step
+
+`[` and `]` look like two more `send-keystroke` one-liners and are not.
+Read out of the same bundle (1.136.2):
+
+| | `previousEditor` | `nextEditor` |
+|---|---|---|
+| mac primary | alt-cmd-Left | alt-cmd-Right |
+| mac secondary | shift-cmd-`[` | shift-cmd-`]` |
+| `when` clause | none | none |
+
+Four consequences, none of them guessable:
+
+- **The chord is live from anywhere in the workbench** — no `when`
+  clause, weight 200.
+- **It survives the integrated terminal.** Both ids are in the default
+  `terminal.integrated.commandsToSkipShell` list, so the workbench
+  handles the chord rather than the shell swallowing it.
+- **They cross editor groups and wrap.** `navigate` walks the active
+  group's *sequential* editor list, then asks for the adjacent group
+  with wrap-around on. One group cycles its tabs; several cycle every
+  tab in the window.
+- **And the editor they open does not take focus unless focus was
+  already inside the editor group.** The open path guards its `focus()`
+  call on the previously-focused element being within the editor
+  group's own subtree, and activating the group short-circuits when the
+  active group has not changed — which focus moving to the terminal
+  never does.
+
+So pressed from the terminal or the explorer, the bare chord changes
+the tab under a pane you cannot type into. `editor-cycler` is one op
+over both halves for that reason, and the focus half is a **parameter**
+because the right chord differs per user: the default `focus-editor` is
+cmd-1 (`focusFirstEditorGroup`, the leftmost group), while the exact
+command `focusActiveEditorGroup` is reachable only if you bind it in
+your own `keybindings.json`.
+
+```scheme
+(key "[" "Prev Editor" (code:editor-cycler 'previous))
+(key "]" "Next Editor" (code:editor-cycler 'next
+                         'focus (λ () (send-keystroke '(ctrl alt) "i"))))
+```
+
+The focus step is sent **unconditionally** — nothing in Modaliser can
+ask VSCode where focus is — which is correct as long as the focus thunk
+is idempotent when the editor already has focus. A strict-focus command
+is; cmd-1 with a second editor group open is not, and will move you.
 
 #### Why the list is alphabetical
 

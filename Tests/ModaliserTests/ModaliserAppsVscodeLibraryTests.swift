@@ -53,6 +53,10 @@ struct ModaliserAppsVscodeLibraryTests {
         #expect(try engine.evaluate("(procedure? code:toggle-terminal)") == .true)
         #expect(try engine.evaluate("(procedure? code:focus-explorer)") == .true)
         #expect(try engine.evaluate("(procedure? code:focus-editor)") == .true)
+        #expect(try engine.evaluate("(procedure? code:previous-editor)") == .true)
+        #expect(try engine.evaluate("(procedure? code:next-editor)") == .true)
+        #expect(try engine.evaluate("(procedure? code:editor-cycler)") == .true)
+        #expect(try engine.evaluate("(procedure? code:cycle-thunk)") == .true)
     }
 
     // The bundle id is VSCode's own fact and is what the filter keys on,
@@ -703,5 +707,81 @@ struct ModaliserAppsVscodeWorkspaceTests {
           (code:reveal-file! #f)
         """)
         #expect(try engine.evaluate("(null? spawned)") == .true)
+    }
+
+    // ─── Cycling the editor (vscode-editor-cycling-k5) ──────────────
+    //
+    // `editor-cycler` is the one op the leaf's focus-first clause
+    // needed, and its whole behaviour is ORDER: focus, then cycle.
+    // Both halves are seams (`'focus`, `'cycle`) precisely so a test
+    // can watch that order without posting a real keystroke — the same
+    // discipline `'enumerate` gives `project-provider` (ADR-0023).
+
+    /// The order is the behaviour. VSCode's cycle command changes the
+    /// tab while leaving focus in the terminal or the explorer, so a
+    /// cycler that fired them the other way round — or dropped the
+    /// focus half — would look identical at the import and be wrong at
+    /// every press.
+    @Test func editorCyclerFocusesBeforeCycling() throws {
+        let engine = try loaded()
+        try engine.evaluate("""
+          (define events '())
+          (define cycle-prev
+            (code:editor-cycler 'previous
+              'focus (lambda () (set! events (cons 'focused events)))
+              'cycle (lambda () (set! events (cons 'cycled events)))))
+          (cycle-prev)
+        """)
+        #expect(try engine.evaluate("(equal? (reverse events) '(focused cycled))") == .true)
+    }
+
+    /// The constructor returns a thunk rather than acting, so a screen
+    /// can hold it in a key slot exactly as it holds `focus-editor`.
+    @Test func editorCyclerReturnsAThunkThatHasNotRunYet() throws {
+        let engine = try loaded()
+        try engine.evaluate("""
+          (define ran '())
+          (define op (code:editor-cycler 'next
+                       'focus (lambda () (set! ran (cons 'f ran)))
+                       'cycle (lambda () (set! ran (cons 'c ran)))))
+        """)
+        #expect(try engine.evaluate("(procedure? op)") == .true)
+        #expect(try engine.evaluate("(null? ran)") == .true)
+    }
+
+    /// `'focus #f` drops the focus step — for a user whose cycle
+    /// command already focuses, or who wants the bare chord. The cycle
+    /// half still runs, which is what separates this from a no-op.
+    @Test func editorCyclerWithFalseFocusSkipsTheFocusStep() throws {
+        let engine = try loaded()
+        try engine.evaluate("""
+          (define events '())
+          ((code:editor-cycler 'next
+             'focus #f
+             'cycle (lambda () (set! events (cons 'cycled events)))))
+        """)
+        #expect(try engine.evaluate("(equal? events '(cycled))") == .true)
+    }
+
+    /// The direction mapping, pinned where it is pure. `'previous` and
+    /// `'next` must reach DIFFERENT chords — the failure this rules out
+    /// is the copy-paste one, where both directions send the same key
+    /// and the bug is invisible until you press the other bracket.
+    @Test func cycleThunkMapsEachDirectionToItsOwnChord() throws {
+        let engine = try loaded()
+        #expect(try engine.evaluate("(procedure? (code:cycle-thunk 'previous))") == .true)
+        #expect(try engine.evaluate("(procedure? (code:cycle-thunk 'next))") == .true)
+        #expect(try engine.evaluate("(eq? (code:cycle-thunk 'previous) code:previous-editor)") == .true)
+        #expect(try engine.evaluate("(eq? (code:cycle-thunk 'next) code:next-editor)") == .true)
+        #expect(try engine.evaluate("(not (eq? (code:cycle-thunk 'previous) (code:cycle-thunk 'next)))") == .true)
+    }
+
+    /// An unrecognised direction resolves rather than raising: a screen
+    /// is built at config-load time, and a mistyped symbol that failed
+    /// the whole config would cost more than a key that cycles the
+    /// wrong way and says so on the first press.
+    @Test func cycleThunkTreatsAnUnknownDirectionAsNext() throws {
+        let engine = try loaded()
+        #expect(try engine.evaluate("(eq? (code:cycle-thunk 'sideways) code:next-editor)") == .true)
     }
 }
