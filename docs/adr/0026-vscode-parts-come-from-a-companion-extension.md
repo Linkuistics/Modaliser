@@ -1,9 +1,5 @@
 # What is open inside a VSCode window comes from a companion extension
 
-## Status
-
-accepted
-
 ## Context
 
 `(modaliser apps vscode)` can already list VSCode's **windows** and say which
@@ -84,6 +80,10 @@ over a Unix-domain socket, and acted on by handing that extension back a token i
 minted. The extension is the source for both listings — editors and terminals —
 and the accessibility tree is not used for either.**
 
+*Which* of several windows is asked, and how a row stays bound to the window it
+was read from, is a separate decision with its own rejected alternatives:
+ADR-0027.
+
 - **One method answers both panels.** A `parts` request returns the window's
   terminals and editor tabs together, with the window's own `focused` flag and
   workspace path. The shipped composition still calls it once per panel — two
@@ -94,33 +94,45 @@ and the accessibility tree is not used for either.**
 
 - **The method set is bounded and is not `commands.executeCommand`.** `parts`,
   `focus-terminal`, `focus-editor`, and nothing else. A passthrough would make
-  the socket a remote control for the whole workbench; the bounded set means the
-  exposure is enumerating open editors' paths and switching tabs. That exposure
-  is real — anything running as the user can dial the socket — and is accepted
-  on the same terms as herdr's (ADR-0020), with the surface deliberately smaller.
+  the socket a remote control for the whole workbench, and the trade-off being
+  accepted here is only as good as the enumeration of what it *does* expose to
+  anything running as the user:
+
+  | what the socket gives | reads | acts |
+  |---|---|---|
+  | the window's workspace root path | yes | — |
+  | every terminal's name and, where shell integration reports one, its cwd | yes | — |
+  | every open editor's label, file path, dirty and active flags, and editor group | yes | — |
+  | whether this window is the focused one | yes | — |
+  | showing and focusing any terminal in that window | — | yes |
+  | activating any actionable editor tab in that window | — | yes |
+
+  Nothing else: no document contents, no settings, no file writes, no workbench
+  commands, no reach outside the one window. Two boundaries make that enumeration
+  the whole of it — the method set above, and the socket directory, which is
+  created mode **0700** so the sockets and the last-focused pointer are not even
+  listable by another user on the machine. The residual exposure is accepted on
+  the same terms as herdr's (ADR-0020), with the surface deliberately smaller;
+  what is *new* against herdr is a list of the human's open file paths and their
+  workspace root, which is why it is enumerated rather than summarised.
 
 - **Actions name a token the extension minted, never an index or a path.** The
-  extension allocates from a per-window counter that is **never reset** and keeps
+  extension allocates from a counter that is **never reset** and keeps
   token → live object, pruned rather than replaced on each read, so a token names
-  at most one thing for the window's lifetime and stays valid for as long as that
-  thing does. An action whose token has gone stale does nothing and says so. This
-  is the same invariant, and the same reasoning, that the accessibility design
-  reached for its element handles: the row and what it does come from one
-  snapshot and cannot disagree, and a target that has gone away yields no action
-  rather than the wrong one.
+  at most one thing for its window's lifetime and stays valid for as long as that
+  thing does. An action whose token has gone stale does nothing. This is the same
+  invariant, and the same reasoning, that the accessibility design reached for its
+  element handles: the row and what it does come from one snapshot and cannot
+  disagree, and a target that has gone away yields no action rather than the wrong
+  one. A token is scoped to the peer that minted it and is not an address on its
+  own — ADR-0027.
 
-- **Modaliser reaches the right window through a last-focused pointer file.**
-  The extension host is per-window and `window.terminals` is that window's, so
-  Modaliser must address one peer among several. Each window's extension writes
-  its own socket path into one well-known file when its window takes focus, and
-  Modaliser reads that one path. This is chosen over a socket path derived from
-  the workspace folder, and over scanning the socket directory, because the
-  portable Scheme tree can do neither: it has no directory listing at all, and
-  the one hash it re-exports is SRFI 69's `string-hash` — a hashtable hash, so no
-  TypeScript peer could reproduce it and a LispKit upgrade could change every
-  socket name under it. Both alternatives would have needed new native surface to
-  buy nothing. Modaliser discards a reply whose `focused` is false, so a stale
-  pointer produces an empty listing rather than a neighbouring window's rows.
+- **An action is a notification, not a request.** Nothing consumes an
+  acknowledgement, so nothing waits for one (ADR-0014): the focus methods are put
+  on the socket with `unix-socket-send` and the peer answers nothing. Only `parts`
+  waits, and it waits on a bounded budget rather than herdr's 1000 ms ceiling,
+  because a screen performs one read per panel and the tap's tolerance is spent on
+  the total.
 
 - **The transport is the one ADR-0020 already built.** Newline-delimited JSON,
   one request per connection, `unix-socket-request` owning the framing, the
@@ -213,18 +225,24 @@ and the accessibility tree is not used for either.**
   understand.
 
 - **A miss is still an empty listing, and there are more ways to miss.** The
-  extension not installed, not yet activated, disabled for the profile, a window
-  with no folder open, a stale pointer, a crashed host — every one of them ends
-  at `unix-socket-request` returning `#f` or a reply that fails the `focused`
-  gate, and every one of them shows no rows rather than wrong rows. That is the
-  same contract the accessibility design held and it is unchanged.
+  extension not installed, not yet activated, disabled for the profile, a stale
+  pointer, a crashed host — every one of them ends at `unix-socket-request`
+  returning `#f` or a reply that fails the `focused` gate, and every one of them
+  shows no rows rather than wrong rows. That is the same contract the
+  accessibility design held and it is unchanged. A window with **no folder open**
+  is deliberately *not* on that list: it is an ordinary peer with a `null`
+  workspace, because the source needs no workspace to enumerate a window and an
+  empty listing there would narrow the requirement rather than degrade it.
 
 - **The reply's latency is now a shared resource.** An accessibility read
   contends with the target app's main thread; a socket round-trip contends with
   the extension host's event loop, which every other extension in that window
-  also uses. Neither is bounded by construction, so the call is
-  timeout-bounded and degrades to empty. herdr's comparable wire time is
-  0.1–0.6 ms per read, which is the order to expect and not a measurement of this.
+  also uses. Neither is bounded by construction, so the read is timeout-bounded
+  and degrades to empty — and the number that has to hold is the *per-screen
+  total*, since a screen reads once per panel and a blocked eval thread is a
+  blocked keyboard tap (ADR-0014). herdr's comparable wire time is 0.1–0.6 ms per
+  read, which is the order to expect and not a measurement of this; the budget is
+  set against the wedged case, which no healthy-path measurement can speak to.
 
 - **The listing is no longer frontmost-only in principle.** Every window's
   extension is dialable, so a cross-window listing becomes reachable for the first
@@ -248,6 +266,10 @@ and the accessibility tree is not used for either.**
 
 - ADR-0020 — the socket transport, and why a socket is an integration boundary
   rather than a workaround.
+- ADR-0027 — addressing one window among several, and binding a row to the peer
+  that minted it.
+- ADR-0014 — an interactive command never blocks: why an action with no consumed
+  result is sent rather than asked.
 - ADR-0021 — no library authors a key, a label or an alphabet.
 - `docs/specs/vscode-window-parts.md` — how the area works: the protocol, the
   method set, the Scheme surface, and the test seams.

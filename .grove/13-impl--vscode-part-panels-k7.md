@@ -23,11 +23,15 @@ call (ADR-0021), so put the final row set to them rather than deriving it.
 ## Context
 
 **This leaf builds; it does not decide.** The design is
-`docs/specs/vscode-window-parts.md` and ADR-0026, produced by
+`docs/specs/vscode-window-parts.md` with ADR-0026 and ADR-0027, produced by
 `vscode-part-enumeration-k6`, corrected by the review
 `vscode-part-enumeration-k8` and its integration `vscode-part-enumeration-k9`,
-and then **reversed on its central question** by `vscode-terminal-listing-k10`.
-**Read the spec and the ADR as they stand now** — not k6's commit, and not k9's.
+then **reversed on its central question** by `vscode-terminal-listing-k10`, and
+then reviewed and repaired again by `vscode-terminal-listing-k13` /
+`vscode-terminal-listing-k14` — which is where the peer-bound targets, the
+fire-and-forget actions, the actionable-tab-kind table and the composition's
+shape below come from. **Read the spec and both ADRs as they stand now** — not
+k6's commit, not k9's, and not k10's.
 
 **The row source is no longer the accessibility tree.** k10 found that VSCode's
 extension API carries exactly what these panels want — `window.terminals` and
@@ -63,18 +67,54 @@ if you find yourself doing one of these, you are building the rejected design:
   is source-independent and is spec **decision 7** (it was decision 5 before the
   rework).
 
+  **Its shape changed after the design review, and the change is the point.** The
+  exported procedure takes **no** `'known-edges` / `'known-state-ids` arguments: it
+  queries `fsm-state-edges` / `fsm-state-ids` itself, and the testable half is a
+  *pure* `jump-list-validate-composition` taking those facts as data. The earlier
+  draft's optional readers were a documented off-switch on the invariant — a user
+  config is Scheme and can call the same export with two empty readers — which is
+  the asserted-not-structural shape this whole leaf is guarding against. Do not put
+  them back for testability; the validator is the seam.
+
 **What is new for you, from the extension source:**
 
-- **A row can be inert by design.** A tab whose input carries no URI is listed
-  with `token: null` and has no action — `jump-list`'s existing "no handle, no
-  edge" contract, now reachable in normal use rather than only on a race.
+- **A row can be inert by design.** A tab of a kind with no specified activation
+  is listed with `token: null` and has no action — `jump-list`'s existing "no
+  handle, no edge" contract, now reachable in normal use rather than only on a
+  race. The set is decided per input kind in spec decision 1's table (text and
+  notebook tabs are actionable; webview, custom-editor and both diff kinds are
+  not), because `TabGroups` has no reveal call and "carries a URI" turned out not
+  to mean "can be activated".
+- **A target is `(peer, token)`, not a token** (spec decision 4). Rows carry the
+  socket path the `parts` reply named, and `focus-*` addresses *that* peer —
+  never the pointer file a second time. Two windows' counters both hand out `3`,
+  so a target that carried only the integer would be an address several windows
+  answer to.
+- **The actions are fire-and-forget** (spec decision 2): `unix-socket-send`, no
+  reply, nothing to check. An action's failures are all the peer's to refuse, and
+  a refused press looks exactly like a delivered one from here — which is fine,
+  and is the reason `jump-list`'s `'action` returning a thunk needs no result
+  handling. Do log the send's own `#f`, though: that one means the bytes reached no
+  socket at all, which is the only action failure visible from this side.
+- **No offline seam proves an activation happened** — every seam here asserts the
+  call, and the effect is VSCode's. Two cases have to be driven by hand on the
+  human's machine because a fake passes them and a real window does not: the same
+  file open in two editor groups (rows must not swap after a group reorder), and a
+  preview tab that is already active (pressing it must not pin it).
+- **A folderless window is an ordinary listing**, with `workspace: null` and paths
+  shown unshortened (spec decisions 3 and 6). It is not an empty-listing case; do
+  not let the shortening code assume a workspace, and do not let it assume a path
+  lies under one.
 - **Rows carry their editor group** (`group`, from `viewColumn`), so a renderer
   may show it. The listing still offers no way to focus a group as such.
 - **Paths are real `fsPath` strings**, not rendered labels: no ` • Deleted`
   suffix, and a dirty marker comes from the row's `dirty` field.
 - **Two panels means two `parts` round-trips per come-to-rest**, deliberately
-  un-memoised (spec decision 5). Do not add a cache without the measurement that
-  decision names as its reopen condition.
+  un-memoised but **bounded**: the read timeout is 200 ms, so the screen's
+  worst-case blocked eval thread is 400 ms rather than the 2 s two of herdr's
+  1000 ms ceilings would cost (spec decision 2). Do not add a cache without the
+  measurement decision 5 names as its reopen condition — and if a *third* panel
+  lands here, the answer is one shared read, not a shorter timeout.
 
 **Everything downstream of the row source already exists**, and this is the
 third caller of it, which is the point:
@@ -99,7 +139,7 @@ third caller of it, which is the point:
   drawn rows and the live labels provably the same assignment.
 
 **The composition problem is the real work.** One state, one `'provider` slot,
-three panels. The spec's decision 5 answers *how*; expect to be implementing
+three panels. The spec's decision 7 answers *how*; expect to be implementing
 that merge. Two preconditions the screen already meets and which the
 implementation should assert rather than assume: the three key pools are
 disjoint (`a s d f g` / `t y u i o` / `h j k l ;`), and state ids are namespaced
@@ -153,7 +193,9 @@ timeout and the empty-listing degradation are for.
 ## Done when
 
 - Both panels list the frontmost window's parts on the human's machine, each row
-  reachable by its own jump label, and pressing a label focuses that part.
+  reachable by its own jump label, and pressing a label focuses that part —
+  including the two cases only a real window shows: one file open in two editor
+  groups after a reorder, and an already-active preview tab.
 - The Editor panel lists tabs from **every** editor group in the window, and the
   Terminal panel lists every terminal **with the terminal panel hidden** — the
   case the whole source change was made for.

@@ -684,7 +684,9 @@ one level in: that one lists windows, this one lists what is open inside one.
 Display-only, and it renders the assignment its **Edge provider** already took,
 so rows and live labels cannot disagree — the same contract the **Project
 listing** and the **Strip listing** hold, and all three share the lowering
-(`jump-list.sld`). _Avoid_ ordering it by anything but strip order: unlike the
+(`jump-list.sld`). A listed tab is not necessarily an actionable one: a kind VSCode
+offers no identity-preserving activation for is shown, consumes its label, and does
+nothing when pressed. _Avoid_ ordering it by anything but strip order: unlike the
 **Project listing**, whose enumeration returns stacking order and therefore had
 to be sorted to be learnable, the tab strip's order is the order the user sees.
 Source:
@@ -708,11 +710,13 @@ beside the app, one instance per VSCode window, answering three questions over a
 Unix-domain socket: what is open in this window, focus this terminal, focus this
 editor. It exists because VSCode's extension API is the only surface carrying
 what is open *inside* a window, and its host is an ordinary Node process that
-can hold a socket (ADR-0020's transport, ADR-0026's decision). Modaliser reaches
-the right instance through a **last-focused pointer file** the extension itself
-writes. _Avoid_ calling it a plugin or a server: it is a peer on an established
-transport, and its method set is bounded on purpose — it deliberately cannot run
-workbench commands. Source: `docs/specs/vscode-window-parts.md`.
+can hold a socket (ADR-0020's transport, ADR-0026's decision). Modaliser finds the
+instance to *read* through a **last-focused pointer file** the extension itself
+writes, and then addresses every *action* to the instance that answered, whose
+socket path the reply carries — so a row can only ever reach the window it was
+drawn from (ADR-0027). _Avoid_ calling it a plugin or a server: it is a peer on an
+established transport, and its method set is bounded on purpose — it deliberately
+cannot run workbench commands. Source: `docs/specs/vscode-window-parts.md`.
 
 **Workspace** (VSCode) — the folder a VSCode window is rooted at, as a real
 absolute **path**. The counterpart to **Project**, which is the same folder's
