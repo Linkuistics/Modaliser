@@ -24,11 +24,18 @@ wrapper logs and finalises the capture regardless
 screen simply fails to open.
 
 **Where this surfaced.** `vscode-part-enumeration-k8` checked the claim in
-`docs/specs/vscode-editor-listing.md` that a provider raise "fails visibly and
+`docs/specs/vscode-window-parts.md` that a provider raise "fails visibly and
 nothing wedges" on both dispatch paths, and found the claim too broad for the
 catch-all half. The spec now states the actual behaviour and accepts the
-residue rather than pretending it away (decision 5, "the trade-off is accepted
+residue rather than pretending it away (decision 7, "the trade-off is accepted
 rather than solved") — this leaf is where it stops being a residue.
+
+**The spec was renamed and its decision renumbered under you, and nothing else
+about this leaf moved.** `vscode-terminal-listing-k10` changed the VSCode
+listings' row source to a companion extension (ADR-0026), which renamed
+`vscode-editor-listing.md` to `vscode-window-parts.md` and pushed the merge
+from decision 5 to decision 7. The merge itself — and therefore the raise this
+leaf is about — is source-independent and is unchanged.
 
 **Why it is its own leaf rather than a rider.** This is a host change on a path
 every modal screen in the app goes through, not a VSCode one. The blast radius

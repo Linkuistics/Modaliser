@@ -666,15 +666,16 @@ project is reached by focusing its window is mechanism, not meaning. Source:
 `blocks/project-list.sld`.
 
 **Editor tab** (VSCode) — one open editor in a VSCode window, as the tab strip
-shows it: a display name, the path it was opened from, and whether it is the
-active one. Read from the window's **accessibility tree**, because VSCode's
-stored editor state is written only on a 60-second idle flush and on window blur
-(ADR-0026), and a listing that is a minute behind is worse than none where a
-label sits beside an index. _Avoid_ "editor" bare when the distinction from the
-*editor group* matters — a window may hold several groups, each with its own tab
-strip. The listing spans all of them and does not say which group a tab belongs
-to, so "editor tab" names a tab, never a group. Source: `apps/vscode.sld`
-(`editor-tabs`).
+shows it: a display name, the path it was opened from, whether it is the active
+one, and which editor group it sits in. Read from the **VSCode companion
+extension** rather than from anything visible outside VSCode, because the model
+is the only source that is neither stale nor a rendering: the stored editor
+state is written on a 60-second idle flush, and the accessibility tree shows
+only what is currently drawn (ADR-0026). _Avoid_ "editor" bare when the
+distinction from the *editor group* matters — a window may hold several groups,
+each with its own tab strip. The listing spans all of them, and a row carries
+its group without the listing making a group navigable. Source:
+`apps/vscode.sld` (`editor-rows`).
 
 **Editor listing** — the **Editor tab**s of the *frontmost* VSCode window as
 overlay rows on the F17 VSCode screen, in tab-strip order, each carrying a
@@ -686,11 +687,32 @@ listing** and the **Strip listing** hold, and all three share the lowering
 (`jump-list.sld`). _Avoid_ ordering it by anything but strip order: unlike the
 **Project listing**, whose enumeration returns stacking order and therefore had
 to be sorted to be learnable, the tab strip's order is the order the user sees.
-A **terminal listing** is wanted and possible but not yet designed — the
-sequencing it needs is its own leaf, and ADR-0026 records both the evidence and
-what is open. Source:
+Source:
 `apps/vscode.sld` (`editor-provider`, `editor-listing`),
-`docs/specs/vscode-editor-listing.md`.
+`docs/specs/vscode-window-parts.md`.
+
+**Terminal listing** (VSCode) — the terminals of the *frontmost* VSCode window
+as overlay rows on the F17 VSCode screen, in VSCode's own terminal order, each
+carrying a **Jump label** that shows and focuses that terminal. The sibling of
+the **Editor listing** on the same screen and under the same contract: it
+renders the assignment its **Edge provider** already took, and the two panels
+compose onto one `'provider` slot through a merge that raises on a key or
+state-id collision rather than resolving it first-wins. _Avoid_ tying it to the
+terminal *panel* being visible — the rows come from the **VSCode companion
+extension**, so a hidden panel and a lone terminal both list normally, which is
+the whole reason the source changed. Source: `apps/vscode.sld`
+(`terminal-provider`, `terminal-listing`), `docs/specs/vscode-window-parts.md`.
+
+**VSCode companion extension** — the small VSCode extension Modaliser ships
+beside the app, one instance per VSCode window, answering three questions over a
+Unix-domain socket: what is open in this window, focus this terminal, focus this
+editor. It exists because VSCode's extension API is the only surface carrying
+what is open *inside* a window, and its host is an ordinary Node process that
+can hold a socket (ADR-0020's transport, ADR-0026's decision). Modaliser reaches
+the right instance through a **last-focused pointer file** the extension itself
+writes. _Avoid_ calling it a plugin or a server: it is a peer on an established
+transport, and its method set is bounded on purpose — it deliberately cannot run
+workbench commands. Source: `docs/specs/vscode-window-parts.md`.
 
 **Workspace** (VSCode) — the folder a VSCode window is rooted at, as a real
 absolute **path**. The counterpart to **Project**, which is the same folder's
