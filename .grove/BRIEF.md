@@ -50,9 +50,20 @@ they already do by hand.
   decision log before adding a third caller.
 - **k5 / k6 / k7** carry the next extension: previous/next editor on `[`/`]`,
   then panels listing the frontmost window's open terminals and editors. The
-  middle one is a `design` leaf because the row source does not exist yet —
+  middle one is a `design` leaf because the row source did not exist yet —
   VSCode exposes nothing that says what is open *inside* a window, and the
   candidates have materially different failure modes.
+
+  That design earned a review chain (**k8**, **k9**) and the review found
+  seven defects, two of which grew leaves of their own: **k10** designs the
+  terminal listing k6 wrongly ruled impossible, and **k11** repairs a host
+  error path — the catch-all handler releases the keyboard on a raise but
+  leaves the overlay and modal state standing — that this design's
+  raise-on-collision policy leans on. The lesson worth carrying forward is
+  narrower than "review found bugs": k6's three worst findings were all
+  **properties asserted rather than made structural** — two dictionaries called
+  two handle spaces, a merge said to catch collisions it could not see, a
+  fixture instruction the row type made unsatisfiable.
 
 The **five original operations are no longer the Done-when for the grove**;
 each leaf carries its own. What has not changed is the contract set below, and

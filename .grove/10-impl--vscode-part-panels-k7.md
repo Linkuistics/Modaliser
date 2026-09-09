@@ -6,7 +6,11 @@ Two more jump-label panels on the F17 VSCode screen, beside the Projects panel
 that `vscode-project-panel-k4` shipped:
 
 - **Terminals** — one row per open terminal in the frontmost window, labels
-  from `t y u i o`.
+  from `t y u i o`. **Build this to `vscode-terminal-listing-k10`'s design**,
+  which runs immediately before this leaf and settles the show-then-enumerate
+  sequencing k6 got wrong. If that leaf concluded the panel should not be built,
+  build the Editor panel alone and leave the screen's terminal row where it is —
+  that is a decision, not a gap for this leaf to fill.
 - **Editors** — one row per open editor in the frontmost window, labels from
   `h j k l ;`.
 
@@ -16,18 +20,44 @@ the projects)"*.
 
 The panels displace two rows: **`t` (Terminal) and `i` (Editor) come off the
 screen**, which is what frees `t` and `i` for the terminal alphabet. The human
-asked for that explicitly.
+asked for that explicitly. If `k10` lands on no terminal panel, `t` has nothing
+to make way for and stays — and which keys the screen carries is the human's
+call either way (ADR-0021), so put it to them rather than deriving it.
 
 ## Context
 
-**This leaf builds; it does not decide.** `vscode-part-enumeration-k6` settles
-where the rows come from, what they are called, how stale they are, what they
-cost on the dispatch path, and how three jump-label panels share one `'provider`
-slot. **Read k6's delivered spec/ADR first and build to it.** If k6 concluded
-that enumeration is not viable and the answer is numbered slots
-(`workbench.action.openEditorAtIndex1..9`,
-`workbench.action.terminal.focusAtIndex1..9`), build *that* — it is a real
-answer, not a fallback to improve on.
+**This leaf builds; it does not decide.** The design is
+`docs/specs/vscode-editor-listing.md` and ADR-0026, produced by
+`vscode-part-enumeration-k6`, corrected by the review
+`vscode-part-enumeration-k8` and its integration `vscode-part-enumeration-k9`,
+and completed for terminals by `vscode-terminal-listing-k10`, which runs
+immediately before this leaf. **Read the spec and the ADR as they stand now —
+not k6's commit**, which is wrong in seven places the integration repaired.
+
+**Five of those repairs change what you build**, so they are worth knowing
+before you open the spec:
+
+- **Editor rows come from *every* editor tab strip in the window**, not the
+  first one found. A split editor exposes two empty-description tab groups, and
+  the old "stop at the first" walk returned an arbitrary group's tabs. A
+  matching group whose children are not tab buttons is skipped.
+- **The listing requires `workbench.editor.showTabs` at `"multiple"`** (its
+  default) and pins it, alongside `editor.accessibilitySupport`. Under `single`
+  or `none` there is no strip to read and the panel is empty.
+- **`ax-tab-rows` hands `description` and `title` across separately**, and the
+  description-else-title choice is made in Scheme, in `editor-tabs`. Do not
+  collapse them in Swift — the whole point is that a fixture can carry both
+  shapes, and a fixture that cannot is a test that proves nothing.
+- **The accessibility library allocates from one never-reset counter** shared by
+  both handle maps. Two independently numbered spaces would let the same integer
+  be live in both, and a foreign handle would then resolve to the wrong element.
+  `ax-find-elements` still clears its own map every call; it just stops reusing
+  numbers. There is a cross-space refusal test to write.
+- **`jump-list-compose-providers` takes *named* contributors** and validates
+  against the owner state's static edges and the registered state ids as well as
+  against the other providers. Checking only the provider results misses the
+  likelier collision — a promoted leader landing on one of the screen's own
+  keys — which the engine resolves first-wins in the static edge's favour.
 
 **Everything downstream of the row source already exists**, and this is the
 third caller of it, which is the point:
@@ -52,11 +82,13 @@ third caller of it, which is the point:
   drawn rows and the live labels provably the same assignment.
 
 **The composition problem is the real work.** One state, one `'provider` slot,
-three panels. k6 answers *how*; expect to be implementing a merge of three
-provider results plus whatever it says about collisions. Two preconditions the
-screen already meets and which the implementation should assert rather than
-assume: the three key pools are disjoint (`a s d f g` / `t y u i o` /
-`h j k l ;`), and state ids are namespaced per panel.
+three panels. The spec's decision 5 answers *how*; expect to be implementing
+that merge. Two preconditions the screen already meets and which the
+implementation should assert rather than assume: the three key pools are
+disjoint (`a s d f g` / `t y u i o` / `h j k l ;`), and state ids are namespaced
+per panel. Note that the merge now checks a third thing you cannot assert by
+inspection — a promoted leader colliding with a screen key — because leader
+promotion is data-dependent and only happens once a panel outgrows its singles.
 
 **Alphabet collisions to check on the whole screen, not just within a panel.**
 After k4's late amendment the screen's bound keys are `e p P / L` plus whatever
@@ -67,9 +99,17 @@ that collides with a bound key loses, silently.
 **The `'next 'self` ruling still stands and is now three times heavier.** k4's
 provider re-runs at every come-to-rest for an 8-29ms warm (200ms+ cold) AX
 sweep, and `KeyboardCapture` filters no auto-repeat. Three providers on one
-screen means three gathers per press. Take k6's measurement seriously; if the
-composed cost is bad, that is a finding worth a leaf of its own rather than
-something to absorb quietly.
+screen means three gathers per press.
+
+**Do not take k6's cost conclusion — it was withdrawn.** Its 3.1 ms figure came
+from a standalone `swiftc -O` walker that was never committed, excluded the
+marshalling, the main queue, the eval lock and everything in Scheme, and
+early-exited at the first tab group where the specified walk must see them all.
+What survives is that a pruned AX walk *can* be cheap and that pruning is worth
+roughly an order of magnitude. **Measure the composed screen's own come-to-rest
+on the shipping path** before treating the cost as settled; if the number is
+bad, that is a finding worth a leaf of its own rather than something to absorb
+quietly.
 
 **Pointers**
 
@@ -86,14 +126,25 @@ something to absorb quietly.
 
 ## Done when
 
-- Both panels list the frontmost window's parts on the human's machine, each row
-  reachable by its own jump label, and pressing a label focuses that part.
-- The `t` and `i` rows are gone from the screen.
+- Every panel the design calls for lists the frontmost window's parts on the
+  human's machine — the Editor panel certainly, the Terminal panel if
+  `vscode-terminal-listing-k10` calls for one — each row reachable by its own
+  jump label, and pressing a label focuses that part.
+- The Editor panel lists tabs from **every** editor group in the window, and
+  `workbench.editor.showTabs` is pinned to `"multiple"` beside the
+  `editor.accessibilitySupport` pin.
+- The screen's rows and alphabets match what the human asked for, with `t`'s
+  fate settled by whether a Terminal panel exists.
 - All alphabets and labels come from the human's `config.scm`, none defaulted in
   any file under `lib/modaliser` (ADR-0021) — the human restated this
   unprompted: *"this should all be configurable in the user's config."*
-- Three panels coexist on one screen with no key or state-id collision, and the
-  composition is implemented the way k6 specified.
+- The panels coexist on one screen with no key or state-id collision, and the
+  composition is implemented the way `docs/specs/vscode-editor-listing.md`
+  decision 5 specifies — named contributors, and validation that reaches the
+  owner's static edges and the registered state ids, not just the provider
+  results.
+- The accessibility handle spaces are disjoint by construction (one never-reset
+  counter) and there is a test that each surface refuses the other's handle.
 - `swift build` and `swift test` green; `./scripts/check-portable-surface.sh`
   and `./scripts/check-decision-free.sh` both pass.
 - `Scheme/examples/vscode.scm` shows the composed screen and still load-tests

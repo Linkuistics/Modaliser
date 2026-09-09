@@ -671,8 +671,10 @@ active one. Read from the window's **accessibility tree**, because VSCode's
 stored editor state is written only on a 60-second idle flush and on window blur
 (ADR-0026), and a listing that is a minute behind is worse than none where a
 label sits beside an index. _Avoid_ "editor" bare when the distinction from the
-*editor group* matters — a window may hold several groups, and the tab strip
-shows one group's tabs. Source: `apps/vscode.sld` (`editor-tabs`).
+*editor group* matters — a window may hold several groups, each with its own tab
+strip. The listing spans all of them and does not say which group a tab belongs
+to, so "editor tab" names a tab, never a group. Source: `apps/vscode.sld`
+(`editor-tabs`).
 
 **Editor listing** — the **Editor tab**s of the *frontmost* VSCode window as
 overlay rows on the F17 VSCode screen, in tab-strip order, each carrying a
@@ -684,7 +686,9 @@ listing** and the **Strip listing** hold, and all three share the lowering
 (`jump-list.sld`). _Avoid_ ordering it by anything but strip order: unlike the
 **Project listing**, whose enumeration returns stacking order and therefore had
 to be sorted to be learnable, the tab strip's order is the order the user sees.
-There is deliberately **no terminal listing** — ADR-0026 records why. Source:
+A **terminal listing** is wanted and possible but not yet designed — the
+sequencing it needs is its own leaf, and ADR-0026 records both the evidence and
+what is open. Source:
 `apps/vscode.sld` (`editor-provider`, `editor-listing`),
 `docs/specs/vscode-editor-listing.md`.
 
