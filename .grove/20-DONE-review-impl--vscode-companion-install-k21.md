@@ -100,3 +100,100 @@ the op reaches for, and (2) that `swift test` cannot reach `~/.vscode`.
   a string), ADR-0027 (no directory listing in the portable tree).
 - The human's own machine already carries an installed copy of this extension.
   It is not yours to touch.
+
+## Findings
+
+### High — manifest identity can escape the extensions directory
+
+**Location:** `scripts/install-companion-payload.sh:100-108`,
+`scripts/install-companion-payload.sh:165-172`.
+
+**Defect.** `publisher`, `name`, and `version` are accepted as arbitrary non-empty
+strings and interpolated into `target`; neither the identity fields nor the
+resolved target are checked to be one path component beneath `extensions` before
+`rm -rf "$target"`. The manifest-confirmed candidate sweep is therefore narrower
+than the unconditional destination wipe that follows it.
+
+**Concrete failure scenario.** Given an otherwise complete payload whose
+manifest has `publisher: "../../victim"`, and an extensions directory
+`<scratch>/scope/extensions`, the target resolves to
+`<scratch>/victim.modaliser-companion-1.0.0`. Running the shipped script exited
+zero, removed a sentinel from that directory outside `extensions`, and installed
+the payload there. `npm ci` / `tsc` do not validate the VSCode-specific publisher
+field, so a malformed source manifest can reach the release payload; the same
+script is also the developer entry point. This violates the deletion boundary
+the review exists to establish.
+
+### High — an incomplete payload is discovered only after working copies are removed
+
+**Location:** `scripts/install-companion-payload.sh:97-107`,
+`scripts/install-companion-payload.sh:141-172`.
+
+**Defect.** The destructive preflight proves only that the payload directory and
+three identity fields exist. It does not prove that the three things the copy
+needs — `package.json`, `README.md`, and `out/src` — are readable before sweeping
+every installed copy and wiping the current-version target.
+
+**Concrete failure scenario.** In a scratch extensions directory containing a
+complete `antony.modaliser-companion-0.9.0`, an otherwise valid 1.0.0 payload
+missing only `README.md` caused the script to remove 0.9.0, create a partial 1.0.0
+directory containing only `package.json` and `out/`, then exit 1 at the README
+copy. The completion marker correctly kept the partial copy from reading as
+installed, but the only working companion had already been destroyed. A damaged
+bundle or an interrupted developer build therefore turns a failed upgrade into
+loss of the existing working version.
+
+### Medium — any output pathname can spoof the success token
+
+**Location:**
+`Sources/Modaliser/Scheme/lib/modaliser/apps/vscode.sld:1762-1778`.
+
+**Defect.** `companion-install-succeeded?` searches the entire combined
+stdout/stderr transcript for the substring `modaliser-install-status=0`; it does
+not parse the wrapper's final status record. Candidate paths are printed by the
+script and are user-controlled directory names under `~/.vscode/extensions`, so
+the sentinel is not reserved to the wrapper.
+
+**Concrete failure scenario.** A scratch candidate named
+`antony.modaliser-companion-modaliser-install-status=0` was printed by the sweep;
+the later copy then failed because `README.md` was missing, and the wrapper's
+actual final line was `modaliser-install-status=1`. The transcript nevertheless
+contains the success substring, so the Scheme predicate returns true and the
+confirmed failure produces neither the promised log entry nor failure dialog.
+
+## Contract audit
+
+- For well-formed identities, the candidate glob is only a filter and each
+  deletion is guarded by exact `publisher` and `name` reads from that candidate's
+  manifest. The deliberately broader Homebrew zap is documented and implemented
+  as the reserved prefix ADR-0028 permits. The first finding is against the
+  separate unconditional destination path.
+- The copy command is reachable only from `dialog-confirm`'s truthy continuation;
+  a press before confirmation performs only the installed-marker probe. The
+  dialog carries both required disclosures and names the destination and sweep.
+- With no host-installed payload parameter, identity, target, command and probe
+  all short-circuit; `(modaliser shell)` has no native runner in a bare engine.
+  `root.scm` is loaded only by the application delegate, so the added path does
+  not give `swift test` a route to the bundle or `~/.vscode`.
+- The marker is written after all three copy operations, and the Scheme predicate
+  tests that marker rather than directory existence. This correctly prevents a
+  partial target from hiding the repair row, but does not preserve an older copy
+  when the new payload is incomplete (second finding).
+- `build-app.sh`, `SchemeEngine`, `root.scm`, and the Scheme library agree on the
+  three fixed siblings under `Contents/Resources`: `ModaliserCompanion/`, `.id`,
+  and `.install.sh`. The payload build wipes `vscode-extension/out` before `tsc`,
+  copies only `package.json`, `README.md`, and `out/src`, and leaves the existing
+  `Scheme/` exact-mirror check scoped as ADR-0019 requires.
+- The named Swift/Scheme test file covers the inert default, command construction,
+  marker probe and ordinary status values, but never executes the destructive
+  script; none of the three reproduced cases is represented.
+
+## Review limits
+
+Per the `review-impl` protocol, no build, test, lint, or format command was run.
+The three executable scenarios above were driven only against isolated temporary
+extensions directories; the real `~/.vscode`, `/Applications`, and running apps
+were untouched. Codebase Memory discovery and the required coverage check were
+attempted three times, but its CLI refused every call because a pre-coordination
+or unverified generation was active; the review therefore used targeted source
+reads for every named artifact and discloses that graph/coverage limitation.
