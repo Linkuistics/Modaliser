@@ -7,6 +7,13 @@
 > run, no layout measured, no runtime embedded, and no plugin built. Every
 > validation obligation below is *stated*, never *discharged*.
 >
+> **Where a policy gap would make a requirement untestable, this document states
+> a provisional default and marks it.** Two do: the responsive selection input
+> (open choice 9) and the unknown-operation policy (open choice 10). They are
+> written as concrete values and SHALLs so a reviewer can argue with them; a
+> marked provisional default is *not* an accepted decision, and each names the
+> alternative it was chosen over and the cost it carries.
+>
 > **Every cost claim here is an estimate of surface area, not a measurement.**
 > Words like *small*, *bounded* or *cheap* mean "few new names, few new moving
 > parts, no new artifact to ship" — never "measured and found inexpensive".
@@ -44,7 +51,11 @@ content; the renderer's column count is chosen by *measuring* candidate layouts
 against a 1.4 aspect target, so a content change is a different answer; lane
 packing re-selects lanes when a card's height changes; and the loose region
 derives its own column count from the settled overlay width. A longer editor
-title therefore re-columnises command rows that did not change. The user has
+title therefore re-columnises command rows that did not change. **That chain is
+the mechanism the source implies, not behaviour reproduced here** — nothing in
+this grove ran the app, lengthened a title, or measured a column count; each
+link is read out of the stylesheet and the renderer, and E2/E3 are the
+experiments that would confirm the whole chain fires as described. The user has
 already chosen the behaviour they want — **keep groups stable; wrap or truncate
 titles** — and today's default packing (`grid-lanes`) is the one behaviour that
 cannot promise it.
@@ -127,7 +138,7 @@ distinction matters because the constrained forms keep each behaviour's benefit:
 |---|---|---|---|
 | **Grid** | auto-placement over a *measured* track count | pinned track count, placement by declaration order and span | automatic: unstable · constrained: **stable** |
 | **Flow** | break the line at a *content-derived* budget | break at a *declared* budget | automatic: unstable · constrained: **stable while child widths and the budget are both fixed** |
-| **Lanes** | lane chosen by running height | lane *assigned by the author*; vertical stacking still independent per lane | automatic: unstable by construction · constrained: **stable** |
+| **Lanes** | lane chosen by running height | lane *assigned by the author* — a positional coordinate, and the reason this document defers the discipline rather than proposing it (open choice 1); vertical stacking still independent per lane | automatic: unstable by construction · constrained: **stable, if a lane can be authored at all** |
 
 Three consequences.
 
@@ -135,11 +146,23 @@ Three consequences.
   automatic row above fails for the same reason: the input to placement is a
   measurement of the content being placed. Fix the budget and all three
   behaviours become stable in S1–S3.
-- **Constrained lanes are a real option that the survey did not consider.** They
-  give stable membership and lane assignment *and* keep independent vertical
-  stacking — which is the only thing masonry buys and which aligned grid gives
-  up (an aligned grid shares row-track heights, so a tall card pads its
-  neighbours).
+- **Constrained lanes are a real option that the survey did not consider — and
+  the only one of the three that needs a positional coordinate.** They give
+  stable membership and lane assignment *and* keep independent vertical stacking
+  — which is the only thing masonry buys and which aligned grid gives up (an
+  aligned grid shares row-track heights, so a tall card pads its neighbours).
+  But an *authored* lane assignment is by definition a track coordinate per
+  panel, and a deterministic order is not a substitute: order plus span places
+  items in a grid or a flow, whereas lanes stack independently, so nothing
+  derives a lane from an order without re-introducing the running-height
+  measurement this whole section rejects. So constrained lanes cost a placement
+  vocabulary the other two disciplines do not — one per-panel lane value, plus a
+  validation rule for a lane outside the track count and for the empty-lane and
+  every-panel-in-one-lane cases, and a re-mapping rule for a reduced track count.
+  That is a real cost, not a disqualification — but it is a cost the proposed
+  vocabulary does not pay, so **this document proposes grid and flow and defers
+  lanes**, with the three things un-deferring them would need named in open
+  choice 1.
 - **Flow is not currently expressible at all.** `layout` accepts `masonry` and
   `grid` only (layout §5). The loose region *is* a flow of equal-width cells, but
   as a fixed renderer behaviour, not an authorable one.
@@ -231,6 +254,41 @@ responsive rule an authored fact rather than an emergent one. Its cost is that a
 responsive arrangement is a small set of arrangements rather than one — which is
 also what makes it inspectable.
 
+**That closes normalisation and leaves *selection* open, and the gap is a
+missing input rather than a missing rule.** A track count is not comparable with
+a display budget in pixels, so "choose the arrangement that fits" needs one more
+authored fact, and a count is not it. Without such a fact the renderer has to
+compute whether an arrangement fits, which puts a sizing calculation back exactly
+where this section removed it from.
+
+**Provisional default — a numeric track width and gap, so the arrangement width
+is arithmetic.** Not accepted; it is here because a responsive rule with no
+number in it cannot be reviewed. The arrangement declares a track width and a
+gap, both of which the stylesheet already carries as custom properties with real
+defaults — `--panel-min-width` at 184px and `--panel-gap` at 10px
+(`Sources/Modaliser/Scheme/base.css:382-383`) — and each step's width follows:
+
+```
+width(n) = n × track-width + (n − 1) × gap
+```
+
+`resolve-display` computes that per step and ships it beside the step's
+pre-normalised arrangement. The renderer picks the largest `n` whose `width(n)`
+the display budget accommodates, falling to the narrowest step otherwise. It
+compares two numbers, sizes nothing, and derives no track count. The three-track
+sketch below is therefore 3 × 184 + 2 × 10 = **572px**, narrowing to 378px and
+then 184px — numbers a reviewer can argue with. They are *arithmetic over
+source-declared defaults*, not a measured layout: nothing here rendered an
+overlay, and whether 184px is the right track for this content is exactly what
+E5 would answer.
+
+The alternative is **an authored step boundary** per step: each step names the
+minimum display width at which it applies and track sizing stays free. It is
+strictly more expressive and strictly more to author, and it stops the width
+being derivable at the pure seam. Which of the two the surface carries is **open
+choice 9**; both keep selection a comparison rather than a measurement, and both
+keep every step pre-normalised.
+
 ### The facility contract: semantic, stated once, over every boundary
 
 ADR-0026's `parts` protocol is already a small facility contract without calling
@@ -240,7 +298,8 @@ Generalise exactly it:
 | Element | Contract |
 |---|---|
 | **Queries and actions** | a bounded, named method set. No generic escape hatch — no caller may name an arbitrary host command |
-| **Entity identity** | (peer, token), scoped to one snapshot, never reused; a stale target's message arrives nowhere rather than at the wrong entity |
+| **Entity identity** | (peer, token) names *a target*, not the Visit that asked about it. The shipped registry mints one token per live object and keeps it stable across any number of snapshots, pruning only what has died, precisely so a second panel's read cannot invalidate the first panel's rows (`vscode-extension/src/registry.ts:18-23,46-65`); a kind tag turns a wrong-kind or dead token into a refusal rather than a hit on the wrong entity |
+| **Request identity** | separate from entity identity, and not present today at the contract level: every outstanding request carries the identity of the Visit and runtime instance that issued it, so a reply can be matched to a continuation that may no longer exist. The engine already keeps such a generation for the host's own display callback (`Sources/Modaliser/Scheme/lib/modaliser/fsm.sld:602-606,814-843,979-1001`); the facility contract owes the same shape, plus a teardown rule per runtime instance and — once subscriptions exist — per subscription |
 | **Snapshots** | one read per Visit; visible rows and their labels come from the same read, so they cannot disagree |
 | **Availability** | every miss — not installed, not activated, stale pointer, wedged host, version mismatch — ends as an **empty listing**, never as wrong rows |
 | **Capabilities** | declared, LSP-style. An unknown capability is *absent*, not fatal |
@@ -257,11 +316,16 @@ overlay, the buffered replay — and not a stalled tap. The discipline is unchan
 is latency and an unresponsive UI, not input dropped at the tap. Whether input is
 ultimately lost is unestablished.
 
-Two additions to what ships today, both small in surface area and both
-load-bearing for the scenarios: **capability declaration** (a version integer answers *can we talk*,
-not *does this peer support subscriptions*), and **a stated place for
-subscriptions** — `parts` deliberately left the door open and nothing pushes
-through it yet.
+Three additions to what ships today, all load-bearing for the scenarios. Two are
+small in surface area: **capability declaration** (a version integer answers
+*can we talk*, not *does this peer support subscriptions*), and **a stated place
+for subscriptions** — `parts` deliberately left the door open and nothing pushes
+through it yet. The third is **request identity**, and it is the one with no
+shipped precedent *at this boundary*: the engine has a Visit generation for its
+own display callback but the facility protocol carries nothing equivalent, and a
+subscription is by definition a handle that outlives the Visit that created it,
+so it cannot be governed by a per-Visit snapshot rule at all. Its surface area
+is small; what it is not is optional.
 
 **State the contract once, in Modaliser's own vocabulary, and let boundaries
 implement it.** That single decision is what keeps a later language change
@@ -321,27 +385,44 @@ registered by user configuration is owned by the runtime that created it, and
 three obligations follow, all of which Approach 2 must answer explicitly and
 Approach 1 largely inherits for free:
 
-- **Scope.** A per-Visit closure — a provider, an `'assigned-fn` hook — dies with
-  its Visit. A registered handler lives for the app's lifetime. Those are
-  different lifetimes and the contract should name both rather than leaving the
-  distinction to whichever registry happens to hold the value.
+- **Scope.** A provider function or listing hook retained by the installed
+  configuration may be called across many Visits; its lifetime belongs to that
+  configuration's runtime. A continuation created for one invocation can instead
+  be Visit-scoped and must become unusable when that Visit ends. Registered
+  handlers remain rooted until their registration or owning runtime ends.
+  Distinguish the reusable function from each invocation's pending work.
 - **Rooting across a boundary.** Every candidate runtime documents a mechanism
   and none makes it free: Racket wants an object locked against collection and
   relocation, Lua wants an explicit registry reference released by hand
   (runtimes §4.2, §4.5). Each retaining registry becomes an owner with a teardown
   path.
-- **Late replies.** A reply arriving after its Visit ended must be **dropped, not
-  applied**. Snapshot-scoped identity already gives the test — a token minted in a
-  finished Visit is not current — and the existing budget-to-empty discipline
-  already covers the timeout half. What no survey establishes is what a *second*
-  runtime does with a reply whose continuation belongs to a Visit the first
-  runtime has torn down; that is a design obligation of Approach 2 and is
-  unpriced.
+- **Late replies, and the identity that is not there.** A reply arriving after
+  its Visit ended must be **dropped, not applied** — and *entity* identity does
+  not give that test. A target token is deliberately stable for as long as its
+  object is live (`vscode-extension/src/registry.ts:18-23,46-65`), so a
+  perfectly current token can accompany a reply whose continuation is already
+  dead; invoking it is unsafe *before* target lookup is even relevant. The test
+  the engine actually uses is a separately captured Visit generation, compared
+  on the way back in
+  (`Sources/Modaliser/Scheme/lib/modaliser/fsm.sld:602-606,814-843,979-1001`),
+  and the budget-to-empty discipline covers only the timeout half. **So the
+  contract owes a request identity distinct from entity identity** — Visit,
+  runtime instance, and, once the proposed subscription channel exists, an
+  owner-and-cancellation story for a handle that outlives every Visit. That is
+  an obligation of *both* approaches: Approach 1 inherits a working guard for
+  the one callback path it has, not a general one. What no survey establishes is
+  additionally what a *second* runtime does with a reply whose continuation
+  belonged to a Visit the first runtime has torn down; that part is Approach 2's
+  and is unpriced.
 
 ### Dynamic snapshots, errors, compatibility, lifecycle
 
-**Snapshots (scenario 3).** A Visit takes one snapshot; identities are minted in
-it; a re-render inside the Visit reuses it. A refresh that re-snapshots may
+**Snapshots (scenario 3).** A Visit takes one snapshot and a re-render inside the
+Visit reuses it. **Identities are not minted per Visit** — a target token is
+minted once per live object and outlives any number of snapshots, which is what
+keeps a second panel's read from invalidating the first panel's rows; what a
+Visit scopes is the *set of rows read*, and what dies with the Visit is the
+*request*, matched on the separate request identity above. A refresh that re-snapshots may
 change *row membership inside a panel* and must not change S1, S2 or S3 for the
 panels themselves — which is precisely what an authored arrangement buys and a
 measured one cannot give. Whether such a refresh ever reaches a live overlay is
@@ -356,10 +437,12 @@ unestablished (layout §1.3; probe P5).
 | Facility | unavailable, stale, version mismatch | empty listing; the screen still renders |
 
 **Compatibility (scenario 4).** A user's Decision references an operation *by
-name*. If a Facility loses that operation, capability declaration turns it into a
-missing row — the user's keys, labels and grouping are untouched. **A Facility
-change must never invalidate a Decision.** That is only true if capabilities are
-declared; with a bare version integer, the same event is an unreachable peer.
+name*. If a Facility loses that operation, capability declaration is what can
+turn it into a missing row rather than an unreachable peer — with a bare version
+integer, the same event takes the whole facility down. **A Facility change must
+never invalidate the user's keys, labels and grouping**, and capability
+declaration is the mechanism; whether the affected *row* goes quiet or the load
+diagnoses is the separate policy question below.
 
 **But "absent" and "misspelled" must not collapse into each other.** Silence is
 right for an operation the facility *once declared and no longer offers*; it is
@@ -377,17 +460,28 @@ honest ways to get it:
 - **The configuration declares its expectation** — the user marks a row as
   tolerating absence. Costs the user a word, and makes the default strict.
 
-**This is unresolved**, and the spec should not pretend otherwise: the second is
-cheaper and fits ADR-0021 (the user makes the Decision), the first is kinder to
-the user. Until one is chosen, the honest statement is that a *declared-then-
-withdrawn* capability is silent and everything else is a diagnostic.
+These are two *contracts*, not two readings of one — neither mechanism discovers
+intent, and each buys its diagnostic at a stated price: retired-name declarations
+diagnose a legitimate newer reference against an older facility, and an optional
+marker suppresses a misspelling on any row that carries it.
+
+**Provisionally, and not as an accepted decision, this document takes the
+second** — strict by default, optional where the user says so — because it fits
+ADR-0021 (the user makes the Decision), costs the facility nothing to maintain,
+and is the only one of the two that makes the requirement below testable as
+written. **It buys that at one price, stated rather than hidden:** silence is not
+a property of withdrawal, it is a property of the *marker*, so a withdrawn
+operation the user never marked optional is a diagnostic and a typo inside an
+optional reference is silent. Whether that is the right trade is **open choice
+10**, which remains the coordinator's to settle; the alternative moves the cost
+rather than removing it.
 
 **Runtime lifecycle.** Three shapes, and one doctrine that is not reopened.
 
 | Shape | Consequence |
 |---|---|
 | App-lifetime embedded runtime | today's LispKit. SBCL is *forced* into this: its manual records that C cannot run exit hooks or gracefully undo Lisp initialisation (runtimes §4.3) |
-| Restartable helper process | buys clean teardown and crash isolation; costs a protocol carrying per-visit live data |
+| Helper process | buys clean teardown and crash isolation; costs a protocol carrying per-visit live data. Whether it is also *independently restartable* is a separate, unmade decision: re-binding a resident tier's callback handles into a live host graph after the Handoff has latched is the ADR-0018 orphan-state case, so "restartable" is a claim to earn, not a property of the process boundary |
 | Relaunch-only reload | **Modaliser's doctrine** (ADR-0018), and the reason "a plugin cannot be unloaded" is cheap here rather than fatal |
 
 **Hot reload stays rejected.** No candidate's REPL is an argument for it, and any
@@ -421,17 +515,34 @@ unless the user chooses to reduce them.**
 |---|---|---|
 | **LispKit / Scheme** *(recommended first move)* | the goal is to fix what is measurably wrong | nothing to migrate; the three §1.3 defects persist until two are fixed locally and the third upstream, which ADR-0022 already names as its reopening condition |
 | **TypeScript on JavaScriptCore** | typed facilities and mainstream editor tooling are the actual pain | the module loader *and* `JSScript` are both private API, so no supported ES modules and no public bytecode cache; something must strip types, in-app or while authoring; and an async pump must be reconciled with ADR-0018's one-shot latch |
-| **Lua** | the smallest, most robust embedding is the goal | `lua_pcall` puts protected evaluation at the C API — the shape ADR-0022 wanted — and `_ENV` gives the decision-free contract a real mechanism rather than a grep; but it owes a `longjmp`-safe boundary against Swift frames, explicit handle lifetimes, and it discards or double-hosts 24 000 lines of Scheme, with no static types |
+| **Lua** | a small C-API embedding with protected evaluation at the boundary is the goal — *smallest* and *most robust* are not claimed: nothing here was embedded, packaged or measured, and E6 owns that comparison | `lua_pcall` puts protected evaluation at the C API — the shape ADR-0022 wanted — and `_ENV` gives the decision-free contract a real mechanism rather than a grep; but it owes a `longjmp`-safe boundary against Swift frames, explicit handle lifetimes, and it discards or double-hosts 24 000 lines of Scheme, with no static types |
 | **Racket** | language-oriented programming is the goal | `#lang` selects reader *and* expander per file — but the tree contains three macros in total, so the power is unsold; framework plus three boot files to package, object locking for retained handles, and eight-year-old startup figures |
 | **Common Lisp on SBCL** *(as requested)* | Common Lisp's conditions-and-restarts error model — the richest of the five — and a very large standard library are what is wanted | embedding is documented in SBCL's own manual (`initialize_lisp`, Lisp-as-a-shared-library, `define-alien-callable`), and arm64-darwin is supported and maintained. Against it: process-wide signal handlers in an app that already owns an event tap on a dedicated thread; a fixed-address static space needing a linker flag on Modaliser's own executable on Intel (arm64 equivalent unestablished); a second tracing collector beside LispKit's; an opaque core artifact of unmeasured size; and — per §9.8.1 — no way for C to run exit hooks or undo Lisp initialisation |
 
-**SBCL is viable, and the shape it is viable in is a helper process.** Its
-sharpest documented limitation — that an embedded runtime cannot be cleanly shut
-down — is an argument *against in-process embedding specifically*, not against
-the language or the implementation. Run it as a restartable peer and the
-limitation stops mattering, because teardown becomes process exit; what the peer
-shape then costs is the protocol carrying per-visit live data, which is the same
-cost every out-of-process configuration tier pays. **ECL is an alternative
+**SBCL is not ruled out, and the shape to weigh it in is a helper process — but
+that shape has an unmade lifecycle decision inside it.** Its sharpest documented
+limitation, that an embedded runtime cannot be cleanly shut down, is an argument
+*against in-process embedding specifically*, not against the language or the
+implementation: out of process, teardown becomes process exit, which the OS owns
+rather than asking C to undo Lisp initialisation. That much holds, and it also
+buys crash containment.
+
+What does *not* follow is that the peer is therefore independently
+*restartable*, with the ordinary per-Visit protocol as its only new cost. A
+resident configuration runtime owns the user's closures (Approach 2), so if the
+peer dies after the one-shot Handoff has latched, every installed callback
+handle dies with it. Restoring them means re-evaluating configuration and
+re-binding into a live host graph that may still hold a Visit, chips and
+capture — which is the partial-teardown orphan-state problem ADR-0018 rejected
+hot reload over (`docs/adr/0018-configuration-as-one-explicit-value.md:38-41`).
+Two honest semantics exist and this document picks neither: **crash-containment
+only**, where a dead peer degrades per ADR-0022 and recovery is relaunch, or
+**independent restart**, which needs supervision, a readiness handshake, a
+rebinding protocol and its own diagnostic state — none of them priced here, and
+the second of them owing ADR-0018 an answer on its own reopening terms. So the
+conclusion this comparison supports is that SBCL is not ruled out as a helper
+*pending that lifecycle choice*, and the peer's cost is the per-Visit protocol
+**plus** whichever of those two shapes is chosen. **ECL is an alternative
 implementation to weigh, not a redirection**: it is designed for embedding and
 its manual carries a dedicated section on it, but its entry points, link target
 and platform matrix were not confirmed from primary sources, so recommending it
@@ -467,10 +578,12 @@ the key nodes, which is exactly why regrouping costs no key path.
 
   ;; One clause, replacing today's 'cols / 'layout screen keywords.
   (arrangement 'tracks    3           ; declared, not measured
-               'placement 'grid       ; grid | flow | lanes, constrained
-               'width     'declared   ; the definite width §"definite width" needs
+               'placement 'grid       ; grid | flow, both constrained
+               'track     184         ; px — with 'gap, this is the definite
+               'gap       10          ;   width: 3×184 + 2×10 = 572px
                'overflow  '(wrap . 2) ; per-panel overridable
-               'narrow-to '(2 1))     ; responsive steps, chosen by display budget
+               'narrow-to '(2 1))     ; steps at 378px and 184px, selected by
+                                      ;   display budget — never by content
 
   (panel "Editors"                    ; the list, with its own controls
     (key "[" "Prev Editor" (code:editor-cycler 'previous))
@@ -486,21 +599,38 @@ the key nodes, which is exactly why regrouping costs no key path.
     (key "e" "Explorer" code:focus-explorer))
 
   (panel "Terminals" (code:terminal-listing))
-  (panel "Projects"  (code:project-listing)))
+  (panel "Projects"  (code:project-listing 'optional #t)))  ; choice 10's marker:
+                                      ;   this row goes quiet if the facility
+                                      ;   stops declaring the operation
 ```
 
-Four things to read out of it, each a decision made above rather than a syntax
-preference:
+Five things to read out of it, each a decision made above rather than a syntax
+preference — and two of them (`'track`/`'gap`, and `'optional`) are the
+**provisional defaults** of open choices 9 and 10, written concretely so they can
+be argued with, not because they are settled:
 
 - **`'tracks 3` is declared, not measured** — that alone removes coupling
-  channels 2 and 4, and with `'width 'declared` it removes channel 1.
-- **`'narrow-to '(2 1)`** enumerates the responsive steps, so resolve emits three
-  pre-normalised arrangements and the renderer only *chooses* — the span rule
-  above, made concrete.
+  channels 2 and 4, and with `'track 184` supplying a definite width it removes
+  channel 1.
+- **`'track 184` and `'gap 10` make the width arithmetic**, so `'narrow-to '(2
+  1)` is three pre-normalised arrangements at 572, 378 and 184 pixels and the
+  renderer only *chooses* between them — the span rule above, made concrete, and
+  the numeric form of open choice 9's provisional default rather than an accepted
+  surface. Under choice 9's alternative these two keywords are replaced by a
+  minimum display width on each step.
+- **`'placement` offers grid and flow, and deliberately not lanes — nothing here
+  names a track coordinate.** Under both disciplines placement stays membership
+  plus order plus span, so the proposal adds stability rather than positions.
+  Author-pinned lanes are the one discipline that needs a per-panel lane value;
+  the vocabulary does not carry one and designing it is deferred (open choice 1),
+  so the sketch's silence here is a deferral, not evidence that lanes need no
+  coordinate.
 - **`'overflow` on the arrangement, overridden on `"Panes"`** — the wrap/truncate
   control the user asked for, at two scopes.
-- **Nothing here names a track coordinate.** Placement is still membership plus
-  order plus span; the proposal adds stability, not positions.
+- **`'optional #t` on one listing** — strict is the default, so this is the one
+  row that goes quiet rather than diagnosing when the facility stops declaring
+  its operation. Choice 10's alternative deletes this keyword and puts a retired-
+  name list on the facility instead.
 
 **Approach 2 writes the same shape in another language** — the arrangement is
 data in every candidate, and that is exactly why the layout work is independent
@@ -509,11 +639,12 @@ which makes the arrangement *easier*, and the `L` row — the cross-facility joi
 the thing it can no longer express without an expression language.
 
 **Approach 1 — Consolidate.** Definite arrangement width plus an explicit packing
-choice; overflow as a user control; span normalised at resolve; the display
+choice (grid or flow; pinned lanes deferred with their coordinate); overflow as a user control; span normalised at resolve; the display
 budget as a separate input; a stable per-panel DOM handle so the CSS escape hatch
 that already ships becomes addressable. Facilities: generalise `parts` into one
-semantic contract with capability declaration, keeping in-process facilities as
-Scheme libraries. Runtime: keep LispKit.
+semantic contract with capability declaration and a request identity distinct
+from entity identity, keeping in-process facilities as Scheme libraries.
+Runtime: keep LispKit.
 
 **Approach 2 — Re-front.** Everything in 1, plus an app-owned semantic facility
 interface with per-language adapters, and a chosen configuration language over
@@ -531,7 +662,7 @@ expression language the format carries.
 | Cross-facility join (Grove Leaf) | works — ordinary code | works | **fails** on named operations alone; works only if the format carries an expression language |
 | Typed facilities | no | **yes**, with TypeScript | yes, by construction of the schema |
 | New frozen names (ADR-0021) | one small arrangement vocabulary | the same, plus a facility interface | a whole schema |
-| Migration event | none | **100 % of `config.scm` at once** | 100 % |
+| Migration event | none | **the user's choice, not a forced policy**: Approach 2 admits a second language *beside* LispKit as the config tier, in which case existing `config.scm` keeps loading and a rewrite is opt-in per user; it becomes 100 % at once only if Scheme support is dropped, which is a separate decision | 100 % |
 | Enforcement of the decision-free contract | today's greps | needs a per-language answer | strongest — the schema is the enforcement |
 | Reversible if wrong | yes | partly — the adapter survives, the port does not | no |
 
@@ -551,14 +682,22 @@ Three reasons, each cited.
 3. **Nothing found in three surveys *requires* a language change** (runtimes §8).
    Two of LispKit's three measured defects are local work; the third has a named
    upstream reopening condition. A language change is the largest single
-   migration event this architecture admits — it invalidates the whole of the one
-   user-owned file at once.
+   migration event this architecture admits — *if* Scheme support is dropped, it
+   invalidates the whole of the one user-owned file at once. Run beside LispKit
+   instead and the rewrite is opt-in per user, at the price of two resident
+   runtimes to diagnose and package; either way the event is a policy decision,
+   not an inevitability of choosing another language.
 
 **The one thing to do now that only matters later:** define the facility contract
 as a value, in Modaliser's own vocabulary, even while Scheme is its only
 consumer. That is what makes Approach 2 an adapter rather than a rewrite, and it
 is far less work to do while there is exactly one consumer to check it against
 than to retrofit against two — an argument about ordering, not a measured cost.
+**It is also load-bearing rather than optional, and this document does not yet
+discharge it:** until the contract names a *request* identity and a teardown
+rule alongside its entity identity (see *Callback ownership* above), "Approach 2
+stays reachable without a redesign" is a claim about the layout and boundary
+work, not about the callback seam — which has no contract-level answer here.
 
 **What would change this.**
 
@@ -606,33 +745,68 @@ available display width, and SHALL NOT derive one from a viewport whose size the
 overlay's own content determined.
 
 #### Scenario: a narrow display
-- **WHEN** the available display width cannot accommodate the declared track count
-- **THEN** the arrangement reduces its track count by its declared responsive rule
-- **AND** spans are normalised to the reduced track count
+- **GIVEN** an arrangement whose steps each carry a width, derived at resolve
+  from the declared track width and gap (the provisional default of open choice
+  9) or authored directly as a step boundary (its alternative)
+- **WHEN** the available display width is less than the widest step's width
+- **THEN** the renderer selects the widest step the budget accommodates, and the
+  narrowest step if none fits
+- **AND** that step's spans were already normalised to its own track count at
+  resolve, the renderer having normalised nothing and derived no track count
 - **AND** an identical overlay on a wide display is unaffected by its own content
 
-### Requirement: A Facility change does not invalidate a Decision
+### Requirement: A Facility change does not invalidate a marked Decision
 
-A Facility SHALL declare its capabilities, and the configuration SHALL treat an
-undeclared capability as absent rather than as an error.
+> **Provisional default, stated so this requirement is testable — not accepted.**
+> The policy below is *strict required operations plus an explicit optional
+> marker* (open choice 10). It is written as SHALLs because a requirement that
+> states both sides of an unmade choice is not reviewable; adopting it is still
+> the user's decision, and choice 10 names the alternative it was chosen over.
 
-#### Scenario: a declared capability is withdrawn
-- **WHEN** a facility no longer offers an operation it previously declared, and a
-  screen references that operation
+A Facility SHALL declare its capabilities. A configuration reference SHALL be
+either **required** (the default) or explicitly marked **optional**.
+
+- A reference marked optional whose capability the facility does not currently
+  declare SHALL yield an absent row, and the configuration SHALL load.
+- A reference not so marked whose capability the facility does not currently
+  declare SHALL produce a diagnostic naming the reference, degrading per
+  ADR-0022.
+- When an optional reference disappears and configuration validation otherwise
+  succeeds, every other key, label and group on that screen SHALL be unchanged.
+  A missing required capability instead rejects the user configuration and
+  activates ADR-0022's bundled fallback; preserving that user screen is not
+  promised on the failure path.
+
+**The marker is what is silent, not the withdrawal.** Withdrawing a declared
+operation is *not* silent by default: it is silent exactly where the user said
+that row was optional, and a diagnostic everywhere else. That is the price of
+this policy and the reason it is provisional — it protects a misspelling from
+becoming a missing row, and it asks the user to foresee which rows may vanish.
+
+#### Scenario: a withdrawn capability behind an optional marker
+- **GIVEN** a screen references an operation and marks that reference optional
+- **WHEN** the facility no longer declares that operation
 - **THEN** the row bound to it is absent from the screen
 - **AND** every other key, label and group on that screen is unchanged
 - **AND** the configuration loads and the screen renders
 
-#### Scenario: an operation name the facility never declared
-- **WHEN** a screen references a name no version of the facility has declared
+#### Scenario: a withdrawn capability with no marker
+- **GIVEN** a screen references an operation without marking it optional
+- **WHEN** the facility no longer declares that operation
 - **THEN** the load produces a diagnostic naming the reference
-- **AND** the failure degrades per ADR-0022 rather than rendering a screen with a
-  silently missing row
+- **AND** the failure degrades per ADR-0022
 
-> **Unresolved.** These two scenarios are only distinguishable if something
-> records what *was* declared, or the user marks a row as tolerating absence. See
-> *Compatibility* above; a design must pick one before this requirement is
-> testable.
+#### Scenario: a misspelled operation name
+- **WHEN** a screen references a name the facility does not declare, and the
+  reference is not marked optional
+- **THEN** the load produces a diagnostic naming the reference
+- **AND** no screen renders with a silently missing row
+
+> **What this policy does not do.** It does not distinguish a misspelling from a
+> withdrawal — it makes them the *same* outcome, which is why it needs no record
+> of retired names. The cost lands on the optional rows: a typo inside an
+> optional reference is still silent. Choice 10's alternative moves that cost
+> instead of removing it.
 
 ## Validation obligations, and the seam they belong at
 
@@ -642,7 +816,8 @@ the approaches can be costed against them.
 **One seam, and it already exists.** `resolve-display` is a pure function from a
 Display value to a resolved arrangement, exercised today by loading real Scheme
 through a real LispKit context. Every obligation below except the last is
-checkable there, without a browser, an app or a screenshot — which is the main
+checkable without a browser, an app or a screenshot — the arrangement rows at
+that pure seam, the facility rows against a canned peer — which is the main
 argument for putting normalisation and validation in the resolver rather than the
 renderer.
 
@@ -654,24 +829,35 @@ renderer.
 | A reference to a key no node owns fails **before** the Handoff latches | configuration validation |
 | An out-of-range track count or overflow value fails at construction | the DSL constructors |
 | Order is canonical and shared between the panel and list paths | `sort-rows`, already exported for this reason |
-| A missing capability yields an empty listing, not an error | the facility contract's own tests, against a canned peer (ADR-0023 keeps it inert) |
+| Each responsive step's width is `n × track + (n − 1) × gap`, shipped with the step | `resolve-display` — the arithmetic the renderer's choice compares against (choice 9's provisional default) |
+| An undeclared capability behind an optional marker yields an absent row; without the marker it yields a load diagnostic | the facility contract's own tests, against a canned peer (ADR-0023 keeps it inert). Testable *because* choice 10 has a provisional default; under the alternative these are two different rows |
+| An unavailable, stale or version-mismatched peer yields an empty listing, not an error | the same canned peer |
+| A reply whose Visit has ended is dropped rather than applied | the facility contract's own tests, against a canned peer that replies late — the check is the request identity, not the target token |
 | The rendered arrangement matches the resolved one | **not checkable at this seam** — it needs a run, and it is experiment E3 below |
 
 ## Open choices — only the user can settle these
 
-**One question is *not* open, and is recorded here so it is not reopened.**
-Whether "groups stay in place" means cells or pixels was raised by the layout
-survey (its U1) and is already settled by the user's own confirmed choice —
-*keep groups stable; wrap or truncate titles*. Wrapping and truncation cannot
-fire without a definite width, so that one sentence entails **both** placement
-stability (S1–S3) **and** content-independent geometry. Both are requirements
-here, not preferences, and the brief says so directly.
+**Stable groups under wider titles are already settled.** The user's confirmed
+choice is *keep groups stable; wrap or truncate titles*. This proposal interprets
+that as stable membership, order and track assignment (S1–S3), with title width
+contained inside the assigned width. Wrapping may increase height and move later
+content vertically, as described above; fixed pixel positions are not promised.
+Responsive changes driven by available display space remain a separate choice.
 
-1. **Which constrained placement discipline?** Aligned grid, constrained flow, or
-   author-pinned lanes all deliver S1–S3. They differ in appearance and density:
-   an aligned grid shares row-track heights, so a tall card pads its neighbours;
-   pinned lanes let each column stack independently; constrained flow packs by
-   line. A preference, not a correctness question.
+1. **Which constrained placement discipline — and are pinned lanes worth their
+   coordinate?** Aligned grid, constrained flow and author-pinned lanes all
+   deliver S1–S3, and they differ in appearance and density: an aligned grid
+   shares row-track heights, so a tall card pads its neighbours; pinned lanes let
+   each column stack independently; constrained flow packs by line.
+   **Provisionally this document proposes grid and flow only and defers lanes** —
+   not because they are worse to look at, but because they are the one discipline
+   that needs an authored positional coordinate, and the proposed vocabulary
+   deliberately carries none. Un-deferring them means designing three things this
+   document does not: a per-panel lane value, its validation (a lane outside the
+   track count, an empty lane, every panel in one lane), and a re-mapping rule
+   for when choice 9's responsive steps reduce the track count. That is the
+   question: is independent vertical stacking worth those three, or is an aligned
+   grid's shared row heights an acceptable price for the smaller surface?
 2. **Wrap to N lines, or single-line ellipsis, as the default?** Both are
    proposed as controls; one has to be the default.
 3. **Is responsiveness to display width wanted at all**, or is a fixed,
@@ -689,6 +875,26 @@ here, not preferences, and the brief says so directly.
    s-expressions a value to preserve or an obstacle to remove?
 8. **Is notarisation on the roadmap?** It prices the JIT-entitlement column that
    is dormant today, and it prices third-party plugin signing.
+9. **What does the renderer compare a display budget against?** *Provisional
+   default: a declared track width and gap*, from which each step's arrangement
+   width is arithmetic at resolve — written into the sketch and the requirement
+   so both can be reviewed, **not accepted**. It is the cheaper form and it keeps
+   the width derivable at the pure seam, but it fixes track sizing at a number.
+   The alternative — a *step boundary* per step, naming the minimum display width
+   at which that step applies — leaves track sizing free and is more to author.
+   Either keeps selection a comparison of two numbers rather than a measurement;
+   neither is authorable in today's vocabulary.
+10. **Silence or a diagnostic for an unknown operation name?** *Provisional
+    default: a per-row optional marker*, strict everywhere else — written into
+    the requirement below so it can be reviewed, **not accepted**. It makes
+    strictness the default and the exception the user's Decision (ADR-0021) and
+    costs the facility nothing, but it makes silence a property of the marker
+    rather than of withdrawal: an unmarked withdrawal diagnoses, and a typo
+    inside a marked reference stays silent. The alternative — *retired-name
+    declarations* — distinguishes withdrawn from never-known at the price of a
+    growing list per facility and a spurious diagnostic whenever a newer
+    configuration meets an older facility. Choosing between them is choosing
+    which of those two costs to carry.
 
 ## Experiments this exploration could not run
 

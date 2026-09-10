@@ -16,6 +16,17 @@ from a primary source with its date, or marked unmeasured.
 | **[inf]** | Inferred from **[src]** + **[doc]**. Inference, not verified. |
 | **[gap]** | Not established: no primary source found, or it needs an experiment. |
 
+**Corrected in place 2026-09-10** by `configuration-design-k5`, and recorded here
+by `configuration-design-k7` (the note was omitted when the corrections landed —
+this header previously named only the inspected revision above, so post-survey
+judgment sat inside the survey without provenance). Two corrections: §3's
+declarative-front-end option was rewritten from a single "named operations only"
+shape into a **spectrum** whose real variable is how much interpreter the data
+format carries, with the matching row added to §6.2's Grove Leaf table; and §8's
+SBCL summary said a *third* tracing collector where Swift's ARC is reference
+counting, not tracing, so the count is **two**. Both are marked **[inf]** where
+they infer. Findings and recommendation are unchanged.
+
 ---
 
 ## 0. Three questions, deliberately not merged
