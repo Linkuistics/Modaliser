@@ -179,6 +179,34 @@ Modaliser never writes there on its own initiative, in any circumstance.**
   does not parse, or that names something else, is left alone. Sharing one
   transcription does not make an over-broad predicate safe.
 
+  **There are two deletion paths, and the manifest check bounds only one of
+  them.** The sweep removes directories it *found* under the extensions
+  directory; the destination is *constructed* by interpolating the payload's own
+  `publisher`, `name` and `version`, and is wiped before the copy so that a
+  `cp -R` cannot merge stale code into a current install. Nothing about a
+  manifest comparison bounds that second path — a manifest reading
+  `"publisher": "../../victim"` resolves it outside the extensions directory
+  entirely, and neither `npm ci` nor `tsc` validates the VSCode-specific
+  identity fields, so a malformed source manifest reaches a release payload
+  unremarked. So **each of the three identity fields must be a single path
+  component**, checked before anything is removed. VSCode's own identity grammar
+  has no room for a separator, so the check refuses nothing legal; what it buys
+  is that the deletion boundary is a property of the script rather than a
+  property of the manifest it happens to be handed.
+
+- **An upgrade never costs the user the version they already had.** Everything
+  after the preflight is destructive first and constructive second: the sweep
+  removes every installed copy, the wipe removes the current-version
+  destination, and only then does the copy run. So the payload is proved
+  **complete** — `package.json`, `README.md` and `out/src` all readable — before
+  the first removal. Without that, a damaged bundle or an interrupted `tsc` turns
+  a failed upgrade into loss of the working installation, leaving a partial
+  directory in its place. This is a completeness check and not a promise the copy
+  will succeed; a disk can still fill mid-copy, which is what the completion
+  marker written last covers. The two guarantees are different and both are
+  needed: the marker keeps a *broken* install from reading as installed, and the
+  preflight keeps a *known-unusable* payload from destroying a working one.
+
   The cask's `zap trash:` cannot perform that check — it is a path list, not a
   program — so the two differ deliberately, and the property claimed differs
   with them. The install-time sweep removes *this extension and nothing else*;
@@ -198,6 +226,19 @@ Modaliser never writes there on its own initiative, in any circumstance.**
   than leaving them to be discovered. There is no opt-out to design, because
   there is nothing to opt out of: absent the user pressing the key and
   confirming, nothing is written.
+
+- **A confirmed write reports its outcome, and reports it from a place its own
+  chatter cannot reach.** The portable shell seam hands back stdout and nothing
+  else — no exit code, no stderr — so the command folds stderr in and echoes the
+  script's exit status as its own last line. The rest of that transcript is the
+  sweep naming directories under `~/.vscode/extensions`, which is text Modaliser
+  does not choose and anything writing there can pick: an extensions directory
+  containing `antony.modaliser-companion-modaliser-install-status=0` gets that
+  name printed as a candidate, and a run that genuinely failed would then read as
+  success under a *search* of the transcript. So the predicate compares the
+  **final non-empty line** against the status record. The wrapper's `echo` runs
+  after the script exits and nothing can follow it, which makes the reserved
+  position structural rather than a matter of escaping.
   The cask additionally learns to `zap` the installed extension, so the tool
   that installed Modaliser can take the extension away again; a plain
   `brew uninstall` leaves it, on the same terms as the user's `config.scm`.

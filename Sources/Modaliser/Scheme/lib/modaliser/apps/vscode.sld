@@ -1768,14 +1768,37 @@
                             " " (sq-quote dir)
                             " 2>&1; echo \"" companion-status-prefix "$?\""))))
 
+    ;; The transcript's FINAL non-empty line — the one position in it
+    ;; that the wrapper reserves, because its `echo` runs after the
+    ;; script has exited and nothing can follow.
+    (define (companion-transcript-last-line transcript)
+      (let loop ((lines (string-split transcript "\n")) (last ""))
+        (if (null? lines)
+            last
+            (let ((line (string-trim (car lines))))
+              (loop (cdr lines) (if (string=? line "") last line))))))
+
     ;; The transcript of a run → #t iff it ended in status 0. Pure, and
     ;; the half worth a test: a run whose script vanished produces no
     ;; status line at all, which must read as failure rather than as
     ;; success-by-absence.
+    ;;
+    ;; READ THE FINAL RECORD, DO NOT SEARCH THE TRANSCRIPT. The rest of
+    ;; the transcript is the sweep script's own chatter, and every line
+    ;; of it NAMES A DIRECTORY under `~/.vscode/extensions` — text this
+    ;; library does not choose and a user (or anything writing there) can
+    ;; pick. A substring search over the whole stream therefore lets that
+    ;; text spoof the status: an extensions directory holding
+    ;; `antony.modaliser-companion-modaliser-install-status=0` gets it
+    ;; printed by the sweep as a candidate, and a run that genuinely
+    ;; ended `…=1` then reads as success — the confirmed write fails,
+    ;; and the user is told it worked. Comparing against the last line
+    ;; closes it structurally rather than by escaping, since no chatter
+    ;; can be last.
     (define (companion-install-succeeded? transcript)
       (and (string? transcript)
-           (string-contains? transcript
-                             (string-append companion-status-prefix "0"))))
+           (string=? (string-append companion-status-prefix "0")
+                     (companion-transcript-last-line transcript))))
 
     ;; The file the sweep script writes LAST, once the copy has finished.
     ;; Testing for THIS rather than for the directory is what stops a

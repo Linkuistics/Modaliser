@@ -31,6 +31,7 @@ swift test --filter 'KeyCodeTests/f18HasCorrectValue'   # one test
 ./scripts/install.sh              # build + copy to /Applications
 ./scripts/check-portable-surface.sh   # enforce the portability contract (see below)
 ./scripts/check-decision-free.sh      # enforce the decision-free library contract
+./scripts/test-install-companion-payload.sh   # regression the companion sweep-and-copy
 ```
 
 The suite is **swift-testing** (`@Suite` / `@Test`), not XCTest — no file imports
@@ -82,10 +83,18 @@ release-machine requirement**, checked in `release-doctor.sh` and listed in
 There is no CI in this repository and no separate lint step.
 `check-portable-surface.sh` and `check-decision-free.sh` are the two bespoke
 invariant checks; nothing runs them for you, so running both after touching
-`lib/modaliser` is a local discipline. A third invariant has no script of its own
-because it belongs to packaging: `build-app.sh` wipes the `.app` before
-assembling it and then **fails the build** unless the bundled `Scheme/` tree
-matches `Sources/Modaliser/Scheme/` exactly (ADR-0019).
+`lib/modaliser` is a local discipline. `test-install-companion-payload.sh` sits
+beside them under the same discipline but is a different animal — a regression
+suite for `install-companion-payload.sh`, the one `rm -rf` Modaliser runs inside
+another application's directory. It is a script rather than a `@Test` on
+purpose: the Swift suite spawns nothing at all, and that is structural (ADR-0023),
+so the destructive cases run here, against temporary extensions directories, and
+never touch `~/.vscode`. Run it after touching that script.
+
+A further invariant has no script of its own because it belongs to packaging:
+`build-app.sh` wipes the `.app` before assembling it and then **fails the build**
+unless the bundled `Scheme/` tree matches `Sources/Modaliser/Scheme/` exactly
+(ADR-0019).
 
 ## Architecture
 

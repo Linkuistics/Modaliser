@@ -24,6 +24,14 @@
 # Sweeping at all is not tidiness — VSCode would load two copies of this
 # extension in one window and each would bind its own socket.
 #
+# TWO DELETION PATHS, NOT ONE, AND THEY ARE GUARDED DIFFERENTLY. The rule
+# above governs the sweep, which only ever removes a directory it FOUND under
+# the extensions directory. The destination wipe further down is the other
+# one, and it removes a path this script CONSTRUCTS from the payload's own
+# manifest — so what bounds it is not a manifest comparison but
+# `single_component` below, which is why that check runs before anything is
+# removed. Do not read the sweep's discipline as covering both.
+#
 # `~/.vscode/extensions/extensions.json` — the metadata cache recent VSCode
 # keeps beside these directories — is deliberately not touched, exactly as the
 # repository installer has never touched it: directory-scan installation is
@@ -64,18 +72,58 @@ json_field() {
   /usr/bin/plutil -extract "$2" raw -o - -- "$1" 2>/dev/null || true
 }
 
-payload_identity() {
-  local dir="$1" manifest publisher name version
+# Is this manifest field ONE PATH COMPONENT? Non-empty, no separator, and
+# neither of the two names that traverse.
+#
+# This is what keeps the destination inside the extensions directory, and it
+# is load-bearing in a way the manifest-confirmed sweep below is not. The
+# sweep only ever removes a directory it FOUND under `extensions`; the
+# destination is CONSTRUCTED by interpolating these three fields, and it is
+# wiped with `rm -rf` before the copy. So a manifest reading
+# `"publisher": "../../victim"` resolves that wipe two levels above the
+# extensions directory and takes whatever is there with it — reproduced, exit
+# zero, no warning. Neither `npm ci` nor `tsc` validates the VSCode-specific
+# identity fields, so a malformed source manifest reaches a release payload
+# unremarked, and this same script is the developer entry point.
+#
+# VSCode's own identity grammar has no room for a separator, so nothing legal
+# is refused here.
+single_component() {
+  case "$1" in
+    "" | . | ..) return 1 ;;
+    */*) return 1 ;;
+  esac
+  return 0
+}
+
+# The three identity fields of a payload, validated, into globals — the ONE
+# derivation both entry points use, so `--print-identity` (which stamps the
+# file the Scheme predicate reads) and the install cannot disagree about what
+# this payload is called.
+IDENT_PUBLISHER=""
+IDENT_NAME=""
+IDENT_VERSION=""
+
+read_identity() {
+  local dir="$1" manifest
   manifest="${dir}/package.json"
   [[ -f "$manifest" ]] || { echo "error: no package.json in ${dir}" >&2; exit 1; }
-  publisher="$(json_field "$manifest" publisher)"
-  name="$(json_field "$manifest" name)"
-  version="$(json_field "$manifest" version)"
-  if [[ -z "$publisher" || -z "$name" || -z "$version" ]]; then
-    echo "error: ${manifest} does not name a publisher, name and version" >&2
+  IDENT_PUBLISHER="$(json_field "$manifest" publisher)"
+  IDENT_NAME="$(json_field "$manifest" name)"
+  IDENT_VERSION="$(json_field "$manifest" version)"
+  if ! single_component "$IDENT_PUBLISHER" \
+    || ! single_component "$IDENT_NAME" \
+    || ! single_component "$IDENT_VERSION"; then
+    echo "error: ${manifest} must name a publisher, name and version," >&2
+    echo "       each a single path component (got" >&2
+    echo "       '${IDENT_PUBLISHER}' / '${IDENT_NAME}' / '${IDENT_VERSION}')" >&2
     exit 1
   fi
-  printf '%s.%s-%s\n' "$publisher" "$name" "$version"
+}
+
+payload_identity() {
+  read_identity "$1"
+  printf '%s.%s-%s\n' "$IDENT_PUBLISHER" "$IDENT_NAME" "$IDENT_VERSION"
 }
 
 main() {
@@ -87,7 +135,7 @@ main() {
 
   [[ $# -ge 1 && $# -le 2 ]] || usage
 
-  local payload extensions manifest publisher name version target
+  local payload extensions publisher name version target required
   payload="$1"
   if [[ -n "${2:-}" ]]; then
     extensions="$2"
@@ -97,15 +145,32 @@ main() {
   [[ -d "$payload" ]] || { echo "error: no payload at ${payload}" >&2; exit 1; }
   payload="$(cd "$payload" && pwd -P)"
 
-  manifest="${payload}/package.json"
-  publisher="$(json_field "$manifest" publisher)"
-  name="$(json_field "$manifest" name)"
-  version="$(json_field "$manifest" version)"
-  if [[ -z "$publisher" || -z "$name" || -z "$version" ]]; then
-    echo "error: ${manifest} does not name a publisher, name and version" >&2
-    exit 1
-  fi
+  read_identity "$payload"
+  publisher="$IDENT_PUBLISHER"
+  name="$IDENT_NAME"
+  version="$IDENT_VERSION"
   target="${extensions}/${publisher}.${name}-${version}"
+
+  # THE PAYLOAD MUST BE COMPLETE BEFORE ANYTHING IS REMOVED. Everything below
+  # is destructive first and constructive second: the sweep removes every
+  # installed copy of this extension, then the wipe removes the
+  # current-version target, and only then does the copy run. A payload missing
+  # one of the three things that copy needs therefore turns a failed upgrade
+  # into LOSS OF THE WORKING VERSION that was already installed — reproduced
+  # with a payload lacking only README.md, which removed a complete 0.9.0,
+  # left a partial 1.0.0, and exited 1. A damaged bundle or an interrupted
+  # `tsc` is enough to reach it.
+  #
+  # This is a completeness check, not a proof the copy will succeed: a disk
+  # can still fill mid-copy, and the completion marker written last is what
+  # covers that. What it buys is that a payload ALREADY KNOWN to be
+  # unusable never gets far enough to destroy a usable installation.
+  for required in package.json README.md out/src; do
+    if [[ ! -r "${payload}/${required}" ]]; then
+      echo "error: incomplete payload — ${payload}/${required} is missing or unreadable" >&2
+      exit 1
+    fi
+  done
 
   # Installing a payload onto itself. Refuse it HERE, before anything is
   # removed: the destination is wiped before the copy, and when the

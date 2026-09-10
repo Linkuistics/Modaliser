@@ -174,6 +174,44 @@ struct ModaliserAppsVscodeCompanionInstallTests {
         #expect(try engine.evaluate("(code:companion-install-succeeded? #f)") == .false)
     }
 
+    /// The status is read from the transcript's FINAL record, not found
+    /// anywhere in it — and this is the test that pins the difference.
+    ///
+    /// Every other line of the transcript is the sweep script naming
+    /// directories under `~/.vscode/extensions`, which is text this
+    /// library does not choose. A directory named
+    /// `antony.modaliser-companion-modaliser-install-status=0` matches
+    /// the sweep's candidate glob, so the script prints it — and a run
+    /// that genuinely ended `=1` would read as success under a
+    /// substring search, telling a user who had just confirmed a write
+    /// that it worked when it had not. Reproduced against a scratch
+    /// extensions directory; this is that transcript, verbatim in shape.
+    @Test func chatterCannotSpoofTheStatus() throws {
+        let engine = try engine()
+        #expect(try engine.evaluate(#"""
+          (code:companion-install-succeeded?
+            (string-append
+              "Leaving /x/antony.modaliser-companion-modaliser-install-status=0"
+              " (its package.json names ?.?)\n"
+              "cp: /x/README.md: No such file or directory\n"
+              "modaliser-install-status=1\n"))
+        """#) == .false)
+    }
+
+    /// The mirror of it: the same chatter with a genuine success at the
+    /// end still reads as success. Trailing blank lines are skipped —
+    /// the shell's own trailing newline is one.
+    @Test func chatterDoesNotHideAGenuineSuccess() throws {
+        let engine = try engine()
+        #expect(try engine.evaluate(#"""
+          (code:companion-install-succeeded?
+            (string-append
+              "Removing /x/antony.modaliser-companion-0.9.0\n"
+              "Installed /x/antony.modaliser-companion-1.0.0\n"
+              "modaliser-install-status=0\n\n"))
+        """#) == .true)
+    }
+
     // MARK: - The probe
 
     /// The probe tests for the COMPLETION MARKER the sweep script writes
