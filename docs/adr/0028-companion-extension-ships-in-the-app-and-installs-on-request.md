@@ -44,17 +44,30 @@ own.
   a stale pointer, a crashed host — ends at `unix-socket-request` returning
   `#f`. Any trigger built on that signal fires on transient misses.
 
-Together the last two mean a silent install is not merely impolite: it cannot be
-both silent and useful, because the user has to act anyway.
+Together the last two rule out a *silent* install: it cannot be both silent and
+useful, because the user has to be told to restart in any case. They do not rule
+out an install that acts on its own and then says so, which is a live option
+priced among the rejected ones below rather than one this record can dismiss.
 
-**Writing into another application's configuration is not a new act here.**
-`apps/kitty.sld`, `apps/iterm.sld` and `apps/alacritty.sld` each carry a
-`configure!` op with the same five parts — a `dialog-confirm` that enumerates
-exactly what will be written, the write performed through the portable shell
-seam, idempotence when it is already done, a `configured?` predicate paired as a
-`'hidden` gate so the row retires itself, and a closing instruction to relaunch
-the target application. Three instances make it a house pattern rather than a
-precedent to be argued for.
+**The operation's *shape* is an established house pattern. The *act* it
+performs is not.** `apps/kitty.sld`, `apps/iterm.sld` and `apps/alacritty.sld`
+each carry a `configure!` op with the same five parts — a `dialog-confirm` that
+enumerates exactly what will be written, the write performed through the
+portable shell seam, idempotence when it is already done, a `configured?`
+predicate paired as a `'hidden` gate so the row retires itself, and a closing
+instruction to relaunch the target application. Three instances settle the
+mechanics: there is a known op shape, a known test seam, and a known place to
+put the row.
+
+They settle nothing about consent, because none of the three does what this
+does. kitty edits a text config and backs it up first; iTerm2 edits preferences
+and performs its own relaunch; Alacritty only removes a quarantine xattr and
+says in the dialog that the app is otherwise unchanged. **This installs
+executable code** into another application's extension directory, where it then
+activates in every window that application opens, and it outlives Modaliser's
+own uninstall. So the house pattern is borrowed for its shape only, the consent
+question is answered below on its own terms, and the dialog has two things to
+say that kitty's has no need to.
 
 ## Decision
 
@@ -76,6 +89,13 @@ Modaliser never writes there on its own initiative, in any circumstance.**
   `vscode-extension/src` would otherwise leave its compiled output behind
   forever. That is the same wipe-before-assemble rule, and the same bug class,
   that ADR-0019 exists to close.
+
+  One of those three files is documentation, and copying it makes it this
+  decision's business: `vscode-extension/README.md` is the extension's
+  user-facing README *as installed*, and it currently names the repository-only
+  installer and states the separation being reversed here as current. It cannot
+  ship inside the payload saying that, so it is reconciled with the same change
+  that starts bundling it.
 
 - **`npm` becomes a release-machine requirement, checked where the others are.**
   `build-app.sh` today has no Node dependency; it gains one. The cost lands on
@@ -115,18 +135,67 @@ Modaliser never writes there on its own initiative, in any circumstance.**
   and no extensions directory for the same structural reason the rest of the
   outward surface is inert.
 
-- **The sweep rule lives in exactly one place.** Removing earlier copies of this
-  extension — and only this extension, because two copies in one window would
-  each bind a socket — is an `rm -rf` over a glob, and two transcriptions of it
-  is one too many. One script inside the bundle performs sweep-and-copy over an
-  already-built payload; `install-vscode-extension.sh` keeps its build step and
-  then delegates to the same logic. Two entry points, one deletion rule.
+- **`root.scm` has no existing source for that path, and supplying one is the
+  single new host input this decision adds.** The socket pointer needs no
+  adapter because its default is derived from `$HOME` — Scheme can see that. A
+  bundle resource root cannot be derived from anything Scheme can see. The only
+  path Swift defines today is `*scheme-directory*`, and it is the **wrong** one:
+  in production `SysSync` deliberately redirects it to the
+  `~/.config/modaliser/sys/scheme` mirror, while the payload lives directly
+  under `Contents/Resources`. So `SchemeEngine` gains one further definition
+  beside it — a bundle-resources path — set **only when the resolved bundle path
+  is a production `.app` path**, which is the `isProductionBundlePath` branch
+  already governing the mirror. Its three values, and what each makes the row
+  do, are the whole of the seam:
+
+  | run | resource root | `companion-installed?` answers |
+  |---|---|---|
+  | installed `.app` | `Contents/Resources` | the real path test |
+  | `swift run` / `swift build` | not defined — no payload was ever assembled | *not installed*; the op is a no-op that says why |
+  | bare `SchemeEngine()` under `swift test` | `root.scm` never runs, so the parameter is never installed | *not installed*, structurally |
+
+  Deriving the payload location from `*scheme-directory*` is the thing not to
+  do: it is a mirror path in production and a source tree in development, and
+  neither one contains a payload.
+
+- **The sweep rule lives in exactly one place, and it selects on identity
+  rather than on a glob.** Removing earlier copies of this extension — and only
+  this extension, because two copies in one window would each bind a socket — is
+  an `rm -rf` inside another application's directory, and two transcriptions of
+  it is one too many. One script inside the bundle performs sweep-and-copy over
+  an already-built payload; `install-vscode-extension.sh` keeps its build step
+  and then delegates to the same logic. Two entry points, one deletion rule.
+
+  **`<publisher>.<name>-*` is not that rule.** VSCode's directory name is
+  `<publisher>.<name>-<version>`, and extension names may contain hyphens — this
+  one's is `modaliser-companion` — so the pattern marks no boundary between name
+  and version, and it matches a distinct sibling such as
+  `antony.modaliser-companion-beta-1.0.0` just as readily as an older copy of
+  this extension. The glob is therefore a *candidate filter* only: each
+  candidate is then confirmed by reading its own `package.json` and requiring
+  `publisher` and `name` to equal this extension's exactly, and a directory that
+  does not parse, or that names something else, is left alone. Sharing one
+  transcription does not make an over-broad predicate safe.
+
+  The cask's `zap trash:` cannot perform that check — it is a path list, not a
+  program — so the two differ deliberately, and the property claimed differs
+  with them. The install-time sweep removes *this extension and nothing else*;
+  `--zap` **reserves the whole `antony.modaliser-companion-*` prefix**, a prefix
+  inside the maintainer's own publisher namespace. That is the honest statement
+  of it, and the stronger claim is made only for the path that can support it.
 
 - **Consent is the act, and it is enumerated before it happens.** The confirm
   dialog names the source directory, the destination, the earlier versions that
   will be removed, and the fact that VSCode must be restarted — the kitty
-  dialog's shape. There is no opt-out to design, because there is nothing to opt
-  out of: absent the user pressing the key and confirming, nothing is written.
+  dialog's shape. Because the act is not kitty's act, it names two further
+  things kitty has no need to: that what is being installed is **extension code
+  which activates in every VSCode window**, and that **a plain `brew uninstall`
+  leaves it behind** — only `brew uninstall --zap`, or removing the directory by
+  hand, takes it away. Those are the two durable effects that make this write
+  different in kind from editing a config file, so the dialog states them rather
+  than leaving them to be discovered. There is no opt-out to design, because
+  there is nothing to opt out of: absent the user pressing the key and
+  confirming, nothing is written.
   The cask additionally learns to `zap` the installed extension, so the tool
   that installed Modaliser can take the extension away again; a plain
   `brew uninstall` leaves it, on the same terms as the user's `config.scm`.
@@ -136,7 +205,10 @@ Modaliser never writes there on its own initiative, in any circumstance.**
   path is a convenience, not a guarantee, and a user may still be running a
   hand-installed or disabled copy. `npm test` stays separate from `swift test`
   (ADR-0023). The write is performed through `(modaliser shell)`, so no new
-  native surface appears and the seam stays inert under test.
+  native *library* appears and the seam stays inert under test. The one host
+  addition is the resource-root definition above — a defined path beside
+  `*scheme-directory*`, not a new native procedure, and not reachable from the
+  portable tree except through the parameter `root.scm` installs.
 
 ## Considered options
 
@@ -149,45 +221,77 @@ Modaliser never writes there on its own initiative, in any circumstance.**
   a different product's answer. **Reopen if** the release ever ships the
   repository alongside the app, which nothing plans.
 
-- **Install silently on detecting a skew.** Rejected on two structural grounds
-  rather than on taste. The trigger would be the `parts` miss, which ADR-0026
-  records as indistinguishable from five other conditions; and the install has
-  no effect until VSCode restarts, so it must tell the user anyway. Once a
-  user-visible moment is forced, silence has bought nothing and has cost the
-  consent — the offer strictly dominates. It would also leave an extension in
-  another application that the user never agreed to and that a plain uninstall
-  does not remove. **Reopen if** VSCode ever gains a live extension-directory
-  scan *and* a reliable "is it installed" signal reaches Modaliser; both are
-  needed, since either alone leaves one of the two grounds standing.
+- **Install without being asked.** Rejected on consent, and *only* on consent —
+  which is a weaker claim than dominance, and the right one. Two shapes hide
+  under this heading and they do not fare alike.
+
+  *Install on a `parts` miss* is genuinely unavailable: ADR-0026 records that
+  signal as indistinguishable from five other conditions, so the trigger fires
+  on transient misses.
+
+  *Install-then-notify* is not. This decision's own path test (above) is exactly
+  the reliable trigger that shape needs — install the bundled version when it is
+  not present, then tell the user to restart VSCode. It is not silent, it
+  repairs every later press, and it costs the user **one action fewer** than
+  offer → confirm → restart. The offer therefore does not *dominate* it; the
+  choice between them is a judgement, and this record makes it as one.
+
+  It is rejected anyway, on the two things it cannot give back: it writes
+  executable code into another application the user never asked it to touch, and
+  after a plain `brew uninstall` it leaves behind an extension the user never
+  agreed to. One extra keypress in exchange for never making an uninvited write
+  into another app is the trade this record chooses, and pricing it that way is
+  the point — it is a preference about consent, not a structural impossibility.
+  **Reopen if** the write stops being uninvited: should Modaliser ever carry a
+  persisted, user-given "keep the companion current" preference, that preference
+  *is* the consent, and install-then-notify becomes the better shape on the same
+  reasoning that rejects it now.
 
 - **Install from the cask's `postflight`.** Technically available. Rejected
   because it acts at Modaliser-install time, when VSCode may be absent and the
   user has not asked; because `brew uninstall` would not reverse it without a
   matching `uninstall delete:`; and because it needs the payload bundled anyway,
-  so it is the silent-install option with brew as the actor and the same consent
-  question unanswered. **Reopen if** Homebrew grows a first-class notion of an
+  so it is the install-without-asking option with brew as the actor, at the
+  worst possible moment, and with the same consent question unanswered. **Reopen if** Homebrew grows a first-class notion of an
   optional, user-confirmed component, which would answer the objection that
   actually carries.
 
 - **Publish to the Visual Studio Marketplace.** The strongest rejected option,
   and the only one that keeps the extension's independent upgrade cadence
   intact — which is the reason the current separation exists, and the one this
-  decision spends. Rejected on ongoing cost and on reversibility, not on merit.
-  It needs a registered publisher identity (the manifest declares
-  `publisher: "antony"` and `private: true`; neither is ready, and changing the
-  publisher id changes the installed directory name and therefore the sweep glob
-  that stops two copies binding two sockets), a credential that expires, and a
-  publish step per protocol change in a repository with no CI. It also **inverts
-  skew causality**: VSCode auto-updates extensions while the cask does not
+  decision spends. Rejected on ongoing cost, not on merit and not on
+  reversibility.
+
+  It needs a **registered publisher identity**. The manifest declares
+  `publisher: "antony"`, which is a local string rather than a Marketplace
+  publisher that exists, and changing the publisher id changes the installed
+  directory name and therefore the sweep predicate that stops two copies binding
+  two sockets. It needs a credential that expires, and a publish step per
+  protocol change in a repository with no CI. (The manifest's `private: true` is
+  *not* evidence either way, and is deliberately not cited as such: it is npm's
+  flag for "do not `npm publish`", and `vsce` ignores it — its manifest
+  processor sets Marketplace packages to `Public` unconditionally.)
+
+  The argument that actually carries is that publishing **inverts skew
+  causality**: VSCode auto-updates extensions while the cask does not
   auto-update Modaliser, so the extension can move past Modaliser while the user
   does nothing, and an operation that worked yesterday goes quiet for a reason
-  the user did not cause. Today every skew is user-caused. Against that,
-  bundling is reversible — the payload stops being bundled and the row's action
-  becomes "open the Marketplace page" — while a published extension with
-  installs is not quietly withdrawn. **Reopen if** Modaliser gains VSCode users
-  who are not the maintainer, or if the extension starts needing releases of its
-  own between Modaliser releases. Either is the signal that the cadence this
-  decision spent has become worth paying for.
+  the user did not cause. Today every skew is user-caused.
+
+  Reversibility is *not* a clean asymmetry, and is not offered as one. Stopping
+  bundling does not remove the copies already under `~/.vscode/extensions` — the
+  consent bullet above says exactly that — and unpublishing a Marketplace
+  extension is a documented operation rather than an impossible one, which also
+  leaves installed copies behind. Both channels leave migration work once anyone
+  has installed a copy; what differs is who those installers are and whether
+  they can be reached at all.
+
+  **Reopen if** an external user asks for the extension through a channel the
+  maintainer actually sees — a Marketplace request, an issue, a mail — or if the
+  extension needs a release of its own between two Modaliser releases. Both
+  arrive in the maintainer's inbox. "Modaliser gains VSCode users who are not
+  the maintainer" was the earlier condition, and it is not observable without
+  telemetry this project does not have and does not want.
 
 - **Commit a `.vsix` and install it with `code --install-extension`.** Rejected
   when the installer was written, and still rejected for the same reason: a
@@ -210,9 +314,13 @@ Modaliser never writes there on its own initiative, in any circumstance.**
 
 - **Modaliser writes outside `~/.config/modaliser` for the first time in this
   area, and the enumeration is the whole of it**: it creates
-  `~/.vscode/extensions/<publisher>.<name>-<version>/`, and it removes earlier
-  directories matching `<publisher>.<name>-*`. Nothing else under `~/.vscode` is
-  read, written or removed, and none of it happens without a confirmed dialog.
+  `~/.vscode/extensions/<publisher>.<name>-<version>/`, and it removes those
+  directories matching `<publisher>.<name>-*` whose own `package.json` names
+  *this* publisher and name — the glob proposes, the manifest confirms. Nothing
+  else under `~/.vscode` is read, written or removed, and none of it happens
+  without a confirmed dialog. The cask's `zap` is the one place that cannot
+  check a manifest, so it claims less: it reserves the
+  `antony.modaliser-companion-*` prefix rather than this extension alone.
 
 - **`~/.vscode/extensions` is the only destination.** VSCode Insiders and other
   variants keep their extensions elsewhere and are not served; that matches what

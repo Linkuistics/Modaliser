@@ -205,11 +205,16 @@
 ;; accessibility tree was designed, reviewed and rejected on what the
 ;; rendering costs (ADR-0026, considered options).
 ;;
-;; The peer is `vscode-extension/` in this repository, installed
-;; separately by `scripts/install-vscode-extension.sh` — it targets a
-;; different application and has its own upgrade cadence, so it is not
-;; a step inside `install.sh` and `build-app.sh`'s exact-mirror
-;; invariant (ADR-0019) does not cover it.
+;; The peer is `vscode-extension/` in this repository, installed today
+;; by `scripts/install-vscode-extension.sh` — not a step inside
+;; `install.sh`, and not covered by `build-app.sh`'s exact-mirror
+;; invariant (ADR-0019), so nothing fails a Modaliser build if it goes
+;; stale. ADR-0028 reverses the distribution half of that: the
+;; extension ships inside the app bundle and installs on the user's
+;; confirmed request, because the release tarball carries no `scripts/`
+;; directory. The independent upgrade cadence is what that decision
+;; spends, not a property it protects. Until the build leaf lands, the
+;; script above is what runs.
 ;;
 ;; THE TRANSPORT IS NOT NEW. It is ADR-0020's, built for herdr and
 ;; reused unchanged: newline-delimited JSON over a Unix-domain socket,

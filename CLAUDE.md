@@ -69,10 +69,14 @@ reader holding this repository, and it stopped covering the cask user, whose
 release tarball is `Modaliser.app`, `README.md` and `LICENSE` and contains no
 `scripts/` at all. ADR-0028 decides that `build-app.sh` builds the extension into
 the bundle and Modaliser copies it into `~/.vscode/extensions` **only on the
-user's confirmed request**, through the `configure!` op shape `apps/kitty.sld`
-already uses. Until that leaf lands the separate installer is still what runs,
-which is why `README.md`, `docs/how-to/index.md`, `docs/reference/libraries.md`,
-`examples/vscode.scm` and `apps/vscode.sld` still describe it.
+user's confirmed request**, borrowing the *mechanics* of the `configure!` op
+shape `apps/kitty.sld` already uses — but not its consent argument, since none
+of the three terminal ops installs code that activates by itself. Until that
+leaf lands the separate installer is still what runs, which is why
+`README.md`, `docs/how-to/index.md`, `docs/reference/libraries.md`,
+`examples/vscode.scm`, `apps/vscode.sld` and the extension's own
+`vscode-extension/README.md` still describe it — six files, and the last is the
+one that will ship *inside* the payload.
 
 There is no CI in this repository and no separate lint step.
 `check-portable-surface.sh` and `check-decision-free.sh` are the two bespoke

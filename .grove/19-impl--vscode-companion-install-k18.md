@@ -8,9 +8,12 @@ extension into the app bundle, and Modaliser installs it into
 `configure!` op shape `apps/kitty.sld` already uses. Then reconcile the five
 files still describing the old install path.
 
-**Read `docs/adr/0028-…` first; it is the contract, not a summary of one.** If
-`review-design--vscode-extension-packaging-k19` produced findings and an
-integration ran, read that too — the ADR may have moved.
+**Read `docs/adr/0028-…` first; it is the contract, not a summary of one.**
+`review-design--vscode-extension-packaging-k19` raised six findings and
+`integrate-review-design--vscode-extension-packaging-k20` applied all six, so
+**the ADR has moved** and four of them changed this leaf's work. Those changes
+are folded into the sections below; k19's task file carries the reasoning if an
+instruction here reads as arbitrary.
 
 ## Context
 
@@ -35,10 +38,29 @@ order rather than importance.
    fixed-name file beside the payload, and the op reads it with the
    `read-file-text` that already exists.
 
+   **The payload's *location* needs a host input that does not exist yet, and
+   supplying it is part of this leaf (k19 F1).** `root.scm` can default the
+   socket pointer because `$HOME` is visible to Scheme; a bundle resource root is
+   not. The only path Swift defines is `*scheme-directory*`, and it is the
+   **wrong** one — in production `SysSync` redirects it to
+   `~/.config/modaliser/sys/scheme`, while the payload sits directly under
+   `Contents/Resources`. Do **not** derive the payload path from it. Add a second
+   definition beside it in `SchemeEngine`, a bundle-resources path, set **only**
+   on the `isProductionBundlePath` branch that already governs the mirror;
+   ADR-0028 tabulates the three values it must take (installed `.app`,
+   `swift run`, bare `SchemeEngine()`) and what each makes `companion-installed?`
+   answer. A `swift run` has never assembled a payload, so *undefined* there is
+   correct rather than a gap.
+
 3. **`(modaliser apps vscode)` gains `install-companion!` and
    `companion-installed?`.** Follow `apps/kitty.sld:423` closely — the
    `dialog-confirm` enumerating exactly what will be written, the write through
    `(modaliser shell)`, idempotence, the re-probe, the closing "restart VSCode".
+   **The dialog says two things kitty's does not (k19 F4):** that this installs
+   extension code which activates in every VSCode window, and that a plain
+   `brew uninstall` leaves it behind — only `--zap` or a manual delete removes
+   it. kitty's analogy covers the op's mechanics, not this act's consent, and
+   those two lines are what closes the gap.
    The library authors **no key and no label** (ADR-0021); kitty proves a dialog
    *message* is not a label for `check-decision-free.sh`, but run it and see.
    Two seams the ADR requires, both defaulting to *not configured* and both
@@ -52,10 +74,19 @@ order rather than importance.
 4. **The sweep-and-copy logic ships once.** One script inside the bundle does
    sweep-then-copy over an already-built payload;
    `scripts/install-vscode-extension.sh` keeps its build step and delegates the
-   rest to it. The deletion is `rm -rf` over `<publisher>.<name>-*` in another
-   application's directory — it is the sharpest line in this leaf, it must exist
-   in exactly one place, and its glob must be incapable of matching anything but
-   this extension.
+   rest to it. The deletion is an `rm -rf` in another application's directory —
+   the sharpest line in this leaf, and it must exist in exactly one place.
+
+   **`<publisher>.<name>-*` alone is not a safe predicate, and the existing
+   installer's `find … -name` is the bug (k19 F2).** Extension names may contain
+   hyphens and this one's is `modaliser-companion`, so the pattern marks no
+   name/version boundary and matches a distinct sibling such as
+   `antony.modaliser-companion-beta-1.0.0`. Treat the glob as a *candidate
+   filter* and confirm each candidate by reading its own `package.json`,
+   requiring `publisher` and `name` to equal this extension's exactly before
+   removing it; leave alone anything that does not parse or that names something
+   else. `install-vscode-extension.sh`'s current sweep is fixed by the act of
+   delegating — it inherits the check rather than keeping its own.
 
 5. **The release path learns about npm.** `scripts/release-doctor.sh` gains an
    `npm` row naming its remediation, as its existing rows do, and
@@ -66,8 +97,12 @@ order rather than importance.
 6. **The cask learns to remove it.** `scripts/templates/modaliser.rb.tmpl` gains
    a `zap trash:` entry for `~/.vscode/extensions/<publisher>.<name>-*`, on the
    same terms as `~/.config/modaliser`: `--zap` removes it, a plain uninstall
-   leaves it. **Confirm a cask `zap trash:` actually accepts a glob** before
-   resting on it; ADR-0028 asserts it without evidence in the tree.
+   leaves it. k19 cleared the glob against Homebrew's Cask Cookbook (`trash:`
+   follows `delete:` path rules, and those glob-expand); confirm it on the real
+   cask anyway. Note that this one path **cannot** run the manifest check above —
+   it is a path list, not a program — so it reserves the whole
+   `antony.modaliser-companion-*` prefix, and ADR-0028 now states that weaker
+   claim for the cask deliberately. Do not "tidy" it back to the stronger one.
 
 **The offer's surface is a row in the user's config, not a menu item.**
 `examples/vscode.scm` carries it — key, label and the `'hidden` gate paired with
@@ -76,16 +111,33 @@ installed, and returns after a Modaliser upgrade outruns it. That gate is the
 whole reason the predicate is a path test rather than a `parts` probe: a socket
 miss cannot tell *absent* from *unreachable* (ADR-0026), and a path test can.
 
-**The five files still describing the old install path** — k16 left these
+**The six files still describing the old install path** — k16 left five
 standing deliberately, because a document describing machinery that does not
 exist yet is a lie in the tree. They become true when this leaf lands, and they
 are the leaf's work:
 
-    README.md:48-56                                        (shipped in the tarball)
+    README.md                                              (shipped in the tarball)
     docs/how-to/index.md:67-71
-    docs/reference/libraries.md:864-871
+    docs/reference/libraries.md
     Sources/Modaliser/Scheme/examples/vscode.scm:275-280
-    Sources/Modaliser/Scheme/lib/modaliser/apps/vscode.sld:205-212
+    Sources/Modaliser/Scheme/lib/modaliser/apps/vscode.sld
+    vscode-extension/README.md                             (shipped IN the payload)
+
+**The sixth is k19's F3 and it is not optional.** ADR-0028 requires
+`vscode-extension/README.md` to be copied into the bundled payload, and it
+currently tells the reader to run the repository-only installer and states the
+separation being reversed as current. Satisfying every other row here exactly
+while leaving it alone would ship a new app whose bundled README asserts the
+decision ADR-0028 reversed and names a script no cask user has — the very defect
+this leaf exists to remove.
+
+Three of the six — `README.md`, `docs/reference/libraries.md` and
+`apps/vscode.sld` — were additionally **qualified** by k20 rather than left
+asserting the reversed rationale, because "upgrades on its own cadence" is a
+claim about the present rather than a description of unbuilt machinery. Each now
+names ADR-0028 and marks the script as what runs *until this leaf lands*. Remove
+those qualifiers as well as the commands: the sentence to end up with states the
+new path plainly, with no "until that lands" left anywhere.
 
 `README.md` is the urgent one: it ships *inside the release tarball* and today
 instructs the reader to run a script that tarball does not contain. That defect
@@ -119,14 +171,24 @@ those words, so each needs its qualifier removed** once it is built.
   the installed one.
 - Nothing is written to `~/.vscode` without a confirmed dialog, and the seams
   default to *not configured* so `swift test` reaches neither the bundle nor the
-  extensions directory.
+  extensions directory. The dialog carries the two disclosures ADR-0028 requires
+  (activating code; a plain `brew uninstall` leaves it).
+- The sweep deletes only directories whose own `package.json` names this
+  publisher and name — demonstrated by a decoy directory
+  (`antony.modaliser-companion-beta-1.0.0`, or another manifest under a matching
+  prefix) surviving an install.
+- `SchemeEngine` defines the bundle-resources path only inside an `.app`, and a
+  `swift run` therefore reports *not installed* with a log line saying why —
+  never an error and never a guess at a path.
 - `swift build`, `swift test`, `./scripts/check-portable-surface.sh`,
   `./scripts/check-decision-free.sh`, and `npm test` in `vscode-extension/` are
   all green.
 - `./scripts/release-doctor.sh` reports the npm requirement, and
   `docs/RELEASING.md` lists it.
-- All five files above describe the new path, and the "not built yet" qualifiers
-  in `CLAUDE.md`, the spec's *Out of scope* and the installer header are gone.
+- All **six** files above describe the new path — including the payload's own
+  `vscode-extension/README.md` — and every "not built yet" qualifier is gone:
+  `CLAUDE.md`, the spec's *Out of scope*, the installer header, and the three
+  k20 added to `README.md`, `docs/reference/libraries.md` and `apps/vscode.sld`.
 
 ## Notes
 
@@ -137,6 +199,9 @@ those words, so each needs its qualifier removed** once it is built.
   restart VSCode and the install can never repair the press that asked for it.
 - `~/.vscode/extensions` is the only destination; Insiders and other variants are
   out of scope, matching what the script does today (ADR-0028, Consequences).
-- A signed `.app` is the thing being shipped — check that a shell script inside
-  `Contents/Resources/`, invoked through the shell seam, runs without signature
-  or quarantine trouble. ADR-0028 assumes it does.
+- A signed `.app` is the thing being shipped. k19 cleared the *placement*
+  against Apple's Code Signing Guide (non-Mach-O executables belong in
+  `Contents/Resources`, where the outer signature seals them in `CodeResources`)
+  and against the cask's recursive quarantine strip — so the shape is supported.
+  Still drive it end-to-end on a real installed app rather than resting on that:
+  the clearance is about placement, not about this script.

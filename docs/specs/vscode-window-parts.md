@@ -1128,8 +1128,11 @@ side because the check does.
   leaf's to build. **Until it is built, `scripts/install-vscode-extension.sh` is
   still how the extension is installed**, and the surrounding prose in
   `README.md`, `docs/how-to/index.md`, `docs/reference/libraries.md`,
-  `examples/vscode.scm` and `apps/vscode.sld` still describes that script
-  because it is still what runs.
+  `examples/vscode.scm`, `apps/vscode.sld` and the extension's own
+  `vscode-extension/README.md` still describes that script because it is still
+  what runs. Six files, and the last of them will ship *inside* the bundled
+  payload, which is why ADR-0028 names it explicitly rather than leaving it to
+  be noticed.
 
 ## See also
 

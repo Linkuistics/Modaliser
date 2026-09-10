@@ -872,9 +872,13 @@ ADR-0027 records how one window is addressed among several;
 
 Three things to know before using the surface:
 
-- **It is a separate install.** The extension targets a different application
-  and upgrades on its own cadence, so `install.sh` does not touch it and
-  `build-app.sh`'s exact-mirror invariant (ADR-0019) does not cover it. The
+- **It is a separate install — for now.** `install.sh` does not touch it and
+  `build-app.sh`'s exact-mirror invariant (ADR-0019) does not cover it, so
+  nothing fails a Modaliser build if the extension goes stale. ADR-0028 has
+  reversed the distribution half of that: the extension is to ship inside the
+  app bundle and install on the user's confirmed request, which spends the
+  independent upgrade cadence deliberately. Until that lands the script above is
+  what runs. The
   reply carries a protocol version and a mismatch is answered with `#f`, so a
   skew is an empty panel and a log line rather than misread fields.
 - **Every miss is `#f`.** Extension not installed, not yet activated, disabled
