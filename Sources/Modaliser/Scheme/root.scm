@@ -55,7 +55,10 @@
         ;; vscode) is the user's config's to import, under its own prefix.
         (only (modaliser apps vscode)
               current-vscode-socket-pointer-path
-              vscode-default-socket-pointer-path)
+              vscode-default-socket-pointer-path
+              ;; And the payload the companion install op copies from
+              ;; (ADR-0028) — host knowledge, installed below.
+              current-vscode-companion-payload-dir)
         ;; The only import of the native HTTP library in the tree; the seam
         ;; imported above is what everything else calls. The install is a few
         ;; lines below, with the rest of the host wiring.
@@ -100,6 +103,38 @@
 ;; ARGUMENT rather than resolving one — so there is no path by which a test
 ;; could dial a live editor, however it stubs its seams (ADR-0023).
 (current-vscode-socket-pointer-path (vscode-default-socket-pointer-path))
+
+;; And once more for the bundled companion payload (ADR-0028). This one has no
+;; portable default at all, and that is the difference worth noticing: the
+;; socket pointer is derived from $HOME, which Scheme can see, but a bundle
+;; resource root cannot be derived from anything Scheme can see. So Swift
+;; defines it — `*bundle-resources-directory*`, set to a real path ONLY inside
+;; an installed .app (SchemeEngine), and #f otherwise.
+;;
+;; Note which host path this is NOT. `*scheme-directory*` is the wrong one: in
+;; production SysSync deliberately redirects it to ~/.config/modaliser/sys/scheme
+;; (ADR-0019), and in development it is the source tree — neither holds a
+;; payload.
+;;
+;; #f here means "no payload in this build", which is the honest answer for a
+;; `swift run`: nothing ever assembled one. The library then reports the
+;; companion as not installed and its install op is a no-op that logs why. A
+;; bare SchemeEngine() never reaches this line at all, so `swift test` touches
+;; neither the bundle nor ~/.vscode (ADR-0023).
+(current-vscode-companion-payload-dir
+  (and (string? *bundle-resources-directory*)
+       (string-append *bundle-resources-directory* "/ModaliserCompanion")))
+
+;; log-line, not `log`: `log` is display + newline, which reaches the context
+;; delegate's NSLog and is therefore INVISIBLE in the unified log from an
+;; installed .app — and an installed .app is the only run where this line says
+;; anything a reader could not already work out. Which build carries a payload
+;; is the first thing to check when the install row is not where it was
+;; expected, so it goes on the queryable channel.
+(log-line
+  (string-append "Modaliser: VSCode companion payload "
+                 (or (current-vscode-companion-payload-dir)
+                     "(none — not an installed .app)")))
 
 ;; And once more for the one outward reach that leaves the machine entirely:
 ;; fetching a URL (ADR-0023). `(modaliser http)` ships `current-http-runner` as

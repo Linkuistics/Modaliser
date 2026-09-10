@@ -205,16 +205,21 @@
 ;; accessibility tree was designed, reviewed and rejected on what the
 ;; rendering costs (ADR-0026, considered options).
 ;;
-;; The peer is `vscode-extension/` in this repository, installed today
-;; by `scripts/install-vscode-extension.sh` — not a step inside
-;; `install.sh`, and not covered by `build-app.sh`'s exact-mirror
-;; invariant (ADR-0019), so nothing fails a Modaliser build if it goes
-;; stale. ADR-0028 reverses the distribution half of that: the
-;; extension ships inside the app bundle and installs on the user's
-;; confirmed request, because the release tarball carries no `scripts/`
-;; directory. The independent upgrade cadence is what that decision
-;; spends, not a property it protects. Until the build leaf lands, the
-;; script above is what runs.
+;; The peer is `vscode-extension/` in this repository. It SHIPS INSIDE
+;; `Modaliser.app` — `build-app.sh` builds it into `Contents/Resources`
+;; — and Modaliser copies it into `~/.vscode/extensions` only when the
+;; user presses a row and confirms (ADR-0028). Nothing writes there on
+;; Modaliser's initiative. The last section of this library is that op.
+;; It is bundled rather than left to a script because the release
+;; tarball is `Modaliser.app`, `README.md` and `LICENSE`, so a cask user
+;; has no `scripts/` directory; the cost is the extension's independent
+;; upgrade cadence, which that decision spends knowingly.
+;;
+;; It is still NOT covered by `build-app.sh`'s exact-mirror invariant
+;; (ADR-0019), which stops at `Scheme/`: the payload's freshness is
+;; structural — it is compiled by the step immediately before the copy —
+;; rather than checked, and an INSTALLED copy can be older than the
+;; bundled one, which is exactly what the install row's gate notices.
 ;;
 ;; THE TRANSPORT IS NOT NEW. It is ADR-0020's, built for herdr and
 ;; reused unchanged: newline-delimited JSON over a Unix-domain socket,
@@ -437,7 +442,38 @@
           terminal-provider
           terminal-listing
           editor-provider
-          editor-listing)
+          editor-listing
+
+          ;; ── Installing the companion (vscode-companion-install-k18) ─
+          ;; ADR-0028: the extension ships inside the .app and is copied
+          ;; into ~/.vscode/extensions only on the user's confirmed
+          ;; request. The user's config binds the key and the label
+          ;; (ADR-0021); this library carries the op and the gate.
+          ;;
+          ;; Where the payload is, is HOST knowledge. The parameter's
+          ;; default is #f — "no payload in this build" — and root.scm
+          ;; installs the real path at boot, exactly as it installs the
+          ;; socket pointer above. Un-configured, the predicate answers
+          ;; not-installed and the op is a no-op that logs why, which is
+          ;; what keeps `swift test` away from both the bundle and
+          ;; ~/.vscode (ADR-0023).
+          current-vscode-companion-payload-dir
+          ;; (companion-installed?) → is THIS build's version already in
+          ;; ~/.vscode/extensions. Cached; pair it with a row as a
+          ;; 'hidden gate and the row retires itself, returning when an
+          ;; upgrade ships a newer payload than what is on disk.
+          companion-installed?
+          ;; (install-companion!) → confirm, copy, re-probe. Idempotent.
+          install-companion!
+          ;; The pure halves, which is where the tests land:
+          ;;   (companion-identity)         → '<publisher>.<name>-<ver>'
+          ;;   (companion-install-dir)      → where it would land
+          ;;   (companion-install-command)  → what would be spawned
+          ;;   (companion-install-succeeded? TRANSCRIPT) → did it work
+          companion-identity
+          companion-install-dir
+          companion-install-command
+          companion-install-succeeded?)
   (import (scheme base)
           (scheme char)
           ;; get-environment-variable, for $HOME in the state-file path.
@@ -480,11 +516,18 @@
           ;; which is why blocks/part-list is not written twice.
           (only (modaliser blocks project-list) make-project-list-block)
           (only (modaliser blocks part-list) make-part-list-block)
-          ;; The canonical POSIX single-quote escaper: a path out of an
-          ;; editor's stored state is arbitrary text going into a shell
-          ;; word.
-          (only (modaliser dialogs) sq-escape)
-          (only (modaliser shell) run-shell-async)
+          ;; sq-escape: the canonical POSIX single-quote escaper — a path
+          ;; out of an editor's stored state, or out of a bundle that may
+          ;; sit anywhere, is arbitrary text going into a shell word.
+          ;; dialog-confirm: the companion install is a confirmed act and
+          ;; never happens without one (ADR-0028).
+          (only (modaliser dialogs) sq-escape dialog-confirm dialog-info)
+          ;; log-line: the one Scheme-facing diagnostic primitive. A
+          ;; confirmed write that fails must say so where an installed .app
+          ;; can be queried — (modaliser util)'s `log` reaches the context
+          ;; delegate's NSLog and is invisible there.
+          (modaliser log)
+          (only (modaliser shell) run-shell run-shell-async)
           ;; Narrowly, for the PATH preamble — as every CLI-driven module
           ;; in the tree does.
           (only (modaliser terminal) tool-path-prefix))
@@ -1632,4 +1675,224 @@
       (make-part-list-block
         'id          editor-block-id
         'assigned-fn (lambda () *current-editors-assigned*)))
+
+    ;; ─── Installing the companion (vscode-companion-install-k18) ────
+    ;;
+    ;; ADR-0028. The extension ships inside `Modaliser.app` and is copied
+    ;; into `~/.vscode/extensions` only when the user presses a key and
+    ;; confirms. Modaliser never writes there on its own initiative, in
+    ;; any circumstance, and there is no opt-out to design because there
+    ;; is nothing to opt out of.
+    ;;
+    ;; The op shape is `apps/kitty.sld`'s `configure!` — confirm,
+    ;; provision through the portable shell seam, re-probe, tell the user
+    ;; to relaunch the target app — and the shape is ALL that is
+    ;; borrowed. kitty edits a text config and backs it up first; this
+    ;; installs executable code into another application, where it
+    ;; activates in every window that application opens and outlives
+    ;; Modaliser's own uninstall. So the dialog says two things kitty's
+    ;; has no need to, and they are not decoration: what is installed is
+    ;; activating code, and a plain `brew uninstall` leaves it behind.
+    ;;
+    ;; WHERE THE PAYLOAD IS is host knowledge and cannot be named from
+    ;; the portable tree, so it arrives as a parameter defaulting to #f —
+    ;; the same quarantine as the socket pointer above, installed by
+    ;; `root.scm` at boot. Un-configured, `companion-installed?` answers
+    ;; *not installed* and `install-companion!` is a no-op that logs why:
+    ;; a `swift run` never assembled a payload, and a bare
+    ;; `SchemeEngine()` never runs `root.scm` at all, so `swift test`
+    ;; reaches neither the bundle nor the extensions directory (ADR-0023).
+    ;;
+    ;; The EXISTENCE PROBE needs no seam of its own: it runs through
+    ;; `run-shell`, which is already the inert-by-default seam and which
+    ;; a test already installs a canned answer on. A second parameter
+    ;; would be a second thing to keep inert and would buy no guarantee
+    ;; the first does not already give.
+    ;;
+    ;; THREE PATHS, ONE PARAMETER. The bundle carries the payload
+    ;; directory and two siblings derived from it by suffix — `.id`,
+    ;; the `<publisher>.<name>-<version>` string this build ships, and
+    ;; `.install.sh`, the single transcription of the sweep-and-copy
+    ;; rule. The suffix derivation is why one parameter suffices and why
+    ;; nothing here has to take a path apart: the portable tree has no
+    ;; directory listing and does not index strings (ADR-0025, ADR-0027).
+    ;;
+    ;; WHY AN IDENTITY FILE AND NOT THE PAYLOAD'S OWN MANIFEST. The
+    ;; predicate is read on every overlay render — a row gated on it is
+    ;; re-evaluated each time the panel draws — so it must be cheap. One
+    ;; `read-file-text` of a pre-computed line is; parsing a manifest is
+    ;; not. `build-app.sh` stamps the file from that same manifest, so
+    ;; there is still one source of truth.
+
+    ;; A whole shell WORD: sq-escape handles the content, this adds the
+    ;; quotes the content is escaped for. A bundle path is arbitrary text
+    ;; the moment the .app is somewhere with a quote in its name.
+    (define (sq-quote s)
+      (string-append "'" (sq-escape s) "'"))
+
+    (define current-vscode-companion-payload-dir (make-parameter #f))
+
+    (define (companion-identity)
+      (let ((dir (current-vscode-companion-payload-dir)))
+        (and (string? dir)
+             (let ((id (string-trim (read-file-text (string-append dir ".id")))))
+               (and (not (string=? id "")) id)))))
+
+    ;; Where an installed copy of THIS build's version would sit. The
+    ;; only destination there is: VSCode Insiders and other variants keep
+    ;; their extensions elsewhere and are out of scope (ADR-0028).
+    (define (companion-install-dir)
+      (let ((id (companion-identity)))
+        (and id
+             (string-append (or (get-environment-variable "HOME") "")
+                            "/.vscode/extensions/" id))))
+
+    ;; The command `install-companion!` would spawn. Pure, and exported
+    ;; because it is where a test pins that the shipped sweep script is
+    ;; what runs and that the payload is what it is pointed at.
+    ;;
+    ;; `2>&1` and the status echo are not decoration. `run-shell` hands
+    ;; back STDOUT and nothing else — no exit code, no stderr — so
+    ;; without these every way this can fail (a candidate directory the
+    ;; sweep cannot remove, a full disk mid-copy, a tampered bundle with
+    ;; no script in it) would be perfectly silent to a user who had just
+    ;; confirmed a write. A user who consents to an act is owed the
+    ;; outcome of it, so the status comes back on stdout where the one
+    ;; seam this library has can see it.
+    (define companion-status-prefix "modaliser-install-status=")
+
+    (define (companion-install-command)
+      (let ((dir (current-vscode-companion-payload-dir)))
+        (and (string? dir)
+             (string-append (sq-quote (string-append dir ".install.sh"))
+                            " " (sq-quote dir)
+                            " 2>&1; echo \"" companion-status-prefix "$?\""))))
+
+    ;; The transcript of a run → #t iff it ended in status 0. Pure, and
+    ;; the half worth a test: a run whose script vanished produces no
+    ;; status line at all, which must read as failure rather than as
+    ;; success-by-absence.
+    (define (companion-install-succeeded? transcript)
+      (and (string? transcript)
+           (string-contains? transcript
+                             (string-append companion-status-prefix "0"))))
+
+    ;; The file the sweep script writes LAST, once the copy has finished.
+    ;; Testing for THIS rather than for the directory is what stops a
+    ;; half-finished copy — a full disk, an I/O error after the mkdir —
+    ;; reading as *installed* and retiring the only row that could repair
+    ;; it. "Installed" has to mean "the copy completed", and a directory
+    ;; test cannot mean that.
+    (define companion-marker-name ".modaliser-installed")
+
+    ;; Is the version this build ships already installed? A PATH TEST,
+    ;; deliberately not a `parts` probe: a socket miss cannot tell absent
+    ;; from unreachable (ADR-0026), and this gates a row. An OLDER
+    ;; installed copy reads as not-installed, which is what brings the
+    ;; row back after a Modaliser upgrade outruns it — and so does a copy
+    ;; put there by hand or by an older Modaliser, which carries no
+    ;; marker. Offering that user a reinstall is harmless and is the
+    ;; right offer.
+    (define (companion-probe-installed?)
+      (let ((target (companion-install-dir)))
+        (and (string? target)
+             (string=?
+               "yes"
+               (string-trim
+                 (run-shell
+                   (string-append "[ -f "
+                                  (sq-quote (string-append
+                                              target "/" companion-marker-name))
+                                  " ] && echo yes || echo no")))))))
+
+    ;; Cached, for kitty's reason: a row gated on the predicate has the
+    ;; overlay reading it on every render. 'unknown forces a one-time
+    ;; lazy probe; the refresh after provisioning is what retires the row
+    ;; without a Modaliser relaunch.
+    (define *companion-installed* 'unknown)
+
+    (define (companion-installed?)
+      (when (eq? *companion-installed* 'unknown)
+        (set! *companion-installed* (companion-probe-installed?)))
+      *companion-installed*)
+
+    ;; Record an answer we already have, rather than paying for it
+    ;; twice. The idempotent branch of `install-companion!` below has
+    ;; just probed; re-probing there would spawn a second subprocess per
+    ;; press to learn what the first one said.
+    (define (companion-note-installed! value)
+      (set! *companion-installed* value)
+      value)
+
+    (define (companion-refresh-installed!)
+      (companion-note-installed! (companion-probe-installed?)))
+
+    (define (companion-install-dialog-message)
+      (string-append
+        "Install Modaliser's VSCode companion extension?\n\n"
+        "It is what lets the Terminals and Editors panels list what is "
+        "open inside a VSCode window — nothing outside VSCode carries "
+        "that state.\n\n"
+        "Choosing Install will:\n\n"
+        "  - Copy " (or (current-vscode-companion-payload-dir) "?") "\n"
+        "       to " (or (companion-install-dir) "?") "\n"
+        "  - Remove any earlier version of this same extension from\n"
+        "       ~/.vscode/extensions (VSCode would otherwise load two)\n"
+        "  - Create ~/.vscode/extensions if VSCode has not yet, and read,\n"
+        "       write or remove nothing else under ~/.vscode\n\n"
+        "Two things worth knowing before you do:\n\n"
+        "  - This installs EXTENSION CODE, which VSCode then activates "
+        "in every window it opens.\n"
+        "  - Uninstalling Modaliser does NOT remove it. "
+        "`brew uninstall --zap modaliser`, or deleting the directory by "
+        "hand, is what takes it away.\n\n"
+        "VSCode scans ~/.vscode/extensions at startup, so you'll need to "
+        "restart VSCode afterwards."))
+
+    ;; The op a configuration binds. Confirm (async, ADR-0014 — the
+    ;; dialog fires through the slim dialogs library so the Scheme thread
+    ;; stays free while it is up), copy, re-probe. Idempotent: pressed
+    ;; while the shipped version is already installed it just syncs the
+    ;; cache and returns, no dialog.
+    ;;
+    ;; Pairing it with `companion-installed?` as a 'hidden gate is what
+    ;; makes the row retire itself, and what brings it back when a
+    ;; Modaliser upgrade ships a newer payload than what is on disk:
+    ;;
+    ;;   (key "I" "Install VSCode Companion" code:install-companion!
+    ;;        'hidden code:companion-installed?)
+    (define (install-companion!)
+      (let ((command (companion-install-command)))
+        (cond
+          ((or (not command) (not (companion-identity)))
+           ;; No payload: a `swift run`, or an .app assembled without one.
+           ;; Says so and does nothing — never an error, never a guess.
+           (log "Modaliser: no VSCode companion payload in this build — "
+                "nothing to install (ADR-0028)")
+           #f)
+          ((companion-probe-installed?)
+           ;; Already installed — the press landed while the row was
+           ;; hidden, or the cache was stale. Sync it and return; no
+           ;; dialog, nothing written.
+           (companion-note-installed! #t))
+          (else
+            (dialog-confirm (companion-install-dialog-message)
+              (lambda (continue?)
+                (when continue?
+                  (let ((transcript (run-shell command)))
+                    (companion-refresh-installed!)
+                    (unless (companion-install-succeeded? transcript)
+                      (log-line
+                        (string-append
+                          "Modaliser: VSCode companion install FAILED — "
+                          transcript))
+                      (dialog-info
+                        (string-append
+                          "Modaliser could not install the VSCode companion "
+                          "extension.\n\nNothing may have been changed, or the "
+                          "install may be half-finished — the transcript says "
+                          "which:\n\n" transcript))))))
+              'title "Install VSCode Companion"
+              'ok-label "Install"
+              'icon "caution")))))
 ))

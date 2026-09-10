@@ -51,32 +51,33 @@ else falls back to ad-hoc signing. `scripts/release-*.sh` drive the Homebrew-cas
 release flow — **`docs/RELEASING.md` is the runbook**; the scripts carry the
 reasoning for individual guards, that page carries the procedure.
 
-`vscode-extension/` is the repo's only TypeScript, and it is **not part of the
-`.app`**: a companion VSCode extension answering what is open inside a VSCode
-window, over the ADR-0020 socket transport (ADR-0026, ADR-0027,
-`docs/specs/vscode-window-parts.md`). It has its own `npm test` (tsc + the
-built-in Node test runner, against fakes of the VSCode API — nothing in the
-Swift suite reaches it) and its own installer,
-`./scripts/install-vscode-extension.sh`, separate from `install.sh`. Note the
-consequence: **ADR-0019's exact-mirror invariant covers `Scheme/` only**, so
-nothing fails a Modaliser build if the extension goes stale. What catches a skew
-instead is the protocol version in its reply, which Modaliser answers with an
-empty panel and a log line.
+`vscode-extension/` is the repo's only TypeScript: a companion VSCode extension
+answering what is open inside a VSCode window, over the ADR-0020 socket
+transport (ADR-0026, ADR-0027, `docs/specs/vscode-window-parts.md`). It has its
+own `npm test` (tsc + the built-in Node test runner, against fakes of the VSCode
+API — nothing in the Swift suite reaches it).
 
-**Do not read that separation as settled doctrine — ADR-0028 has reversed it and
-the change is not built yet.** The reasoning that supported it was written for a
-reader holding this repository, and it stopped covering the cask user, whose
-release tarball is `Modaliser.app`, `README.md` and `LICENSE` and contains no
-`scripts/` at all. ADR-0028 decides that `build-app.sh` builds the extension into
-the bundle and Modaliser copies it into `~/.vscode/extensions` **only on the
-user's confirmed request**, borrowing the *mechanics* of the `configure!` op
-shape `apps/kitty.sld` already uses — but not its consent argument, since none
-of the three terminal ops installs code that activates by itself. Until that
-leaf lands the separate installer is still what runs, which is why
-`README.md`, `docs/how-to/index.md`, `docs/reference/libraries.md`,
-`examples/vscode.scm`, `apps/vscode.sld` and the extension's own
-`vscode-extension/README.md` still describe it — six files, and the last is the
-one that will ship *inside* the payload.
+**It ships inside the `.app` but is not part of the Swift build** (ADR-0028).
+`build-app.sh` runs the extension's own `npm` build and drops three siblings
+into `Contents/Resources` — `ModaliserCompanion/` (the payload),
+`ModaliserCompanion.id` (its `<publisher>.<name>-<version>`, because the
+portable tree has no directory listing) and `ModaliserCompanion.install.sh`
+(the one and only transcription of the sweep-and-copy rule). Modaliser then
+copies the payload into `~/.vscode/extensions` **only on the user's confirmed
+request** — `install-companion!` in `apps/vscode.sld`, borrowing the
+*mechanics* of the `configure!` op shape `apps/kitty.sld` uses but not its
+consent argument, since none of the three terminal ops installs code that
+activates by itself. `./scripts/install-vscode-extension.sh` survives as the
+developer's build-and-install loop and delegates the deletion rule to that same
+shipped script.
+
+Two consequences. **ADR-0019's exact-mirror invariant still covers `Scheme/`
+only** — the payload's freshness is structural (it is compiled by the step
+immediately before the copy) rather than checked, so nothing fails a build if
+the extension goes stale, and what catches a skew is the protocol version in
+its reply, answered with an empty panel and a log line. And **`npm` is now a
+release-machine requirement**, checked in `release-doctor.sh` and listed in
+`docs/RELEASING.md`.
 
 There is no CI in this repository and no separate lint step.
 `check-portable-surface.sh` and `check-decision-free.sh` are the two bespoke

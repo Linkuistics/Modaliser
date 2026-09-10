@@ -13,20 +13,32 @@ reasoning is in Modaliser's own `docs/adr/0026-…` and
 
 ## Install
 
-From the Modaliser repository root:
+This extension ships **inside** `Modaliser.app`, and Modaliser copies it into
+`~/.vscode/extensions` only when you ask it to and confirm — never on its own
+initiative. Asking is a row on your VSCode screen, bound in your own
+`config.scm`; Modaliser's `examples/vscode.scm` ships it as **Install VSCode
+Companion**. Press it, confirm the dialog, then **restart VSCode** — it scans
+`~/.vscode/extensions` at startup only, so the press that installs the
+extension can never be the press that uses it.
 
-```sh
-./scripts/install-vscode-extension.sh
-```
+The row hides itself once the version your Modaliser ships is installed, and
+comes back when a Modaliser upgrade ships a newer one.
 
-Then **restart VSCode** — it scans `~/.vscode/extensions` at startup.
+Two consequences worth stating plainly. This is **extension code**, which
+VSCode then activates in every window it opens. And uninstalling Modaliser
+does *not* remove it — `brew uninstall --zap modaliser`, or deleting the
+directory by hand, is what takes it away.
 
-It is a separate step from installing Modaliser on purpose: it targets a
-different application, needs that application present, and upgrades on its own
-cadence. Nothing fails a Modaliser build if this extension goes stale, so the
-`parts` reply carries a protocol version and Modaliser answers a mismatch with
-an empty panel and a log line rather than by interpreting fields whose meaning
-is not agreed.
+Installing it this way means its upgrade cadence is Modaliser's: an
+extension-only fix needs a Modaliser release. The `parts` reply still carries a
+protocol version, and Modaliser answers a mismatch with an empty panel and a
+log line rather than by interpreting fields whose meaning is not agreed — a
+hand-installed or disabled copy is still an ordinary condition.
+
+From a source checkout, `./scripts/install-vscode-extension.sh` builds this
+directory and installs it directly, which is the loop to work in when you are
+editing `src/`. It is the developer's path; it is not how a released Modaliser
+reaches a user's machine.
 
 ## What it exposes, exactly
 

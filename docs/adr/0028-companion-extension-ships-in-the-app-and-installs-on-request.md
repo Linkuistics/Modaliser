@@ -143,15 +143,17 @@ Modaliser never writes there on its own initiative, in any circumstance.**
   in production `SysSync` deliberately redirects it to the
   `~/.config/modaliser/sys/scheme` mirror, while the payload lives directly
   under `Contents/Resources`. So `SchemeEngine` gains one further definition
-  beside it — a bundle-resources path — set **only when the resolved bundle path
-  is a production `.app` path**, which is the `isProductionBundlePath` branch
-  already governing the mirror. Its three values, and what each makes the row
-  do, are the whole of the seam:
+  beside it — a bundle-resources path — carrying a real path **only when the
+  resolved bundle path is a production `.app` path**, which is the
+  `isProductionBundlePath` branch already governing the mirror, and `#f`
+  otherwise. (`#f` rather than left unbound: `root.scm` reads the name, and an
+  unbound one would unwind the boot rather than degrade.) Its three values, and
+  what each makes the row do, are the whole of the seam:
 
   | run | resource root | `companion-installed?` answers |
   |---|---|---|
   | installed `.app` | `Contents/Resources` | the real path test |
-  | `swift run` / `swift build` | not defined — no payload was ever assembled | *not installed*; the op is a no-op that says why |
+  | `swift run` / `swift build` | `#f` — no payload was ever assembled | *not installed*; the op is a no-op that says why |
   | bare `SchemeEngine()` under `swift test` | `root.scm` never runs, so the parameter is never installed | *not installed*, structurally |
 
   Deriving the payload location from `*scheme-directory*` is the thing not to

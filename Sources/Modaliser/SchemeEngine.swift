@@ -162,6 +162,7 @@ final class SchemeEngine {
             ?? NSString(string: "~/.config/modaliser").expandingTildeInPath
 
         var effectiveSchemePath = bundleSchemePath
+        var resourcesPath: String?
         if let bundlePath = bundleSchemePath {
             // Always allow the bundle path to satisfy reads in dev/test.
             _ = context.fileHandler.addSearchPath(bundlePath)
@@ -180,11 +181,40 @@ final class SchemeEngine {
             }
 
             if let schemePath = effectiveSchemePath {
-                try evaluate("(define *scheme-directory* \"\(schemePath)\")")
+                try evaluate("(define *scheme-directory* \(SchemeEngine.schemeString(schemePath)))")
             }
-            NSLog("SchemeEngine: Scheme directory at %@ (bundle=%@)",
-                  effectiveSchemePath ?? "(nil)", bundlePath)
+
+            // Where the companion payload would be — see the define below,
+            // which is outside this branch on purpose.
+            resourcesPath = SchemeEngine.isProductionBundlePath(bundlePath)
+                ? Bundle.main.resourceURL?.path
+                : nil
+            NSLog("SchemeEngine: Scheme directory at %@ (bundle=%@, resources=%@)",
+                  effectiveSchemePath ?? "(nil)", bundlePath,
+                  resourcesPath ?? "(none — not an installed .app)")
         }
+
+        // The bundle's own Resources directory — where the VSCode companion
+        // payload sits (ADR-0028). Deliberately NOT derived from
+        // *scheme-directory*: in production SysSync redirects that to
+        // ~/.config/modaliser/sys/scheme and in development it is the source
+        // tree, and neither one holds a payload.
+        //
+        // A real path only inside an installed .app, for the reason the mirror
+        // branches on the same predicate — a `swift run` never assembled a
+        // payload, so there is no path to name and guessing one would be worse
+        // than saying so. root.scm turns #f into "no payload configured",
+        // which makes companion-installed? answer *not installed* and the
+        // install op a no-op that logs why.
+        //
+        // Defined OUTSIDE the `if let bundlePath` above, and that placement is
+        // the whole guarantee: root.scm reads this name, and an unbound name
+        // unwinds the LispKit VM past every handler rather than degrading
+        // (ADR-0022). Defining it on only one branch would make the promise
+        // conditional on the branch that happens to run.
+        try evaluate("(define *bundle-resources-directory* "
+                     + (resourcesPath.map(SchemeEngine.schemeString) ?? "#f")
+                     + ")")
 
         schemeDirectoryPath = effectiveSchemePath
 
@@ -286,6 +316,20 @@ final class SchemeEngine {
 
         try evaluateFile(rootPath)
         NSLog("SchemeEngine: loaded root.scm")
+    }
+
+    /// A Swift string as a Scheme string *literal*, escaped.
+    ///
+    /// These paths are interpolated into Scheme SOURCE, and macOS permits
+    /// both `"` and `\` in a file name — so an app at
+    /// `/Applications/My "Best" App.app` would otherwise produce source the
+    /// reader rejects, unwinding the whole boot rather than only the feature
+    /// whose path it was.
+    private static func schemeString(_ s: String) -> String {
+        let escaped = s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     /// True iff `path` lives inside an installed .app bundle's

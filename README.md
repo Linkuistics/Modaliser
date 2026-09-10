@@ -45,18 +45,18 @@ Building from source requires macOS 14+ and Swift 5.9+ / Xcode 15+ — the Homeb
 
 Listing the editors and terminals open *inside* a VSCode window needs a small
 peer running inside VSCode, because nothing outside VSCode carries that state.
-Today it is a separate install, and needs npm and this repository:
+It ships **inside** `Modaliser.app`, and Modaliser copies it into
+`~/.vscode/extensions` when you ask it to and confirm — never on its own
+initiative (ADR-0028).
 
-```bash
-./scripts/install-vscode-extension.sh    # then restart VSCode
-```
+Asking is a row on the VSCode screen, bound in your own `config.scm`:
+`examples/vscode.scm` ships it as **Install VSCode Companion**. Press it,
+confirm the dialog, then **restart VSCode** — it scans its extensions
+directory at startup only. The row hides itself once the shipped version is
+installed, and comes back if a later Modaliser ships a newer one.
 
-That is being replaced. ADR-0028 decides that the extension ships **inside**
-`Modaliser.app` and installs into `~/.vscode/extensions` on your confirmed
-request — because the Homebrew tarball carries no `scripts/` directory, so the
-command above is not one a cask user can run. The command is what works until
-that lands; the extension's independent upgrade cadence is a cost ADR-0028
-knowingly spends, not a property being preserved.
+A plain `brew uninstall` leaves the extension in place; `brew uninstall --zap
+modaliser`, or deleting the directory by hand, removes it.
 
 Everything else in the VSCode screen works without it. See
 [`vscode-extension/README.md`](vscode-extension/README.md).

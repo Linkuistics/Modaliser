@@ -1119,20 +1119,13 @@ side because the check does.
 - **Anything the extension could do but is not asked to.** Running workbench
   commands, opening files, editing settings, reading document contents. The
   method set is three methods, and it grows only with a reason recorded here.
-- **How the extension reaches a machine.** Not this spec's, and no longer an
-  open question: ADR-0028 decides that `build-app.sh` builds the extension into
-  the app bundle and Modaliser copies it into `~/.vscode/extensions` only when
-  the user asks, through a confirm-and-provision op on the VSCode screen. What
-  stays out of scope here is the *mechanism* — the build step, the op, the
-  bundled sweep-and-copy script — which is ADR-0028's to specify and a later
-  leaf's to build. **Until it is built, `scripts/install-vscode-extension.sh` is
-  still how the extension is installed**, and the surrounding prose in
-  `README.md`, `docs/how-to/index.md`, `docs/reference/libraries.md`,
-  `examples/vscode.scm`, `apps/vscode.sld` and the extension's own
-  `vscode-extension/README.md` still describes that script because it is still
-  what runs. Six files, and the last of them will ship *inside* the bundled
-  payload, which is why ADR-0028 names it explicitly rather than leaving it to
-  be noticed.
+- **How the extension reaches a machine.** Not this spec's. ADR-0028 decides it
+  and it is built: `build-app.sh` builds the extension into the app bundle, and
+  Modaliser copies it into `~/.vscode/extensions` only when the user asks,
+  through a confirm-and-provision op on the VSCode screen
+  (`install-companion!`, gated by `companion-installed?`). The *mechanism* —
+  the build step, the op, the bundled sweep-and-copy script — is ADR-0028's to
+  describe, not this spec's.
 
 ## See also
 

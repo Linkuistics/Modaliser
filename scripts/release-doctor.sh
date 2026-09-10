@@ -71,6 +71,20 @@ check_icon_tools() {
   mark_pass "icon tools: sips, iconutil"
 }
 
+# npm: build-app.sh builds the VSCode companion extension into the
+# bundle (ADR-0028), so a release machine without npm would otherwise
+# produce an app whose companion payload is simply missing — and a
+# missing extension is by design an empty panel and a log line rather
+# than an error, so it would ship silently. Fail here instead.
+check_npm() {
+  if ! command -v npm >/dev/null 2>&1; then
+    mark_fail "npm: not on PATH"
+    remediation "brew install node (needed to build the VSCode companion extension)"
+    return
+  fi
+  mark_pass "npm: $(npm --version 2>/dev/null || echo unknown)"
+}
+
 check_gh_auth() {
   if ! command -v gh >/dev/null 2>&1; then
     mark_fail "gh: not installed"
@@ -102,6 +116,7 @@ main() {
   check_swift
   check_codesign
   check_icon_tools
+  check_npm
   check_gh_auth
   check_tap_dir
 

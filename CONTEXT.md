@@ -723,7 +723,8 @@ the whole reason the source changed. Source: `apps/vscode.sld`
 (`terminal-provider`, `terminal-listing`), `docs/specs/vscode-window-parts.md`.
 
 **VSCode companion extension** — the small VSCode extension Modaliser ships
-beside the app, one instance per VSCode window, answering three questions over a
+*inside* the app (see **Companion payload**), one instance per VSCode window,
+answering three questions over a
 Unix-domain socket: what is open in this window, focus this terminal, focus this
 editor. It exists because VSCode's extension API is the only surface carrying
 what is open *inside* a window, and its host is an ordinary Node process that
@@ -736,6 +737,19 @@ established transport, and its method set is bounded on purpose — three method
 and no way for a caller to name a workbench command (it runs exactly one itself,
 `vscode.openWith`, behind an interface that takes a resource and a view type
 rather than a command id). Source: `docs/specs/vscode-window-parts.md`.
+
+**Companion payload** — the built **VSCode companion extension** as it sits
+inside `Modaliser.app`: `Contents/Resources/ModaliserCompanion/`, with its
+identity (`<publisher>.<name>-<version>`) stamped beside it in
+`ModaliserCompanion.id` and the sweep-and-copy script in
+`ModaliserCompanion.install.sh`. _Payload_, not _bundle_ or _resource_, because
+the point of the word is that it is **carried rather than run**: nothing in it
+is loaded by Modaliser, and it becomes live only when the user confirms a copy
+into `~/.vscode/extensions` (ADR-0028). Note it is *not* under ADR-0019's
+exact-mirror invariant, which stops at `Scheme/`: the payload is compiled by the
+step immediately before the copy, so its freshness is structural rather than
+checked. Source: `apps/vscode.sld` (`install-companion!`,
+`companion-installed?`), `scripts/build-app.sh`.
 
 **Last-focused pointer file** — the one well-known file in the 0700 socket
 directory (`~/.config/modaliser/vscode/focused`) holding the socket path of the

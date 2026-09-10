@@ -205,3 +205,135 @@ those words, so each needs its qualifier removed** once it is built.
   and against the cask's recursive quarantine strip — so the shape is supported.
   Still drive it end-to-end on a real installed app rather than resting on that:
   the clearance is about placement, not about this script.
+
+## Decisions (running log)
+
+- **The bundle-resources path is `#f` outside an `.app`, not unbound.**
+  ADR-0028's table said "not defined" for a `swift run`. `root.scm` reads the
+  name, and an unbound name unwinds the LispKit VM past every handler
+  (ADR-0022's reason the host sequences two evaluations) — so a literally
+  undefined variable would take the boot down rather than degrade. `#f` is the
+  same fact in a form Scheme can read. ADR-0028's table and the paragraph above
+  it now say `#f` and say why.
+
+- **The existence probe gets no seam of its own.** The task said "consider" one.
+  It buys nothing: the probe runs through `run-shell`, which is already the
+  inert-by-default seam (ADR-0023) and which a test already installs a canned
+  answer on. A second parameter would be a second thing to keep inert for the
+  same guarantee. Recorded in the library header beside the payload parameter.
+
+- **Three siblings in `Contents/Resources`, all derived from one parameter by
+  suffix**: `ModaliserCompanion/`, `ModaliserCompanion.id`,
+  `ModaliserCompanion.install.sh`. The suffix derivation is why one host-installed
+  parameter suffices and why nothing in the portable tree has to take a path
+  apart — it has no directory listing (ADR-0027) and does not index strings
+  (ADR-0025).
+
+- **The identity is a stamped file rather than the payload's own manifest**, even
+  though the manifest sits at a fixed path too and `(modaliser json)` could parse
+  it. `companion-installed?` gates a row, so the overlay reads it on every render
+  and it must be cheap: one `read-file-text` of a pre-computed line, not a JSON
+  parse. `build-app.sh` stamps it from that same manifest — one source of truth,
+  two readers — via `install-companion-payload.sh --print-identity`, so the
+  identity has one derivation rather than two.
+
+- **`plutil`, not `node` and not `python3`, reads the manifests in the sweep.**
+  It is part of the base system, so the check works on a cask user's machine that
+  has never seen a toolchain; `/usr/bin/python3` is a stub that fails without
+  Command Line Tools. A malformed manifest exits non-zero, which reads as "not
+  ours" and leaves the directory alone.
+
+- **`install-companion!`'s idempotent branch notes the answer it already has
+  rather than re-probing.** kitty's `configure!` probes, then calls a refresh
+  that probes again — two subprocesses per press to learn what the first said.
+  Caught by a test asserting one command, not two; `companion-note-installed!`
+  is the split.
+
+- **The dialog is raised only after the probe says absent, and the copy only
+  after the dialog returns true.** Pinned by
+  `installWhenAbsentWritesNothingBeforeConfirmation`: one command reaches the
+  shell runner from the press alone, and it is the probe.
+
+### After the in-session adversarial read
+
+The leaf's one review allowance was spent on the sweep script and the consent
+path. It found six real defects, all reproduced, and every one of them lived in
+what happens *around* the confirmed decision rather than in the decision itself
+— the manifest-confirmation logic it was pointed at came back clean. Classified
+and applied:
+
+- **VALID, severe — the copy was a merge.** No `rm -rf "$target"` before
+  `cp -R`, so a destination the sweep deliberately *leaves* (its `package.json`
+  does not parse — exactly the state a Ctrl-C mid-sweep produces) got copied
+  *into*: stale `out/src/*.js` survived and the new payload landed one level
+  down at `out/src/src/`, which `main` does not point at. VSCode would load the
+  old code, the script would exit 0, and the next run's sweep would then see a
+  matching manifest and call it current. Fixed by wiping the destination; the
+  sweep cannot stand in for that wipe, precisely because it is designed to leave
+  what it cannot identify.
+
+- **VALID — installing a payload onto itself destroyed it.** The destination
+  wipe runs before the sweep's payload-exclusion can help, so pointing the
+  script at an installed copy to refresh it deleted the source and then failed
+  the copy, leaving no extension at all. Now refused up front, before anything
+  is removed. Both guards are kept: the early refusal for payload==destination,
+  the in-loop exclusion for a payload that is some *other* matching directory.
+
+- **VALID — a confirmed write could fail in total silence.** `run-shell` returns
+  stdout and nothing else: no exit code, no stderr. So an unremovable candidate,
+  a full disk, or a tampered bundle produced `""`, the row reappeared, and
+  Modaliser said nothing to a user who had just consented to a write. The
+  command now folds stderr in and echoes its status; `companion-install-succeeded?`
+  reads it, and a failure gets a `log-line` and a `dialog-info` carrying the
+  transcript. **A user who consents to an act is owed the outcome of it** — that
+  is the principle, and it was missing.
+
+- **VALID — a half-finished install read as installed** and permanently hid the
+  only row that could repair it, because the probe was `[ -d target ]`. The
+  sweep script now writes `.modaliser-installed` **last**, and the probe tests
+  for that: "installed" means "the copy completed". A copy put there by hand or
+  by an older Modaliser carries no marker and so reads as not-installed — the
+  row offers a reinstall, which is harmless and is the right offer.
+
+- **VALID — `find -type d` skipped symlinked candidates**, so a symlinked older
+  copy survived and VSCode loaded two, each binding a socket in the same window:
+  the exact outcome sweeping exists to prevent, and reachable through VSCode's
+  own local-development idiom. Now `\( -type d -o -type l \)`; `rm -rf` on a
+  symlink takes the link and not its target, demonstrated.
+
+- **VALID — the npm precondition sat after the bundle wipe**, so a machine
+  without npm aborted partway and left a half-assembled, unsigned, iconless
+  `.app` that looks like a build product. Hoisted above the wipe. `npm ci`
+  rather than `npm install` in the release build, so it resolves from the
+  committed lockfile and cannot rewrite it as a side effect of a release.
+
+- **VALID, adjacent — host paths were interpolated into Scheme source
+  unescaped.** macOS permits `"` and `\` in file names, so an app under a path
+  containing one produced source the reader rejects, unwinding the whole boot
+  rather than only the feature. Fixed for `*bundle-resources-directory*` **and**
+  for the pre-existing `*scheme-directory*` beside it: leaving the identical
+  defect standing next to its own fix is not a scope boundary worth keeping.
+
+- **VALID but unreachable, fixed anyway** — the new `define` sat inside
+  `if let bundlePath`, so the name would be unbound if `resolveSchemeDirectory`
+  returned nil. `root.scm` never loads in that case, so nothing could observe
+  it; but the comment claimed an unconditional guarantee, so the `define` is
+  hoisted out and the claim is now true as stated rather than true by accident.
+
+- **VISIBLE TRADE-OFF, prose fixed** — the dialog promised to "change nothing
+  else under ~/.vscode" while `mkdir -p` creates `~/.vscode/extensions` when
+  VSCode never has. Creating the destination is necessary; over-claiming was
+  not. The line now says what it does.
+
+- **NOISE / already covered** — divergent `HOME`-unset handling between the
+  script (aborts) and the predicate (probes an impossible path). Both are safe;
+  only the silence hurt, and the silence is fixed above.
+
+- **UNCERTAIN, accepted and recorded** — `~/.vscode/extensions/extensions.json`
+  is not touched, as the repository installer has never touched it and that is
+  what has been in service against this engine. Noted in the script's header as
+  the first place to look if a swept directory ever leaves a stale entry.
+
+Applying five substantive fixes to code a reviewer had already read is the
+signal `references/execute.md` names: review here has become tree-sized work, so
+a `review-impl` leaf is cut beside this one rather than a second in-session pass.

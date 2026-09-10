@@ -40,6 +40,7 @@ It verifies, and names the remediation command for anything missing:
 | `swift` on PATH | builds the binary |
 | `codesign` | signs the `.app` |
 | `sips`, `iconutil` | generates `AppIcon.icns` from `Resources/AppIcon.png` |
+| `npm` on PATH | builds the VSCode companion extension into the bundle (ADR-0028) |
 | `gh`, authenticated | creates the GitHub Release |
 | Homebrew tap clone | receives the rendered cask |
 

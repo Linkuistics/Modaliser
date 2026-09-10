@@ -864,21 +864,29 @@ Everything above reads VSCode from outside, and nothing outside VSCode can say
 what is open **inside** one window — its editor tabs, its terminals. VSCode's
 *extension API* carries exactly that, so Modaliser runs a small peer inside
 each window and talks to it over a Unix-domain socket: the **companion
-extension** in `vscode-extension/`, installed by
-`./scripts/install-vscode-extension.sh`. ADR-0026 records why a companion
+extension** in `vscode-extension/`, which ships inside `Modaliser.app` and is
+copied into `~/.vscode/extensions` on the user's confirmed request (ADR-0028).
+ADR-0026 records why a companion
 extension rather than the accessibility tree or the stored editor state;
 ADR-0027 records how one window is addressed among several;
 [the spec](../specs/vscode-window-parts.md) is the protocol.
 
 Three things to know before using the surface:
 
-- **It is a separate install — for now.** `install.sh` does not touch it and
-  `build-app.sh`'s exact-mirror invariant (ADR-0019) does not cover it, so
-  nothing fails a Modaliser build if the extension goes stale. ADR-0028 has
-  reversed the distribution half of that: the extension is to ship inside the
-  app bundle and install on the user's confirmed request, which spends the
-  independent upgrade cadence deliberately. Until that lands the script above is
-  what runs. The
+- **It is installed on request, never on Modaliser's initiative.** The library
+  exports `install-companion!` and `companion-installed?`; the user's config
+  binds a key and a label to them (ADR-0021), and `examples/vscode.scm` ships
+  the row. Pairing the two as a `'hidden` gate is what makes the row retire
+  itself once the shipped version is installed and return when a Modaliser
+  upgrade ships a newer one — the predicate is a **path test** rather than a
+  `parts` probe precisely because a socket miss cannot tell *absent* from
+  *unreachable*. Where the payload lives is host knowledge, so
+  `current-vscode-companion-payload-dir` defaults to "no payload in this build"
+  and `root.scm` installs the real path at boot, exactly as it installs the
+  socket pointer; un-configured, the predicate answers not-installed and the op
+  is a no-op that logs why (ADR-0028, ADR-0023). Note that
+  `build-app.sh`'s exact-mirror invariant (ADR-0019) still covers `Scheme/`
+  only, so nothing fails a Modaliser build if the extension goes stale: the
   reply carries a protocol version and a mismatch is answered with `#f`, so a
   skew is an empty panel and a log line rather than misread fields.
 - **Every miss is `#f`.** Extension not installed, not yet activated, disabled
@@ -906,6 +914,31 @@ Three things to know before using the surface:
 
 Rows, providers and listings are built on this in `(modaliser apps vscode)`'s
 panel surface; the transport is the layer documented here.
+
+#### Installing the companion
+
+The op and its gate, bound in your own config — the key and the label are
+yours (ADR-0021), and the `'hidden` pairing is what makes the row retire
+itself:
+
+```scheme
+(key "I" "Install VSCode Companion" code:install-companion!
+     'hidden code:companion-installed?)
+```
+
+| export | answers |
+|---|---|
+| `(install-companion!)` | confirm, copy the bundled payload into `~/.vscode/extensions`, re-probe. Idempotent; a no-op that logs why when this build carries no payload. |
+| `(companion-installed?)` | is *this build's* version already installed. Cached — the gate is read on every overlay render. |
+| `(companion-identity)` | `<publisher>.<name>-<version>`, from the file `build-app.sh` stamps beside the payload |
+| `(companion-install-dir)` | where an install would land |
+| `(companion-install-command)` | what would be spawned — the shipped sweep-and-copy script, pointed at the payload |
+| `current-vscode-companion-payload-dir` | the host-installed payload path; `#f` means "no payload in this build" |
+
+Nothing is written to `~/.vscode` without a confirmed dialog, and the dialog
+names two things the terminal libraries' `configure!` dialogs have no need to:
+that this installs extension code which activates in every VSCode window, and
+that a plain `brew uninstall` leaves it behind (ADR-0028).
 
 ### `(modaliser apps iterm)`
 

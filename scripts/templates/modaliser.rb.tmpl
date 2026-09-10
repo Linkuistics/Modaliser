@@ -22,8 +22,23 @@ cask "modaliser" do
 
   uninstall quit: "dev.antony.Modaliser"
 
+  # The VSCode companion extension (ADR-0028) is installed into another
+  # application's directory, and only ever on the user's confirmed request. A
+  # plain `brew uninstall` leaves it, on the same terms as ~/.config/modaliser;
+  # `--zap` takes it away. This one path cannot run the install-time manifest
+  # check — a zap list is a path list, not a program — so it claims LESS than
+  # the install sweep does: it reserves the whole antony.modaliser-companion-*
+  # prefix, which is inside the maintainer's own publisher namespace, rather
+  # than this extension alone. Do not "tidy" it to the stronger claim.
+  #
+  # The glob is load-bearing, so it was read rather than remembered: zap's
+  # trash: paths go through each_resolved_path, which expands a leading ~ and
+  # then calls Pathname.glob on the result — Homebrew/Library/Homebrew/cask/
+  # artifact/abstract_uninstall.rb, verified against the installed Homebrew.
+  # https://docs.brew.sh/Cask-Cookbook#stanza-zap
   zap trash: [
     "~/.config/modaliser",
+    "~/.vscode/extensions/antony.modaliser-companion-*",
     "~/Library/Logs/Modaliser",
     "~/Library/Preferences/dev.antony.Modaliser.plist",
     "~/Library/Saved Application State/dev.antony.Modaliser.savedState",

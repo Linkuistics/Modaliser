@@ -275,9 +275,9 @@
     ;; already IN. Both come from a companion VSCode extension over a
     ;; Unix socket — VSCode exposes nothing from outside that says what
     ;; is open inside a window, so Modaliser runs a small peer inside it
-    ;; (docs/specs/vscode-window-parts.md, ADR-0026). Install it with
-    ;; `./scripts/install-vscode-extension.sh`; without it both panels
-    ;; are simply empty and nothing errors.
+    ;; (docs/specs/vscode-window-parts.md, ADR-0026). It ships inside
+    ;; Modaliser.app; the row below installs it, and until it is
+    ;; installed both panels are simply empty and nothing errors.
     ;;
     ;; The Terminals panel lists every terminal WHETHER OR NOT the
     ;; terminal panel is showing, which is the whole reason the source
@@ -289,6 +289,24 @@
     ;; listed because omitting it would make the panel disagree with the
     ;; tab strip you are looking at, and would renumber every label
     ;; below it.
+    ;; ─── Installing the companion ───────────────────────────────
+    ;;
+    ;; The extension is built into Modaliser.app and copied into
+    ;; ~/.vscode/extensions only when you press this and confirm
+    ;; (ADR-0028). Modaliser never writes there on its own.
+    ;;
+    ;; The `'hidden` gate is the interesting half: paired with the
+    ;; predicate, the row RETIRES ITSELF the moment the shipped version
+    ;; is installed, and comes BACK when a Modaliser upgrade ships a
+    ;; newer one than what is on disk. So this costs a slot only while
+    ;; it has something to do. The same pairing configures kitty and
+    ;; iTerm2 — see `examples/` for those.
+    ;;
+    ;; On "I" because the lowercase plane is jump-label territory. Move
+    ;; it wherever you like; the key and the label are yours (ADR-0021).
+    (key "I" "Install VSCode Companion" code:install-companion!
+         'hidden code:companion-installed?)
+
     (panel "Terminals"
       (code:terminal-listing))
 
