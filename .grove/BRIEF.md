@@ -37,6 +37,13 @@ then synthesizes them. These are investigations, not authorization to build.
 Keep one focused task per fresh session. Reviews are added only when an existing
 artifact earns one. Do not convert the exploration into an implementation plan.
 
+Keep the research readable as decision support: prefer a focused comparison of
+roughly 2,000–3,000 words per remaining survey, with tables for parallel choices
+and primary links beside material claims. Cover each leaf's questions; avoid
+full language tutorials, repeated ADR restatements, or exhaustive code inventories.
+Record empirical gaps instead of expanding the research to answer questions that
+need an experiment. Paraphrase external sources rather than using long quotations.
+
 ## Pointers
 
 - `CONTEXT.md`: Configuration and Overlay-presentation domains.
