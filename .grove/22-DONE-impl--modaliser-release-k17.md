@@ -101,3 +101,38 @@ is in the runbook because it is the last point where a bad bundle is cheap.
   == "dev.antony.Modaliser"'` to confirm `config: loaded` after installing.
 
 ## Decisions (running log)
+
+- **All five gates are green at this stack's tip** (`e4a69b35`, k22):
+  `release-doctor.sh` passes all seven prerequisites; `swift build` clean;
+  `swift test` 1324 tests / 107 suites passed; `check-portable-surface.sh` and
+  `check-decision-free.sh` both OK; `vscode-extension` `npm test` 60/60; and
+  `test-install-companion-payload.sh` all cases pass. The last is not in the
+  Done-when but is this release's one `rm -rf` inside another application's
+  directory, so it runs.
+
+- **The version is v4.3.0.** `v4.2.1` is `b3844f78`, which is exactly `main`
+  and exactly the base of this grove's stack — `git log v4.2.1..main` is empty.
+  So the release contains this grove's 22 commits and nothing else, and the
+  content (a new screen, three panels, a shipped companion extension) is a
+  minor bump rather than a patch.
+
+- **`release-publish.sh` could not meet this leaf's Done-when, so it changed.**
+  It passed a hardcoded `--notes "Release $tag"` to `gh release create`, so
+  every Release body so far has merely restated its own title. The Done-when
+  requires notes that say how a user gets the companion extension and that
+  VSCode must be restarted, and the pipeline had no seam for prose. Added:
+  `docs/release-notes/v<ver>.md`, **required** by a `require_release_notes`
+  preflight in `release-publish.sh` that runs before the first push, and read
+  with `--notes-file`. Requiring rather than falling back follows the doctor's
+  own `npm` reasoning — a missing thing that would otherwise ship silently.
+  Guard verified to fire: resolves with the file present, exits 1 with the
+  version missing and with the directory missing. `docs/RELEASING.md` gained
+  step 1, a diagram node, a troubleshooting row, and lost a stale test count
+  (it claimed 1157/95 against an actual 1324/107 — replaced with "the whole
+  suite" rather than a fresher number that would rot the same way).
+
+- **The release is cut from the default jj workspace** (`~/Development/Modaliser`),
+  not from this one. This workspace has no `.git`, and all three release scripts
+  drive git through `git -C "$REPO_ROOT"`; `release-publish.sh` additionally
+  needs a root that is *both* jj and git to push the bookmark. The default
+  workspace is the only tree that is both.

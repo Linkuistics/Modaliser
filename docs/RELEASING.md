@@ -12,13 +12,15 @@ repository, so every check below is something a person runs.
 
 ```mermaid
 flowchart LR
+    notes(["write docs/release-notes/v&lt;ver&gt;.md"])
     doctor["release-doctor.sh<br/><i>checks only</i>"]
     build["release-build.sh<br/><i>→ dist/</i>"]
     inspect(["inspect dist/"])
     publish["release-publish.sh<br/><i>→ GitHub + tap</i>"]
 
-    doctor --> build --> inspect --> publish
+    notes --> doctor --> build --> inspect --> publish
     build -.->|"runs doctor first"| doctor
+    notes -.->|"body of the Release"| publish
 ```
 
 Three scripts, run in order. `release-build.sh` invokes `release-doctor.sh`
@@ -49,14 +51,28 @@ with `MODALISER_TAP_DIR`. It must be a real git checkout of the
 [`linkuistics/homebrew-taps`](https://github.com/Linkuistics/homebrew-taps)
 repository — `release-publish.sh` commits and pushes into it.
 
-## 1. Tag the release
+## 1. Write the release notes
+
+The GitHub Release body is read from `docs/release-notes/v<version>.md`, and
+`release-publish.sh` **refuses to publish without it**. Write it before
+tagging, so the notes travel inside the released commit.
+
+```bash
+$EDITOR docs/release-notes/v4.3.0.md
+```
+
+Say what a user gets and what they have to do to get it — an operation that
+needs a step outside Modaliser (installing the VSCode companion extension, and
+restarting VSCode afterwards) is the case the file exists for.
+
+## 2. Tag the release
 
 **The tag is the single source of truth for the version.** `release-build.sh`
 refuses to run unless the working tree is clean and `HEAD` is exactly a tagged
 commit.
 
 ```bash
-swift test                            # 1157 tests, 95 suites — must be green
+swift test                            # the whole suite — must be green
 ./scripts/check-portable-surface.sh   # no (lispkit …)/(modaliser …-native) in lib/modaliser
 ./scripts/check-decision-free.sh      # no authored keys or labels in lib/modaliser
 git tag -a v4.3.0 -m "Release v4.3.0"
@@ -70,7 +86,7 @@ template — `release-build.sh` stamps `CFBundleShortVersionString` and
 `CFBundleVersion` from the tag into the *bundled* plist. Before that stamp
 existed the two drifted apart on every release up to v2.7.0.
 
-## 2. Build the artifacts
+## 3. Build the artifacts
 
 ```bash
 ./scripts/release-build.sh
@@ -107,7 +123,7 @@ to launch it. The cask's `postflight` strips that xattr at install time.
 **Inspect `dist/` before continuing.** This is the last step that touches only
 the local machine.
 
-## 3. Publish
+## 4. Publish
 
 ```bash
 ./scripts/release-publish.sh
@@ -116,7 +132,8 @@ the local machine.
 In order:
 
 1. Pushes the branch (or, under jj, the bookmark) and the tag to `origin`.
-2. `gh release create v<ver>` on `Linkuistics/Modaliser`, uploading the tarball.
+2. `gh release create v<ver>` on `Linkuistics/Modaliser`, uploading the tarball
+   with `docs/release-notes/v<ver>.md` as the body.
 3. Copies `modaliser.rb` into `$MODALISER_TAP_DIR/Casks/`, commits, pushes.
 
 Two guards are worth knowing about, because both protect against a release
@@ -145,7 +162,7 @@ jj bookmark set main -r @-
 Tags stay on git in both modes: `jj` creates only lightweight tags and
 `jj git push` does not push tags at all.
 
-## 4. Verify
+## 5. Verify
 
 ```bash
 brew update && brew install --cask linkuistics/taps/modaliser
@@ -163,6 +180,7 @@ defaults read /Applications/Modaliser.app/Contents/Info.plist CFBundleShortVersi
 |---|---|
 | `working tree is dirty` | commit or stash; the build refuses to release uncommitted state |
 | `HEAD is not a tagged commit` | `git tag -a v<x.y.z> -m …` first |
+| `no release notes at docs/release-notes/v….md` | write them (step 1); the check runs before the first push, so nothing was published |
 | `bundled Scheme tree is not a faithful image` | SPM dropped a resource, or a merge-copy regression in `build-app.sh` — do not ship past it (ADR-0019) |
 | `artifact version mismatch` | `dist/` is stale; re-run `release-build.sh` |
 | `remote tag … differs from local` | someone else pushed that tag; resolve by hand |

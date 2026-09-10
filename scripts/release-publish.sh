@@ -5,6 +5,9 @@
 #      upload the tarball from dist/.
 #   2. Copy modaliser.rb into $MODALISER_TAP_DIR/Casks/, commit, push.
 #
+# The Release body comes from docs/release-notes/v<ver>.md, which is
+# required — see require_release_notes below.
+#
 # Prerequisite: ./scripts/release-build.sh has just run successfully.
 # Env: MODALISER_TAP_DIR (default ~/Development/homebrew-taps).
 
@@ -14,6 +17,7 @@ IFS=$'\n\t'
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly DIST_DIR="$REPO_ROOT/dist"
 readonly TAP_DIR="${MODALISER_TAP_DIR:-$HOME/Development/homebrew-taps}"
+readonly NOTES_DIR="$REPO_ROOT/docs/release-notes"
 
 die() {
   echo "release-publish: $*" >&2
@@ -65,6 +69,24 @@ push_git_branch() {
   git -C "$REPO_ROOT" push origin "$branch"
 }
 
+# The Release body is prose, and nothing else in the pipeline can check
+# prose. Before this existed `gh release create` was passed a hardcoded
+# --notes "Release v<ver>", so every release shipped a body that merely
+# restated its own title — invisible, because a stub reads exactly like a
+# release that had nothing to say. Require the file instead, and require
+# it here: this runs before the first push, so a missing one costs a
+# re-run rather than an amended Release. The notes live in the repo (and
+# so inside the released commit) rather than in dist/, which
+# release-build.sh wipes on every run.
+require_release_notes() {
+  local version="$1"
+  local notes="$NOTES_DIR/v${version}.md"
+  [[ -f "$notes" ]] \
+    || die "no release notes at $notes; write them before publishing"
+  [[ -s "$notes" ]] || die "release notes at $notes are empty"
+  echo "$notes"
+}
+
 verify_tag_matches_artifacts() {
   local version="$1"
   local sample
@@ -100,13 +122,13 @@ push_branch_and_tag() {
 }
 
 create_github_release() {
-  local version="$1"
+  local version="$1" notes="$2"
   local tag="v${version}"
   echo "release-publish: creating GitHub Release $tag"
   gh release create "$tag" \
     --repo Linkuistics/Modaliser \
     --title "Release $tag" \
-    --notes "Release $tag" \
+    --notes-file "$notes" \
     "$DIST_DIR"/*.tar.xz
 }
 
@@ -122,12 +144,13 @@ push_cask_to_tap() {
 
 main() {
   preflight
-  local version
+  local version notes
   version="$(read_version)"
+  notes="$(require_release_notes "$version")"
   verify_tag_matches_artifacts "$version"
 
   push_branch_and_tag "$version"
-  create_github_release "$version"
+  create_github_release "$version" "$notes"
   push_cask_to_tap "$version"
 
   echo
