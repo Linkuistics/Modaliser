@@ -1119,10 +1119,17 @@ side because the check does.
 - **Anything the extension could do but is not asked to.** Running workbench
   commands, opening files, editing settings, reading document contents. The
   method set is three methods, and it grows only with a reason recorded here.
-- **Installing the extension as part of installing Modaliser.** It targets a
-  different application, requires that application to be present, and has its
-  own upgrade cadence; it gets its own script rather than a step inside
-  `install.sh`.
+- **How the extension reaches a machine.** Not this spec's, and no longer an
+  open question: ADR-0028 decides that `build-app.sh` builds the extension into
+  the app bundle and Modaliser copies it into `~/.vscode/extensions` only when
+  the user asks, through a confirm-and-provision op on the VSCode screen. What
+  stays out of scope here is the *mechanism* — the build step, the op, the
+  bundled sweep-and-copy script — which is ADR-0028's to specify and a later
+  leaf's to build. **Until it is built, `scripts/install-vscode-extension.sh` is
+  still how the extension is installed**, and the surrounding prose in
+  `README.md`, `docs/how-to/index.md`, `docs/reference/libraries.md`,
+  `examples/vscode.scm` and `apps/vscode.sld` still describes that script
+  because it is still what runs.
 
 ## See also
 
@@ -1130,6 +1137,8 @@ side because the check does.
   would reopen each, and the exposure the bounded method set accepts.
 - ADR-0027 — how one window is addressed among several, and why a row is bound to
   the peer that minted it rather than to a pointer read a second time.
+- ADR-0028 — how the extension reaches a user's machine, and why installing it
+  is offered rather than performed.
 - ADR-0020 — the socket transport this reuses, and why a socket is an
   integration boundary rather than a workaround.
 - ADR-0021 — no library authors a key, a label or an alphabet.

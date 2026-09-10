@@ -57,11 +57,22 @@ window, over the ADR-0020 socket transport (ADR-0026, ADR-0027,
 `docs/specs/vscode-window-parts.md`). It has its own `npm test` (tsc + the
 built-in Node test runner, against fakes of the VSCode API — nothing in the
 Swift suite reaches it) and its own installer,
-`./scripts/install-vscode-extension.sh`, deliberately separate from
-`install.sh`. Note the consequence: **ADR-0019's exact-mirror invariant covers
-`Scheme/` only**, so nothing fails a Modaliser build if the extension goes
-stale. What catches a skew instead is the protocol version in its reply, which
-Modaliser answers with an empty panel and a log line.
+`./scripts/install-vscode-extension.sh`, separate from `install.sh`. Note the
+consequence: **ADR-0019's exact-mirror invariant covers `Scheme/` only**, so
+nothing fails a Modaliser build if the extension goes stale. What catches a skew
+instead is the protocol version in its reply, which Modaliser answers with an
+empty panel and a log line.
+
+**Do not read that separation as settled doctrine — ADR-0028 has reversed it and
+the change is not built yet.** The reasoning that supported it was written for a
+reader holding this repository, and it stopped covering the cask user, whose
+release tarball is `Modaliser.app`, `README.md` and `LICENSE` and contains no
+`scripts/` at all. ADR-0028 decides that `build-app.sh` builds the extension into
+the bundle and Modaliser copies it into `~/.vscode/extensions` **only on the
+user's confirmed request**, through the `configure!` op shape `apps/kitty.sld`
+already uses. Until that leaf lands the separate installer is still what runs,
+which is why `README.md`, `docs/how-to/index.md`, `docs/reference/libraries.md`,
+`examples/vscode.scm` and `apps/vscode.sld` still describe it.
 
 There is no CI in this repository and no separate lint step.
 `check-portable-surface.sh` and `check-decision-free.sh` are the two bespoke

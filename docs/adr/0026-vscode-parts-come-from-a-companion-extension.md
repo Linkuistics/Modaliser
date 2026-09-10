@@ -214,13 +214,16 @@ ADR-0027.
 
 ## Consequences
 
-- **Modaliser gains a deliverable in a third language.** A TypeScript extension,
-  with npm, a bundler and a `.vsix`, in a repository that is otherwise Swift and
-  Scheme and has no CI. It is not part of the `.app`, so ADR-0019's exact-mirror
-  invariant does not cover it and `build-app.sh` does not check it; its
-  installation is a separate step against a separate application. This is the
-  real price of the decision and it is paid once per machine rather than once per
-  press.
+- **Modaliser gains a deliverable in a third language.** A TypeScript extension
+  compiled by `tsc` and needing npm, in a repository that is otherwise Swift and
+  Scheme and has no CI. It is not part of the running app — nothing it contains
+  is loaded by Modaliser — so ADR-0019's exact-mirror invariant does not cover
+  it and no `diff` guards it. This is the real price of the decision and it is
+  paid once per machine rather than once per press. **How the extension reaches
+  a machine is a separate decision with its own rejected alternatives, and it is
+  ADR-0028's**: it is built into the app bundle and installed into
+  `~/.vscode/extensions` only when the user asks. Nothing in this record settles
+  it, and this record's own reasoning does not depend on which way it went.
 
 - **The integration now has a version boundary that can skew.** Modaliser and the
   extension are installed separately and can disagree. The `parts` reply
@@ -272,6 +275,8 @@ ADR-0027.
   rather than a workaround.
 - ADR-0027 — addressing one window among several, and binding a row to the peer
   that minted it.
+- ADR-0028 — how the extension reaches a user's machine, and why installing it
+  is offered rather than performed.
 - ADR-0014 — an interactive command never blocks: why an action with no consumed
   result is sent rather than asked.
 - ADR-0021 — no library authors a key, a label or an alphabet.

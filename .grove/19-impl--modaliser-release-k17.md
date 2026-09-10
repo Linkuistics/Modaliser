@@ -34,6 +34,18 @@ the release notes carry an install instruction. **Re-read k16's ADR before
 starting**; if it was abandoned or deferred, this leaf ships the status quo and
 says so in the notes.
 
+**k16 has since settled it, so both conditionals in this leaf now resolve to
+yes.** ADR-0028 chose the first shape: `build-app.sh` builds the extension into
+the bundle, and Modaliser installs it into `~/.vscode/extensions` on a confirmed
+user request. Three consequences, all of which the Done-when below already
+anticipates in conditional form — `npm test` is in scope; the release notes must
+say how a user gets the extension and that VSCode has to be restarted; and
+`release-doctor.sh` now checks for `npm`, so a machine without it fails the
+checks step rather than producing an app with a missing payload. The work is
+`vscode-companion-install-k18`, which sequences immediately before this leaf. If
+it has not landed, there is nothing to release on this front and the notes say
+so.
+
 **What is new since the last release, and belongs in the notes** — read the
 `DONE` leaves in `.grove/` for the full list, but the user-visible shape is:
 
