@@ -109,14 +109,14 @@ activation operation — not the presence of a URI.** `TabGroups` offers `close`
 and nothing else: there is no reveal-this-`Tab` call, so activating a tab means
 naming a *per-kind* API operation, and a kind with no operation that reaches the
 tab it was pressed on cannot honour the SHALL that a label activates its own part
-or nothing. So a token is minted only for the two kinds whose activation is both
-specified and identity-preserving:
+or nothing. So a token is minted only for the kinds whose activation is both specified and
+identity-preserving:
 
 | input kind | `path` | `token` | activation |
 |---|---|---|---|
 | `TabInputText` | `uri.fsPath` | yes | `window.showTextDocument(uri, {viewColumn: LIVE.group.viewColumn, preview: LIVE.isPreview})` |
 | `TabInputNotebook` | `uri.fsPath` | yes | `workspace.openNotebookDocument(uri)` then `window.showNotebookDocument(doc, {viewColumn: LIVE.group.viewColumn})` |
-| `TabInputCustom` | `uri.fsPath` | no | would need the `vscode.openWith` workbench command, which *opens by resource and view type* rather than revealing the pressed tab |
+| `TabInputCustom` | `uri.fsPath` | yes | `commands.executeCommand("vscode.openWith", uri, LIVE.input.viewType, {viewColumn: LIVE.group.viewColumn, preview: LIVE.isPreview})` |
 | `TabInputWebview` | `null` | no | no resource of any kind to name |
 | `TabInputTextDiff`, `TabInputNotebookDiff` | `null` | no | two URIs and no single one; reopening would need `vscode.diff`, which constructs a new comparison rather than revealing this tab |
 | `TabInputTerminal` | — | — | not an editor row at all (below) |
@@ -142,10 +142,41 @@ group)* names exactly the pressed tab.
 already active would change the workbench — which the requirements say it must
 not. Passing the tab's own current state activates without editing it.
 
-**Reopen if** a custom editor or a diff is ever something the human keeps on
-screen and wants a label for — the cost is a bounded internal call to one named
-command per kind, which is not the prohibited generic passthrough, but it is a
-per-kind policy this design does not need yet.
+**A custom editor was ruled out here and is now in, and the build is what
+changed it.** This table read `TabInputCustom` → no token for two revisions, on
+the reading that `vscode.openWith` *opens by resource and view type* rather than
+revealing the pressed tab. Both halves of that turned out to be wrong on
+contact:
+
+- **The reopen condition was already met, and unmissably.** It was written as
+  "if a custom editor is ever something the human keeps on screen and wants a
+  label for". The human's own `settings.json` carries
+  `"workbench.editorAssociations": {"*.md": "vscode.markdown.preview.editor"}`,
+  so **every markdown file is a `TabInputCustom`** — including every grove task
+  file, which is the case the Editor listing most exists to reach. Built to the
+  old table, the panel's headline case was a panel of inert rows; that is how
+  this was found, on the first `parts` reply off a real window.
+- **The objection does not survive the shipped registration.**
+  `vscode.openWith(resource, viewId, columnOrOptions)` takes the same
+  `TextDocumentShowOptions` object `showTextDocument` does — read out of
+  `extensionHostProcess.js` (1.136.2), not from documentation. So it is
+  identity-preserving by *exactly* the argument that admitted text tabs: one
+  `(resource, viewType)` pair cannot be open twice in one group, so *(resource,
+  viewType, current group)* names the pressed tab, and `LIVE.isPreview` rides
+  along the same way. The `LIVE` discipline below therefore applies to all
+  three actionable kinds, unchanged.
+
+It is also the "bounded internal call to one named command per kind" this
+paragraph contemplated rather than the prohibited generic passthrough — and the
+extension keeps that structural rather than promised: the seam its activation
+code calls is `openWith(uri, viewType, options)`, not `executeCommand(id,
+…args)`, so there is no shape a command id could be routed through. The wire's
+method set is still three methods; ADR-0026's enumeration of the exposure is
+unchanged except that "activate a tab" now reaches one more kind of tab.
+
+**Reopen if** a *diff* is ever something the human keeps on screen and wants a
+label for — that one is still out, and for the reason that has not changed:
+`vscode.diff` constructs a new comparison rather than revealing this tab.
 
 ### 2. The wire protocol: one query, two notifications, and no command passthrough
 
@@ -735,8 +766,8 @@ would rather say so can put a notice in the row source it composes.
 
 ### 9. Cost, and the `'next 'self` ruling stands
 
-**Nothing here is measured, and the previous measurement is withdrawn and now
-irrelevant.** The 3.1 ms figure this spec once carried came from a standalone
+**The wire is now measured — see the table below — and the previous
+accessibility measurement is withdrawn and now irrelevant.** The 3.1 ms figure this spec once carried came from a standalone
 `swiftc -O` accessibility walker that was never committed and cannot be re-run;
 it described neither the shipping path nor, now, the source. It is gone rather
 than adjusted.
@@ -764,6 +795,30 @@ something committed — `(modaliser instrument)`'s spans are what the herdr
 transport already uses, and splitting wire time from parse time is what makes a
 bad number diagnosable rather than merely bad. A bad number is a finding worth
 its own leaf rather than something to absorb.
+
+**Measured, against four live windows** (`vscode-companion-extension-k12`,
+VSCode 1.136.2, `vscode-extension/scripts/measure-parts.js`, 200 iterations
+per peer). This is the *peer's whole service time seen from outside* —
+connect, request, the extension host scheduling the callback, building the
+reply, and the write back:
+
+| | min | p50 | p95 | max | reply |
+|---|---|---|---|---|---|
+| four peers, 200 reads each | 0.034 ms | 0.041–0.047 ms | 0.097–0.118 ms | 1.20 ms | 298–1225 B |
+
+So a healthy peer answers in **a twenty-fifth of a millisecond**, comfortably
+inside the 0.1–0.6 ms herdr order this expected, and two panels' worth of it is
+noise beside the accessibility sweep already on the screen. The 200 ms budget
+is ~5000× the median.
+
+Three things that number does **not** settle, stated so it is not
+over-read. It is measured **from outside Modaliser**, so it excludes
+`json-parse` and the eval thread — that is what the committed `vscode-wire` /
+`vscode-parse` spans are for, and they cannot report until a screen binds a
+panel to `vscode-parts`, which is the next leaf's work. It is a **healthy
+peer**, which by the paragraph above is the case that was never in question.
+And it is **not the come-to-rest**, which is a composed screen's number and
+still owed.
 
 
 That does not reopen `'next 'self`, which is independent of all of the above.
@@ -809,8 +864,7 @@ any other window.
   in the Terminal listing
 
 #### Scenario: a tab that cannot be focused
-- **WHEN** the frontmost window has a webview, a custom editor or a diff tab
-  open
+- **WHEN** the frontmost window has a webview or a diff tab open
 - **THEN** the listing shows a row for it, that row has no action, and the
   labels of the rows below it are unchanged
 

@@ -715,8 +715,44 @@ instance to *read* through a **last-focused pointer file** the extension itself
 writes, and then addresses every *action* to the instance that answered, whose
 socket path the reply carries — so a row can only ever reach the window it was
 drawn from (ADR-0027). _Avoid_ calling it a plugin or a server: it is a peer on an
-established transport, and its method set is bounded on purpose — it deliberately
-cannot run workbench commands. Source: `docs/specs/vscode-window-parts.md`.
+established transport, and its method set is bounded on purpose — three methods,
+and no way for a caller to name a workbench command (it runs exactly one itself,
+`vscode.openWith`, behind an interface that takes a resource and a view type
+rather than a command id). Source: `docs/specs/vscode-window-parts.md`.
+
+**Last-focused pointer file** — the one well-known file in the 0700 socket
+directory (`~/.config/modaliser/vscode/focused`) holding the socket path of the
+**VSCode companion extension** instance whose window most recently took focus.
+Each instance rewrites it atomically on gaining focus, *and* at activation if its
+window is already focused — the event fires on a change, so a lone window that
+never loses focus would otherwise never claim it, which is the ordinary case and
+fails silently. It is how a *read* finds a window; it is never how an *act* finds
+one. _Avoid_ consulting it a second time when acting: every window's token
+counter starts at the same place, so a pointer that moved between the read and
+the press delivers one window's token to another, where it resolves — to a
+different part (ADR-0027). Source: `apps/vscode.sld`
+(`current-vscode-socket-pointer-path`), `vscode-extension/src/pointer.ts`.
+
+**Peer** (VSCode) — one **VSCode companion extension** instance, named by the
+socket path it is listening on. That path is a field of every `parts` reply and
+travels on every row built from it, so an action is addressed to the peer that
+drew the row rather than to whatever the **last-focused pointer file** says by
+then. A peer's socket name is never reused by another instance, because a target
+*is* a peer plus a **Token** and a recycled path would be an address that
+outlived what it addressed. _Avoid_ treating a peer as a window: an extension
+host restart leaves the window and replaces the peer, which is exactly the case
+non-recurring names exist for. Source: `docs/adr/0027-…`.
+
+**Token** (VSCode) — the integer a **Peer** mints for one terminal or one editor
+tab of its own window, from a single counter that is never reset and is shared by
+both kinds. It is only half an address; the other half is the peer. A `parts` call
+*prunes* the token map rather than replacing it, so a live part keeps its token
+however many times the window is read — which is what lets two panels on one
+screen each read without invalidating the other's labels. _Avoid_ reading a token
+as a handle that fails safely on its own: a stale one is refused by a membership
+check at act time, and a wrong-kind one by a kind tag, neither of which the lookup
+would have caught by itself. Source: `vscode-extension/src/registry.ts`,
+`docs/specs/vscode-window-parts.md`.
 
 **Workspace** (VSCode) — the folder a VSCode window is rooted at, as a real
 absolute **path**. The counterpart to **Project**, which is the same folder's

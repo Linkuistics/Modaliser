@@ -107,8 +107,12 @@ ADR-0027.
   | showing and focusing any terminal in that window | — | yes |
   | activating any actionable editor tab in that window | — | yes |
 
-  Nothing else: no document contents, no settings, no file writes, no workbench
-  commands, no reach outside the one window. Two boundaries make that enumeration
+  Nothing else: no document contents, no settings, no file writes, no reach
+  outside the one window, and no way for a *caller* to name a workbench command.
+  The extension runs exactly one itself — `vscode.openWith`, which is how a
+  custom-editor tab is activated — behind an interface that takes a resource and
+  a view type rather than a command id, so "the socket cannot run a command" is a
+  property of the shape rather than a promise about the contents. Two boundaries make that enumeration
   the whole of it — the method set above, and the socket directory, which is
   created mode **0700** so the sockets and the last-focused pointer are not even
   listable by another user on the machine. The residual exposure is accepted on

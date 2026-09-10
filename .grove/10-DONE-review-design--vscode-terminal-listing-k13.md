@@ -82,8 +82,8 @@ outside them is worth as much.
   wants the fewest records that coherently explain the current design — is one
   record right here, or has it become two decisions wearing one number?
 - **Was every citation reconciled?** The spec was renamed and its merge decision
-  renumbered 5 → 7. `CONTEXT.md`, `.grove/13-impl--vscode-part-panels-k7.md` and
-  `.grove/14-impl--catch-all-error-teardown-k11.md` were edited for it. Sweep for
+  renumbered 5 → 7. `CONTEXT.md`, `.grove/14-impl--vscode-part-panels-k7.md` and
+  `.grove/15-impl--catch-all-error-teardown-k11.md` were edited for it. Sweep for
   what was missed, including the summary layers — `CONTEXT.md`'s glossary
   entries and `docs/reference/libraries.md`.
 
@@ -261,7 +261,7 @@ decision.
 
 ### F8 — low — one live implementation brief still cites the old decision number
 
-`.grove/13-impl--vscode-part-panels-k7.md:102` says provider composition is
+`.grove/14-impl--vscode-part-panels-k7.md:102` says provider composition is
 answered by spec decision 5. The same leaf correctly identifies composition as
 decision 7 at `:58-64`, while decision 5 is now the un-memoised round-trip ruling
 (`:75-77`). The stale citation sends the implementer to the wrong contract and
@@ -326,7 +326,7 @@ dirty old-path control (`vscode-editor-listing.md`) and positive current-path
 controls (`vscode-window-parts.md`, ADR-0026). Old-path hits outside F8 were
 historical DONE leaves or transition prose; `CONTEXT.md`,
 `docs/reference/libraries.md`, and
-`.grove/14-impl--catch-all-error-teardown-k11.md` contained no additional live
+`.grove/15-impl--catch-all-error-teardown-k11.md` contained no additional live
 stale citation found by the bounded sweep.
 
 **Coverage limitation.** The review inspected the producer commit

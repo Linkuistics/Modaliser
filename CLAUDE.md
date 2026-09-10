@@ -51,6 +51,18 @@ else falls back to ad-hoc signing. `scripts/release-*.sh` drive the Homebrew-cas
 release flow — **`docs/RELEASING.md` is the runbook**; the scripts carry the
 reasoning for individual guards, that page carries the procedure.
 
+`vscode-extension/` is the repo's only TypeScript, and it is **not part of the
+`.app`**: a companion VSCode extension answering what is open inside a VSCode
+window, over the ADR-0020 socket transport (ADR-0026, ADR-0027,
+`docs/specs/vscode-window-parts.md`). It has its own `npm test` (tsc + the
+built-in Node test runner, against fakes of the VSCode API — nothing in the
+Swift suite reaches it) and its own installer,
+`./scripts/install-vscode-extension.sh`, deliberately separate from
+`install.sh`. Note the consequence: **ADR-0019's exact-mirror invariant covers
+`Scheme/` only**, so nothing fails a Modaliser build if the extension goes
+stale. What catches a skew instead is the protocol version in its reply, which
+Modaliser answers with an empty panel and a log line.
+
 There is no CI in this repository and no separate lint step.
 `check-portable-surface.sh` and `check-decision-free.sh` are the two bespoke
 invariant checks; nothing runs them for you, so running both after touching

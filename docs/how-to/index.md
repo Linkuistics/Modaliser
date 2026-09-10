@@ -64,6 +64,11 @@ reaching for recipes, start with the tutorial:
 - [Use Modaliser over a remote desktop](remote-desktop.md) — the
   pass-and-arm mechanism for when a host and a remote machine both
   run Modaliser and see the same trigger keys.
+- [Install the VSCode companion extension](../../vscode-extension/README.md)
+  — `./scripts/install-vscode-extension.sh`, then restart VSCode. Needed
+  only for the panels that list what is open *inside* a VSCode window;
+  a separate install because it targets a separate application
+  (ADR-0026).
 
 ## Maintainer runbooks
 

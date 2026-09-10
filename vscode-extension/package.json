@@ -1,0 +1,43 @@
+{
+  "name": "modaliser-companion",
+  "displayName": "Modaliser Companion",
+  "description": "Answers Modaliser's questions about what is open in this VSCode window, over a Unix-domain socket.",
+  "version": "1.0.0",
+  "publisher": "antony",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.136.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "The extension only reports which editors and terminals this window holds, and activates one of them on request. It never reads workspace content, runs workspace code, or honours workspace settings."
+    },
+    "virtualWorkspaces": {
+      "supported": true,
+      "description": "Listing a window’s tabs and terminals needs no local file system."
+    }
+  },
+  "main": "./out/src/extension.js",
+  "contributes": {},
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -p . --watch",
+    "test": "tsc -p . && node --test out/test/"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "@types/vscode": "1.136.0",
+    "typescript": "5.9.3"
+  }
+}

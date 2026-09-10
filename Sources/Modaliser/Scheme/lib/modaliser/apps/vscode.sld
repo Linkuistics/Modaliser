@@ -1,12 +1,19 @@
 ;; (modaliser apps vscode) — Visual Studio Code (com.microsoft.VSCode)
 ;; utilities.
 ;;
-;; VSCode exposes no scripting dictionary and no IPC socket worth the
-;; name, so everything here is built from two things Modaliser already
-;; has: the window enumeration, and synthetic keystrokes onto VSCode's
-;; own default chords. That is why this library is small — it is a
-;; shaping layer over `list-windows`, plus three named chords, and
-;; nothing else.
+;; VSCode as an application seen FROM OUTSIDE exposes no scripting
+;; dictionary and no IPC socket worth the name, so most of what is here
+;; is built from two things Modaliser already has: the window
+;; enumeration, and synthetic keystrokes onto VSCode's own default
+;; chords.
+;;
+;; That framing is right about the outside and wrong as a whole, and
+;; ADR-0026 is where it was corrected. VSCode's EXTENSION API is a
+;; first-class, versioned surface onto exactly the state that is out of
+;; reach from outside — what is open inside one window — and its
+;; extension host is an ordinary Node process, so the missing IPC was
+;; missing only until someone wrote the peer. The last section of this
+;; library is Modaliser's half of that conversation.
 ;;
 ;; window-source / focus-window! are ready for a chooser row: the source
 ;; lists every open VSCode window keyed on its PROJECT (the folder the
@@ -32,6 +39,7 @@
 ;;   (code:toggle-terminal)    (code:focus-explorer)   (code:focus-editor)
 ;;   (code:focused-workspace-path)   (code:reveal-file! path)
 ;;   (code:editor-cycler 'next 'focus THUNK)
+;;   (code:vscode-parts)
 ;;
 ;; ─── The three chords, and what they actually do ────────────────────
 ;;
@@ -185,6 +193,73 @@
 ;; `window.openFilesInNewWindow` setting, if a user sets it to "on".
 ;;
 
+;; ─── What is open INSIDE a window: the companion extension ──────────
+;;
+;; Everything above reads VSCode from outside. Nothing outside VSCode
+;; can say what is open *inside* one window — its editor tabs, its
+;; terminals — because VSCode ships no scripting dictionary and the IPC
+;; socket its own CLI uses is private and unversioned. Its EXTENSION
+;; API does carry exactly that state (`window.terminals`,
+;; `window.tabGroups`), so Modaliser runs a small peer inside each
+;; window and asks it. Reading a RENDERING of that state through the
+;; accessibility tree was designed, reviewed and rejected on what the
+;; rendering costs (ADR-0026, considered options).
+;;
+;; The peer is `vscode-extension/` in this repository, installed
+;; separately by `scripts/install-vscode-extension.sh` — it targets a
+;; different application and has its own upgrade cadence, so it is not
+;; a step inside `install.sh` and `build-app.sh`'s exact-mirror
+;; invariant (ADR-0019) does not cover it.
+;;
+;; THE TRANSPORT IS NOT NEW. It is ADR-0020's, built for herdr and
+;; reused unchanged: newline-delimited JSON over a Unix-domain socket,
+;; one `{"id","method","params"}` request per connection, the peer
+;; closing after it responds, `unix-socket-request` owning the framing
+;; in both directions. (modaliser muxes herdr-socket) is the worked
+;; model and this follows its shape deliberately rather than inventing
+;; a second one — including its parameter-defaults-to-#f discipline,
+;; which is what keeps `swift test` structurally unable to dial a live
+;; editor (ADR-0023).
+;;
+;; THREE METHODS, AND THE SET IS THE SECURITY SURFACE. `parts` is a
+;; query and is answered; `focus-terminal` and `focus-editor` are
+;; NOTIFICATIONS and are answered with nothing at all (ADR-0014 — no
+;; caller consumes an acknowledgement, so waiting for one would spend
+;; the eval thread's time, and the keyboard tap's, on a discarded
+;; value). There is deliberately no method that runs a workbench
+;; command; ADR-0026 enumerates what the bounded set exposes and
+;; accepts.
+;;
+;; WHICH WINDOW A READ GOES TO, AND WHICH WINDOW AN ACT GOES TO, ARE
+;; DIFFERENT QUESTIONS (ADR-0027). The extension host is per-window, so
+;; there are several peers. A read is addressed through a last-focused
+;; POINTER FILE that each window's extension rewrites when its window
+;; takes focus. An act is addressed through the `peer` path the READ's
+;; own reply carried — never the pointer read a second time, because
+;; every window's token counter starts at the same place, so a pointer
+;; that moved between the read and the press would deliver window A's
+;; token to window B, where it RESOLVES, to a different tab. The read
+;; and the act name the same peer because the act's address came out of
+;; the read. That is why `vscode-query`/`vscode-notify` take the socket
+;; path as an ARGUMENT and only `vscode-parts` resolves the pointer.
+;;
+;; A 200 ms READ TIMEOUT, NOT herdr's 1000. The budget that matters is
+;; the whole come-to-rest: only `parts` waits, a screen reads once per
+;; panel, and a blocked eval thread is a blocked keyboard tap
+;; (ADR-0014). Two panels at herdr's second apiece would be two seconds
+;; of that; 200 ms is still ~300x the 0.1-0.6 ms wire time herdr
+;; measures, so a healthy peer never notices it and a wedged one costs
+;; a bounded fraction of a press. herdr's ceiling is right for a peer
+;; Modaliser launched and can be sure of; this peer's event loop is
+;; shared with every other extension in the window.
+;;
+;; EVERY MISS IS AN EMPTY LISTING, NEVER A WRONG ONE. Extension not
+;; installed, not yet activated, disabled for the profile, a stale
+;; pointer, a crashed host, a protocol skew, a reply from a window that
+;; is no longer focused — every one of them ends at #f here, and #f is
+;; no rows. A window with NO FOLDER OPEN is deliberately not on that
+;; list: it is an ordinary peer with a null `workspace`.
+
 (define-library (modaliser apps vscode)
   (export ;; ── Identity ───────────────────────────────────────────────
           ;; VSCode's bundle id. The screen's scope symbol is spelled by
@@ -280,7 +355,47 @@
           editor-cycler
           ;; (cycle-thunk DIRECTION) → the chord thunk for it. Pure,
           ;; and where the direction mapping is pinned by a test.
-          cycle-thunk)
+          cycle-thunk
+
+          ;; ── The companion extension's transport ───────────────────
+          ;;      (vscode-companion-extension-k12)
+          ;; How Modaliser reaches the peer running INSIDE a VSCode
+          ;; window. See the header for the protocol, the addressing
+          ;; and why the timeout is 200 ms rather than herdr's second.
+          ;;
+          ;; Where the last-focused pointer file is. The parameter's
+          ;; default is #f — "no VSCode extension configured" — and the
+          ;; HOST installs the real path at boot (root.scm), exactly as
+          ;; it installs the herdr socket path. That default is what
+          ;; keeps `swift test` structurally unable to dial a live
+          ;; editor (ADR-0023): with no pointer there is no socket path,
+          ;; and every runner below takes its path as an argument.
+          current-vscode-socket-pointer-path
+          vscode-default-socket-pointer-path
+          ;; The protocol version this Modaliser understands. A reply
+          ;; that does not carry it is treated as an unreachable peer:
+          ;; the two halves are installed separately and can skew.
+          vscode-protocol-version
+          ;; The two transports, exported so a test can exercise the
+          ;; REAL envelope and parse path rather than only the seams.
+          ;;   (vscode-socket-request PEER METHOD PARAMS) → envelope|#f
+          ;;   (vscode-socket-send    PEER METHOD PARAMS) → #t|#f
+          vscode-socket-request
+          vscode-socket-send
+          ;; The two seams, and the dispatchers that go through them.
+          ;; TWO rather than one, for the reason (modaliser unix-socket)
+          ;; has two primitives: a deliberately abandoned reply must not
+          ;; be indistinguishable from a timeout. The query seam is
+          ;; where a test hands back canned JSON; the notify seam is
+          ;; where a test asserts which bytes went to which peer, which
+          ;; is how the peer-binding invariant is pinned at all.
+          current-vscode-query-runner
+          current-vscode-notify-runner
+          vscode-query
+          vscode-notify
+          ;; (vscode-parts) → the `parts` RESULT object, or #f. Impure:
+          ;; reads the pointer file and does one round-trip.
+          vscode-parts)
   (import (scheme base)
           (scheme char)
           ;; get-environment-variable, for $HOME in the state-file path.
@@ -288,7 +403,21 @@
           ;; import (modaliser muxes herdr-socket) makes for its socket.
           (only (scheme process-context) get-environment-variable)
           (modaliser util)
-          (only (modaliser json) json-parse json-ref)
+          (only (modaliser json) json-parse json-ref json-write)
+          ;; The press stopwatch, split into wire time and parse time
+          ;; exactly as the herdr transport splits it — so a read that
+          ;; starts costing seconds says which half grew. k6's cost
+          ;; conclusion had to be withdrawn because its instrument was a
+          ;; standalone binary nobody committed; this one ships.
+          (only (modaliser instrument)
+                instrument-enabled? instrument-note instrument-span
+                instrument-sample!)
+          ;; The native AF_UNIX round-trip (ADR-0020). Swift owns the
+          ;; socket and knows nothing of the envelope; the framing,
+          ;; parsing and error mapping are all here. The same import
+          ;; (modaliser muxes herdr-socket) makes, and quarantined the
+          ;; same way — by a parameter that defaults to unconfigured.
+          (modaliser unix-socket)
           (only (modaliser input) send-keystroke)
           (only (modaliser window)
                 list-windows focus-window focused-window)
@@ -908,4 +1037,205 @@
                              (car after)
                              focus-explorer)))
           (run-shell-async (open-file-command path)
-                           (lambda (code out err) (follow-up))))))))
+                           (lambda (code out err) (follow-up))))))
+
+    ;; ─── The companion extension's transport ────────────────────────
+    ;;
+    ;; Shaped after (modaliser muxes herdr-socket) deliberately — see
+    ;; the header. What differs, and why, is noted at each definition.
+
+    ;; The wire contract's version, checked on every reply. Modaliser
+    ;; and the extension are installed separately (ADR-0026), so skew
+    ;; is an ordinary condition rather than a fault: a mismatch is
+    ;; treated as an unreachable peer — empty listing, log line, and no
+    ;; attempt to interpret fields whose meaning is not agreed.
+    (define vscode-protocol-version 1)
+
+    ;; Where the extension writes the socket path of whichever window
+    ;; last took focus. Both halves hard-code `~/.config/modaliser` —
+    ;; SchemeEngine does not honour $XDG_CONFIG_HOME, so honouring it
+    ;; on one side only would put the two in different directories.
+    ;; The directory is created 0700 by the extension, which is what
+    ;; keeps the sockets and this file out of another user's reach.
+    ;;
+    ;; An unset $HOME yields a path that cannot exist, and the read
+    ;; then degrades to #f exactly as an absent extension does.
+    (define (vscode-default-socket-pointer-path)
+      (string-append (or (get-environment-variable "HOME") "")
+                     "/.config/modaliser/vscode/focused"))
+
+    ;; **#f — no VSCode extension configured — is the default, and the
+    ;; host installs the real path** (`root.scm`). The inert default is
+    ;; the quarantine, not tidiness: with no pointer path there is no
+    ;; socket path, and every runner below takes its peer as an
+    ;; argument rather than resolving one, so a bare `SchemeEngine()`
+    ;; — which is every test — has no path by which to reach a live
+    ;; editor (ADR-0023). It stays a parameter so a test can point the
+    ;; REAL transport at a throwaway responder socket.
+    (define current-vscode-socket-pointer-path (make-parameter #f))
+
+    ;; Wall-clock bound on a whole round-trip. 200 ms, not herdr's
+    ;; 1000 — see the header for the come-to-rest budget that decides
+    ;; it. Only `parts` ever waits this long; the notification path
+    ;; bounds only its connect+send, which against a local peer is
+    ;; sub-millisecond.
+    (define vscode-socket-timeout-ms 200)
+
+    ;; The envelope, built in one place for both transports.
+    ;; `json-write` owns the escaping, so a token and a method name are
+    ;; escaped by the same code as everything else.
+    (define (vscode-request-line method params)
+      (json-write (list (cons "id" "modaliser")
+                        (cons "method" method)
+                        (cons "params" params))))
+
+    ;; PEER is a socket path — the pointer's contents for a read, the
+    ;; reply's own `peer` field for an act (ADR-0027). It is an
+    ;; argument rather than something the transport resolves, and that
+    ;; is the whole of the addressing decision expressed in a signature.
+    ;;
+    ;; **#f means the peer did not answer** — no socket there, a
+    ;; timeout, or a reply that would not parse — and nothing raises: a
+    ;; leader press must not raise. A structured `{"error":…}` reply is
+    ;; NOT #f: the peer answered and said something specific, so it
+    ;; comes back as the envelope, logged. Callers read
+    ;; `(json-ref j "result")`, which an error envelope has not got,
+    ;; and `json-ref` is total — so an error degrades to the same #f
+    ;; every caller already handles.
+    (define (vscode-socket-request peer method params)
+      (if (not (string? peer))
+          (begin (log "vscode: " method " — no peer to dial") #f)
+          (let ((reply (instrument-span 'vscode-wire
+                         (lambda ()
+                           (unix-socket-request
+                             peer
+                             (vscode-request-line method params)
+                             vscode-socket-timeout-ms)))))
+            (if (not (string? reply))
+                #f                      ; the primitive already logged why
+                (let ((parsed
+                        (begin
+                          (when (instrument-enabled?)
+                            (let ((n (string-length reply)))
+                              (instrument-sample! 'vscode-reply reply n)
+                              (instrument-note 'vscode method 'reply-chars n)))
+                          (instrument-span 'vscode-parse
+                            (lambda ()
+                              (guard (e (#t #f)) (json-parse reply)))))))
+                  (cond
+                    ((not parsed)
+                     (log "vscode: " method " — unparseable reply: " reply)
+                     #f)
+                    ((json-ref parsed "error")
+                     => (lambda (err)
+                          (log "vscode: " method " failed: "
+                               (or (json-ref err "message") ""))
+                          parsed))
+                    (else parsed)))))))
+
+    ;; The no-reply sibling: connect, send, close, never read. The peer
+    ;; answers a notification with nothing at all, so there is no reply
+    ;; to abandon — this is the shape ADR-0014 asks for rather than an
+    ;; optimisation over waiting.
+    ;;
+    ;; **Nothing acts on the result and the failure is still logged.**
+    ;; `unix-socket-send` returns #f when the bytes never reached a
+    ;; socket at all, which is precisely the dangling-path case a stale
+    ;; target produces; discarding that would leave "the peer refused
+    ;; this" and "there was no peer" indistinguishable even in
+    ;; Modaliser's own log, for nothing. One log line, no behaviour.
+    (define (vscode-socket-send peer method params)
+      (if (not (string? peer))
+          (begin (log "vscode: " method " — no peer to dial") #f)
+          (let ((sent (unix-socket-send peer
+                                        (vscode-request-line method params)
+                                        vscode-socket-timeout-ms)))
+            (or sent
+                (begin (log "vscode: " method " — no peer at " peer) #f)))))
+
+    ;; ─── The two seams ──────────────────────────────────────────────
+    ;;
+    ;; TWO, not one, for the reason (modaliser unix-socket) has two
+    ;; primitives: a deliberately abandoned reply must not be
+    ;; indistinguishable from a timeout. The read side's seam is where
+    ;; a test hands back canned JSON. The act side's is where a
+    ;; recording runner pins the peer-binding invariant — build targets
+    ;; from a reply whose `peer` is one path and assert the action was
+    ;; addressed to THAT path and no other. Without that assertion
+    ;; ADR-0027 is an assertion again, which this design has already
+    ;; been caught at once.
+    (define current-vscode-query-runner (make-parameter vscode-socket-request))
+    (define current-vscode-notify-runner (make-parameter vscode-socket-send))
+
+    (define (vscode-query peer method params)
+      ((current-vscode-query-runner) peer method params))
+
+    (define (vscode-notify peer method params)
+      ((current-vscode-notify-runner) peer method params))
+
+    ;; The focused window's socket path, or #f. One `read-file-text`
+    ;; against the pointer file — the portable tree has no directory
+    ;; listing, and needs none, because the extension names the file
+    ;; and Modaliser only reads it (ADR-0027).
+    ;;
+    ;; Consulted to START a read and never again: every act goes to the
+    ;; `peer` the reply itself carried, so a pointer that moves between
+    ;; the read and the press cannot redirect an action.
+    (define (vscode-focused-peer)
+      (let ((pointer (current-vscode-socket-pointer-path)))
+        (and (string? pointer)
+             (let ((text (string-trim (read-file-text pointer))))
+               (and (not (string=? text "")) text)))))
+
+    ;; (vscode-parts) → the `parts` RESULT object, or #f.
+    ;;
+    ;; The RESULT, not the whole envelope: an error envelope, a
+    ;; protocol skew and a lost window are all already collapsed to #f
+    ;; here, so handing callers the envelope would buy them nothing but
+    ;; a `json-ref` each. Callers read `peer`, `workspace`, `terminals`
+    ;; and `editors` straight off what comes back.
+    ;;
+    ;; Three ways to get #f beyond "no answer", and all three are the
+    ;; same outcome on screen — no rows, never wrong rows:
+    ;;
+    ;;   a PROTOCOL that is not the version this Modaliser understands.
+    ;;   Interpreting fields whose meaning is not agreed is how a skew
+    ;;   becomes a wrong jump instead of an empty panel.
+    ;;
+    ;;   a FOCUSED of false. This is the "row and action come from one
+    ;;   snapshot and cannot disagree" contract applied to WINDOW
+    ;;   identity: a stale pointer — a window that closed, a race —
+    ;;   yields an empty listing rather than a neighbouring project's
+    ;;   terminals. Note what it requires, which the screen already
+    ;;   has rather than this adding: `window.state.focused` is false
+    ;;   in every VSCode window while another application is frontmost,
+    ;;   and the overlay is created non-activating (`ui/overlay.scm`,
+    ;;   'activating #f) so VSCode keeps focus through the whole modal.
+    ;;   A screen that rendered these rows through the CHOOSER instead
+    ;;   would take that focus and the gate would reject every reply,
+    ;;   with nothing in the protocol to explain it.
+    ;;
+    ;;   a reply with no `result` at all.
+    (define (vscode-parts)
+      (let ((peer (vscode-focused-peer)))
+        (and peer
+             (let ((envelope (vscode-query peer "parts" '())))
+               (and envelope
+                    (let ((result (json-ref envelope "result")))
+                      (cond
+                        ((not (list? result))
+                         (log "vscode: parts — reply carried no result")
+                         #f)
+                        ((not (eqv? (json-ref result "protocol")
+                                    vscode-protocol-version))
+                         (log "vscode: parts — protocol "
+                              (or (json-ref result "protocol") "?")
+                              ", expected " vscode-protocol-version
+                              "; reinstall the companion extension")
+                         #f)
+                        ((not (eq? (json-ref result "focused") #t))
+                         (log "vscode: parts — the peer's window is not"
+                              " focused; discarding the reply")
+                         #f)
+                        (else result))))))))
+))

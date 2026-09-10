@@ -142,7 +142,7 @@ live in the ADRs once each, with the spec keeping only what is normative for a
 builder.
 
 **F8 (low) — accepted and fixed**, with the sweep re-run rather than inherited:
-`.grove/13-impl--vscode-part-panels-k7.md` now says decision 7 at both places. The
+`.grove/14-impl--vscode-part-panels-k7.md` now says decision 7 at both places. The
 old-path pattern `vscode-editor-listing` was used as the dirty control and came
 back with five hits, all historical DONE leaves plus `k11`'s transition prose,
 which is correct as it stands; the `decision N` enumeration over `.md`, `.sld`,

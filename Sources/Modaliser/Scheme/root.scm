@@ -50,6 +50,12 @@
         (only (modaliser instrument) instrument-enabled?)
         (only (modaliser muxes herdr-socket)
               current-herdr-socket-path herdr-default-socket-path)
+        ;; And the same two names for the VSCode companion extension's socket
+        ;; (ADR-0026). Imported narrowly: everything else in (modaliser apps
+        ;; vscode) is the user's config's to import, under its own prefix.
+        (only (modaliser apps vscode)
+              current-vscode-socket-pointer-path
+              vscode-default-socket-pointer-path)
         ;; The only import of the native HTTP library in the tree; the seam
         ;; imported above is what everything else calls. The install is a few
         ;; lines below, with the rest of the host wiring.
@@ -82,6 +88,18 @@
 ;; `pane.swap` into a live layout). The resolution policy itself stays in the
 ;; library; only the decision to go live is the host's.
 (current-herdr-socket-path (herdr-default-socket-path))
+
+;; And once more for the VSCode companion extension (ADR-0026, ADR-0027). The
+;; library ships `current-vscode-socket-pointer-path` as #f — "no VSCode
+;; extension configured" — and the live path is installed HERE for the same
+;; reason herdr's is: reaching a peer inside a running editor is a property of
+;; the app being live, not of the library being imported.
+;;
+;; With the safe value as the default, a bare `SchemeEngine()` has no pointer
+;; file to read, and every transport in that library takes its peer as an
+;; ARGUMENT rather than resolving one — so there is no path by which a test
+;; could dial a live editor, however it stubs its seams (ADR-0023).
+(current-vscode-socket-pointer-path (vscode-default-socket-pointer-path))
 
 ;; And once more for the one outward reach that leaves the machine entirely:
 ;; fetching a URL (ADR-0023). `(modaliser http)` ships `current-http-runner` as

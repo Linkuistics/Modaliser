@@ -41,6 +41,20 @@ swift test
 
 Building from source requires macOS 14+ and Swift 5.9+ / Xcode 15+ — the Homebrew install needs neither.
 
+### The VSCode companion extension (optional)
+
+Listing the editors and terminals open *inside* a VSCode window needs a small
+peer running inside VSCode, because nothing outside VSCode carries that state.
+It is a separate install — it targets a different application, needs npm, and
+upgrades on its own cadence:
+
+```bash
+./scripts/install-vscode-extension.sh    # then restart VSCode
+```
+
+Everything else in the VSCode screen works without it. See
+[`vscode-extension/README.md`](vscode-extension/README.md).
+
 ## Usage
 
 On first launch, Modaliser presents an onboarding window for Accessibility (with a deep-link button into System Settings, polling for the grant and auto-relaunching when it lands) and then triggers macOS's native Screen Recording prompt. Accessibility is required for global keyboard capture; Screen Recording, for reading window titles. After both are granted, the app runs as an accessory (no Dock icon) with a menu bar icon.

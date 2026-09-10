@@ -610,6 +610,10 @@ exported as named ops beside it so one import covers the whole screen.
 No stock screen ships here (ADR-0021): which operation sits on which key
 under which label is preference.
 
+Everything below the `open-file-command` row in the table reaches a
+**companion VSCode extension** rather than VSCode-from-outside — see
+*What is open inside a window* at the end of this section.
+
 ```scheme
 (define vscode-label-keys '("a" "s" "d" "f" "g"))
 
@@ -654,6 +658,14 @@ different affordances over the same windows.
 | `title-of-window-id` | `(title-of-window-id id enumeration)` → a VSCode window's title, or `#f`. Pure. |
 | `reveal-file!` | `(reveal-file! path [after])` — open `path` in the window that owns its folder, then run `after` (default `focus-explorer`). **Asynchronous**; a `#f` or empty path does nothing. |
 | `open-file-command` | `(open-file-command path)` → the command `reveal-file!` would spawn. Pure. |
+| `current-vscode-socket-pointer-path` | Parameter. Where the companion extension writes the socket path of the window that last took focus. Defaults to **`#f`** — "no VSCode extension configured" — and `root.scm` installs the real path at boot, the same shape `(modaliser muxes herdr-socket)` uses. The inert default is what keeps `swift test` structurally unable to dial a live editor (ADR-0023). |
+| `vscode-default-socket-pointer-path` | `(vscode-default-socket-pointer-path)` → `$HOME/.config/modaliser/vscode/focused`. The resolution policy; the decision to go live is the host's. |
+| `vscode-protocol-version` | `1`. The wire contract's version. A reply that does not carry exactly this is treated as an unreachable peer, because Modaliser and the extension are installed separately and can skew (ADR-0026). |
+| `vscode-parts` | `(vscode-parts)` → the `parts` **result object**, or `#f`. Impure: reads the pointer file, one round-trip on a 200 ms timeout. `#f` — never a raise — for an unreachable peer, a protocol mismatch, a reply whose `focused` is false, and a reply with no result. The result carries `peer`, `workspace`, `terminals` and `editors`; see the [spec](../specs/vscode-window-parts.md) for each field. |
+| `current-vscode-query-runner` | Parameter, the read side's one seam: `(peer method params)` → parsed envelope or `#f`. Defaults to `vscode-socket-request`. A test installs a canned runner here. |
+| `current-vscode-notify-runner` | Parameter, the act side's: `(peer method params)` → `#t`/`#f`, fire-and-forget. Defaults to `vscode-socket-send`. Two seams rather than one, so a deliberately abandoned reply is never indistinguishable from a timeout — and so a recording runner can assert *which peer* an action was addressed to, which is the only way ADR-0027's binding is pinned rather than asserted. |
+| `vscode-query`, `vscode-notify` | `(… peer method params)` — the dispatchers through those seams. The peer is an **argument**: a read resolves it from the pointer once, and every action addresses the peer the read's own reply named (ADR-0027). |
+| `vscode-socket-request`, `vscode-socket-send` | The real transports the two seams default to. Exported so a test can exercise the actual envelope/parse path rather than only the seams above it. |
 
 #### What the three chords actually do
 
@@ -808,6 +820,51 @@ is not a fact about VSCode on every machine**. The default
 install but liable to bounce to the editor when the explorer already has
 focus; anyone who has bound a strict-focus command in their own
 `keybindings.json` passes that instead (ADR-0021).
+
+#### What is open *inside* a window
+
+Everything above reads VSCode from outside, and nothing outside VSCode can say
+what is open **inside** one window — its editor tabs, its terminals. VSCode's
+*extension API* carries exactly that, so Modaliser runs a small peer inside
+each window and talks to it over a Unix-domain socket: the **companion
+extension** in `vscode-extension/`, installed by
+`./scripts/install-vscode-extension.sh`. ADR-0026 records why a companion
+extension rather than the accessibility tree or the stored editor state;
+ADR-0027 records how one window is addressed among several;
+[the spec](../specs/vscode-window-parts.md) is the protocol.
+
+Three things to know before using the surface:
+
+- **It is a separate install.** The extension targets a different application
+  and upgrades on its own cadence, so `install.sh` does not touch it and
+  `build-app.sh`'s exact-mirror invariant (ADR-0019) does not cover it. The
+  reply carries a protocol version and a mismatch is answered with `#f`, so a
+  skew is an empty panel and a log line rather than misread fields.
+- **Every miss is `#f`.** Extension not installed, not yet activated, disabled
+  for the profile, a stale pointer, a crashed host, a window that has lost
+  focus — all of them are `#f`, and `#f` is no rows. That is deliberate: a
+  wrong row is worse than no row, because a wrong row jumps somewhere.
+- **A read is addressed by the pointer file; an act is addressed by the reply.**
+  `vscode-parts` resolves the pointer once. Every action must go to the `peer`
+  path *that reply* carried, and `vscode-notify` takes it as an argument for
+  that reason. Re-reading the pointer at act time is a one-line shortcut and is
+  wrong: every window's token counter starts at the same place, so a pointer
+  that moved between the read and the press delivers window A's token to window
+  B, where it **resolves** — to a different tab (ADR-0027).
+
+```scheme
+(let ((parts (code:vscode-parts)))
+  (when parts
+    (json-ref parts "terminals")          ; this window's terminals
+    (json-ref parts "editors")            ; its editor tabs
+    ;; and, to act on one, the peer that drew it:
+    (code:vscode-notify (json-ref parts "peer")
+                        "focus-terminal"
+                        (list (cons "token" 12)))))
+```
+
+Rows, providers and listings are built on this in `(modaliser apps vscode)`'s
+panel surface; the transport is the layer documented here.
 
 ### `(modaliser apps iterm)`
 
