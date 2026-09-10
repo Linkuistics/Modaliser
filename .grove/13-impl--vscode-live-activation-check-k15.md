@@ -45,6 +45,37 @@ to name. **Expect this leaf to be trivial with a human at the keyboard and
 impossible without one** — if it is picked and the machine is again unattended,
 say so and retire nothing.
 
+**Attempt 1 (2026-09-10) — unattended, and now measured rather than inferred.**
+k12 could only say its symptom was *consistent with* a locked GUI session. It is:
+
+```
+osascript -e 'tell application "System Events" to name of first application process whose frontmost is true'
+  -> Code
+python3 -c "import Quartz; print(Quartz.CGSessionCopyCurrentDictionary()['CGSSessionScreenIsLocked'])"
+  -> True
+```
+
+All four live peers answered `parts` normally and all four read `focused:
+false`. Those two readings are not in tension: *frontmost* is an
+application-level fact that survives a screen lock, while
+`window.state.focused` is a key-window fact that does not — so Code can own the
+front with no window holding focus. **`CGSSessionScreenIsLocked` is the
+precheck**: if it is true, stop, because every one of the four cases below is
+focus-gated (`actions.ts` refuses `focus-terminal`/`focus-editor` outright when
+`env.focused()` is false), and nothing in this leaf is drivable.
+
+Two things were confirmed for the next attempt, so the human's fifteen minutes
+need not start with them:
+
+- The installed extension is current — `~/.vscode/extensions/antony.modaliser-companion-1.0.0`
+  matches `vscode-extension/package.json` at 1.0.0, and four sockets were live and
+  answering. Reinstall is only needed if the source changes first.
+- The custom-editor path really is the common one. The human's `settings.json`
+  maps `"*.md": "vscode.markdown.preview.editor"` (and `*.copilotmd`, `*.pdf`),
+  and `explorer.autoReveal` is pinned `true`. So the `vscode.openWith` branch of
+  the activation table is exercised by any markdown tab — include one in the
+  two-group case, as below.
+
 **How to drive it, so this is fifteen minutes and not a rediscovery.**
 
 - `./scripts/install-vscode-extension.sh`, then **restart VSCode** — an
