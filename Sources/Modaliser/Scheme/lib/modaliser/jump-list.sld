@@ -335,12 +335,12 @@
     ;; happily until one of them grows past its single alphabet. At
     ;; config-load there is no row count to check against.
     ;;
-    ;; A raise here releases the keyboard on both dispatch paths; on the
-    ;; catch-all path it can leave the overlay standing over live modal
-    ;; state until the next activation. That trade-off is accepted
-    ;; rather than solved (docs/specs/vscode-window-parts.md decision 7)
-    ;; — a stale overlay after a config error is a worse-LOOKING failure
-    ;; than a silent wrong jump, not a worse one.
+    ;; A raise here releases the keyboard on both dispatch paths and
+    ;; tears the modal down on both: the leader path never registers or
+    ;; shows anything, and the catch-all path applies modal-abort! after
+    ;; releasing the keys (docs/reference/state-machine.md, "When a
+    ;; keypress raises"). So the screen just closes; the error text goes
+    ;; to the system log and nowhere the user is looking.
 
     ;; An edge's trigger. Edges are plain alists, so this needs no
     ;; accessor from (modaliser fsm) — and it must stay in step with

@@ -155,6 +155,25 @@ struct KeyboardLibraryTests {
         try engine.evaluate("(unregister-all-keys!)")
     }
 
+    @Test func registerAllKeysAcceptsAnOptionalRecoveryThunk() throws {
+        let engine = try SchemeEngine()
+        // The teardown thunk modal-activate! passes alongside the handler.
+        #expect(try engine.evaluate(
+            "(register-all-keys! (lambda (kc m) #t) (lambda () #t))") == .void)
+        // #f means "no recovery", so a caller can pass the slot through
+        // unconditionally without branching.
+        #expect(try engine.evaluate(
+            "(register-all-keys! (lambda (kc m) #t) #f)") == .void)
+        try engine.evaluate("(unregister-all-keys!)")
+    }
+
+    @Test func registerAllKeysRejectsANonProcedureRecovery() throws {
+        let engine = try SchemeEngine()
+        #expect(throws: (any Error).self) {
+            try engine.evaluate("(register-all-keys! (lambda (kc m) #t) 42)")
+        }
+    }
+
     @Test func unregisterAllKeysWhenNoneRegistered() throws {
         let engine = try SchemeEngine()
         let result = try engine.evaluate("(unregister-all-keys!)")

@@ -443,4 +443,122 @@ struct EndToEndSchemeModalTests {
         }
         #expect(try engine.evaluate("modal-active?") == .false)
     }
+
+    // MARK: - catch-all-error-teardown-k11
+
+    /// Poll SCHEME on the test thread until it answers `.true`, letting the
+    /// process main thread drain the main queue meanwhile. The catch-all
+    /// dispatches its Scheme work with `DispatchQueue.main.async`, so a
+    /// straight-line assertion after invoking it would race the work it is
+    /// asserting about.
+    private func waitUntilTrue(_ engine: SchemeEngine,
+                               _ scheme: String,
+                               timeout: TimeInterval = 5.0) throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if try engine.evaluate(scheme) == .true { return true }
+            usleep(10_000)
+        }
+        return try engine.evaluate(scheme) == .true
+    }
+
+    /// Regression for catch-all-error-teardown-k11: a Scheme error raised on a
+    /// keypress *inside* a modal used to release the keyboard and stop there —
+    /// `catchAllHandler = nil` and nothing else. `modal-exit` never ran, the FSM
+    /// was neither halted nor reset, and the overlay stayed on screen over live
+    /// modal state until the next activation happened to reset it.
+    ///
+    /// Driven through the real Swift catch-all closure (not `modal-key-handler`
+    /// directly) because the error path being tested is the host's, not the
+    /// engine's: `modal-key-handler` raising is what the wrapper has to survive.
+    @Test func catchAllRaiseTearsDownTheModal() throws {
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        try engine.evaluate("""
+            (define overlay-visible? #f)
+            (set-show-overlay! (lambda (root path) (set! overlay-visible? #t)))
+            (set-hide-overlay! (lambda () (set! overlay-visible? #f)))
+            (set-overlay-open! (lambda () overlay-visible?))
+            ;; Immediate, so the overlay is genuinely up before the raise —
+            ;; the default 1s delay would let the test pass vacuously.
+            (set-overlay-delay! 0)
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global
+                  ;; A raising PROVIDER on a group, not a raising leaf action:
+                  ;; a Terminal leaf's wrapped entry fires its pending teardown
+                  ;; (overlay hidden, keys released) BEFORE running the action,
+                  ;; so a leaf that raises leaves no overlay behind and would
+                  ;; make the overlay half of this test vacuous. A provider
+                  ;; raises at come-to-rest, with the overlay still up — which
+                  ;; is the case docs/specs/vscode-window-parts.md decision 7
+                  ;; actually describes.
+                  (group "g" "Boom"
+                    'provider (lambda (owner-id) (error "provider blew up"))
+                    (key "x" "Never" (lambda () #t))))))))
+            """)
+
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
+        #expect(try engine.evaluate("modal-active?") == .true)
+        #expect(try engine.evaluate("overlay-visible?") == .true)
+        let catchAll = try #require(kbLib.handlerRegistry.catchAllHandler)
+
+        // keycode 5 = "g": the exact live path a physical unmodified "g" takes
+        // once the modal is up — tap -> registry.dispatch -> this closure.
+        #expect(catchAll(5, []) == true)
+
+        #expect(try waitUntilTrue(engine, "(not modal-active?)"))
+        // The three halves of "the same end state a normal exit reaches".
+        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("overlay-visible?") == .false)
+        #expect(try engine.evaluate("modal-current-node") == .false)
+        // And the part the old code already got right, kept as the floor.
+        #expect(kbLib.handlerRegistry.catchAllHandler == nil)
+    }
+
+    /// The recovery must be safe when the modal is already inactive, and must
+    /// not itself raise out of the error path even when the user's own on-leave
+    /// hook is what raises — which is the case `modal-exit` alone cannot
+    /// survive, since a raise in `run-on-leave` happens *before*
+    /// `unregister-all-keys!` and `hide-overlay` in `teardown-modal-presentation!`.
+    @Test func modalAbortSurvivesARaisingOnLeaveHookAndAnInactiveModal() throws {
+        let engine = try SchemeEngine()
+
+        try engine.evaluate("(import (modaliser util) (modaliser keymap) (modaliser fsm) (modaliser configuration))")
+        try engine.evaluate("(import (modaliser event-dispatch))")
+        try engine.evaluate("(import (modaliser dsl))")
+
+        try engine.evaluate("""
+            (define overlay-visible? #f)
+            (set-show-overlay! (lambda (root path) (set! overlay-visible? #t)))
+            (set-hide-overlay! (lambda () (set! overlay-visible? #f)))
+            (set-overlay-open! (lambda () overlay-visible?))
+            (set-overlay-delay! 0)
+            (fsm-install-graph! (lower-configuration (configuration
+              (tree 'global
+                (tree-root 'global 'on-leave (lambda () (error "hook blew up"))
+                  (key "s" "Safari" (lambda () #t)))))))
+            """)
+
+        let kbLib = try engine.context.libraries.lookup(KeyboardLibrary.self)!
+
+        try engine.evaluate("(modal-activate! \"global\" '() F18)")
+        #expect(try engine.evaluate("overlay-visible?") == .true)
+
+        // modal-abort! swallows the hook's raise and still reaches the floor.
+        try engine.evaluate("(modal-abort!)")
+        #expect(try engine.evaluate("modal-active?") == .false)
+        #expect(try engine.evaluate("overlay-visible?") == .false)
+        #expect(kbLib.handlerRegistry.catchAllHandler == nil)
+
+        // Idempotent: a second call with nothing active is a no-op, not a raise.
+        try engine.evaluate("(modal-abort!)")
+        #expect(try engine.evaluate("modal-active?") == .false)
+    }
 }

@@ -1666,12 +1666,13 @@ for months, and collide the first time one of them grows. That is why
 the check belongs at the merge, at come-to-rest, rather than at config
 load: at load there is no row count to check against.
 
-A raise at come-to-rest releases the keyboard on both dispatch paths;
-on the catch-all path it can leave the overlay standing over live modal
-state until the next activation. Accepted rather than solved
-(`docs/specs/vscode-window-parts.md` decision 7): a stale overlay after
-a config error is a worse-*looking* failure than a silent wrong jump,
-not a worse one.
+A raise at come-to-rest releases the keyboard on both dispatch paths and
+tears the modal down on both: the leader path never registers or shows
+anything, and the catch-all path applies `modal-abort!` after releasing
+the keys. The overlay no longer outlives the error
+([state-machine.md, "When a keypress raises"](state-machine.md#when-a-keypress-raises)).
+The visible signal is still only the modal closing — the error text goes
+to `/usr/bin/log`.
 
 ---
 

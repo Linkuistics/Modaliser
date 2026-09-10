@@ -270,18 +270,34 @@ final class KeyboardLibrary: NativeLibrary {
 
     // MARK: - Catch-all registration
 
-    /// (register-all-keys! handler) → void
+    /// (register-all-keys! handler [on-error]) → void
     /// handler: (lambda (keycode modifiers) ...) → #t to suppress, #f to pass
+    /// on-error: (lambda () ...) — optional teardown thunk, applied once if
+    /// HANDLER raises. See the error branch below for why it exists.
     ///
     /// Evaluation is deferred to the next run loop iteration via DispatchQueue.main.async.
     /// The suppress/pass decision is made synchronously based on modifiers:
     /// Cmd+anything passes through, all other keys are suppressed. This matches
     /// modal-key-handler's behavior exactly. The deferred evaluation handles
     /// side effects (overlay updates, modal-exit) without deadlocking WKWebView.
-    private func registerAllKeysFunction(_ handler: Expr) throws -> Expr {
+    private func registerAllKeysFunction(_ args: Arguments) throws -> Expr {
+        guard args.count >= 1, args.count <= 2 else {
+            throw RuntimeError.argumentCount(min: 1, max: 2, args: .makeList(args))
+        }
+        let argList = Array(args)
+        let handler = argList[0]
         guard case .procedure = handler else {
             throw RuntimeError.type(handler, expected: [.procedureType])
         }
+        // #f is accepted as "no recovery" so a caller can pass the slot
+        // through unconditionally without branching.
+        let recovery: Expr? = try argList.count >= 2 ? {
+            switch argList[1] {
+            case .procedure: return argList[1]
+            case .false:     return nil
+            default: throw RuntimeError.type(argList[1], expected: [.procedureType])
+            }
+        }() : nil
         let evaluator = self.context.evaluator!
         let registry = self.handlerRegistry
         let context = self.context
@@ -302,9 +318,46 @@ final class KeyboardLibrary: NativeLibrary {
                     }
                     if case .error(let err) = result {
                         NSLog("KeyboardLibrary: catch-all handler error: %@", "\(err)")
-                        // Safety: deregister catch-all on error to prevent stuck modal
+                        // Floor first: deregistering before recovery runs means
+                        // ordinary keys pass through again even if the recovery
+                        // thunk itself raises. This is the behaviour that was
+                        // already correct here; the recovery below is added to
+                        // it, not substituted for it.
                         registry.catchAllHandler = nil
                         NSLog("KeyboardLibrary: catch-all deregistered after error (safety recovery)")
+                        // Releasing the keys is not the whole teardown: without
+                        // this the overlay stays on screen over live Scheme
+                        // modal state until the next activation resets it. The
+                        // thunk is Scheme's own (modal-abort! — see fsm.sld);
+                        // the host applies it and never interprets it.
+                        //
+                        // Safe as a SECOND, sequential evaluator entry inside
+                        // the one fence acquisition, verified against LispKit
+                        // at the pinned revision (Package.resolved, 08c2fb27)
+                        // rather than assumed:
+                        //   - Runtime/Evaluator.swift:88 `execute` takes
+                        //     mainThread.mutex only at head and tail, never
+                        //     across the eval — so a sequential second call
+                        //     cannot deadlock against the first.
+                        //   - Runtime/VirtualMachine.swift:214 `onTopLevelDo`
+                        //     resets the machine in a `defer` (stack cleared,
+                        //     sp = 0, winders = nil, abortionRequested and
+                        //     executing false) on EVERY exit path, the error
+                        //     one included — so `assertTopLevel()` at the head
+                        //     of this call sees a clean machine despite the
+                        //     raise above.
+                        // Re-check both if LispKit is bumped.
+                        if let recovery = recovery {
+                            let recovered = evaluator.execute { machine in
+                                try machine.apply(recovery, to: .null)
+                            }
+                            if case .error(let recoveryErr) = recovered {
+                                // Nothing further to try: report and stop rather
+                                // than raising out of an error path.
+                                NSLog("KeyboardLibrary: catch-all error recovery failed: %@",
+                                      "\(recoveryErr)")
+                            }
+                        }
                     }
                 }
             }

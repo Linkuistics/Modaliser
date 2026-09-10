@@ -96,6 +96,37 @@ per-visit key edges and narrowing prefix states — see
 for the façade that replays the matching overlay/hook side effects
 around each of those calls — all in `fsm.sld`.)
 
+### When a keypress raises
+
+Dispatch runs the user's own procedures — a leaf's action, a group's
+`'provider`, an `'on-enter`/`'on-leave` hook — so a keypress inside a
+modal can raise a Scheme error. Both dispatch paths survive it, and
+neither leaves the keyboard captured.
+
+- **The leader press** — the one that opens the screen — resolves the
+  landing and runs `fsm-activate!`, and so any provider, *before*
+  `modal-activate!` registers the catch-all or shows the overlay. Nothing
+  was registered and nothing was shown: the screen simply fails to open,
+  and the buffered keys are re-injected into the focused app.
+- **Every press after that** goes through the catch-all handler, which
+  the host wraps. On a raise the host releases the keyboard (the
+  catch-all deregisters, so ordinary keys pass through again) and then
+  applies `modal-abort!` — the teardown thunk `modal-activate!` handed it
+  alongside the handler, so a registered catch-all always has one.
+
+`modal-abort!` reaches the same end state a normal exit reaches: the FSM
+halted and reset, the overlay hidden, `modal-*` state cleared. It is
+deliberately more defensive than `modal-exit`, because `modal-exit` can
+itself raise — `fsm-halt!` fires the state's `'exit` slot and
+`run-on-leave` fires `'on-leave`, both user procedures. So it attempts
+the ordinary exit (hooks get their chance, with reason `'error`) and then
+applies an unconditional floor that cannot raise. It is idempotent, and
+never re-raises.
+
+The error itself is reported to `/usr/bin/log` under subsystem
+`dev.antony.Modaliser` and nowhere else; the user-visible signal is the
+modal closing.
+
 ## The `'next` edge and Terminal nodes
 
 A command or range-command leaf's only transition mechanism is its
@@ -285,6 +316,7 @@ saying why the visit ended:
 | `'confirm` | Return exited the modal (with no [selection cursor](dsl.md#live-lists--the-selection-cursor) to activate). |
 | `'cancel` | Escape; the leader key pressed again (the modal's catch-all sees it before any hotkey); a key that maps to no character and nothing else consumed (an arrow with no selection cursor active); or an unknown key under [`'exit-on-unknown`](#exit-on-unknown). |
 | `'exit` | The modal ended some other way — a Terminal leaf fired, backspace halted a Walk root, or `(modal-exit)` was called with no reason. |
+| `'error` | The catch-all key handler raised, and the host applied `modal-abort!` to tear the modal down (see [When a keypress raises](#when-a-keypress-raises)). |
 
 Every authoring surface that takes `'on-leave` reaches it: `group`,
 `tree-root`, `screen`, and `open` all funnel through the same

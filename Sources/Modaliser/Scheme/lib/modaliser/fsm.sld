@@ -113,7 +113,7 @@
     modal-leader-keycode modal-overlay-generation modal-overlay-delay
     modal-root-segments set-modal-root-segments! modal-stack modal-stack-empty?
     ;; Modal lifecycle
-    modal-activate! modal-exit modal-step-back modal-handle-key
+    modal-activate! modal-exit modal-abort! modal-step-back modal-handle-key
     modal-show-overlay-now modal-show-overlay-delayed
     modal-list-cursor-move! modal-list-cursor-activate!
     set-overlay-delay!
@@ -1933,7 +1933,7 @@
     (set! %modal-seeded-depth (length stack))
     (fsm-activate! root-id stack)
     (sync-modal-state-from-fsm!)
-    (register-all-keys! modal-key-handler-cell)
+    (register-all-keys! modal-key-handler-cell modal-abort!)
     (if (and modal-root-node (node-walk? modal-root-node))
       (modal-show-overlay-now)
       (modal-show-overlay-delayed))))
@@ -1945,9 +1945,10 @@
 ;; on-enter, which only fires when the overlay shows. A modal that exits
 ;; before the overlay's display delay elapses produces zero hook fires.
 ;;
-;; Optional REASON ('confirm / 'cancel / 'exit) is forwarded to the current
-;; node's on-leave hook, so a hook can distinguish a confirming exit (Return)
-;; from a cancelling one (Escape). Defaults to 'exit.
+;; Optional REASON ('confirm / 'cancel / 'exit / 'error) is forwarded to the
+;; current node's on-leave hook, so a hook can distinguish a confirming exit
+;; (Return) from a cancelling one (Escape). Defaults to 'exit. 'error is the
+;; host's error-path teardown — see modal-abort! below.
 (define (modal-exit . opt)
   (let ((reason (if (pair? opt) (car opt) 'exit))
         (node-before modal-current-node)
@@ -1963,6 +1964,37 @@
 ;; and the chooser reads modal-root-segments to render its breadcrumb.
 ;; The next activation overwrites it, so staleness can't leak into a new
 ;; session.
+
+;; (modal-abort!) — the ERROR-PATH teardown, applied by the host when the
+;; catch-all key handler raises (KeyboardLibrary's registerAllKeysFunction
+;; passes it as register-all-keys!'s second argument, from modal-activate!
+;; above — so a registered catch-all always has one).
+;;
+;; Not simply modal-exit, because modal-exit can itself raise: fsm-halt!
+;; fires the current state's `exit` slot and run-on-leave fires the node's
+;; on-leave hook, both arbitrary user procedures. A raise part-way through
+;; modal-exit leaves the overlay standing over a half-halted engine, which
+;; is precisely the state this exists to prevent. So: attempt the ordinary
+;; exit — hooks get their chance, chips and blocks clean up as they
+;; normally would — then apply a floor that cannot raise, whatever the
+;; attempt reached.
+;;
+;; The floor is full-deactivate! (pure set!s on this file's own engine
+;; state), unregister-all-keys! (native, total), hide-overlay (a
+;; host-injected cell, so guarded — a host could install anything) and
+;; sync-modal-state-from-fsm! (pure set!s on its inactive branch, which
+;; full-deactivate! has just guaranteed). Every step is idempotent, so
+;; calling this when the modal is already inactive is a no-op, and calling
+;; it after a modal-exit that fully succeeded changes nothing.
+;;
+;; It never re-raises: the caller is an error path with nothing left to
+;; recover to.
+(define (modal-abort!)
+  (guard (e (#t #f)) (modal-exit 'error))
+  (full-deactivate!)
+  (unregister-all-keys!)
+  (guard (e (#t #f)) (hide-overlay))
+  (sync-modal-state-from-fsm!))
 
 ;; (any-on-path? root path pred) → bool
 ;;

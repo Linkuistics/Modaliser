@@ -674,9 +674,9 @@ the user presses a terminal's label and focuses a project. That is a silent
 wrong dispatch, which is the failure this whole leaf exists to avoid.
 
 **A raise at come-to-rest releases the keyboard on both dispatch paths, and
-one of the two leaves state behind.** The provider runs inside the leader
-handler on the press that opens the screen, and inside the catch-all handler on
-every press after that. The host wraps both, but not equally:
+tears the modal down on both.** The provider runs inside the leader handler on
+the press that opens the screen, and inside the catch-all handler on every press
+after that. The host wraps both:
 
 - **The leader path is clean.** `modal-activate!` runs `fsm-activate!` — and so
   the provider, and so the raise — *before* it registers the catch-all or shows
@@ -684,27 +684,28 @@ every press after that. The host wraps both, but not equally:
   finalises the capture regardless (`KeyboardLibrary.swift:185`), re-injecting
   the buffered keys and releasing the tap. Nothing was registered, nothing was
   shown: the screen simply fails to open.
-- **The catch-all path releases the keys and nothing else.** On error it
-  assigns `catchAllHandler = nil` (`KeyboardLibrary.swift:300`) and stops.
-  It does not run `modal-exit`, halt or reset the FSM, or hide the overlay. So
-  ordinary keys pass through again — capture is not wedged, which was the claim
-  worth checking — but the overlay can be left on screen over live Scheme modal
-  state until the next activation resets it.
+- **The catch-all path releases the keys and then tears down.** On error the
+  host assigns `catchAllHandler = nil` — so ordinary keys pass through again,
+  capture is not wedged — and then applies `modal-abort!`, the teardown thunk
+  `modal-activate!` registered alongside the handler. The FSM is halted and
+  reset and the overlay is hidden, so the screen simply closes.
 
-That second path is reachable here, and pretending otherwise would be the
-easier lie: a collision between two panels' *promoted leaders* is
-data-dependent (below), so the first press that raises may well be a later
-come-to-rest inside the modal rather than the one that opened it.
+That second path is reachable here, and is the one that matters: a collision
+between two panels' *promoted leaders* is data-dependent (below), so the first
+press that raises may well be a later come-to-rest inside the modal rather than
+the one that opened it.
 
-**The trade-off is accepted rather than solved.** Raising still beats a silent
-wrong dispatch, and the residue — a stale overlay after a config error, cleared
-by the next activation — is a worse-looking failure, not a worse one. Repairing
-the catch-all teardown is a host change with its own blast radius across every
-modal screen, so it is its own leaf rather than a rider on this design, and the
-sentence this spec previously carried — that both paths fail visibly and
-"nothing wedges" — was too broad to be worth keeping. `/usr/bin/log` is also
-not user-visible feedback; on this path the visible signal is the overlay that
-stops responding.
+**This was a residue when this design was reviewed, and is not one now.** The
+review (`vscode-part-enumeration-k8`) found that the catch-all path released
+the keys and stopped there, leaving the overlay standing over live Scheme modal
+state until the next activation reset it. That was accepted rather than solved
+here — a host change with its own blast radius across every modal screen — and
+repaired in its own leaf, `catch-all-error-teardown-k11`; the behaviour above is
+what ships. See
+[state-machine.md, "When a keypress raises"](../reference/state-machine.md#when-a-keypress-raises).
+
+What has not changed is that `/usr/bin/log` is not user-visible feedback: on
+either path the signal the user gets is the screen failing to open, or closing.
 
 Note what this is **not**: ADR-0022 is about a config that fails to *load*, and
 is sequenced by the host across two top-level evaluations. A provider raising on

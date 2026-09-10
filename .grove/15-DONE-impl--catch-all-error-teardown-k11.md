@@ -69,3 +69,65 @@ re-entrant native callback needs (see `ModaliserContext`'s doc comments).
 - If the fix turns out to want a change to how `modal-exit` is reached from
   Swift rather than a call added at the error site, that is fine — but it is the
   kind of thing to state in the commit rather than leave in the diff.
+
+## Decisions (running log)
+
+- **The recovery is registered *with* the handler it recovers, as a second
+  argument to `register-all-keys!`** — not reached by Swift looking `modal-exit`
+  up by name, and not a separate `set-modal-error-recovery!` hook. Two reasons.
+  Structurally, `modal-activate!` is the single call site that registers a
+  catch-all, so passing the thunk there makes "a registered catch-all always has
+  a recovery" true by construction rather than asserted — the k6 lesson the
+  BRIEF flags. Semantically, the decision about *what* teardown means stays in
+  Scheme, where `modal-exit`'s idempotency and the overlay hooks live; Swift
+  only applies an opaque thunk. The argument is optional, so every existing
+  `(register-all-keys! h)` caller and test stub is unchanged.
+
+- **The recovery is `modal-abort!`, not `modal-exit`.** `modal-exit` can itself
+  raise: `fsm-halt!` fires the state's `exit` slot and `run-on-leave` fires user
+  `on-leave` hooks, both arbitrary user procedures — and a raise there leaves the
+  overlay standing, which is the exact defect. `modal-abort!` tries `(modal-exit
+  'error)` under `guard` so hooks still get their chance, then applies an
+  unconditional floor that cannot raise: `full-deactivate!` (pure `set!`s),
+  `unregister-all-keys!` (native), `hide-overlay` (guarded — it is a
+  host-injected cell), `sync-modal-state-from-fsm!` (pure on the inactive
+  branch). Safe when already inactive because every step is idempotent.
+
+- **A fourth exit reason, `'error`.** Forwarded to `on-leave` hooks and `exit`
+  slots like the existing three. Nothing dispatches on reason exhaustively, so
+  the addition is additive; documented in `docs/reference/state-machine.md`.
+
+- **Swift deregisters first, then recovers.** `catchAllHandler = nil` before
+  applying the thunk, so keys pass through while recovery runs and a recovery
+  that itself raises still leaves capture released — the property the current
+  code gets right is preserved as the floor, not replaced.
+
+- **`/usr/bin/log` stays the only signal, and that is raised rather than
+  absorbed** — see the handback at the end of this file.
+
+- **The deadlock question is answered from LispKit's source, not from
+  reasoning.** A second `evaluator.execute` inside the one
+  `withEvalLockNonBlocking` acquisition is safe at the pinned revision
+  (`Package.resolved`, `08c2fb27`): `Runtime/Evaluator.swift:88` takes
+  `mainThread.mutex` only at head and tail, never across the eval, and
+  `Runtime/VirtualMachine.swift:214` `onTopLevelDo` resets the machine in a
+  `defer` — stack cleared, `sp = 0`, `winders = nil`, `abortionRequested` and
+  `executing` false — on *every* exit path including the error one, so the
+  second call's `assertTopLevel()` sees a clean machine. Cited at the decision
+  site with a re-check-on-bump note.
+
+- **No in-session reviewer spent.** The two claims a reviewer would have been
+  asked about are both already covered by stronger instruments: the teardown
+  behaviour by an executable seam whose control was *seen to fail* (all four
+  assertions, overlay included, fail with the one-line wiring reverted), and the
+  re-entrancy by the LispKit source above. The leaf's review allowance is
+  unspent and no `review-impl` leaf is cut.
+
+- **The first draft of the regression test was vacuous, and this is why the
+  test uses a raising PROVIDER.** With a raising leaf *action*, the overlay
+  assertion passed even with the fix reverted: a Terminal leaf's wrapped entry
+  fires its pending teardown (`wrap-terminal-command-entry` →
+  `fire-pending-teardown-if-armed!`) *before* running the action, so the overlay
+  was already down. Only a raise at come-to-rest — a provider — reproduces the
+  residue the spec describes. Recorded because the next person to touch this
+  test will reach for the simpler shape.
