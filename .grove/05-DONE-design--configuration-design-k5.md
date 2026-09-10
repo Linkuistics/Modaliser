@@ -143,3 +143,75 @@ they survive the source checks; explain any material change to the recommendatio
   and recommendations that still call JSScript/cache public or a free benefit.
   Single-file TypeScript still needs a shipped type-stripper or an authoring
   transform; choosing a single file or module shim does not remove that cost.
+
+## Decisions (running log)
+
+**Source checks verified before synthesis (2026-09-10).** All six checks against
+`app-facilities-a.md` and all three against `layout-controls-a.md` / the shared
+context were confirmed against primary sources, so all nine are corrections
+rather than disagreements. Repo-local: `KeyboardCapture.swift:90-96` runs the tap
+on its own thread and run loop, while `KeyboardLibrary.swift:183-189` and `:310-311`
+both `DispatchQueue.main.async { context.withEvalLockNonBlocking { … } }` — so
+evaluation is on the main queue, not the tap thread; `dsl.sld:711-724` accepts
+only dispatch atoms and one block as panel children, so `(panel "Find" "p" "P" "/")`
+is invalid syntax; `base.css:396-401` carries the span-clamping comment.
+External: Swift's [Library Evolution](https://www.swift.org/blog/library-evolution/)
+states co-distributed frameworks *should not* enable it; Apple's
+[Loading Bundles](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/LoadingCode/Tasks/LoadingBundles.html)
+documents `NSBundle`/`principalClass` bootstrap; [Code Signing Tasks](https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html)
+permits same-Team-ID and Apple system libraries under library validation;
+Neovim's `runtime/doc/api.txt` has no RPC cancellation (its only "cancel" is a
+progress-message concept), so the comparison cell is a gap; and CSS Grid 1's
+placement algorithm, step 2, directs that columns be *added* to the implicit grid
+when an unpositioned item's span exceeds its width — the opposite of clamping.
+
+**Bootstrap, interface and payload are three layers, not one.** The user pointed
+out that my first correction still conflated them: a documented `@objc`/C loader
+entry bounds the *entry point* only, and an entry point may hand back an object
+conforming to a Swift protocol declared in a shared SDK module both app and
+plugin link. So a Swift facility module is not ruled out by the bootstrap; its
+costs are the shared SDK's versioning, distribution and library-evolution
+obligations. `app-facilities-a.md` §4.1 now states the three layers and prices
+that candidate rather than excluding it, and §6's ground 2 is narrowed
+accordingly — the compiler *does* check the interface when both sides build
+against one SDK version; what nothing checks is version skew.
+
+**The recommendation is unchanged and is carried verbatim across summaries:**
+facilities — B (a semantic outward contract) with A (bundled) as the default,
+and C (in-process Swift) not recommended *now* on three grounds rather than the
+original five.
+
+**`@supports` claim is self-invalidating as written.** A repo-wide grep for
+`@supports` across `Sources/` and `docs/` now returns exactly two hits, both in
+research documents *discussing* the absence. Positive control: `display: grid` in
+`base.css` returns six real hits, so the instrument works. The claim is narrowed
+to the structural fact about the `.panel-grid` rule rather than a tree-wide count
+of itself.
+
+**`CONTEXT.md` is deliberately untouched.** The synthesis introduces vocabulary —
+*arrangement*, *arrangement width*, *display budget*, *automatic vs constrained
+placement*, the S1/S2/S3 stability decomposition — but every one of those names a
+**proposed** design, not resolved current behaviour. The glossary is a record of
+what the system *is*, and the brief forbids changing current-behaviour
+documentation as though the proposal were accepted. The terms live in
+`docs/specs/configuration-exploration.md` and move to `CONTEXT.md` only if the
+design is adopted.
+
+**Three survey contradictions resolved in the spec, not silently.** (1) Lanes vs
+stability — the layout survey's "in tension by definition" holds for *automatic*
+lane assignment and not for author-pinned lanes, so the real axis is
+automatic-vs-constrained placement, and each of grid/flow/lanes has both forms.
+(2) Callbacks — facilities §3.1 (procedures pervasive) and runtimes §2.1 (five
+libraries, seven sites) describe different boundaries: pervasive inside the
+Scheme tier, rare at the Swift edge; so a facility-boundary redesign need not
+solve procedure passing while a language change must. (3) Adapter cost — "inherits
+facilities for free" became one adapter per language, roughly constant in the
+number of facilities, still owing marshalling and an error mapping.
+
+**Provisional recommendation.** Approach 1 (Consolidate) — definite arrangement
+width, explicit packing choice, overflow as a user control, span normalised at
+resolve, one semantic facility contract, keep LispKit — shaped so Approach 2
+(Re-front) stays reachable. Load-bearing supporting finding: the layout work is
+**independent of the language choice**, because arrangement lives in the pure
+Display value, so the user need not settle the language question to get the
+layout they asked for.

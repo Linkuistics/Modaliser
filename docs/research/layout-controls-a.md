@@ -9,6 +9,12 @@ This is a survey, not a decision. It proposes nothing as accepted, authorises no
 implementation, and rewrites no ADR. Where it recommends, it recommends
 *provisionally* and names what would change the recommendation.
 
+**Corrected in place 2026-09-10** by `configuration-design-k5`: §9's illustrative
+`(panel …)` forms used bare key strings, which the sugar does not accept; §4.1's
+`@supports` claim was a repo-wide count that its own publication invalidates; and
+§4.3 is new — the `.panel-span-wide` comment's clamping assumption is contradicted
+by the primary placement algorithm. Findings and recommendation are unchanged.
+
 ## 0. How to read the evidence
 
 Four kinds of claim appear below, marked wherever they could be confused:
@@ -17,7 +23,7 @@ Four kinds of claim appear below, marked wherever they could be confused:
 |---|---|
 | **[src]** | Read directly out of this repository at the revision above. File and line given. |
 | **[spec]** / **[doc]** | A dated primary external source, linked at the claim. |
-| **[inf]** | A derivation from **[src]** plus **[spec]**. Sound, but not observed. |
+| **[inf]** | A derivation from **[src]** plus **[spec]**. An inference, not a verified fact — no observation supports it. |
 | **[gap]** | Not established. No primary source was found, or the check needs a runtime this task may not use. |
 
 Nothing here was measured. No app was launched, no overlay rendered, no width
@@ -317,11 +323,15 @@ then `display: grid-lanes` — because a browser lacking the newer value
 `@supports (display: grid-lanes)` and its negation for larger fallbacks.
 
 **[src]** `base.css:378-386` declares `display: grid-lanes` **once**, with no
-preceding `display: grid` and no `@supports`. A repository-wide grep for
-`@supports` across `Sources/` and `docs/` returns **no matches** — including in
-`base.css`, despite `Tests/ModaliserTests/OverlayIntegrationTests.swift:348`
-referring in passing to "the masonry `@supports` note". That test comment is
-stale; the guard it names does not exist.
+preceding `display: grid` and no `@supports` guard on that rule; the whole
+stylesheet contains no `@supports` at-rule, and neither does any other stylesheet
+under `Sources/`. State it that way rather than as a tree-wide count of the
+string: this document and the shared context now discuss `@supports`, so a
+repository-wide grep matches them and would read as a contradiction. The
+structural fact is what binds — no `.panel-grid` fallback exists — and it is not
+a fact that a count can invalidate. `Tests/ModaliserTests/OverlayIntegrationTests.swift:348`
+refers in passing to "the masonry `@supports` note"; that test comment is stale,
+and the guard it names does not exist.
 
 **[inf]** On a WebKit without Grid Lanes the declaration is dropped at parse
 time, so `.panel-grid` keeps the UA `display: block` for a `div`. Grid sizing
@@ -346,6 +356,49 @@ container size queries, container query units (`cqw`, `cqh`, `cqi`, `cqb`,
 floor, so **[inf]** container queries, container units and subgrid are usable
 without a fallback story, while Grid Lanes is the one modern primitive that
 needs one.
+
+### 4.3 What a `span` does when the arrangement narrows
+
+**[src]** `base.css:395-401` carries a comment asserting the clamping behaviour:
+
+```css
+/* span → column span. `wide` is 2 tracks; `full` spans the whole row
+ * regardless of track count. A narrow grid (1–2 tracks) clamps these via the
+ * grid itself — a span of 2 in a 1-track grid still occupies the single
+ * track. */
+```
+
+**That is not what the specification says, and the comment is not evidence.**
+[CSS Grid Level 1][grid1] **[spec]**, step 2 of the grid item placement
+algorithm (*Determine the columns in the implicit grid*), directs the opposite:
+where the largest span among the items lacking a definite column position
+exceeds the implicit grid's width, columns are **added** to the end of that grid
+until the span fits. Panels are never explicitly positioned — `span` emits only
+`grid-column: span 1|2` **[src]** — so they are exactly the unpositioned items
+that clause governs.
+
+**[inf]** So with `'cols 1` and any `'span 'wide` panel present, the grid does
+not clamp to one track: it grows an **implicit** second column. That column is
+sized by `grid-auto-columns`, which is unset here and therefore `auto` — *not*
+the `minmax(var(--panel-min-width, 184px), 1fr)` of the explicit track **[src]**
+`base.css:380-382`. The result is a two-column grid with mismatched track sizing,
+reached by authoring a one-column screen. `'span 'full` is unaffected:
+`grid-column: 1 / -1` is a definite placement against the explicit grid.
+
+Three things follow, and the third is the one a design must answer.
+
+- The comment's *conclusion* may still hold in the default `display: grid-lanes`
+  path, where [CSS Grid 3][grid3] governs placement rather than Grid 1's
+  algorithm. **[gap]** — not established here either way.
+- It cannot hold under `'layout 'grid`, which is exactly the mode §2.2 recommends
+  for stable placement. The two interact.
+- **A design owes an explicit rule.** Three are available: *normalise* (clamp the
+  span to the track count when resolving the display value, so the CSS never sees
+  an over-wide span), *reject* (raise at construction when a panel's span exceeds
+  the authored `cols`), or *place responsively* (state that a span is a maximum
+  and let the arrangement reduce it). Each implies a different validation
+  obligation, and choosing between them is a design decision this survey does not
+  make. §11, P6 is the probe that would settle which is describing reality.
 
 ---
 
@@ -542,9 +595,19 @@ block **[src]** `dsl.sld:711-724`, `make-panel-node`:
   (key "[" "Prev Editor" (code:editor-cycler 'previous))
   (key "]" "Next Editor" (code:editor-cycler 'next))
   (code:editor-listing))
-(panel "Find"  "p" "P" "/")                        ; peer group, no key path change
-(panel "Panes" "e" "L" "I")                        ; peer group, no key path change
+(panel "Find"                                      ; peer group, no key path change
+  (key "p" "File Finder"     (λ () (send-keystroke '(cmd) "p")))
+  (key "P" "Command Palette" (λ () (send-keystroke '(cmd shift) "p")))
+  (key "/" "Project Search"  (λ () (send-keystroke '(cmd shift) "f"))))
 ```
+
+**A panel's children are the key nodes themselves, not references to them.**
+`(panel "Find" "p" "P" "/")` would not work: `make-panel-node` treats every
+non-keyword argument as a child, and a panel's children are dispatch atoms plus
+at most one live-list block **[src]** `dsl.sld:711-724`. There is no
+key-reference form — the existing `(key …)` node moves bodily inside the
+`(panel …)`, which is why the grouping costs no key path. Regrouping a screen is
+therefore an edit that *moves* rows, not one that names them twice.
 
 Rows render above the list within the card **[src]** `display-dsl.sld:250-268`,
 and every key keeps its path. So the open problem in this scenario is **not
@@ -657,7 +720,7 @@ Offered for the design session to argue with, not as a conclusion.
 2. **Treat "who supplies the definite width" as the primary design question.**
    Every channel in §2 traces to `width: max-content`. Until a width is
    definite, truncation cannot engage (§2.3), tracks cannot be stable (§2.1),
-   the loose rows cannot be decoupled (§2.4), and any new sizing vocabulary (§6)
+   the loose rows cannot be decoupled (§2.1, channel 4), and any new sizing vocabulary (§6)
    inherits all of it. This is upstream of the A/B/C choice, and it is the one
    thing no option can skip.
 3. **Provisionally, A — because the scenario is a sizing problem, not an
@@ -703,6 +766,9 @@ Recorded, not attempted. Each names what it would settle.
   Decides whether option B's nesting is cheap or expensive.
 - **P5.** Is a same-state content refresh ever pushed while the overlay is on
   screen (§1.3)? The rebuild path is proven from source; its trigger is not.
+- **P6.** With `'cols 1` and a `'span 'wide` panel, does the rendered grid show
+  one track or two — under `'layout 'grid`, and under the `grid-lanes` default?
+  Settles §4.3 against the stylesheet comment in both packing modes.
 
 **Only the user can settle these:**
 
@@ -750,9 +816,12 @@ Recorded so a later reader does not re-run the same searches.
   the same figure for the CSS `auto-fit` fallback, which per
   [CSS Grid 1][grid1] takes the largest repetition count that does not overflow
   the container's definite maximum, counting gaps.
-- **One stale in-repo comment found and not fixed** (this survey changes no
+- **Two stale in-repo comments found and not fixed** (this survey changes no
   code): `OverlayIntegrationTests.swift:348` names a `@supports` note in
-  `base.css` that does not exist.
+  `base.css` that does not exist, and `base.css:395-398` asserts a span-clamping
+  behaviour the placement algorithm contradicts (§4.3).
+- **Lane-layout placement of an over-wide span** (§4.3) is unexamined; only the
+  `display: grid` path was traced to a primary source.
 
 ## Sources
 

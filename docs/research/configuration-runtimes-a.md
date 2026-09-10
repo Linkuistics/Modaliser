@@ -233,12 +233,19 @@ three honest realisations:
    `lambda` and closures survive. This is compilation, not serialisation, and its
    real cost is diagnostics: an error raised at runtime points into generated
    Scheme, and ADR-0022 shows the host cannot even catch it in-language today.
-2. **Declarative surface with named operations.** The config becomes data
-   referencing library-exported operations by name; no user closures at all. This
-   is the *only* shape that makes multi-language plausible, and it is the shape
-   that costs the Grove Leaf scenario — the `and`-chain joining VS Code workspace
-   discovery to a live grove query is user-authored behaviour, and named
-   operations cannot express a novel join without the library shipping one.
+2. **Declarative surface.** The config becomes data rather than a program in the
+   resident language. This is the shape that makes multi-language plausible, and
+   it is a **spectrum, not a single option**. At one end, data referencing
+   library-exported operations by name and nothing else: no user closures, and
+   the Grove Leaf scenario fails unless the library ships that join, because the
+   `and`-chain is user-authored behaviour. At the other end, a data
+   representation that carries its own sequencing, conditionals, bindings and
+   expression forms — which *can* express the join, at the price of being an
+   additional language and interpreter to design, document and produce
+   diagnostics for. Neither end is "declarative composition is impossible"; the
+   real variable is how much interpreter the format contains, and every increment
+   of it is language-design work that the resident-runtime shapes get for free
+   **[inf]**.
 3. **Hybrid.** Declarative for grouping/keys/layout, escape hatch for behaviour.
    The escape hatch's language is then the resident language, so the user learns
    two.
@@ -578,7 +585,8 @@ only: **does the user get to author a novel join?**
 | Shape | Grove Leaf outcome |
 |---|---|
 | Resident runtime, any candidate | works; the join is ordinary code, and the `and`-chain becomes `&&`, `and`, or nested `if` |
-| Declarative front end + named operations | **fails unless the library ships this join.** The user can select and parameterise, not compose |
+| Declarative front end + **named operations only** | **fails unless the library ships this join.** The user can select and parameterise, not compose |
+| Declarative front end **with an expression language** | works, at the cost of designing and shipping that language. A data representation may carry sequencing, conditionals, bindings and expressions; what it cannot carry is a *resident closure the host calls back into* unless it also defines evaluation semantics for one. The question is therefore not "declarative or not" but **how much interpreter the data format contains** — and every increment of it is language design work, diagnostics included **[inf]** |
 | Process-separated facilities, resident composition tier | works, but the async completion becomes explicit — awaits, callbacks, or coroutine yields — and missing-value handling must survive a boundary that can also time out **[inf]** |
 
 The third row is the one a design must think hardest about, because §2.2 shows
@@ -675,8 +683,10 @@ in the entire tree — the project has not so far needed the power `#lang` sells
 
 **Not recommended as scoped:** Common Lisp *on SBCL*. Process-wide signal
 handlers, a fixed-address static space that on Intel macOS requires a linker flag
-on Modaliser's own executable (arm64 equivalent unestablished — §4.3), a third
-tracing GC beside ARC, an opaque core artifact, and — per §9.8.1 — no way for C
+on Modaliser's own executable (arm64 equivalent unestablished — §4.3), a **second
+tracing collector** in a process that already has LispKit's — Swift's ARC is
+reference counting, not a tracing GC, so it is not one of the count — an opaque
+core artifact, and — per §9.8.1 — no way for C
 to run exit hooks or gracefully undo Lisp initialisation are a poor fit for an
 AppKit app with an event tap and a relaunch-based reload doctrine. If Common Lisp
 is wanted for the language, evaluate ECL rather than SBCL, and weigh a
