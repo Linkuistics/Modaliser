@@ -1,0 +1,78 @@
+/* part-list.css — a window part listing (vscode-part-panels-k7). Mirrors
+   blocks/paneru-strip.css's row grid, which decision 6 of
+   docs/specs/vscode-window-parts.md predicted it would: both of this
+   block's callers draw a short name with a longer path trailing it, which
+   is the four-column shape rather than blocks/project-list's full-width
+   one.
+
+   The .current row marks the part VSCode itself calls active. Display-only
+   — no selection cursor. */
+
+.block-part-list {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-separator);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Four columns: key · arrow · name (1fr, ellipsis) · detail (its own
+ * track, right-aligned, capped). The keycap track is a fixed 3ch so a
+ * two-key jump label ("hj") and a one-key label ("h") leave the names on
+ * the same left edge — and so does an unlabelled tail row, which emits an
+ * empty keycap rather than collapsing its column. */
+.block-part-list .pt-row {
+  display: grid;
+  grid-template-columns: 3ch auto 1fr auto;
+  column-gap: 4px;
+  align-items: baseline;
+}
+
+.block-part-list .pt-row .entry-key { color: var(--color-key); font-weight: 600; }
+.block-part-list .pt-row .entry-arrow { color: var(--color-arrow); }
+.block-part-list .pt-row .entry-label {
+  color: var(--color-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The trailing detail — a terminal's cwd, an editor's path. Right-aligned
+ * in its own column and capped so a long path ellipsizes rather than
+ * crowding the name. It ellipsizes from the RIGHT like every other
+ * truncation in the overlay; the paths reaching it are already shortened
+ * against the window's workspace by the composing library, which is where
+ * the uninformative prefix comes off. A row with no detail — a terminal
+ * with no shell integration, an editor tab that carries no single URI —
+ * omits the span entirely and the name owns the row. */
+.block-part-list .pt-row .pt-detail {
+  justify-self: end;
+  max-width: 55%;
+  color: var(--color-arrow);
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 8px;
+}
+
+/* The active part: bolder name and a leading marker on the key, matching
+ * blocks/paneru-strip.css's and blocks/herdr-list.css's .current
+ * treatment. */
+.block-part-list .pt-row.current .entry-label { font-weight: 700; }
+.block-part-list .pt-row.current .entry-key::after {
+  content: " ●";
+  color: var(--color-key);
+}
+
+/* An inert row — a tab of a kind with no specified activation, listed
+ * with no token (spec decision 1). It keeps its label, because dropping
+ * it would renumber every label below it, and it is dimmed so the panel
+ * says what pressing it will do before you press it. Its arrow is already
+ * suppressed by the renderer. */
+.block-part-list .pt-row.inert .entry-key,
+.block-part-list .pt-row.inert .entry-label {
+  opacity: 0.45;
+  font-weight: 400;
+}

@@ -395,7 +395,44 @@
           vscode-notify
           ;; (vscode-parts) → the `parts` RESULT object, or #f. Impure:
           ;; reads the pointer file and does one round-trip.
-          vscode-parts)
+          vscode-parts
+
+          ;; ── The Terminal and Editor panels (vscode-part-panels-k7) ──
+          ;; The same jump-label shape the Projects panel has, one level
+          ;; in: the parts of the FRONTMOST window rather than the open
+          ;; windows. Two panels, two alphabets, two `parts` round-trips
+          ;; per come-to-rest (bounded at 200 ms each, not memoised —
+          ;; docs/specs/vscode-window-parts.md decision 5).
+          ;;
+          ;; The PURE joins, and where every behavioural test of either
+          ;; listing lands: a parsed `parts` result → targets, each
+          ;; carrying the reply's own `peer` path beside its token.
+          ;;   (terminal-rows PARTS) → Terminal targets
+          ;;   (editor-rows PARTS)   → Editor targets
+          terminal-rows
+          editor-rows
+          ;; (shorten-path PATH WORKSPACE) → PATH with the workspace
+          ;; prefix off, or PATH. Pure, and exported because the
+          ;; folderless and outside-the-workspace cases are the ones
+          ;; worth pinning by name.
+          shorten-path
+          ;; The impure sources: (… -rows (vscode-parts)), '() on a miss.
+          terminal-source
+          editor-source
+          ;; The actions. One fire-and-forget notification to the
+          ;; TARGET'S OWN peer, carrying its token. Nothing is waited for
+          ;; and nothing is returned (ADR-0014).
+          focus-terminal!
+          focus-editor-tab!
+          ;; The Edge providers a screen binds, and the block specs its
+          ;; panels draw — the same pair as project-provider /
+          ;; project-listing, and the same contract: the listing reads
+          ;; the snapshot its provider took this Visit, so the rows and
+          ;; the live labels cannot disagree.
+          terminal-provider
+          terminal-listing
+          editor-provider
+          editor-listing)
   (import (scheme base)
           (scheme char)
           ;; get-environment-variable, for $HOME in the state-file path.
@@ -429,10 +466,15 @@
           ;; are its own. Both portable.
           (only (modaliser jump-labels) jump-labels-assign)
           (only (modaliser jump-list) jump-list-provider-result)
-          ;; The listing renderer. The dependency runs THIS way only: the
+          ;; The listing renderers. The dependency runs THIS way only: a
           ;; block is a generic labelled-row component that knows nothing of
-          ;; VSCode, and this library composes it.
+          ;; VSCode, and this library composes it. TWO blocks and three
+          ;; panels: the Projects panel's row is one long worktree name in
+          ;; the full width, and both part panels' rows are a short name
+          ;; with a path trailing it — one presentation with two callers,
+          ;; which is why blocks/part-list is not written twice.
           (only (modaliser blocks project-list) make-project-list-block)
+          (only (modaliser blocks part-list) make-part-list-block)
           ;; The canonical POSIX single-quote escaper: a path out of an
           ;; editor's stored state is arbitrary text going into a shell
           ;; word.
@@ -1238,4 +1280,351 @@
                               " focused; discarding the reply")
                          #f)
                         (else result))))))))
+
+    ;; ─── The Terminal and Editor panels ─────────────────────────────
+    ;;
+    ;; (vscode-part-panels-k7, docs/specs/vscode-window-parts.md
+    ;; decisions 4, 5 and 6.) The Projects panel one level in: the same
+    ;; jump-label machinery over the parts of ONE window instead of over
+    ;; the open windows. Everything below `vscode-parts` is pure, which
+    ;; is the whole test story — a fixture captured off a real reply
+    ;; drives every behavioural case, and no suite has a path to a live
+    ;; editor (ADR-0023).
+
+    ;; A TARGET is what the two joins produce, what a label dispatches
+    ;; through, and what the row block draws. Its keys:
+    ;;
+    ;;   peer     the socket path THIS reply came from. Present on every
+    ;;            target and read by every action.
+    ;;   token    the peer's own integer, or #f when the row is inert.
+    ;;   kind     'terminal or 'editor. Not on the wire — it is which
+    ;;            join built the target, and it decides both the state-id
+    ;;            namespace and which notification the action sends.
+    ;;   text     the name drawn in the row's main column.
+    ;;   detail   the dimmed trailing column: a cwd, or a path.
+    ;;   current  VSCode's own active flag for this part.
+    ;;   dirty    an editor's unsaved marker (always #f for a terminal).
+    ;;   inert    no token, so no action and no edge.
+    ;;   group    an editor's `viewColumn`, carried so a renderer MAY
+    ;;            show it. Nothing addresses a group by it, and the
+    ;;            listing offers no way to focus a group as such.
+    ;;
+    ;; **A target is (peer, token), never a token alone**, and that is
+    ;; the load-bearing half. The counter is per-window and every window
+    ;; has its own, so the integer 3 is live in as many windows as are
+    ;; open; an action carrying only the integer would be an address
+    ;; several windows answer to. Carrying the peer the reply itself
+    ;; named means a row can only ever reach the window that drew it,
+    ;; whatever the pointer file has done in between (ADR-0027).
+
+    ;; A JSON null parses to the symbol `null`, and an absent key to #f
+    ;; via json-ref — two ways to say "not there" that every reader here
+    ;; has to collapse. These three do it once each.
+    (define (field-string obj key)
+      (let ((v (json-ref obj key)))
+        (and (string? v) v)))
+
+    (define (field-number obj key)
+      (let ((v (json-ref obj key)))
+        (and (number? v) v)))
+
+    (define (field-true? obj key) (eq? (json-ref obj key) #t))
+
+    ;; A JSON array parses to a VECTOR, so every listing crosses here.
+    ;; A missing or null array degrades to no rows rather than raising,
+    ;; which is the same empty listing every other miss produces.
+    (define (field-rows obj key)
+      (let ((v (json-ref obj key)))
+        (if (vector? v) (vector->list v) '())))
+
+    ;; (shorten-path PATH WORKSPACE) → PATH with WORKSPACE's prefix and
+    ;; the separator after it removed, or PATH unchanged.
+    ;;
+    ;; Every row in a one-window listing shares the workspace prefix and
+    ;; it is the least informative part of a forty-character path, so it
+    ;; comes off. Two cases take the path UNCHANGED rather than being
+    ;; special-cased away, and both are ordinary (spec decision 6):
+    ;;
+    ;;   a folderless window, where `workspace` is JSON null — a
+    ;;   perfectly ordinary listing, not an empty one;
+    ;;   a file opened from outside the workspace, whose path does not
+    ;;   lie under the prefix at all.
+    ;;
+    ;; So the rule is SHORTEN WHERE THE PREFIX MATCHES, never assume it
+    ;; matches. The separator is required as well as the prefix, or a
+    ;; sibling directory sharing a name prefix (`…/Modaliser` against
+    ;; `…/Modaliser.local-tree`) would have its leading characters
+    ;; sliced off and the row would name a file that does not exist.
+    (define (shorten-path path workspace)
+      (if (not (and (string? path) (string? workspace)
+                    (> (string-length workspace) 0)))
+          (if (string? path) path "")
+          (let* ((prefix (if (char=? (string-ref workspace
+                                                 (- (string-length workspace) 1))
+                                     #\/)
+                             workspace
+                             (string-append workspace "/")))
+                 (plen   (string-length prefix)))
+            (if (and (> (string-length path) plen)
+                     (string=? (substring path 0 plen) prefix))
+                (substring path plen (string-length path))
+                path))))
+
+    ;; PARTS (a parsed `parts` result) → Terminal targets, in
+    ;; `window.terminals` order. Pure.
+    ;;
+    ;; Every terminal is actionable — `Terminal.show` reaches all of
+    ;; them — so a terminal row is inert only if the peer somehow sent no
+    ;; token, which is a protocol violation rather than a case. It is
+    ;; still handled the same way an unfocusable tab is, because the
+    ;; alternative is a label that raises instead of doing nothing.
+    ;;
+    ;; `current` is VSCode's `activeTerminal`, which is the terminal that
+    ;; has focus OR MOST RECENTLY HAD IT — so it is set even with the
+    ;; panel hidden, and it is not the same predicate as a tab's
+    ;; `isActive`. Nothing here depends on it; the renderer marks it.
+    (define (terminal-rows parts)
+      (let ((peer      (field-string parts "peer"))
+            (workspace (field-string parts "workspace")))
+        (map (lambda (row)
+               (let ((token (field-number row "token")))
+                 (list (cons 'peer    peer)
+                       (cons 'token   token)
+                       (cons 'kind    'terminal)
+                       (cons 'text    (or (field-string row "name") ""))
+                       (cons 'detail  (shorten-path (field-string row "cwd")
+                                                    workspace))
+                       (cons 'current (field-true? row "active"))
+                       (cons 'dirty   #f)
+                       (cons 'inert   (not (and peer token))))))
+             (field-rows parts "terminals"))))
+
+    ;; PARTS → Editor targets, in `tabGroups.all` order and within each
+    ;; group its own `tabs` order. Pure.
+    ;;
+    ;; The peer has already dropped a terminal dragged into the editor
+    ;; grid from this list — it is a terminal, listed once, in the
+    ;; terminal listing, where the action works — so there is no
+    ;; filtering to do here. What DOES arrive is the inert row: a tab of
+    ;; a kind with no specified, identity-preserving activation carries
+    ;; `token: null` (spec decision 1). It is listed, it consumes its
+    ;; label, and it has no action — so an unfocusable tab cannot
+    ;; renumber the labels below it, and the panel cannot disagree with
+    ;; the tab strip the human is looking at.
+    ;;
+    ;; The detail is the WHOLE workspace-relative path, not its
+    ;; directory half. `Tab.label` is usually the basename but VSCode
+    ;; disambiguates it when two tabs share one, so a directory-only
+    ;; detail would sometimes repeat what the name already said and
+    ;; sometimes be the only thing distinguishing two rows. The whole
+    ;; path is the same answer every time, and the block ellipsizes it.
+    ;;
+    ;; A path of JSON null — the diff kinds carry two URIs and no single
+    ;; one, a webview carries none — yields an empty detail and the name
+    ;; owns the row.
+    (define (editor-rows parts)
+      (let ((peer      (field-string parts "peer"))
+            (workspace (field-string parts "workspace")))
+        (map (lambda (row)
+               (let ((token (field-number row "token")))
+                 (list (cons 'peer    peer)
+                       (cons 'token   token)
+                       (cons 'kind    'editor)
+                       (cons 'text    (or (field-string row "label") ""))
+                       (cons 'detail  (shorten-path (field-string row "path")
+                                                    workspace))
+                       (cons 'current (field-true? row "active"))
+                       (cons 'dirty   (field-true? row "dirty"))
+                       (cons 'inert   (not (and peer token)))
+                       (cons 'group   (field-number row "group")))))
+             (field-rows parts "editors"))))
+
+    ;; The impure sources. One `parts` round-trip each; `#f` — an
+    ;; unreachable peer, a protocol skew, a reply from a window that is
+    ;; no longer focused — becomes NO ROWS, never wrong rows.
+    (define (terminal-source) (terminal-rows (vscode-parts)))
+    (define (editor-source)   (editor-rows (vscode-parts)))
+
+    ;; ─── The actions ────────────────────────────────────────────────
+    ;;
+    ;; One notification to the target's OWN peer, carrying its token.
+    ;; Nothing is waited for and nothing is returned: the peer answers a
+    ;; notification with nothing at all (ADR-0014), so there is no reply
+    ;; to abandon.
+    ;;
+    ;; Every refusal is the peer's and is silent from here — a stale
+    ;; token, a token of the other kind, a window that is no longer
+    ;; focused. A refused press is indistinguishable from a delivered
+    ;; one on this side, which is exactly the bargain the requirement
+    ;; asks for: a label activates its own part OR NOTHING.
+    ;;
+    ;; The one failure that IS visible here is `vscode-socket-send`'s own
+    ;; #f — the bytes reached no socket at all, which is what a stale
+    ;; target produces — and it is logged inside the transport. Nothing
+    ;; branches on it.
+    (define (notify-part! target method)
+      (vscode-notify (alist-ref target 'peer) method
+                     (list (cons "token" (alist-ref target 'token)))))
+
+    (define (focus-terminal! target)  (notify-part! target "focus-terminal"))
+    (define (focus-editor-tab! target) (notify-part! target "focus-editor"))
+
+    ;; ─── The two providers ──────────────────────────────────────────
+
+    ;; State ids. Free-form — a Terminal state deactivates before any
+    ;; presentation code consults a state id's shape — so each needs
+    ;; collision-freedom across live targets and nothing else. The
+    ;; token supplies that WITHIN a window, and terminals and editors
+    ;; draw from one counter, so a token is unique across both listings
+    ;; of one reply; the literal prefixes namespace these against the
+    ;; other jump listings that may be alive in the same Visit.
+    ;;
+    ;; Three namespaces were taken before these — vscode-project-target/,
+    ;; paneru-strip-target/, herdr-jump-target/ — enumerated out of the
+    ;; library tree rather than recalled. Enumerate them again before
+    ;; adding a sixth: a collision here is silently last-wins in the
+    ;; engine, which is precisely what jump-list-compose-providers now
+    ;; refuses at the merge.
+    ;;
+    ;; Only ever called on a target whose action answered non-#f, so the
+    ;; token is known to be a number here.
+    (define (terminal-target-state-id target)
+      (string-append "vscode-terminal-target/"
+                     (number->string (alist-ref target 'token))))
+
+    (define (editor-target-state-id target)
+      (string-append "vscode-editor-target/"
+                     (number->string (alist-ref target 'token))))
+
+    ;; What pressing a part's label DOES — or #f when nothing does,
+    ;; which is jump-list's own single test for whether the row earns an
+    ;; edge at all. There is deliberately no separate focusability
+    ;; predicate: the target with no action IS the target with no edge,
+    ;; because it is the same call.
+    ;;
+    ;; An inert row still renders and still consumes its label. Dropping
+    ;; it during ASSIGNMENT would renumber every label below it, and the
+    ;; labels are muscle memory.
+    (define (part-action target)
+      (and (string? (alist-ref target 'peer))
+           (number? (alist-ref target 'token))
+           (if (eq? (alist-ref target 'kind) 'terminal)
+               (lambda () (focus-terminal! target))
+               (lambda () (focus-editor-tab! target)))))
+
+    ;; The per-Visit snapshots, written by each provider at come-to-rest
+    ;; and read once the overlay's show delay elapses. One cell per
+    ;; panel, for the reason the Projects panel has one: the listing must
+    ;; render the exact assignment the keypress dispatches through, never
+    ;; a re-query — and here a re-query would be a second socket
+    ;; round-trip against a window that may have changed.
+    (define *current-terminals-assigned* '())
+    (define *current-editors-assigned* '())
+
+    ;; The block ids. TWO part listings can be alive on one screen, and a
+    ;; panel's block reference resolves by `block-ref-id` — the block's
+    ;; explicit 'id when it has one, its 'type otherwise. Both listings
+    ;; are `part-list` blocks, so without distinct ids the reference is
+    ;; ambiguous and resolve-display raises. These are machine
+    ;; identifiers rather than labels: nothing the user reads (ADR-0021).
+    (define terminal-block-id 'vscode-terminal-list)
+    (define editor-block-id 'vscode-editor-list)
+
+    ;; The shared body of both providers, differing only in the four
+    ;; things that are actually per-panel: which join, which state-id
+    ;; namespace, which snapshot cell and which block id. Written once
+    ;; because this is machinery — and machinery duplicated between two
+    ;; panels drifts silently, which is the whole reason
+    ;; (modaliser jump-list) exists at all.
+    ;;
+    ;; **This runs on the dispatch path**, re-run at every come-to-rest,
+    ;; and a screen carrying both panels does TWO `parts` round-trips per
+    ;; press. That is the accepted shape — bounded rather than memoised.
+    ;; What makes it safe is not the healthy-path number (a peer answers
+    ;; in ~0.04 ms measured, against the 8-29 ms warm accessibility sweep
+    ;; the Projects panel already runs on the same screen) but the 200 ms
+    ;; per-request timeout, which puts the worst case at 400 ms of
+    ;; blocked eval thread rather than at whatever a wedged extension
+    ;; host feels like. A shared per-visit cache would need either a
+    ;; visit generation the engine does not expose or a cell whose
+    ;; invalidation nothing naturally drives; the `parts` reply already
+    ;; carries both listings, so if a THIRD panel lands here the answer
+    ;; is one shared read, not a shorter timeout (spec decision 5).
+    ;;
+    ;; The span is committed rather than a throwaway: k6's cost
+    ;; conclusion had to be withdrawn because its instrument was a
+    ;; standalone binary nobody kept, and the wire/parse split inside
+    ;; `vscode-socket-request` is what makes a bad number here
+    ;; diagnosable rather than merely bad.
+    (define (part-provider span rows-fn state-id-fn cell-set! block-id . opts)
+      (let* ((alist       (apply props->alist opts))
+             (single      (alist-ref alist 'single-alphabet '()))
+             (leaders     (alist-ref alist 'leader-alphabet '()))
+             (seconds     (alist-ref alist 'second-alphabet '()))
+             (panel-label (alist-ref alist 'panel-label ""))
+             (enumerate   (alist-ref alist 'enumerate vscode-parts)))
+        (lambda (owner-id)
+          (instrument-span span
+            (lambda ()
+              (let* ((targets  (rows-fn (enumerate)))
+                     (assigned (jump-labels-assign targets single leaders seconds)))
+                (cell-set! assigned)
+                (jump-list-provider-result assigned owner-id panel-label
+                  'state-id state-id-fn
+                  'action   part-action
+                  'block    (lambda (pairs)
+                              (make-part-list-block
+                                'id          block-id
+                                'assigned-fn (lambda () pairs))))))))))
+
+    ;; (terminal-provider 'single-alphabet … 'leader-alphabet …
+    ;;                    'second-alphabet … ['panel-label STRING]
+    ;;                    ['enumerate THUNK])
+    ;;   → a 1-arg procedure for a state's 'provider slot.
+    ;;
+    ;; All three alphabets come from the USER and NONE is defaulted:
+    ;; jump labels are keys, and no library file may author a key
+    ;; (ADR-0021). An omitted alphabet yields no labels rather than a
+    ;; library-chosen one.
+    ;;
+    ;; 'enumerate is the test seam, a 0-arg thunk returning a parsed
+    ;; `parts` result and defaulting to `vscode-parts` — so a test drives
+    ;; the whole provider, label assignment and lowering and state ids
+    ;; included, from a canned reply with no socket under it.
+    ;;
+    ;; OWNER-ID is the id of the state this provider was lowered onto,
+    ;; handed over by the engine. It is the parent of every prefix state
+    ;; minted below and their up-edge target.
+    ;;
+    ;; **A screen carrying more than one of these must compose them
+    ;; through `jump-list-compose-providers`**, not by hand: a state has
+    ;; one 'provider slot, and appending two results is silently wrong
+    ;; when their keys or state ids collide.
+    (define (terminal-provider . opts)
+      (apply part-provider 'vscode-terminal-provider
+             terminal-rows terminal-target-state-id
+             (lambda (a) (set! *current-terminals-assigned* a))
+             terminal-block-id opts))
+
+    (define (editor-provider . opts)
+      (apply part-provider 'vscode-editor-provider
+             editor-rows editor-target-state-id
+             (lambda (a) (set! *current-editors-assigned* a))
+             editor-block-id opts))
+
+    ;; The un-narrowed panels' blocks, each closed over the snapshot its
+    ;; own provider took, so each ALWAYS renders the exact assignment
+    ;; that provider took this Visit — never re-querying, which here
+    ;; would mean a third and fourth socket round-trip against a window
+    ;; that may have changed under them. The user drops each into a panel
+    ;; of their VSCode screen.
+    (define (terminal-listing)
+      (make-part-list-block
+        'id          terminal-block-id
+        'assigned-fn (lambda () *current-terminals-assigned*)))
+
+    (define (editor-listing)
+      (make-part-list-block
+        'id          editor-block-id
+        'assigned-fn (lambda () *current-editors-assigned*)))
 ))

@@ -232,3 +232,160 @@ timeout and the empty-listing degradation are for.
   and the composition is new. Cut one as your last act if you judge an
   adversarial read necessary (`references/decompose.md`); k4 judged one
   unnecessary because paneru's own suite pinned the risky half before and after.
+
+## Decisions (running log)
+
+- **The composition lands in `(modaliser jump-list)` as spec decision 7
+  specifies, and the split is exactly at the purity line.**
+  `jump-list-validate-composition` takes RESULTS (the contributors' results in
+  argument order), NAMES parallel to it, OWNER-EDGES and REGISTERED-STATE-IDS —
+  every fact as data — and returns the merged result or raises.
+  `jump-list-compose-providers` takes alternating NAME/PROVIDER pairs, calls
+  each contributor with the owner id the engine handed it, and asks
+  `fsm-state-edges` / `fsm-state-ids` itself. No reader is an argument, so a
+  user's config cannot pass two empty ones and switch the invariant off.
+- **Triggers and state ids are compared with `equal?` and nothing is
+  normalised**, because that is exactly what the engine does: the graph's edge
+  table and the visit's provided-state table are both plain `equal?`-keyed hash
+  tables, so the string `"foo"` and the symbol `foo` are two different states
+  there and must be two different states here.
+- **All triggers are compared, not just key strings.** `'up` and `'auto` collide
+  by the same first-match rule a key does, and no contributor in the tree emits
+  either — so including them can only catch a real collision, never invent one.
+- **A contributor is checked against itself as well as against its peers.** A
+  contributor need not be a `jump-list` result, so an internally-colliding one is
+  a real defect; it is reported against its own name.
+- **State-id namespaces re-enumerated before adding a fifth**, as spec decision 5
+  requires. Grepping `provided-state` and `state-id` across `lib/` finds exactly
+  three provider-minted namespaces — `vscode-project-target/`,
+  `paneru-strip-target/`, `herdr-jump-target/` — matching what the spec named.
+  This leaf adds `vscode-terminal-target/` and `vscode-editor-target/`.
+- **One block for both panels, not two.** k4's rule — share machinery,
+  duplicate presentation — bought `blocks/project-list` its own existence
+  because a Project row is one long name in the full width and a Strip row is
+  four competing columns. It buys the opposite here: a Terminal row is a short
+  name plus a cwd and an Editor row is a filename plus a workspace-relative
+  path, which is *one* presentation with two callers. So
+  `(modaliser blocks part-list)` is written once, closer to
+  `blocks/paneru-strip`'s four-column grid than to `blocks/project-list`'s
+  full-width one, exactly as spec decision 6 predicted.
+- **Two `part-list` blocks on one screen need explicit `'id`s, and that
+  exposed a latent trap in `jump-list`.** A panel's block reference resolves
+  through `block-ref-id` — the block's `'id` when it has one, its `'type`
+  otherwise — but `jump-list`'s narrowing prefix state built its reference by
+  reading `'type` directly. That was right while every caller's block had a
+  unique type and becomes a *blank narrowed panel with no error* the moment two
+  panels share a type and disambiguate with ids. Fixed at the source:
+  `prefix-state` now reads `block-ref-id`, the same accessor the renderer
+  reads, so the reference it mints and the lookup that resolves it provably
+  agree. `(modaliser display-dsl)` is portable, so the import costs nothing.
+- **The Editor row's detail is the whole workspace-relative path, not its
+  directory half.** `Tab.label` is usually the basename but VSCode
+  disambiguates it when two tabs share one, so a directory-only detail would
+  sometimes repeat what the name already said and sometimes be the only thing
+  telling two rows apart. The whole path is the same answer every time, and
+  the block ellipsizes it.
+- **`shorten-path` requires the separator as well as the prefix.** Without it
+  a sibling sharing a name prefix has its leading characters sliced off and the
+  row names a file that does not exist — which is the ordinary case in this
+  very repository, where `Modaliser` and `Modaliser.local-tree-for-vscode` sit
+  side by side. Pinned by a test.
+- **The providers are one shared body with four per-panel arguments** (which
+  join, which state-id namespace, which snapshot cell, which block id). That is
+  machinery, and machinery duplicated between two panels drifts silently —
+  which is the whole reason `(modaliser jump-list)` exists.
+- **`instrument-span` wraps each provider** (`vscode-terminal-provider` /
+  `vscode-editor-provider`), composing with the wire/parse spans already inside
+  `vscode-socket-request`. Committed rather than throwaway, because k6's cost
+  conclusion had to be withdrawn for exactly that reason.
+- **A LispKit arity mismatch inside `apply` aborts the process rather than
+  raising**, so a whole `swift test` bundle can exit on signal 5 with most of a
+  suite already green. Noted because the diagnosis is not obvious from the
+  output: run the suite's tests individually to find the one that dies. (Cause
+  here was a test calling `fsm-graph-edge!` with an edge spec where it takes
+  `trigger` and `target` separately — a test bug, not a library one.)
+- **The human confirmed the final row set and the panel order** (they are theirs
+  to make, ADR-0021). Screen keys are `e p P / L [ ]`; `t` (Terminal) and `i`
+  (Editor) are off. Pools: Projects `a s d f g`, Terminals `t y u i o`, Editors
+  `h j k l ;` — pairwise disjoint and disjoint from every screen key. Panel
+  order is Terminals, Editors, then Projects: the parts of the window you are
+  already in read first, and Projects — which is about leaving this window —
+  sits last. Both the shipped example and the human's live config carry this.
+- **Every key in the three pools is reachable.** `keyCodeToCharacter` in
+  `KeyboardLibrary.swift` maps `;` (41), `[` (33), `]` (30) and `/` (44) as well
+  as every letter used, so `h j k l ;` is not a pool with a dead key in it.
+- **A `parts` reply read off the human's live window showed the grove task file
+  (a markdown tab, and therefore `TabInputCustom` under their
+  `workbench.editorAssociations`) as `token: null` — and it is a stale extension
+  host, not a defect.** Every running peer's socket dates from 10:41 and the
+  installed `tabKind.js` was written at 11:06, so the hosts are running the
+  build from *before* `custom` was added to `ACTIONABLE_TAB_KINDS`. The
+  signature is exact: the old table gave `TabInputCustom` a `path` and no
+  token, which is precisely what came back. Confirmed by reading the installed
+  `out/src/tabKind.js`, which *does* list `"custom"`. The fix is a window
+  reload, not a code change — recorded because the symptom (headline case is a
+  panel of inert rows) is the same one the spec says the custom-editor change
+  was made to remove, and the next reader should not chase it twice.
+- **The composed screen's come-to-rest is measured on the shipping path, and
+  the cost question is settled.** A leader press against the installed `.app`
+  with all three panels live (`instr: epoch leader-press`, one terminal and one
+  editor in the window, 542-char replies): `vscode-wire` **0 ms** and
+  `vscode-parse` **2 ms** for the terminal provider, **0 ms** / **1 ms** for the
+  editor provider — `vscode-terminal-provider` **2 ms** and
+  `vscode-editor-provider` **2 ms** end to end, inside a
+  `leader/modal-activate!` of **36 ms** that also carries the Projects panel's
+  accessibility sweep. So the two round-trips this leaf adds are **~4 ms of a
+  36 ms come-to-rest**, against a 400 ms worst case the timeout bounds. That is
+  in line with herdr's 0.1–0.6 ms wire on the same primitive, and it means the
+  socket source costs materially less than the AX sweep already on this screen.
+  No cache, and no leaf: the reopen condition stays the one spec decision 5
+  names. Note what the split says — the wire is free and the cost is all
+  **parse**, so a bad number here would be a JSON-size problem, not a peer
+  problem, which is exactly what the committed wire/parse span exists to tell
+  apart.
+- **The stale-extension-host diagnosis in the entry above is confirmed by the
+  fix.** After the window reload a `parts` read off the live peer returns the
+  grove task file — a markdown tab, and therefore `TabInputCustom` under the
+  human's `workbench.editorAssociations` — as `token: 2`, not `token: null`.
+  The headline case the custom-editor change was made for is now verified
+  against a real window rather than against the installed source.
+- **The state-id namespace enumeration in `apps/vscode.sld` said "Four" and
+  listed three.** Corrected to "Three", which is what the grep found and what
+  makes "before adding a sixth" on the next line add up. A miscounted
+  enumeration is worse than none: the next reader trusts it instead of
+  re-running the grep, which is the one thing the comment tells them to do.
+- **No `review-impl` leaf, and no in-session reviewer spent.** The leaf named
+  itself the most plausible candidate in the tree, so the judgement is recorded
+  rather than left implicit. Three things decide it against:
+  - **The composition's shape is already a review's output.** The design was read
+    adversarially twice (`k8`/`k9`, then `k13`/`k14`), and the very property that
+    makes this leaf's hard part hard — no `'known-edges` / `'known-state-ids`
+    arguments, a pure `jump-list-validate-composition` as the seam — *is* what
+    the second review changed. Re-reviewing it is re-reviewing a finding that has
+    already been integrated.
+  - **The one change to shared machinery is identity-preserving by
+    construction, not merely by a green suite.** `prefix-state` now reads
+    `block-ref-id` instead of `'type`, and `block-ref-id`
+    (`display-dsl.sld:88`) returns the block's `'id` when it has one and its
+    `'type` otherwise. Neither `blocks/paneru-strip` nor the herdr jump block
+    carries an `'id`, so for both existing callers the new accessor returns
+    exactly what the old field read did. That is a structural argument; a
+    regression there would have been the silent kind (a blank narrowed panel,
+    no error), which is why it is worth having rather than trusting 1303 green
+    tests to have covered it.
+  - **The genuinely new logic is pure and directly exercised** — 16 tests over
+    the validator, including a contributor colliding with the owner's static
+    edge and `compose-providers` reaching the *installed* graph, which is the
+    promoted-leader-onto-a-screen-key case at the mechanism level (a promoted
+    leader is an ordinary edge by the time the validator sees it, so the
+    data-dependence that makes it unreachable by inspection is not a gap in the
+    seam).
+  k4 declined a review on the same reasoning shape — machinery pinned by a suite
+  on both sides — and this leaf has the stronger version of it.
+- **The human drove the composed screen and confirmed all of it works as
+  intended.** Three panels on one `'provider` slot, each row reachable by its
+  own alphabet, and a label press focusing that part — with three terminals and
+  the **terminal panel hidden**, and with tabs across **two editor groups**
+  including a markdown (custom-editor) tab. That closes the last done-condition,
+  and it is the one no offline seam could hold: every seam on this side asserts
+  the call, and the effect is VSCode's.

@@ -35,7 +35,14 @@
 ;; match. That is machinery, it is version-sensitive, and it belongs
 ;; somewhere it stays current across upgrades. The keys and labels
 ;; below are the half that does not: they are yours — including the
-;; three alphabets the Projects panel draws its jump labels from.
+;; three alphabets each of the three panels draws its jump labels from.
+;;
+;; The screen carries THREE labelled panels — Projects, Terminals and
+;; Editors — on a state that has exactly ONE `'provider` slot, which is
+;; the other thing this example is showing. They are merged by
+;; `jump-list-compose-providers`, which RAISES on a collision the engine
+;; would otherwise resolve silently in favour of whichever panel came
+;; first. Read the comment on the merge below before adding a fourth.
 ;;
 ;; The screen's last row goes further: it composes TWO libraries that
 ;; know nothing of each other — `(modaliser apps vscode)`, which can say
@@ -65,6 +72,9 @@
         (modaliser app)
         (modaliser dialogs)
         (prefix (modaliser apps vscode) code:)
+        ;; The merge that puts three labelled panels on one 'provider
+        ;; slot. Bare rather than prefixed: it collides with nothing.
+        (only (modaliser jump-list) jump-list-compose-providers)
         ;; For the "Grove Leaf" row at the bottom of the screen. Drop
         ;; this import and that row together if you do not use grove —
         ;; nothing else on the screen touches it.
@@ -78,6 +88,18 @@
 ;; alphabet and authors no key (ADR-0021), so both this list and the
 ;; keys it has to dodge are decisions you make, not ones you inherit.
 (define vscode-label-keys '("a" "s" "d" "f" "g"))
+
+;; And one alphabet per NEW panel, because the human's request was a
+;; separate set of shortcut keys for each. Three pools, and what has to
+;; stay disjoint is wider than it looks — see the merge below.
+;;
+;; Home row split three ways: `a s d f g` for Projects (left hand),
+;; `t y u i o` for Terminals (upper row), `h j k l ;` for Editors (right
+;; hand). Freeing `t` and `i` for the Terminals pool is why the Terminal
+;; and Editor ROWS came off this screen: those operations are now a jump
+;; label away in the panels, which is strictly more than the rows did.
+(define vscode-terminal-keys '("t" "y" "u" "i" "o"))
+(define vscode-editor-keys   '("h" "j" "k" "l" ";"))
 
 ;; ▶ 2/3 — the VSCode screen. Keys, labels and grouping are preference;
 ;; rebind, drop or regroup any of it. The scope symbol is VSCode's
@@ -103,20 +125,71 @@
     ;; pool. Escalation is automatic — five single-key labels here, and
     ;; past that each leader opens five more.
     ;;
-    ;; Keep these OFF the keys bound elsewhere on this screen. The list
-    ;; below deliberately avoids t/e/i/p/P//f/g.
-    'provider (code:project-provider
-                'single-alphabet vscode-label-keys
-                'leader-alphabet vscode-label-keys
-                'second-alphabet vscode-label-keys
-                'panel-label     "Projects")
+    ;; Keep every pool OFF the keys bound elsewhere on this screen. The
+    ;; three lists above deliberately avoid e/p/P//L/[/].
+    ;;
+    ;; ─── THREE PANELS, ONE 'provider SLOT ───────────────────────
+    ;;
+    ;; A state has exactly one `'provider`, and this screen wants three
+    ;; labelled panels on it. `jump-list-compose-providers` calls each
+    ;; contributor, appends their edges and states, and RAISES if two of
+    ;; them collide — because the engine will not. It folds a provider's
+    ;; edges in with the state's own by plain append and then resolves a
+    ;; key by FIRST match, so two panels claiming `j` is not an error
+    ;; anywhere: it is an editor's label focusing a terminal, silently.
+    ;;
+    ;; Each contributor is NAMED, and the name is yours. An ordinal
+    ;; cannot repair a configuration — "Editors and Terminals both claim
+    ;; j" tells you what to move; "provider 1 and provider 2" does not.
+    ;;
+    ;; ── What the merge checks that you cannot check by eye.
+    ;;
+    ;; It validates against the SCREEN'S OWN KEYS too, not just against
+    ;; the other panels — and that is the likelier collision, because
+    ;; the screen's keys are already spoken for. It also validates the
+    ;; state ids against every permanently registered state.
+    ;;
+    ;; And the disjointness you have to keep is WIDER than the single
+    ;; alphabets. A panel's edges are one per surviving single-key label
+    ;; PLUS ONE PER PROMOTED LEADER, so the pool two panels must keep
+    ;; disjoint is `single-alphabet ∪ leader-alphabet`. Leader promotion
+    ;; is data-dependent — it only happens once a panel has more rows
+    ;; than its single alphabet covers — so two panels can share a
+    ;; leader key, coexist happily for months, and collide the first
+    ;; time one of them grows. That is exactly why the check runs at
+    ;; come-to-rest rather than at config load: at load there is no row
+    ;; count to check against.
+    'provider (jump-list-compose-providers
+                "Projects"
+                (code:project-provider
+                  'single-alphabet vscode-label-keys
+                  'leader-alphabet vscode-label-keys
+                  'second-alphabet vscode-label-keys
+                  'panel-label     "Projects")
+                "Terminals"
+                (code:terminal-provider
+                  'single-alphabet vscode-terminal-keys
+                  'leader-alphabet vscode-terminal-keys
+                  'second-alphabet vscode-terminal-keys
+                  'panel-label     "Terminals")
+                "Editors"
+                (code:editor-provider
+                  'single-alphabet vscode-editor-keys
+                  'leader-alphabet vscode-editor-keys
+                  'second-alphabet vscode-editor-keys
+                  'panel-label     "Editors"))
 
     ;; Flat rows, deliberately: every operation is one key from the
     ;; leader. Group them if you prefer — that is the half of this file
     ;; that is yours.
-    (key "t" "Terminal" code:toggle-terminal)
+    ;;
+    ;; There is no "Terminal" or "Editor" row here any more. Both are
+    ;; better served by the panels below, which say WHICH terminal and
+    ;; WHICH editor rather than toggling a pane — and taking them off is
+    ;; what frees `t` and `i` for the Terminals alphabet. The ops are
+    ;; still exported (`code:toggle-terminal`, `code:focus-editor`) if
+    ;; you want either back; move a pool key out of the way first.
     (key "e" "Explorer" code:focus-explorer)
-    (key "i" "Editor"   code:focus-editor)
 
     ;; The chords VSCode shares with every other editor — no library
     ;; needed for these, exactly as `examples/chrome.scm` shows.
@@ -196,6 +269,32 @@
                  (code:reveal-file! leaf)
                  (dialog-info "No live grove leaf for this window.")))))
 
+    ;; ─── This window's terminals and editors ────────────────────
+    ;;
+    ;; The same affordance one level in: the parts of the window you are
+    ;; already IN. Both come from a companion VSCode extension over a
+    ;; Unix socket — VSCode exposes nothing from outside that says what
+    ;; is open inside a window, so Modaliser runs a small peer inside it
+    ;; (docs/specs/vscode-window-parts.md, ADR-0026). Install it with
+    ;; `./scripts/install-vscode-extension.sh`; without it both panels
+    ;; are simply empty and nothing errors.
+    ;;
+    ;; The Terminals panel lists every terminal WHETHER OR NOT the
+    ;; terminal panel is showing, which is the whole reason the source
+    ;; is the extension rather than the accessibility tree. The Editors
+    ;; panel lists every tab across every editor group.
+    ;;
+    ;; A row with a dimmed label and no arrow is an editor tab of a kind
+    ;; that cannot be reactivated by name — a webview, a diff. It is
+    ;; listed because omitting it would make the panel disagree with the
+    ;; tab strip you are looking at, and would renumber every label
+    ;; below it.
+    (panel "Terminals"
+      (code:terminal-listing))
+
+    (panel "Editors"
+      (code:editor-listing))
+
     ;; ─── The Projects panel ─────────────────────────────────────
     ;;
     ;; One row per open VSCode window, ordered by project name, each
@@ -205,11 +304,17 @@
     ;; list is short and stable, so a jump label beats typing enough of
     ;; a forty-character folder name to disambiguate it.
     ;;
-    ;; Note there is no `'next 'self` anywhere on this screen. The
-    ;; provider re-runs at every come-to-rest and its accessibility
-    ;; sweep costs 8-29ms warm and past 200ms cold, and auto-repeat is
-    ;; not filtered — so a HELD key would queue sweeps faster than they
-    ;; drain. Fire and exit.
+    ;; Note there is no `'next 'self` anywhere on this screen, and it
+    ;; matters three times over now. ALL THREE providers re-run at every
+    ;; come-to-rest: one accessibility sweep for this panel (8-29ms warm,
+    ;; past 200ms cold) and one socket round-trip for each of the two
+    ;; above. Auto-repeat is not filtered, so a HELD key would queue
+    ;; gathers faster than they drain. Fire and exit.
+    ;;
+    ;; The socket reads are the cheap half — a healthy peer answers in
+    ;; about a twenty-fifth of a millisecond, and each is bounded at
+    ;; 200ms even when the extension host is wedged, so the worst case
+    ;; the two of them add is 400ms rather than something unbounded.
     (panel "Projects"
       (code:project-listing))))
 

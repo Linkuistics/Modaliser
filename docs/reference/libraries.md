@@ -666,6 +666,43 @@ different affordances over the same windows.
 | `current-vscode-notify-runner` | Parameter, the act side's: `(peer method params)` → `#t`/`#f`, fire-and-forget. Defaults to `vscode-socket-send`. Two seams rather than one, so a deliberately abandoned reply is never indistinguishable from a timeout — and so a recording runner can assert *which peer* an action was addressed to, which is the only way ADR-0027's binding is pinned rather than asserted. |
 | `vscode-query`, `vscode-notify` | `(… peer method params)` — the dispatchers through those seams. The peer is an **argument**: a read resolves it from the pointer once, and every action addresses the peer the read's own reply named (ADR-0027). |
 | `vscode-socket-request`, `vscode-socket-send` | The real transports the two seams default to. Exported so a test can exercise the actual envelope/parse path rather than only the seams above it. |
+| `terminal-rows`, `editor-rows` | `(… PARTS)` → **Terminal target**s / **Editor target**s. **Pure**, and where every behavioural test of either listing lands. Each target carries the reply's own `peer` beside its token, plus `text`, `detail`, `current`, `dirty`, `inert` and (editors) `group`. A `#f` reply joins to no rows rather than raising. |
+| `shorten-path` | `(shorten-path PATH WORKSPACE)` → `PATH` with the workspace prefix and its separator removed, or `PATH`. Pure. Shortens **where the prefix matches** and never assumes it does — a folderless window and a file opened from outside the workspace both keep the whole path. |
+| `terminal-source`, `editor-source` | `(… )` → the rows of one `vscode-parts` call. Impure. `'()` on any miss. |
+| `focus-terminal!`, `focus-editor-tab!` | `(… target)` — one fire-and-forget notification to the **target's own peer**, carrying its token. Nothing is waited for and nothing is returned (ADR-0014); every refusal is the peer's and is silent from here. |
+| `terminal-provider`, `editor-provider` | `(… 'single-alphabet … 'leader-alphabet … 'second-alphabet … ['panel-label STRING] ['enumerate THUNK])` → a 1-arg procedure for a state's `'provider` slot. Same shape as `project-provider`; `'enumerate` defaults to `vscode-parts`. **No alphabet is defaulted** (ADR-0021). A screen carrying more than one of these must merge them with [`jump-list-compose-providers`](#modaliser-jump-list). |
+| `terminal-listing`, `editor-listing` | `(… )` → the block spec each panel draws, reading the *same* per-Visit assignment its own provider took. Both are `part-list` blocks with distinct `'id`s. |
+
+#### The two part panels
+
+The Projects panel one level in: the terminals and the editor tabs of
+the **frontmost** window, each reachable by a jump label from its own
+alphabet. The row source is a companion VSCode extension over a Unix
+socket — VSCode exposes nothing from outside that says what is open
+inside a window (ADR-0026, ADR-0027,
+[the spec](../specs/vscode-window-parts.md)).
+
+Three properties worth knowing before binding either:
+
+- **A target is `(peer, token)`, never a token alone.** The counter is
+  per-window, so the integer `3` is live in as many windows as are open;
+  an action carrying only the integer would be an address several
+  windows answer to. Every target carries the peer its own reply named,
+  and the action goes back to *that* socket — never to whatever the
+  pointer file says by then.
+- **A row can be inert by design**, and it is normal use rather than a
+  race: a tab of a kind with no specified activation carries no token,
+  so it is listed, consumes its label, and has no action.
+- **Two panels means two `parts` round-trips per come-to-rest**,
+  deliberately un-memoised but bounded — the read timeout is 200 ms, so
+  the worst case is 400 ms of blocked eval thread. A healthy peer
+  answers in ~0.04 ms measured. If a *third* panel lands on the screen
+  the answer is one shared read, not a shorter timeout: the `parts`
+  reply already carries both listings.
+
+Every miss — no extension, a stale pointer, a protocol skew, a wedged
+host — produces **no rows, never wrong rows**. A window with no folder
+open is *not* a miss: it lists normally, with its paths unshortened.
 
 #### What the three chords actually do
 
@@ -1272,6 +1309,44 @@ characters) that wants the whole width and an ellipsis.
 | `make-project-list-block` | `(make-project-list-block ['assigned-fn THUNK])` | Block spec of `'type 'project-list`. `assigned-fn` returns the assignment; each target need only carry `'text`, the name to draw. Defaults to an empty listing. |
 | `project-list-rows` | `(project-list-rows assigned)` | Pure assignment → row payload. Same length and order, nothing filtered. |
 
+### `(modaliser blocks part-list)`
+
+Renderer for a **window part** listing — the **Terminal listing** and
+the **Editor listing** both. Reach for
+[`(code:terminal-listing)` / `(code:editor-listing)`](#modaliser-apps-vscode)
+rather than this directly; those wrappers close the block over each Edge
+provider's own snapshot.
+
+Display-only and never-querying, on the same terms as its two peers.
+Four columns: jump label, arrow, name, and a dimmed trailing detail —
+closer to `paneru-strip`'s grid than to `project-list`'s full width.
+
+**Why ONE block for two panels.** k4's rule is *share machinery,
+duplicate presentation*, and it cuts both ways. It bought `project-list`
+its own existence beside `paneru-strip` because the content really
+differed. Here it does not: a Terminal row is a short name plus a cwd
+and an Editor row is a filename plus a workspace-relative path — one
+presentation with two callers, so writing it twice would duplicate
+presentation that is not different. Each caller supplies the *content*
+of `text` and `detail`; the grid is the same grid.
+
+**Two panels on one screen means two explicit `'id`s.** A panel's block
+reference resolves through `block-ref-id` — the block's `'id` when it
+has one, its `'type` otherwise — so two blocks both answering to
+`part-list` are ambiguous and `resolve-display` raises.
+
+**A row that renders and does not dispatch** is normal here, unlike in
+either peer: a tab of a kind with no specified activation arrives with
+no token at all, so it has a label and nothing behind it. It renders
+dimmed and without an arrow. Listing it is honest — omitting it would
+make the panel disagree with the tab strip the user is looking at, and
+would renumber every label below it.
+
+| Export | Signature | Description |
+|---|---|---|
+| `make-part-list-block` | `(make-part-list-block ['assigned-fn THUNK] ['id SYMBOL])` | Block spec of `'type 'part-list`. Each target may carry `'text`, `'detail`, `'current`, `'dirty` and `'inert`. `'id` is emitted only when given, because `block-ref-id` prefers it over `'type`. |
+| `part-list-rows` | `(part-list-rows assigned)` | Pure assignment → row payload (`label`, `name`, `detail`, `current`, `dirty`, `inert`). Same length and order, nothing filtered. |
+
 | Export | Description |
 |---|---|
 | `make-paneru-strip-block` | `(make-paneru-strip-block ['assigned-fn THUNK])` — the thunk returns the `((label . target) …)` snapshot. Rows are threaded in rather than imported, so this block knows nothing of paneru. |
@@ -1516,6 +1591,8 @@ both compose it now.
 |---|---|---|
 | `jump-list-provider-result` | `(jump-list-provider-result assigned owner-id panel-label 'state-id FN 'action FN 'block FN)` | Lowers `assigned` — `jump-labels-assign`'s own `(label . target)` list — onto the FSM. One direct edge per single-key label; one edge per *used* leader, to a narrowing prefix state that re-mints its own group. Pure: it constructs entry thunks and fires none. |
 | `jump-list-prefix-state-id` | `(jump-list-prefix-state-id owner-id leader)` | `OWNER-ID + "/" + leader`. The shape is **not** free — `modal-current-path` `substring`s the parent's id off the child's to derive a breadcrumb segment. |
+| `jump-list-compose-providers` | `(jump-list-compose-providers NAME PROVIDER NAME PROVIDER …)` → one Edge provider | Puts several labelled panels on a state's single `'provider` slot. Calls each contributor with the owner id the engine handed over, appends their `'edges` and `'states` in argument order, and **raises** on a collision. Asks `fsm-state-edges` / `fsm-state-ids` itself — there is no argument that can replace either. |
+| `jump-list-validate-composition` | `(jump-list-validate-composition RESULTS NAMES OWNER-EDGES REGISTERED-STATE-IDS)` → the merged result, or raises | The pure half, taking every fact as data. This is the seam: all four collision cases are tested here by direct call, with no graph installed. |
 
 The three injected functions are the whole domain boundary:
 
@@ -1523,7 +1600,7 @@ The three injected functions are the whole domain boundary:
 |---|---|---|
 | `'state-id` | `TARGET → STRING` | A Terminal dispatch state's id. Free-form, but must be collision-free across live targets — namespace it per caller. Only ever called on a target `'action` already answered for. |
 | `'action` | `TARGET → THUNK or #f` | What pressing this target's label does. `#f` means "nothing to do", which is *also* how a caller says a row is inert. The two are one question, so they are one function: the target with no action **is** the target with no edge. |
-| `'block` | `PAIRS → BLOCK-SPEC` | The narrowed listing's block, given one leader's `((second-key . target) …)` survivors. Its own `'type` is read back out to reference it from the panel, so a caller never restates the type it just constructed. |
+| `'block` | `PAIRS → BLOCK-SPEC` | The narrowed listing's block, given one leader's `((second-key . target) …)` survivors. Its own `block-ref-id` — its explicit `'id` when it has one, its `'type` otherwise — is read back out to reference it from the panel, so a caller never restates what it just constructed. That is the same accessor the overlay's own panel→block resolution uses, which matters as soon as two panels share one block type and disambiguate with ids. |
 
 Two kinds of target are dropped from the edge set and **from nothing
 else** — both still render as rows: an *unlabelled* one (`#f`, past both
@@ -1536,6 +1613,65 @@ narrowing into an empty listing.
 `'panel-label` rides in from the user (ADR-0021): a label authored in a
 library file sits inside the decision-free contract's spirit even where
 `check-decision-free.sh`'s grep cannot see it.
+
+#### Composing several panels onto one `'provider` slot
+
+A state has **one** `'provider`, and a screen wanting two labelled
+panels on it has to merge two provider results. Appending them is
+mechanically fine and silently wrong when it is not, because nothing in
+the engine checks — verified in `fsm.sld` rather than assumed. A
+provider's edges are folded in with the owner state's own by plain
+append; a key resolves to the **first** matching live edge; provided
+states go into a table keyed by id, last-wins. So two panels claiming
+`j` is not an error anywhere: it is a terminal's label focusing a
+project, silently.
+
+`jump-list-compose-providers` raises instead. Raising rather than
+dropping, because a dropped edge is a dead key with no diagnostic — the
+key still works, bound to whichever panel contributed first.
+
+**What it validates is wider than the provider results**, and that is
+where the first design of this fell short. Two collision sources the
+engine has that checking only the results leaves uncovered:
+
+- **the owner state's own static edges** — a promoted leader landing on
+  a screen key dispatches to the *static* edge. This is the **likelier**
+  collision, because the screen's keys are already spoken for;
+- **permanently registered states** — a provided state shadows a
+  permanent one of the same id, first-lookup-wins.
+
+**The public operation takes no switch that can weaken its own
+invariant.** An earlier draft passed those two facts in as optional
+arguments so a test could supply them — which meant a user's config,
+being Scheme calling the same exported procedure, could hand in two
+empty readers and turn the check off while still appearing to compose
+safely. So the surface splits at the *purity* line instead: the
+validator takes every fact as data and is where the four cases are
+tested; the wrapper asks the graph the two questions and has nothing in
+it worth a seam.
+
+**Contributors are named, because an ordinal cannot repair a
+configuration.** The merge receives opaque procedures, and nothing
+recoverable from a closure says which panel owns the colliding key. The
+names are the caller's — the panel's own, out of the user's config — so
+the library still authors no label (ADR-0021).
+
+**The disjointness a screen has to keep is wider than it looks, and
+cannot be checked statically.** A panel's edges are one per surviving
+single-key label *plus one per promoted leader*, so the pool two panels
+must keep disjoint is `single-alphabet ∪ leader-alphabet`. Leader
+promotion is data-dependent — it happens only once a panel outgrows its
+single alphabet — so two panels can share a leader key, coexist happily
+for months, and collide the first time one of them grows. That is why
+the check belongs at the merge, at come-to-rest, rather than at config
+load: at load there is no row count to check against.
+
+A raise at come-to-rest releases the keyboard on both dispatch paths;
+on the catch-all path it can leave the overlay standing over live modal
+state until the next activation. Accepted rather than solved
+(`docs/specs/vscode-window-parts.md` decision 7): a stale overlay after
+a config error is a worse-*looking* failure than a silent wrong jump,
+not a worse one.
 
 ---
 

@@ -312,6 +312,23 @@ state's id must read `<owner-id>/<key>` and its up-edge must target
 that mints one cannot be written without knowing its owner. _Avoid_: reading
 the owner from the visit owner — that is set *after* the provider runs.
 
+**Provider composition** — the merge that puts several **Edge provider**s on
+one resting state's single provider slot, so a screen can carry several
+labelled panels. It appends their edges and states in argument order and
+*raises* on a collision, because the engine will not: provider edges are
+folded in with the state's own by plain append, a key resolves to the first
+matching live edge, and a provided state id is last-wins — so two panels
+claiming one key is not an error anywhere, it is one panel's label silently
+firing another's action. Each contributor is **named** by the caller, since
+an ordinal cannot repair a configuration. _Avoid_ thinking of the pool two
+panels must keep disjoint as their single-key alphabets: a panel also mints
+one edge per *promoted leader*, and promotion is data-dependent, so two
+panels can share a leader key for months and collide the first time one of
+them outgrows its singles. That is why the check runs at come-to-rest and
+not at config load — at load there is no row count to check against. Source:
+`jump-list.sld` (`jump-list-compose-providers`,
+`jump-list-validate-composition`), `docs/specs/vscode-window-parts.md`.
+
 **Entry table** — RETIRED: the graph-carried activation
 registry with gated rows and derived specificity ranking. Activation is
 now the screen-set lookup plus the **Terminal context map**'s chain walk
