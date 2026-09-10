@@ -1043,6 +1043,40 @@ after the groups have been reordered), and **a preview tab that is already activ
 (pressing its label must change nothing, not pin it). Both are in the build leaves'
 `Done when`; neither is a suite's to hold.
 
+**Both were driven against a real focused window, and how to do it again.**
+Verified 2026-09-10 against VSCode 1.137.0, along with the two focus-gated
+claims of decision 3 — the pointer file naming the focused window's socket and
+following focus between windows, and `focused` true in exactly the focused
+peer's reply and false in every other at the same moment. The two-group case
+was checked for a text tab **and** for a markdown tab, which is the
+custom-editor (`vscode.openWith`) branch and the common path wherever
+`workbench.editorAssociations` maps `*.md` to `vscode.markdown.preview.editor`;
+the reactivated markdown tab was confirmed still rendering as Markdown Preview,
+so `openWith` preserves the editor's identity rather than falling back to a text
+view. Nothing failed, so nothing here changed.
+
+None of it needs the developer's own desktop. A focused window is the one thing
+a locked or unattended machine cannot supply — `window.state.focused` is
+key-window state, so it reads false for every window while the screen is locked
+even though the *application* is still frontmost, and that is a screen-lock
+reading (`CGSSessionScreenIsLocked`), not a defect. Driving it inside an
+isolated guest VM removes the human from the loop entirely: install the built
+extension by copying `package.json` and `out/src` into the guest's
+`~/.vscode/extensions/`, disable the editor's AI features (`chat.disableAIFeatures`,
+`github.copilot.enable` all-false) or the chat panel swallows the keystrokes, and
+probe each peer with `nc -U` exactly as `scripts/measure-parts.js` does.
+
+**The trap in the preview case, which nearly passed as a defect.** A preview tab
+is not observable through a `parts` row — `EditorRow` carries `active` and
+`dirty`, not `isPreview` — so the check has to be behavioural: a preview tab is
+*replaced* by the next file opened into its group, a pinned one is not. Produce
+it with a **single click in the Explorer**, never with Quick Open:
+`workbench.editor.enablePreviewFromQuickOpen` has defaulted to false since VSCode
+1.44, so `cmd-p` yields a pinned tab and the replacement observable silently
+stops discriminating. Run the control every time — press nothing, open a second
+file, and confirm the first is replaced — because a tab that survives proves the
+press pinned it only once you know an untouched tab would not have survived.
+
 **A control the fixtures must supply.** Write the `parts` fixture set with the
 awkward rows present, or the rules in decision 1 are untested and an
 implementation that ignores them passes everything: an inert tab kind (must be
