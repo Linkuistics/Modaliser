@@ -16,7 +16,7 @@ import type { PeerEnv } from "../src/peerEnv";
 import { classifyTabInput } from "../src/tabKind";
 
 export class TabInputText {
-  constructor(readonly uri: { fsPath: string }) {}
+  constructor(readonly uri: { fsPath: string; scheme?: string }) {}
 }
 export class TabInputTextDiff {
   constructor(
@@ -93,9 +93,10 @@ export class FakeTabGroup implements TabGroupLike {
 
 export class FakeTab implements TabLike {
   group!: FakeTabGroup;
+  isPinned = true;
   constructor(
     readonly label: string,
-    readonly input: unknown,
+    public input: unknown,
     public isActive = false,
     public isDirty = false,
     public isPreview = false,
@@ -175,6 +176,10 @@ export class FakeEnv implements PeerEnv {
   log(message: string): void {
     this.logs.push(message);
   }
+
+  async statResource(_uri: unknown): Promise<unknown> { return {}; }
+  isFileNotFound(_error: unknown): boolean { return false; }
+  async closeTab(_tab: TabLike, _preserveFocus: boolean): Promise<boolean> { return false; }
 
   group(viewColumn: number): FakeTabGroup {
     const group = new FakeTabGroup(viewColumn);

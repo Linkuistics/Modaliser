@@ -34,7 +34,7 @@ through the peer that answered the read.**
 - **Every reply names its own peer, and every target carries it.** The `parts`
   reply includes the socket path the answering instance is listening on; the rows
   built from that reply carry it beside their tokens; and a `focus-terminal` /
-  `focus-editor` notification goes to that path. The read and the act therefore
+  `focus-editor` / `close-editor-if-missing` notification goes to that path. The read and the act therefore
   name the same peer *because the act's address came out of the read* — not because
   they agreed to read the same pointer twice.
 

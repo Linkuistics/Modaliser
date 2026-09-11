@@ -1,4 +1,5 @@
-// The two notifications, and the four checks each one makes before acting
+// The focus notifications and their live checks; conditional closure below
+// adds metadata, dirty-state and post-await identity checks.
 // (docs/specs/vscode-window-parts.md, decisions 1, 2 and 4; ADR-0027).
 //
 // Nothing here returns anything to the caller. A refusal is silent on the
@@ -109,6 +110,51 @@ function liveTab(
     }
   }
   return undefined;
+}
+
+/** Conditional editor mechanics only; the caller chooses which files qualify.
+ * The check uses the actual URI, never a label or a reconstructed file path. */
+export async function closeEditorIfMissing(
+  env: PeerEnv,
+  registry: TokenRegistry,
+  token: unknown,
+): Promise<void> {
+  const method = "close-editor-if-missing";
+  const resolved = registry.lookup(token, "editor");
+  const tab = resolved === undefined ? undefined : liveTab(env.tabGroups(), resolved);
+  if (!env.focused() || tab === undefined || tab.isDirty) {
+    refuse(env, method, token, "unfocused window, stale/wrong-kind token, or dirty tab");
+    return;
+  }
+  const input = tab.input;
+  const kind = env.classify(input);
+  const uri = tabUri(input);
+  if ((kind !== "text" && kind !== "custom") ||
+      typeof uri !== "object" || uri === null ||
+      !("scheme" in uri) || uri.scheme !== "file") {
+    refuse(env, method, token, "not a local file text/custom tab");
+    return;
+  }
+  try {
+    await env.statResource(uri);
+    refuse(env, method, token, "resource still exists");
+    return;
+  } catch (error) {
+    if (!env.isFileNotFound(error)) {
+      refuse(env, method, token, `resource absence is uncertain: ${String(error)}`);
+      return;
+    }
+  }
+  // No await between the live checks and handing the actual tab to the host.
+  // The host still owns its ordinary dirty-close confirmation across the RPC.
+  if (!env.focused() || liveTab(env.tabGroups(), tab) !== tab ||
+      tab.isDirty || tab.input !== input || tabUri(tab.input) !== uri) {
+    refuse(env, method, token, "window or tab changed during metadata lookup");
+    return;
+  }
+  if (!await env.closeTab(tab, true)) {
+    refuse(env, method, token, "host declined to close the tab");
+  }
 }
 
 export async function focusEditor(

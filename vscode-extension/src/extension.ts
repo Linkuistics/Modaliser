@@ -55,6 +55,14 @@ function makeEnv(peer: string, log: (message: string) => void): PeerEnv {
     // tests; see tabKind.ts for why the table is injected rather than
     // imported.
     classify: (input) => classifyTabInput(vscode, input),
+    // Metadata and definite absence: VSCode 1.136.0 FileSystem/FileSystemError.
+    // https://github.com/microsoft/vscode/blob/1.136.0/src/vscode-dts/vscode.d.ts#L8871-L8919
+    statResource: (uri) => Promise.resolve(vscode.workspace.fs.stat(uri as vscode.Uri)),
+    isFileNotFound: (error) =>
+      error instanceof vscode.FileSystemError && error.code === "FileNotFound",
+    // https://github.com/microsoft/vscode/blob/1.136.0/src/vscode-dts/vscode.d.ts#L18133-L18142
+    closeTab: (tab, preserveFocus) =>
+      Promise.resolve(vscode.window.tabGroups.close(tab as vscode.Tab, preserveFocus)),
     showTextDocument: (uri, options) =>
       Promise.resolve(
         vscode.window.showTextDocument(uri as vscode.Uri, {

@@ -19,6 +19,32 @@ import Testing
 @Suite("(modaliser tools grove) library")
 struct ModaliserToolsGroveLibraryTests {
 
+    @Test func taskPathsAreScopedAndFollowTheCurrentFilenameGrammar() throws {
+        let engine = try engineWithRecordingRunner()
+        for path in [
+            "/p/.grove/01-impl--task-k1.md",
+            "/p/.grove/nested/02-DONE-review-impl--task-name-k23.md",
+            "/p/.grove/03-ABANDONED-integrate-review-design--task-k4.md",
+            "/p/.grove/04-combine-research--task-k5.md",
+        ] {
+            #expect(try engine.evaluate("(grove:task-path? \(literal(path)) \(literal("/p/")))") == .true)
+        }
+        for path in [
+            "/p-other/.grove/01-impl--task-k1.md", "/other/p/.grove/01-impl--task-k1.md",
+            "/p/nested/.grove/01-impl--task-k1.md", "/p/.grove-other/01-impl--task-k1.md",
+            "/p/.grove/../01-impl--task-k1.md", "/p/.grove/BRIEF.md", "/p/.grove/notes.md",
+            "/p/.grove/01-impl-task-k1.md", "/p/.grove/01-unknown--task-k1.md",
+            "/p/.grove/1-impl--task-k1.md", "/p/.grove/01-impl--task.md",
+            "/p/.grove/01-impl--task-k.md", "/p/.grove/01-impl--task-k1.md.bak",
+            "/p/.grove/01-impl--task-k1x.md", "p/.grove/01-impl--task-k1.md",
+        ] {
+            #expect(try engine.evaluate("(grove:task-path? \(literal(path)) \(literal("/p")))") == .false)
+        }
+        #expect(try engine.evaluate(#"(grove:task-path? #f "/p")"#) == .false)
+        #expect(try engine.evaluate(#"(grove:task-path? "/p/.grove/01-impl--task-k1.md" #f)"#) == .false)
+        #expect(try engine.evaluate("(null? seen)") == .true)
+    }
+
     /// An engine with the library imported and a recording runner
     /// installed.
     ///

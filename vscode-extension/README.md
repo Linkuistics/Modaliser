@@ -42,7 +42,7 @@ reaches a user's machine.
 
 ## What it exposes, exactly
 
-Three methods, and the set is the security surface — a
+Four methods, and the set is the security surface — a
 `commands.executeCommand` passthrough is one line and would turn this into a
 remote control for the workbench, so it is not here and does not become here
 without a recorded decision.
@@ -52,15 +52,33 @@ without a recorded decision.
 | `parts` | `{}` | the window's terminals and editor tabs, with a token each |
 | `focus-terminal` | `{"token": N}` | **nothing** |
 | `focus-editor` | `{"token": N}` | **nothing** |
+| `close-editor-if-missing` | `{"token": N}` | **nothing** |
 
 Newline-delimited JSON, one `{"id","method","params"}` message per connection.
-The two focus methods are *notifications*: nothing comes back, and a refusal
+The three action methods are *notifications*: nothing comes back, and a refusal
 therefore leaves no trace on the wire — the **Modaliser Companion** output
 channel is where a refused press says why.
 
 An action is refused, silently, when this window is not focused, when the
 token names nothing, when it names a part that has since closed, or when it
 names the other kind of part.
+
+`close-editor-if-missing` additionally requires a clean local `file` text or
+custom tab. It checks the live backing URI with `workspace.fs.stat` and closes
+only on `FileSystemError.FileNotFound`, preserving focus. Existing resources,
+permission/provider errors, virtual resources, notebooks and diffs stay open.
+Focus, membership, input identity and dirty state are checked again after the
+lookup. Ordinary host dirty-close protection still applies; no save or discard
+operation is exposed.
+
+This operation requires companion **1.1.0**. Protocol 1's existing fields and
+methods retain their meanings; an older companion simply cannot clean tabs.
+After upgrading Modaliser, use **Install VSCode Companion** and restart VSCode.
+To adopt Grove cleanup, copy the updated “Grove Leaf” composition and its imports
+from the mirrored `examples/vscode.scm` into your own config. Shipping facilities
+does not rewrite an existing user config. Cleanup is attempted before live-leaf
+lookup, including when the grove is finished or its directory was removed;
+reveal and its explorer follow-up remain independent of cleanup success.
 
 ## Where it lives on disk
 

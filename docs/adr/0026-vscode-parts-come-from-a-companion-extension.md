@@ -93,7 +93,7 @@ ADR-0027.
   available later without a protocol change.
 
 - **The method set is bounded and is not `commands.executeCommand`.** `parts`,
-  `focus-terminal`, `focus-editor`, and nothing else. A passthrough would make
+  `focus-terminal`, `focus-editor`, `close-editor-if-missing`, and nothing else. A passthrough would make
   the socket a remote control for the whole workbench, and the trade-off being
   accepted here is only as good as the enumeration of what it *does* expose to
   anything running as the user:
@@ -106,6 +106,17 @@ ADR-0027.
   | whether this window is the focused one | yes | — |
   | showing and focusing any terminal in that window | — | yes |
   | activating any actionable editor tab in that window | — | yes |
+  | checking backing-resource metadata for a supplied local text/custom tab | yes | — |
+  | closing that tab only if clean and definitely missing, preserving focus | — | yes |
+
+  Conditional closure is token-addressed, never path-addressed. The peer uses
+  `workspace.fs.stat` and accepts only `FileSystemError` with code `FileNotFound`;
+  all uncertain failures retain the tab. It rechecks focus, membership, input
+  identity and dirty state after the asynchronous check, then uses ordinary
+  `tabGroups.close(tab, true)`. This does not bypass the host's dirty-close
+  protection or promise atomic no-prompt behavior across the host boundary.
+  Grove filename recognition belongs to the caller's Scheme composition, not
+  this extension; the bounded operation is useful editor mechanics.
 
   Nothing else: no document contents, no settings, no file writes, no reach
   outside the one window, and no way for a *caller* to name a workbench command.
@@ -132,7 +143,7 @@ ADR-0027.
   own — ADR-0027.
 
 - **An action is a notification, not a request.** Nothing consumes an
-  acknowledgement, so nothing waits for one (ADR-0014): the focus methods are put
+  acknowledgement, so nothing waits for one (ADR-0014): the action methods are put
   on the socket with `unix-socket-send` and the peer answers nothing. Only `parts`
   waits, and it waits on a bounded budget rather than herdr's 1000 ms ceiling,
   because a screen performs one read per panel and the tap's tolerance is spent on

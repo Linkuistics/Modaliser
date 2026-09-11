@@ -171,14 +171,14 @@ paragraph contemplated rather than the prohibited generic passthrough — and th
 extension keeps that structural rather than promised: the seam its activation
 code calls is `openWith(uri, viewType, options)`, not `executeCommand(id,
 …args)`, so there is no shape a command id could be routed through. The wire's
-method set is still three methods; ADR-0026's enumeration of the exposure is
-unchanged except that "activate a tab" now reaches one more kind of tab.
+method set also includes conditional missing-file closure, specified below;
+the companion ADR enumerates both capabilities explicitly.
 
 **Reopen if** a *diff* is ever something the human keeps on screen and wants a
 label for — that one is still out, and for the reason that has not changed:
 `vscode.diff` constructs a new comparison rather than revealing this tab.
 
-### 2. The wire protocol: one query, two notifications, and no command passthrough
+### 2. The wire protocol: one query, three notifications, and no command passthrough
 
 Newline-delimited JSON over a Unix-domain stream socket, one message per
 connection — the peer closing after it responds, or after it reads a message that
@@ -262,10 +262,28 @@ one; the extension logs its reason on its own side. This is the same bargain
 `jump-list`'s inert rows already make — the requirement is that a label activates
 its own part *or nothing*, and both halves of that are satisfied without a reply.
 
+**`close-editor-if-missing`** — params `{"token": N}` — is also a notification.
+It resolves an editor token in this peer, requires a live clean text/custom tab
+whose actual URI has scheme `file`, and calls `workspace.fs.stat` on that URI.
+Only a `FileSystemError` with code `FileNotFound` permits closing. Success from
+stat, permission errors, missing providers and every other uncertain failure
+retain the tab. Labels such as “Deleted” and terminal filename markers are not
+evidence of absence. Notebooks, diffs, untitled and virtual resources are refused.
+
+After stat completes, the peer rechecks focus, membership by tab identity, input
+identity and dirty state, then calls `tabGroups.close(liveTab, true)` with no
+intervening await. Clean pinned tabs are eligible, and duplicate tabs in separate
+groups are addressed individually. Close failures/refusals log locally and send
+no reply. No saving, discarding, file mutation or path-addressed close is exposed.
+The host's ordinary dirty-close protection remains; the extension cannot promise
+an atomic no-prompt close across the extension-host boundary. API source, matching
+the minimum supported version: [VSCode 1.136.0 declarations](https://github.com/microsoft/vscode/blob/1.136.0/src/vscode-dts/vscode.d.ts).
+
 **There is deliberately no method that runs a workbench command**, and what the
 bounded set does expose — every field of the reply above, plus the ability to
-focus a terminal or activate a tab in the focused window — is enumerated and
-accepted in ADR-0026. The spec's normative share of it: three methods, this exact
+focus a terminal, activate a tab, or check metadata and conditionally close a
+clean missing-resource tab in the focused window — is enumerated and
+accepted in ADR-0026. The spec's normative share of it: four methods, this exact
 set, and the directory holding the sockets and the pointer file is created mode
 `0700`.
 
@@ -273,6 +291,13 @@ set, and the directory holding the sockets and the pointer file is created mode
 the extension are installed separately and can skew. A `protocol` that is not
 the version this Modaliser understands is treated as an unreachable peer: empty
 listing, log line, no attempt to interpret fields whose meaning is not agreed.
+
+Conditional closure ships in companion 1.1.0 without changing protocol 1's
+existing meanings. An older peer can still list and focus; cleanup failure does
+not gate file reveal. Install the updated companion through the existing
+confirm-and-provision flow, then restart VSCode. Adopt the updated Grove Leaf
+example and imports in the user-owned config; the mirrored example is a reference,
+not an automatic config migration.
 
 **The read has a per-request timeout of 200 ms, and the budget that matters is the
 whole come-to-rest.** Only `parts` waits, so a screen's exposure is
@@ -529,12 +554,31 @@ seam shape `(modaliser muxes herdr-socket)` established for a socket peer.
   either listing lands, and where the presentation rules go: which fields become
   `text` and which `detail`, path shortening, and the `TabInputTerminal` exclusion
   and `token: null` rules from decision 1.
+  Editor targets also retain the full backing `path`, separate from `detail`.
 - **`(terminal-source)`** / **`(editor-source)`** — impure, each
   `(… -rows (vscode-parts))`.
 - **`(focus-terminal! target)`** / **`(focus-editor-tab! target)`** — impure:
   one `focus-terminal` / `focus-editor` **notification** to the target's own peer,
   carrying the target's token. Nothing is waited for and nothing is returned; a
   target whose token is `null` has no action at all (decision 1).
+- **`(close-editor-if-missing! target)`** — one token-only notification to the
+  target's own peer. Inert and snapshot-dirty targets are skipped; the peer owns
+  the authoritative live checks. Each send is best effort and waits for no
+  resource check or close acknowledgement.
+
+The shipped **Grove Leaf** composition captures `vscode-parts` once, obtains
+its workspace (falling back to the existing focused-workspace lookup if the peer
+is unavailable), and selects targets with `(grove:task-path? path worktree)`.
+This pure Grove facility recognises current task filenames under that workspace's
+own `.grove/`: `NN-[DONE-|ABANDONED-]<session-kind>--<slug>-k<key>.md`,
+including nested directories and DONE/ABANDONED names. It rejects
+ordinary markdown, sibling workspace prefixes and paths with traversal segments,
+and requires no existing directory. Neither library imports the other.
+The composition sends selected targets before asking for the live leaf, so cleanup
+also runs when no live task remains or `.grove/` was removed. It then preserves
+the existing async reveal/explorer follow-up or no-live-leaf message. A `parts`
+read has the existing bounded budget; no Scheme wait covers stat or close.
+
 - **`(terminal-provider …)`** / **`(editor-provider …)`** — the **Edge
   provider**s a screen binds, each taking `'single-alphabet`, `'leader-alphabet`
   and `'second-alphabet` from the user with **none defaulted** (ADR-0021), an
@@ -839,6 +883,23 @@ recognise the mechanism rather than suspect the transport.
 
 ## Requirements
 
+### Requirement: Grove Leaf cleans only deleted task tabs in its initiating window
+
+Invoking the example's Grove Leaf SHALL attempt cleanup across the initiating
+window's groups before live-leaf lookup. It SHALL retain the current-task reveal
+and explorer follow-up, or the existing no-live-leaf message. Cleanup SHALL still
+be attempted when the grove has no live leaf or its directory no longer exists.
+
+Only task-shaped paths in this workspace's own `.grove/` tree are selected.
+Clean missing text/custom Markdown tabs, including pinned tabs and duplicate
+resources in several groups, are eligible. Existing files (including existing
+DONE files), dirty tabs, unrelated deleted files, BRIEF.md, other workspaces,
+untitled/virtual resources and diff editors SHALL remain open. Definite absence
+and post-await live checks follow decision 2. A stale target, a peer that lost
+focus, an uncertain filesystem result or any cleanup failure SHALL not cause
+redirection, saving, discarding, or a synchronous wait for closure on the Scheme
+evaluation thread.
+
 ### Requirement: the Editor listing lists the frontmost window's tabs
 
 The Editor listing SHALL contain one row per editor tab of the frontmost VSCode
@@ -989,6 +1050,15 @@ already declares, or one of their states collides with a registered state id.
 
 ## Test seams
 
+Grove cleanup is checked through `dispatch`/`PeerEnv` fakes (local text/custom
+tabs, duplicate groups, metadata outcomes, unsupported inputs, stale/wrong-kind
+tokens, close failure, and focus/dirty/membership changes during a pending stat).
+Scheme tests use the actual example operation, a canned parts query, recording
+notifications and asynchronous shell callbacks, plus the pure task-path facility.
+They check workspace containment, peer binding, cleanup without a live leaf and
+reveal/follow-up ordering. These are call-level tests, not evidence that a live
+VSCode tab closed; no live-editor cleanup effect is claimed from them.
+
 One seam per new surface, each as high as it goes, and none of them reaching a
 live VSCode.
 
@@ -1118,7 +1188,7 @@ side because the check does.
   exclusion, which was forced by the source not carrying group structure at all.
 - **Anything the extension could do but is not asked to.** Running workbench
   commands, opening files, editing settings, reading document contents. The
-  method set is three methods, and it grows only with a reason recorded here.
+  method set is four methods, and it grows only with a reason recorded here.
 - **How the extension reaches a machine.** Not this spec's. ADR-0028 decides it
   and it is built: `build-app.sh` builds the extension into the app bundle, and
   Modaliser copies it into `~/.vscode/extensions` only when the user asks,

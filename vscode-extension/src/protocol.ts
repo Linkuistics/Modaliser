@@ -5,7 +5,7 @@
 // connection — the envelope ADR-0020 established for herdr, reused unchanged
 // because Modaliser's JSON handling is already shaped for it.
 //
-// Three methods and no more. `parts` is a query and is answered; the two focus
+// Four methods and no more. `parts` is a query and is answered; the three action
 // methods are NOTIFICATIONS and are answered with nothing at all — not an
 // `{"ok": …}`, not an error envelope (ADR-0014: no caller consumes an
 // acknowledgement, so waiting for one spends the eval thread's time, and the
@@ -24,11 +24,13 @@ export const PROTOCOL_VERSION = 1;
 export const METHOD_PARTS = "parts";
 export const METHOD_FOCUS_TERMINAL = "focus-terminal";
 export const METHOD_FOCUS_EDITOR = "focus-editor";
+export const METHOD_CLOSE_EDITOR_IF_MISSING = "close-editor-if-missing";
 
 /** The methods that answer nothing. */
 export const NOTIFICATION_METHODS: ReadonlySet<string> = new Set([
   METHOD_FOCUS_TERMINAL,
   METHOD_FOCUS_EDITOR,
+  METHOD_CLOSE_EDITOR_IF_MISSING,
 ]);
 
 export interface TerminalRow {

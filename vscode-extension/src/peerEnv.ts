@@ -55,6 +55,10 @@ export interface PeerEnv {
   /** `classifyTabInput` closed over the real `vscode` namespace. */
   classify(input: unknown): TabKind;
 
+  statResource(uri: unknown): Promise<unknown>;
+  isFileNotFound(error: unknown): boolean;
+  closeTab(tab: TabLike, preserveFocus: boolean): Promise<boolean>;
+
   showTextDocument(
     uri: unknown,
     options: { viewColumn: number; preview: boolean },
@@ -63,7 +67,7 @@ export interface PeerEnv {
   /** `vscode.openWith`, and NOT a general `executeCommand`. Narrowing the
    *  seam to the one operation is what keeps "no method runs a workbench
    *  command" structural rather than a promise: there is no shape here that
-   *  a fourth method could route an arbitrary command id through. */
+   *  another method could route an arbitrary command id through. */
   openWith(
     uri: unknown,
     viewType: string,

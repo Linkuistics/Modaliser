@@ -1,4 +1,4 @@
-;; (modaliser tools grove) — grove task trees, as a one-question facility.
+;; (modaliser tools grove) — live-leaf lookup and pure task-path recognition.
 ;;
 ;; grove drives a long workstream as a VCS-tracked tree of task files
 ;; under `.grove/` in a working tree, exactly one of which is the LIVE
@@ -8,7 +8,8 @@
 ;; one question that automates away: given a worktree, WHICH FILE IS ITS
 ;; LIVE LEAF.
 ;;
-;; That is the whole surface, and deliberately so. grove's `grove-llm`
+;; Pure task-path recognition also selects stale resources without an existing
+;; grove. For live-leaf lookup, grove's `grove-llm`
 ;; CLI has a dozen verbs; all but one of them WRITE — they create,
 ;; decompose, retire and prune tasks, and they are the province of the
 ;; agent running the session, not of a keyboard shortcut. `pick` is the
@@ -77,6 +78,7 @@
           ;; live grove leaf, or #f when there isn't one. Impure: it runs
           ;; the CLI through the portable shell seam.
           live-leaf
+          task-path?
           ;; The two pure halves it is built from — the command it would
           ;; spawn, and the reading of what came back. Exported because
           ;; that is where the behaviour is and therefore where the tests
@@ -84,7 +86,8 @@
           live-leaf-command
           leaf-of-output)
   (import (scheme base)
-          (only (modaliser util) string-trim string-split)
+          (only (modaliser util) string-trim string-split string-join filter)
+          (only (srfi 1) every)
           ;; The canonical POSIX single-quote escaper. A worktree path is
           ;; arbitrary text arriving from an editor's stored state — it
           ;; may hold a space, and it may hold a quote — and it is
@@ -97,6 +100,65 @@
           ;; concern (see `(modaliser wms paneru)`, which says the same).
           (only (modaliser terminal) tool-path-prefix))
   (begin
+
+    ;; Grove 20's task filename grammar, including terminal outcomes.
+    ;; This is lexical recognition, not a filesystem/existence check.
+    (define task-kinds
+      '("requirements" "design" "planning" "prototype" "impl"
+        "review-requirements" "review-design" "review-planning"
+        "review-prototype" "review-impl" "integrate-review-requirements"
+        "integrate-review-design" "integrate-review-planning"
+        "integrate-review-prototype" "integrate-review-impl"
+        "research-a" "research-b" "combine-research" "finish"))
+
+    (define (decimal? text)
+      (and (not (string=? text ""))
+           (every (lambda (c) (char<=? #\0 c #\9)) (string->list text))))
+
+    (define (slug-word? text)
+      (and (not (string=? text ""))
+           (every (lambda (c) (or (char<=? #\a c #\z)
+                                  (char<=? #\0 c #\9)))
+                  (string->list text))))
+
+    (define (task-filename? name)
+      (let ((halves (string-split name "--")))
+        (and (= (length halves) 2)
+             (let* ((prefix (string-split (car halves) "-"))
+                    (position (car prefix))
+                    (rest (cdr prefix))
+                    (kind (if (and (pair? rest)
+                                   (member (car rest) '("DONE" "ABANDONED")))
+                              (cdr rest) rest))
+                    (suffix (string-split (cadr halves) ".")))
+               (and (= (string-length position) 2) (decimal? position)
+                    (member (string-join kind "-") task-kinds)
+                    (= (length suffix) 2) (string=? (cadr suffix) "md")
+                    (let* ((words (reverse (string-split (car suffix) "-")))
+                           (key (string->list (car words))))
+                      (and (pair? (cdr words)) (every slug-word? (cdr words))
+                           (pair? key) (char=? (car key) #\k)
+                           (decimal? (list->string (cdr key))) #t)))))))
+
+    ;; Compare directory components, never a workspace-name prefix or an
+    ;; arbitrary .grove substring. Reject traversal rather than resolving it
+    ;; through a directory that may already have been deleted.
+    (define (absolute-components path)
+      (and (string? path) (not (string=? path ""))
+           (char=? (car (string->list path)) #\/)
+           (let ((parts (filter (lambda (s) (not (string=? s "")))
+                                 (string-split path "/"))))
+             (and (not (member "." parts)) (not (member ".." parts)) parts))))
+
+    (define (task-path? path worktree)
+      (let ((parts (absolute-components path))
+            (root (absolute-components worktree)))
+        (and parts root
+             (let walk ((remaining parts) (prefix (append root '(".grove"))))
+               (if (null? prefix)
+                   (and (pair? remaining) (task-filename? (car (reverse remaining))))
+                   (and (pair? remaining) (string=? (car prefix) (car remaining))
+                        (walk (cdr remaining) (cdr prefix))))))))
 
     ;; ─── The command (pure) ─────────────────────────────────────────
     ;;

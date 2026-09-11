@@ -2,7 +2,7 @@
   "name": "modaliser-companion",
   "displayName": "Modaliser Companion",
   "description": "Answers Modaliser's questions about what is open in this VSCode window, over a Unix-domain socket.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "antony",
   "license": "MIT",
   "private": true,
@@ -21,11 +21,11 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": true,
-      "description": "The extension only reports which editors and terminals this window holds, and activates one of them on request. It never reads workspace content, runs workspace code, or honours workspace settings."
+      "description": "Reports and activates this window's editors and terminals, and can close a clean local text/custom tab after checking that its backing file is definitely missing. It reads metadata, never document contents, and never runs workspace code or honours workspace settings."
     },
     "virtualWorkspaces": {
       "supported": true,
-      "description": "Listing a window’s tabs and terminals needs no local file system."
+      "description": "Listing and activation work without a local file system. Conditional cleanup applies only to local file text/custom tabs."
     }
   },
   "main": "./out/src/extension.js",

@@ -1,22 +1,23 @@
 // One line in, at most one line out
 // (docs/specs/vscode-window-parts.md, decision 2).
 //
-// This is the whole method table, and it is deliberately three entries long.
+// This is the whole method table, and it is deliberately four entries long.
 // A `commands.executeCommand` passthrough is one line and would turn a bounded
 // question-answering peer into a remote control for the workbench; ADR-0026
-// enumerates exactly what this surface exposes and accepts, so if a fourth
+// enumerates exactly what this surface exposes and accepts, so if another
 // method is ever wanted, that record is what has to change first.
 //
-// `parts` is answered. The two focus methods are answered with NOTHING — not
+// `parts` is answered. The three action methods are answered with NOTHING — not
 // an `{"ok": …}`, not an error envelope — so `dispatch` returns null for them
 // and the caller writes nothing (ADR-0014).
 
-import { focusEditor, focusTerminal } from "./actions";
+import { closeEditorIfMissing, focusEditor, focusTerminal } from "./actions";
 import { buildParts } from "./parts";
 import type { PeerEnv } from "./peerEnv";
 import type { WireRequest } from "./protocol";
 import {
   METHOD_FOCUS_EDITOR,
+  METHOD_CLOSE_EDITOR_IF_MISSING,
   METHOD_FOCUS_TERMINAL,
   METHOD_PARTS,
 } from "./protocol";
@@ -61,7 +62,7 @@ export async function dispatch(
       case METHOD_PARTS:
         return JSON.stringify({ id, result: buildParts(env, registry) });
 
-      // Both notifications swallow their own failures. Letting one fall
+      // Notifications swallow their own failures. Letting one fall
       // through to the error envelope below would put bytes on a wire the
       // contract says stays silent — and there is nobody to read them:
       // `unix-socket-send` has closed its end before the activation even
@@ -80,6 +81,14 @@ export async function dispatch(
           await focusEditor(env, registry, tokenOf(request.params));
         } catch (error) {
           env.log(`focus-editor failed: ${String(error)}`);
+        }
+        return null;
+
+      case METHOD_CLOSE_EDITOR_IF_MISSING:
+        try {
+          await closeEditorIfMissing(env, registry, tokenOf(request.params));
+        } catch (error) {
+          env.log(`close-editor-if-missing failed: ${String(error)}`);
         }
         return null;
 

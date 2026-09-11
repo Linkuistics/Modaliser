@@ -691,7 +691,9 @@ state is written on a 60-second idle flush, and the accessibility tree shows
 only what is currently drawn (ADR-0026). _Avoid_ "editor" bare when the
 distinction from the *editor group* matters — a window may hold several groups,
 each with its own tab strip. The listing spans all of them, and a row carries
-its group without the listing making a group navigable. Source:
+its group without the listing making a group navigable. Scheme targets retain
+the full backing `path` separately from the shortened display detail, allowing
+callers to select resources for conditional missing-file cleanup. Source:
 `apps/vscode.sld` (`editor-rows`).
 
 **Editor listing** — the **Editor tab**s of the *frontmost* VSCode window as
@@ -724,16 +726,19 @@ the whole reason the source changed. Source: `apps/vscode.sld`
 
 **VSCode companion extension** — the small VSCode extension Modaliser ships
 *inside* the app (see **Companion payload**), one instance per VSCode window,
-answering three questions over a
+exposing four bounded operations over a
 Unix-domain socket: what is open in this window, focus this terminal, focus this
-editor. It exists because VSCode's extension API is the only surface carrying
+editor, and close this clean local text/custom tab if its backing file is
+definitely missing. The last operation reads filesystem metadata and rechecks
+live state before an ordinary focus-preserving close; it never saves or discards
+edits. It exists because VSCode's extension API is the only surface carrying
 what is open *inside* a window, and its host is an ordinary Node process that
 can hold a socket (ADR-0020's transport, ADR-0026's decision). Modaliser finds the
 instance to *read* through a **last-focused pointer file** the extension itself
 writes, and then addresses every *action* to the instance that answered, whose
 socket path the reply carries — so a row can only ever reach the window it was
 drawn from (ADR-0027). _Avoid_ calling it a plugin or a server: it is a peer on an
-established transport, and its method set is bounded on purpose — three methods,
+established transport, and its method set is bounded on purpose — four methods,
 and no way for a caller to name a workbench command (it runs exactly one itself,
 `vscode.openWith`, behind an interface that takes a resource and a view type
 rather than a command id). Source: `docs/specs/vscode-window-parts.md`.

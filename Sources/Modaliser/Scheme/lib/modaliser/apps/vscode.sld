@@ -231,8 +231,9 @@
 ;; which is what keeps `swift test` structurally unable to dial a live
 ;; editor (ADR-0023).
 ;;
-;; THREE METHODS, AND THE SET IS THE SECURITY SURFACE. `parts` is a
-;; query and is answered; `focus-terminal` and `focus-editor` are
+;; FOUR METHODS, AND THE SET IS THE SECURITY SURFACE. `parts` is a
+;; query and is answered; `focus-terminal`, `focus-editor`, and
+;; `close-editor-if-missing` are
 ;; NOTIFICATIONS and are answered with nothing at all (ADR-0014 — no
 ;; caller consumes an acknowledgement, so waiting for one would spend
 ;; the eval thread's time, and the keyboard tap's, on a discarded
@@ -434,6 +435,7 @@
           ;; and nothing is returned (ADR-0014).
           focus-terminal!
           focus-editor-tab!
+          close-editor-if-missing!
           ;; The Edge providers a screen binds, and the block specs its
           ;; panels draw — the same pair as project-provider /
           ;; project-listing, and the same contract: the listing reads
@@ -1479,6 +1481,7 @@
                        (cons 'token   token)
                        (cons 'kind    'editor)
                        (cons 'text    (or (field-string row "label") ""))
+                       (cons 'path    (field-string row "path"))
                        (cons 'detail  (shorten-path (field-string row "path")
                                                     workspace))
                        (cons 'current (field-true? row "active"))
@@ -1516,6 +1519,13 @@
 
     (define (focus-terminal! target)  (notify-part! target "focus-terminal"))
     (define (focus-editor-tab! target) (notify-part! target "focus-editor"))
+
+    ;; Best effort, without waiting for the host's metadata check or close.
+    ;; The snapshot filter is only an optimisation; the peer checks live state.
+    (define (close-editor-if-missing! target)
+      (unless (or (alist-ref target 'inert) (alist-ref target 'dirty))
+        (guard (ex (else (log "vscode: missing-editor cleanup send failed")))
+          (notify-part! target "close-editor-if-missing"))))
 
     ;; ─── The two providers ──────────────────────────────────────────
 

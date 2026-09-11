@@ -71,14 +71,36 @@
         (modaliser input)
         (modaliser app)
         (modaliser dialogs)
+        (only (modaliser json) json-ref)
+        (only (modaliser util) alist-ref)
         (prefix (modaliser apps vscode) code:)
         ;; The merge that puts three labelled panels on one 'provider
         ;; slot. Bare rather than prefixed: it collides with nothing.
         (only (modaliser jump-list) jump-list-compose-providers)
         ;; For the "Grove Leaf" row at the bottom of the screen. Drop
-        ;; this import and that row together if you do not use grove —
+        ;; this import, the helper below and that row if you do not use grove —
         ;; nothing else on the screen touches it.
         (prefix (modaliser tools grove) grove:))
+
+;; One snapshot binds cleanup to the initiating window. Send before pick so a
+;; finished/removed grove still gets cleanup. Neither a peer miss nor a cleanup
+;; failure gates the existing reveal. Optional AFTER replaces the explorer
+;; follow-up, e.g. with a user's strict-focus chord.
+(define (vscode-show-grove-leaf! . after)
+  (let* ((parts (guard (ex (else #f)) (code:vscode-parts)))
+         (workspace (and parts (json-ref parts "workspace")))
+         (worktree (if (and (string? workspace) (not (string=? workspace "")))
+                       workspace (code:focused-workspace-path))))
+    (when worktree
+      (for-each
+        (lambda (target)
+          (when (grove:task-path? (alist-ref target 'path) worktree)
+            (code:close-editor-if-missing! target)))
+        (code:editor-rows parts)))
+    (let ((leaf (and worktree (grove:live-leaf worktree))))
+      (if leaf
+          (apply code:reveal-file! leaf after)
+          (dialog-info "No live grove leaf for this window.")))))
 
 ;; The jump-label alphabet for the Projects panel, named once and
 ;; passed three times below (one-key pool, leader preference order,
@@ -247,7 +269,9 @@
     ;; be a VSCode window, it may have no folder, its folder may not be
     ;; in VSCode's stored state yet (that file is written on window
     ;; state change, so a window opened seconds ago can be missing),
-    ;; the folder may not be a grove, and the grove may be finished.
+    ;; the folder may not be a grove, and the grove may be finished. The
+    ;; helper above first asks the initiating peer to clean missing task tabs,
+    ;; including when no leaf remains; reveal does not wait for those closes.
     ;;
     ;; What to SAY about a miss is yours too. A dialog is the loudest
     ;; option and is here because a silent no-op on a key you meant to
@@ -262,12 +286,7 @@
     ;; On "L" — for Leaf — since lowercase g is a Projects jump label
     ;; above. The capital plane is untouched by the label alphabets.
     (key "L" "Grove Leaf"
-         (λ ()
-           (let* ((worktree (code:focused-workspace-path))
-                  (leaf     (and worktree (grove:live-leaf worktree))))
-             (if leaf
-                 (code:reveal-file! leaf)
-                 (dialog-info "No live grove leaf for this window.")))))
+         vscode-show-grove-leaf!)
 
     ;; ─── This window's terminals and editors ────────────────────
     ;;
