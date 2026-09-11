@@ -64,8 +64,6 @@ token names nothing, when it names a part that has since closed, or when it
 names the other kind of part.
 
 Browser, webview, diff and other resource-less tabs are selectable too. Their
-selection requires companion **1.2.0**; install the updated bundled companion
-and reload VSCode to activate it. Their
 tokens resolve to live tabs; the peer visits existing groups as needed and
 selects the tab's current index. This preserves the existing tab rather than
 opening a new browser or comparison. Focus and membership are rechecked after
