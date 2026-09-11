@@ -200,8 +200,45 @@ export async function focusEditor(
     await env.openWith(uri, viewType, { viewColumn, preview: live.isPreview });
     return;
   }
-  // Unreachable through a token minted by `parts`, which mints only for the
-  // three kinds above — but a tab can change kind under a live token no more
-  // safely than it can be closed, and the refusal costs one branch.
-  refuse(env, "focus-editor", token, `a ${kind} tab has no specified activation`);
+  if (kind === "terminal") {
+    refuse(env, "focus-editor", token, "that tab is now a terminal");
+    return;
+  }
+  await focusTabByPosition(env, live, token);
+}
+
+/** Browser, webview and diff tabs have no single resource to reopen. Select
+ * their existing EditorInput through the workbench instead. A token resolves
+ * the object first; the index is read only after its group becomes active.
+ *
+ * Each command crosses the host RPC boundary. Rechecking after every await
+ * narrows that race; the final index read and host selection are not atomic.
+ * Cycling existing groups avoids focus-N commands that can create a group.
+ */
+async function focusTabByPosition(env: PeerEnv, tab: TabLike, token: unknown): Promise<void> {
+  const visited = new Set<object>();
+  let remaining = env.tabGroups().length;
+  while (true) {
+    if (!env.focused() || liveTab(env.tabGroups(), tab) !== tab ||
+        env.classify(tab.input) === "terminal") {
+      refuse(env, "focus-editor", token, "window or tab changed during group focus");
+      return;
+    }
+    const active = env.activeTabGroup();
+    if (active === tab.group) {
+      const index = active.tabs.indexOf(tab);
+      if (index < 0) {
+        refuse(env, "focus-editor", token, "tab is no longer in its group");
+        return;
+      }
+      await env.openEditorAtIndex(index);
+      return;
+    }
+    if (active === undefined || visited.has(active) || remaining-- <= 0) {
+      refuse(env, "focus-editor", token, "could not reach the tab's group");
+      return;
+    }
+    visited.add(active);
+    await env.focusNextGroup();
+  }
 }

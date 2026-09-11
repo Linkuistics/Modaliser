@@ -5,7 +5,7 @@ import type { PeerEnv, TabLike, TerminalLike } from "./peerEnv";
 import type { EditorRow, PartsResult, TerminalRow } from "./protocol";
 import { PROTOCOL_VERSION } from "./protocol";
 import type { TokenRegistry } from "./registry";
-import { ACTIONABLE_TAB_KINDS, isTerminalTab, tabPath } from "./tabKind";
+import { isTerminalTab, tabPath } from "./tabKind";
 
 /** Every tab of every group, flattened in `tabGroups.all` order and, within
  *  each group, its own `tabs` order. */
@@ -49,13 +49,9 @@ export function buildParts(env: PeerEnv, registry: TokenRegistry): PartsResult {
       continue;
     }
     editorRows.push({
-      // A kind with no specified activation is LISTED and gets no token. It
-      // still renders and still consumes its jump label, so it cannot
-      // renumber the labels below it, and the panel cannot disagree with the
-      // tab strip the human is looking at.
-      token: ACTIONABLE_TAB_KINDS.has(kind)
-        ? registry.tokenFor(tab, "editor")
-        : null,
+      // Resource-less tabs, including browsers, can be selected by their live
+      // position. The token still names the Tab object, never a saved index.
+      token: registry.tokenFor(tab, "editor"),
       label: tab.label,
       path: tabPath(kind, tab.input),
       active: tab.isActive,

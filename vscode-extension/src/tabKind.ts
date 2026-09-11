@@ -3,9 +3,8 @@
 //
 // `TabGroups` offers `close` and nothing else: there is **no reveal-this-Tab
 // call**. So activating a tab means naming a per-kind API operation, and "the
-// input carries a URI" is not the test — a specified, identity-preserving
-// activation operation is. Three kinds have one; the rest are listed with no
-// token and no action.
+// input carries a URI" is not the test. Three kinds have resource-based
+// activation; the rest use the existing tab's live group and position.
 //
 // The classifier takes the `vscode` namespace as an ARGUMENT rather than
 // importing it. The kinds are runtime classes and `instanceof` is the only way
@@ -15,8 +14,8 @@
 // production call passes the real classes and a test passes fakes with the
 // same names, and the table itself is exercised either way.
 
-/** The kinds this extension knows. Anything else is `unknown` by
- *  construction, which is a listed row with no token. */
+/** The kinds this extension knows. Unknown inputs, including the built-in
+ * browser, can still be selected through their live tab position. */
 export type TabKind =
   | "text"
   | "notebook"
@@ -66,23 +65,6 @@ export function classifyTabInput(
   }
   return "unknown";
 }
-
-/** The kinds whose activation is both specified and identity-preserving:
- *  `TabInputText` via `showTextDocument`, `TabInputNotebook` via
- *  `openNotebookDocument` + `showNotebookDocument`, and `TabInputCustom` via
- *  the `vscode.openWith` command. A token is minted for these and for
- *  nothing else.
- *
- *  `custom` was added during the build, on the condition the spec itself
- *  named. See `actions.ts` for the argument that it is identity-preserving
- *  and for the evidence; the short version is that the human's own settings
- *  map `*.md` to a custom editor, so without it the editor panel's headline
- *  case is a panel of inert rows. */
-export const ACTIONABLE_TAB_KINDS: ReadonlySet<TabKind> = new Set<TabKind>([
-  "text",
-  "notebook",
-  "custom",
-]);
 
 /** A terminal dragged into the editor grid appears both in `window.terminals`
  *  and as a tab. Listed naively it would take two rows and two jump labels for

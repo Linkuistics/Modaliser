@@ -49,6 +49,9 @@ export interface PeerEnv {
   focused(): boolean;
   terminals(): readonly TerminalLike[];
   tabGroups(): readonly TabGroupLike[];
+  activeTabGroup(): TabGroupLike | undefined;
+  focusNextGroup(): Promise<unknown>;
+  openEditorAtIndex(index: number): Promise<unknown>;
   activeTerminal(): TerminalLike | undefined;
   workspace(): string | null;
 
@@ -64,10 +67,8 @@ export interface PeerEnv {
     options: { viewColumn: number; preview: boolean },
   ): Promise<unknown>;
   openNotebookDocument(uri: unknown): Promise<unknown>;
-  /** `vscode.openWith`, and NOT a general `executeCommand`. Narrowing the
-   *  seam to the one operation is what keeps "no method runs a workbench
-   *  command" structural rather than a promise: there is no shape here that
-   *  another method could route an arbitrary command id through. */
+  /** A fixed `vscode.openWith` call. Like the group/index operations above,
+   *  this seam accepts no arbitrary workbench command id. */
   openWith(
     uri: unknown,
     viewType: string,

@@ -15,9 +15,10 @@ cask "modaliser" do
   # The release artifact is ad-hoc signed (no Developer ID), so the downloaded
   # bundle inherits com.apple.quarantine and Gatekeeper refuses to launch it.
   # Stripping the xattr at install time bypasses that on this user's machine.
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Modaliser.app"]
+  postflight_steps do
+    run "/usr/bin/xattr",
+        args: ["-dr", "com.apple.quarantine", "{{appdir}}/Modaliser.app"],
+        must_succeed: false
   end
 
   uninstall quit: "dev.antony.Modaliser"

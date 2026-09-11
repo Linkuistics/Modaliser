@@ -50,10 +50,8 @@ export interface TerminalRow {
 }
 
 export interface EditorRow {
-  /** Null for a tab of a kind with no specified, identity-preserving
-   *  activation (decision 1's table). The row is still listed and still
-   *  consumes its jump label, so an unfocusable tab cannot renumber the labels
-   *  below it. */
+  /** Current peers mint a token for every editor row. Null remains valid on
+   *  protocol 1 for older peers that cannot activate resource-less tabs. */
   readonly token: number | null;
   /** `Tab.label`. */
   readonly label: string;

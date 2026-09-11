@@ -115,6 +115,10 @@ export class FakeEnv implements PeerEnv {
   isFocused = true;
   terminalList: FakeTerminal[] = [];
   groups: FakeTabGroup[] = [];
+  activeGroup: FakeTabGroup | undefined;
+  selectedTab: FakeTab | undefined;
+  focusSteps = 0;
+  afterFocus: () => void = () => {};
   activeTerminalRef: FakeTerminal | undefined;
   workspacePath: string | null = "/Users/someone/Project";
 
@@ -137,6 +141,16 @@ export class FakeEnv implements PeerEnv {
   }
   tabGroups(): readonly TabGroupLike[] {
     return this.groups;
+  }
+  activeTabGroup(): FakeTabGroup | undefined { return this.activeGroup; }
+  async focusNextGroup(): Promise<void> {
+    this.focusSteps++;
+    const at = this.groups.indexOf(this.activeGroup!);
+    this.activeGroup = this.groups[(at + 1) % this.groups.length];
+    this.afterFocus();
+  }
+  async openEditorAtIndex(index: number): Promise<void> {
+    this.selectedTab = this.activeGroup?.tabs[index];
   }
   activeTerminal(): TerminalLike | undefined {
     return this.activeTerminalRef;
@@ -184,6 +198,7 @@ export class FakeEnv implements PeerEnv {
   group(viewColumn: number): FakeTabGroup {
     const group = new FakeTabGroup(viewColumn);
     this.groups.push(group);
+    this.activeGroup ??= group;
     return group;
   }
   terminal(name: string, cwd?: string): FakeTerminal {

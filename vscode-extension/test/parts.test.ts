@@ -53,7 +53,7 @@ describe("parts", () => {
     );
   });
 
-  it("mints a token for the three actionable kinds and null for the rest", () => {
+  it("mints tokens for resource-based and resource-less editor tabs", () => {
     const env = new FakeEnv();
     const group = env.group(1);
     group.add(textTab("fsm.sld", "/p/fsm.sld"));
@@ -77,9 +77,7 @@ describe("parts", () => {
 
     const reply = buildParts(env, new TokenRegistry());
 
-    // Every one of them is LISTED. Omitting an unfocusable tab would make the
-    // panel disagree with the tab strip the human is looking at, and would
-    // renumber the labels below it.
+    // Every nonterminal tab is listed and selectable, even without a URI.
     assert.deepEqual(
       reply.editors.map((e) => e.label),
       [
@@ -94,7 +92,7 @@ describe("parts", () => {
     );
     assert.deepEqual(
       reply.editors.map((e) => e.token !== null),
-      [true, true, true, false, false, false, false],
+      [true, true, true, true, true, true, true],
     );
     // `path` follows the URI: the diff kinds carry two and therefore report
     // none, and a webview has no resource of any kind.

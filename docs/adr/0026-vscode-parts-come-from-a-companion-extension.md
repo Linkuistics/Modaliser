@@ -142,6 +142,17 @@ ADR-0027.
   one. A token is scoped to the peer that minted it and is not an address on its
   own — ADR-0027.
 
+- **Resource-less editors remain selectable.** Browser, webview and diff tabs
+  receive tokens like file tabs. Their action resolves the live `Tab`, visits
+  existing groups with `workbench.action.focusNextGroup`, then passes the live
+  index to `workbench.action.openEditorAtIndex`. The shipped 1.136.2 workbench
+  selects the existing `EditorInput`; no URL, path, or comparison is reopened.
+  Membership and focus are rechecked after each group command, with a bounded
+  traversal. The final index selection crosses an RPC boundary and can race
+  with concurrent reordering; this limitation is accepted to support editors
+  for which VSCode exposes no atomic reveal API. The token and no-passthrough
+  wire contracts remain unchanged.
+
 - **An action is a notification, not a request.** Nothing consumes an
   acknowledgement, so nothing waits for one (ADR-0014): the action methods are put
   on the socket with `unix-socket-send` and the peer answers nothing. Only `parts`

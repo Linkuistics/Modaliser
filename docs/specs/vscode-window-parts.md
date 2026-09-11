@@ -97,30 +97,24 @@ naively it would take two rows and two jump labels for one thing. So a tab whose
 input is a `TabInputTerminal` is **excluded from the editor listing**; it is
 already in the terminal listing, where the action works.
 
-**A tab that cannot be focused is listed without a token.** Such a tab is a real
-open editor and is shown, but it gets `token: null` and no action. That is
-`jump-list`'s own existing test for whether a row earns an edge: the row still
-renders and still consumes its label, so an unfocusable tab cannot renumber the
-labels below it. Listing it and refusing to act is honest; omitting it would make
-the panel disagree with the tab strip the user is looking at.
+**Every nonterminal tab receives a token.** Resource-less tabs such as browsers
+are selectable through their existing group and live position. Protocol 1 still
+accepts `token: null` from older companions; those rows remain inert and consume
+their labels as before.
 
-**Which tabs those are is decided per input kind, and the decision is the
-activation operation — not the presence of a URI.** `TabGroups` offers `close`
-and nothing else: there is no reveal-this-`Tab` call, so activating a tab means
-naming a *per-kind* API operation, and a kind with no operation that reaches the
-tab it was pressed on cannot honour the SHALL that a label activates its own part
-or nothing. So a token is minted only for the kinds whose activation is both specified and
-identity-preserving:
+**Activation depends on the input kind.** `TabGroups` exposes no atomic
+reveal-this-`Tab` operation. Resource-based editors use the operations below;
+other kinds select their existing editor through fixed workbench commands.
 
 | input kind | `path` | `token` | activation |
 |---|---|---|---|
 | `TabInputText` | `uri.fsPath` | yes | `window.showTextDocument(uri, {viewColumn: LIVE.group.viewColumn, preview: LIVE.isPreview})` |
 | `TabInputNotebook` | `uri.fsPath` | yes | `workspace.openNotebookDocument(uri)` then `window.showNotebookDocument(doc, {viewColumn: LIVE.group.viewColumn})` |
 | `TabInputCustom` | `uri.fsPath` | yes | `commands.executeCommand("vscode.openWith", uri, LIVE.input.viewType, {viewColumn: LIVE.group.viewColumn, preview: LIVE.isPreview})` |
-| `TabInputWebview` | `null` | no | no resource of any kind to name |
-| `TabInputTextDiff`, `TabInputNotebookDiff` | `null` | no | two URIs and no single one; reopening would need `vscode.diff`, which constructs a new comparison rather than revealing this tab |
+| `TabInputWebview` | `null` | yes | select the existing tab by its live group and index |
+| `TabInputTextDiff`, `TabInputNotebookDiff` | `null` | yes | select the existing comparison by its live group and index |
 | `TabInputTerminal` | — | — | not an editor row at all (below) |
-| an input kind this extension does not know | `null` | no | unknown by construction |
+| an input kind this extension does not know, including built-in browser tabs | `null` | yes | select the existing tab by its live group and index |
 
 **`LIVE` is the `Tab` object the token resolved to, read at activation time, and
 that word is doing all the work.** Both operations reveal a *resource in a column*
@@ -174,9 +168,23 @@ code calls is `openWith(uri, viewType, options)`, not `executeCommand(id,
 method set also includes conditional missing-file closure, specified below;
 the companion ADR enumerates both capabilities explicitly.
 
-**Reopen if** a *diff* is ever something the human keeps on screen and wants a
-label for — that one is still out, and for the reason that has not changed:
-`vscode.diff` constructs a new comparison rather than revealing this tab.
+**Resource-less activation uses two bounded commands.** The shipped VSCode
+1.136.2 implementation of `workbench.action.focusNextGroup` visits an existing
+group with wraparound; unlike the numbered group commands it cannot create a
+group. After each awaited command the companion rechecks window focus, live tab
+membership and the active group. A repeated group or the initial group-count
+budget ends the attempt. Once the target's current group is active,
+`workbench.action.openEditorAtIndex` receives its freshly read zero-based index.
+The workbench looks up that group's existing `EditorInput` and opens it, so no
+browser URL or comparison is reconstructed. Duplicate labels are irrelevant.
+
+These definitions were read from `editorActions.ts` and `editorCommands.ts` in
+the installed workbench. Only the two fixed commands are exposed through the
+adapter; the wire still accepts only a peer-local token. Selecting across groups
+may focus intermediate groups. The final index read and workbench selection
+cross an RPC boundary, so concurrent workbench reordering during that interval
+cannot be made atomic. The live checks bound stale-snapshot errors but do not
+promise immunity to every concurrent UI change.
 
 ### 2. The wire protocol: one query, three notifications, and no command passthrough
 
@@ -259,8 +267,8 @@ resolved tab's kind-specific activation from decision 1's table.
 **Refusal is silent by construction, and that is the cost of the shape.** Nothing
 comes back, so a refused press is indistinguishable to Modaliser from a delivered
 one; the extension logs its reason on its own side. This is the same bargain
-`jump-list`'s inert rows already make — the requirement is that a label activates
-its own part *or nothing*, and both halves of that are satisfied without a reply.
+`jump-list`'s inert rows already make. The live checks reject a stale target
+without requiring a reply; the host-command race above remains.
 
 **`close-editor-if-missing`** — params `{"token": N}` — is also a notification.
 It resolves an editor token in this peer, requires a live clean text/custom tab
@@ -925,10 +933,10 @@ any other window.
 - **THEN** the Editor listing shows two rows, and that terminal appears once,
   in the Terminal listing
 
-#### Scenario: a tab that cannot be focused
-- **WHEN** the frontmost window has a webview or a diff tab open
-- **THEN** the listing shows a row for it, that row has no action, and the
-  labels of the rows below it are unchanged
+#### Scenario: a browser, webview or diff tab
+- **WHEN** the frontmost window has a browser, webview or diff tab open
+- **THEN** the listing shows a selectable row, and its label focuses the
+  existing tab without opening a duplicate
 
 #### Scenario: the window has no folder open
 - **WHEN** the frontmost VSCode window was opened with no folder and has two
@@ -956,9 +964,12 @@ window, whether or not the terminal panel is shown.
 
 ### Requirement: a label activates the part its row was read from
 
-Pressing a row's **Jump label** SHALL activate the terminal or editor whose row
-it is, or nothing at all. It SHALL never activate a different one, whatever has
-changed in the window since the rows were drawn.
+Pressing a row's **Jump label** SHALL resolve its peer-local token to the live
+terminal or tab before activation. A closed target or lost window focus observed
+by the companion SHALL cause refusal. Resource-less tabs SHALL be rechecked after
+each group-focus command, and their index SHALL be read from the live target
+group immediately before selection. The remaining host RPC race is described
+in decision 1; no snapshot index or label may be used as the target.
 
 #### Scenario: press an editor label
 - **WHEN** the user presses the label on the row reading `beta.txt`
@@ -1150,8 +1161,8 @@ press pinned it only once you know an untouched tab would not have survived.
 
 **A control the fixtures must supply.** Write the `parts` fixture set with the
 awkward rows present, or the rules in decision 1 are untested and an
-implementation that ignores them passes everything: an inert tab kind (must be
-listed, must have `token: null`), a `TabInputTerminal` tab (must not appear among
+implementation that ignores them passes everything: a resource-less browser tab
+(must be listed and selectable), a `TabInputTerminal` tab (must not appear among
 the editors), a terminal with no `cwd`, tabs in two different `group`s, a
 `workspace` of `null` (paths must come out unshortened rather than crashing or
 being dropped), and a reply whose `focused` is false (must be discarded whole).

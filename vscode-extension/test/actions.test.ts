@@ -15,7 +15,7 @@ import {
   FakeTab,
   TabInputCustom,
   TabInputNotebook,
-  TabInputWebview,
+  TabInputTerminal,
   textTab,
 } from "./fakes";
 
@@ -189,10 +189,10 @@ describe("focus-editor", () => {
     assert.equal(env.showTextCalls.length, 0);
   });
 
-  it("does nothing for a tab kind with no specified activation", async () => {
+  it("refuses an editor token whose tab has become a terminal", async () => {
     const env = new FakeEnv();
     const registry = new TokenRegistry();
-    const tab = env.group(1).add(new FakeTab("Release Notes", new TabInputWebview("rn")));
+    const tab = env.group(1).add(new FakeTab("Terminal", new TabInputTerminal()));
     // `parts` mints no token for it, so the only way to reach the refusal is
     // to hold a token whose tab has since changed kind — which the branch
     // exists for. Mint one directly.
@@ -202,7 +202,7 @@ describe("focus-editor", () => {
 
     assert.equal(env.showTextCalls.length, 0);
     assert.equal(env.openWithCalls.length, 0);
-    assert.match(env.logs.join("\n"), /no specified activation/);
+    assert.match(env.logs.join("\n"), /now a terminal/);
   });
 
   it("refuses while the window is not focused", async () => {

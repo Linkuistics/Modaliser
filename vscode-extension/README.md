@@ -63,6 +63,13 @@ An action is refused, silently, when this window is not focused, when the
 token names nothing, when it names a part that has since closed, or when it
 names the other kind of part.
 
+Browser, webview, diff and other resource-less tabs are selectable too. Their
+tokens resolve to live tabs; the peer visits existing groups as needed and
+selects the tab's current index. This preserves the existing tab rather than
+opening a new browser or comparison. Focus and membership are rechecked after
+each group command; a concurrent change during the final host command remains
+a race because VSCode exposes no atomic tab-reveal API.
+
 `close-editor-if-missing` additionally requires a clean local `file` text or
 custom tab. It checks the live backing URI with `workspace.fs.stat` and closes
 only on `FileSystemError.FileNotFound`, preserving focus. Existing resources,

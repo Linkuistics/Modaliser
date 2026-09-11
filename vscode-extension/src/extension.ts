@@ -48,6 +48,15 @@ function makeEnv(peer: string, log: (message: string) => void): PeerEnv {
       vscode.window.terminals as unknown as readonly TerminalLike[],
     tabGroups: () =>
       vscode.window.tabGroups.all as unknown as readonly TabGroupLike[],
+    activeTabGroup: () => vscode.window.tabGroups.activeTabGroup as unknown as TabGroupLike,
+    // Shipped VSCode 1.136.2: focusNextGroup traverses existing groups only;
+    // openEditorAtIndex takes a zero-based index in the active group and
+    // passes that existing EditorInput to editorService.openEditor.
+    // src/vs/workbench/browser/parts/editor/{editorActions,editorCommands}.ts
+    focusNextGroup: () =>
+      Promise.resolve(vscode.commands.executeCommand("workbench.action.focusNextGroup")),
+    openEditorAtIndex: (index) =>
+      Promise.resolve(vscode.commands.executeCommand("workbench.action.openEditorAtIndex", index)),
     activeTerminal: () =>
       vscode.window.activeTerminal as unknown as TerminalLike | undefined,
     workspace: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null,
@@ -72,8 +81,7 @@ function makeEnv(peer: string, log: (message: string) => void): PeerEnv {
       ),
     openNotebookDocument: (uri) =>
       Promise.resolve(vscode.workspace.openNotebookDocument(uri as vscode.Uri)),
-    // The one workbench command this extension runs, named here and nowhere
-    // else. Read out of the shipped registration rather than documentation:
+    // Custom-editor activation. Read out of the shipped registration:
     // `vscode.openWith(resource, viewId, columnOrOptions)` takes the same
     // `TextDocumentShowOptions` object `showTextDocument` does.
     openWith: (uri, viewType, options) =>

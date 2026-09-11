@@ -118,7 +118,9 @@ the plist afterwards would invalidate it.
 
 Because the artifact is ad-hoc signed rather than Developer ID signed, the
 downloaded bundle inherits `com.apple.quarantine` and Gatekeeper would refuse
-to launch it. The cask's `postflight` strips that xattr at install time.
+to launch it. The cask's `postflight_steps` runs `xattr` at install time.
+Its `{{appdir}}` token resolves when the step runs, including for a custom
+application directory.
 
 **Inspect `dist/` before continuing.** This is the last step that touches only
 the local machine.
@@ -185,7 +187,7 @@ defaults read /Applications/Modaliser.app/Contents/Info.plist CFBundleShortVersi
 | `artifact version mismatch` | `dist/` is stale; re-run `release-build.sh` |
 | `remote tag … differs from local` | someone else pushed that tag; resolve by hand |
 | `no jj bookmark points at the released commit` | `jj bookmark set <name> -r @-` |
-| Gatekeeper blocks the installed app | the cask `postflight` xattr strip did not run — reinstall via the cask rather than unpacking the tarball manually |
+| Gatekeeper blocks the installed app | the cask `postflight_steps` xattr strip did not run — reinstall via the cask rather than unpacking the tarball manually |
 
 ## What the cask uninstalls
 
