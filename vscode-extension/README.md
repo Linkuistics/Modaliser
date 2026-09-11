@@ -101,6 +101,39 @@ would be an address that outlived what it addressed. Crashed hosts therefore
 leave files behind, and each activation sweeps the ones whose connect is
 refused.
 
+## Diagnosing a whole-application crash
+
+If VSCode disappears with its integrated terminal sessions, check the main
+process's crash evidence before attributing it to a companion action. On macOS,
+Crashpad dumps live under `~/Library/Application Support/Code/Crashpad/completed/`;
+the system log can identify the exit signal even when DiagnosticReports has no
+matching report. Inspect only the relevant crash annotations when sharing a
+diagnosis: a full dump can also contain process memory and environment values.
+
+The 2026-09-11 16:53:40 AEST incident was a main-process heap exhaustion crash.
+The user was letting Grove sessions run. macOS recorded PID 67437 exiting with
+`SIGTRAP` from its own exception handler; the matching dump
+`2f29dee4-6d1e-4e9a-b2a4-9ca9e87b5a3b.dmp` identifies VSCode 1.137.0,
+Electron 42.10.0, process type `browser`, and
+`electron.v8-oom.location=Reached heap limit`. Its heap used 4,164,542,836 bytes
+against a 4,294,967,296-byte limit. The previous day's dump
+`fd0a0eaf-4ee3-4253-b10a-738e98f54339.dmp` has the same failure signature.
+
+Increasing `--max-old-space-size` did not raise this installed build's ceiling:
+separate headless runs of the Code executable with `ELECTRON_RUN_AS_NODE=1`
+reported a 4 GiB `v8.getHeapStatistics().heap_size_limit` both with the default
+and with `--max-old-space-size=8192`. Electron documents the
+[4 GB limit imposed by pointer compression](https://www.electronjs.org/blog/v8-memory-cage).
+
+[VSCode issue #329843](https://github.com/microsoft/vscode/issues/329843) reports
+retained integrated-terminal output exhausting the main-process heap during
+concurrent CLI sessions. It is a plausible lead for this incident; the local
+crash annotations do not establish that retainer chain. Try running long-lived
+Grove sessions in an external terminal to remove their output from the integrated
+terminal path. Confirming the cause requires a main-process heap profile or an
+isolated reproduction. This incident supplies no evidence requiring a change to
+the companion's editor cleanup or Grove's completion signalling.
+
 ## Development
 
 ```sh
